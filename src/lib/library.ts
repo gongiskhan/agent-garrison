@@ -138,7 +138,7 @@ async function deriveRawEntry(
   };
 }
 
-export async function readLibrary(): Promise<LibraryEntry[]> {
+async function readLibraryUncached(): Promise<{ entries: LibraryEntry[]; manifestPaths: string[] }> {
   const curated = await readRawLibrary();
   const excluded = await readExcludedIds();
   const byId = new Map(curated.map((entry) => [entry.id, entry]));
@@ -167,9 +167,72 @@ export async function readLibrary(): Promise<LibraryEntry[]> {
         "(fitting removed while registered - re-clone or remove the registry entry)"
     );
   }
-  return resolved
-    .filter((entry): entry is LibraryEntry => entry !== null)
-    .sort((left, right) => left.id.localeCompare(right.id));
+  return {
+    entries: resolved
+      .filter((entry): entry is LibraryEntry => entry !== null)
+      .sort((left, right) => left.id.localeCompare(right.id)),
+    manifestPaths: entries.map((entry) => manifestPathOf(entry)),
+  };
+}
+
+function manifestPathOf(entry: RawLibraryEntry): string {
+  return entry.localPath ? path.join(ROOT_DIR, entry.localPath, "apm.yml") : "";
+}
+
+// readLibrary sits on the path of nearly every API request, and each call used
+// to read, YAML-parse and zod-validate every manifest again (~50 of them). A few
+// hundred concurrent requests were enough to keep the event loop in that work
+// alone: the Mac node answered nothing for an hour on 2026-09-03. Two layers
+// fix it without a clock: concurrent callers share one in-flight read, and a
+// finished read is reused for as long as the registry files, the fitting
+// directories and every manifest it resolved are unchanged (mtime + size), so
+// an edit, a clone or a removal shows on the very next call.
+interface LibrarySnapshot {
+  fingerprint: string;
+  entries: LibraryEntry[];
+  manifestPaths: string[];
+}
+
+let librarySnapshot: LibrarySnapshot | null = null;
+let libraryInFlight: Promise<LibraryEntry[]> | null = null;
+
+async function statKey(target: string): Promise<string> {
+  if (!target) return "-";
+  try {
+    const stat = await fs.stat(target);
+    return `${stat.mtimeMs}:${stat.size}`;
+  } catch {
+    return "-";
+  }
+}
+
+async function libraryFingerprint(manifestPaths: string[]): Promise<string> {
+  const watched = [
+    LIBRARY_PATH,
+    EXCLUDED_PATH,
+    path.join(FITTINGS_DIR, "seed"),
+    path.join(FITTINGS_DIR, "local"),
+    ...manifestPaths,
+  ];
+  return (await Promise.all(watched.map(statKey))).join("|");
+}
+
+export async function readLibrary(): Promise<LibraryEntry[]> {
+  if (librarySnapshot) {
+    const current = await libraryFingerprint(librarySnapshot.manifestPaths);
+    if (current === librarySnapshot.fingerprint) return librarySnapshot.entries.slice();
+  }
+  if (!libraryInFlight) {
+    libraryInFlight = (async () => {
+      const { entries, manifestPaths } = await readLibraryUncached();
+      const fingerprint = await libraryFingerprint(manifestPaths);
+      librarySnapshot = { fingerprint, entries, manifestPaths };
+      return entries;
+    })().finally(() => {
+      libraryInFlight = null;
+    });
+  }
+  return (await libraryInFlight).slice();
 }
 
 export async function getLibraryEntry(id: string): Promise<LibraryEntry | undefined> {

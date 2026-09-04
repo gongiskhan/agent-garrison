@@ -208,7 +208,7 @@ describe("capture-service server", () => {
     // nothing sealed, nothing enabled -> every lane honestly off. The text
     // budget is advertised regardless, so a client chunks against the number
     // the server enforces even before a key is sealed.
-    expect(health.voice).toEqual({ stt: false, tts: false, ttsBackend: null, restEnabled: false, maxTextChars: 600 });
+    expect(health.voice).toEqual({ stt: false, tts: false, ttsBackend: null, ttsFallback: null, restEnabled: false, maxTextChars: 600 });
     expect(health.keyConfigured).toBe(false);
 
     // The voice REST lanes sit under the same master flag as every authed surface.

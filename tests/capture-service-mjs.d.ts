@@ -27,6 +27,7 @@ declare module "*/capture-service/lib/config.mjs" {
     sttModel: string;
     sttLanguage: string;
     sttRestLanguage: string;
+  screenSttLanguage: string;
     ttsEnabled: boolean;
     ttsBackend: "auto" | "elevenlabs" | "deepgram";
     ttsDeepgramModel: string;
@@ -162,7 +163,7 @@ declare module "*/capture-service/lib/media-log.mjs" {
 }
 
 declare module "*/capture-service/lib/deepgram-live.mjs" {
-  export function deepgramUrl(cfg: unknown): string;
+  export function deepgramUrl(cfg: unknown, opts?: { language?: string | null }): string;
   export function segmentFromResults(msg: unknown): {
     start: number;
     end: number;
@@ -314,6 +315,7 @@ declare module "*/capture-service/lib/tts.mjs" {
     });
     available(): { ok: boolean; reason?: string; backend?: string };
     backend(): "elevenlabs" | "deepgram" | null;
+    degraded(): { since: number; until: number; reason: string } | null;
     readClip(id: unknown): Buffer | null;
     clipFor(text: unknown, opts?: { lang?: string | null }): Promise<{ id: string; cached?: boolean; backend?: string } | null>;
     render(text: unknown, opts?: { lang?: string | null }): Promise<{ id: string; cached: boolean; backend: string } | null>;
@@ -436,7 +438,16 @@ declare module "*/capture-service/lib/wake.mjs" {
       screen?: unknown;
       wakeHitAt?: number | null;
       onLanguage?: ((lang: string) => void) | null;
-    }): Promise<{ confirmation: string | null; cardUrl?: string | null; path?: string | null; silent?: boolean; result: Record<string, unknown> }>;
+    }): Promise<{ confirmation: string | null; cardUrl?: string | null; path?: string | null; silent?: boolean; after?: () => void; result: Record<string, unknown> }>;
+    settleReplyWatches(): Promise<unknown[]>;
+    watchConversationReply(args: {
+      conversationId: string;
+      eventId: string;
+      sessionId?: string | null;
+      lang?: string;
+      base: string;
+      fromIndex: number;
+    }): Promise<{ text: string; duty: string | null; stretchId: string; delivery: string } | null>;
     close(sessionId: string, reason: string): Promise<any>;
     session(sessionId: string): { state: string; [k: string]: unknown };
     discussion(sessionId: string): { chain: Promise<unknown>; turns: number; [k: string]: unknown } | null;
@@ -511,7 +522,7 @@ declare module "*/capture-service/lib/digest.mjs" {
     env?: Record<string, string | undefined>;
     fetchImpl?: unknown;
     log?: unknown;
-  }): Promise<{ ok: boolean; reason?: string; url?: string; inputId?: string | null; duplicate?: boolean }>;
+  }): Promise<{ ok: boolean; reason?: string; url?: string; base?: string; fromIndex?: number; seq?: number | null; recordedBy?: string | null; inputId?: string | null; duplicate?: boolean }>;
   export function digestIdempotencyKey(sessionId: string): string;
   export function digestPath(record: Record<string, unknown> | null | undefined): string | null;
   export function buildDigest(args: {
@@ -531,4 +542,28 @@ declare module "*/capture-service/lib/digest.mjs" {
     log?: { log(...args: unknown[]): void; error(...args: unknown[]): void };
     now?: () => Date;
   }): Promise<{ ok: boolean; status?: number; skipped?: string; error?: string; push?: unknown }>;
+}
+
+declare module "*/capture-service/lib/conversation-reply.mjs" {
+  export const DEFAULT_REPLY_DUTIES: string[];
+  export const REPLY_TEXT_CAP: number;
+  export function cleanReplyText(raw: unknown, cap?: number): string;
+  export function foldReplyEvents(
+    state: { running: string | null; texts: Map<string, string>; lastEnded: unknown },
+    events: unknown[],
+    opts?: { duties?: string[]; now?: number; isFresh?: (stretchId: string) => boolean }
+  ): { text: string; duty: string | null; stretchId: string } | null;
+  export function awaitConversationReply(args: {
+    base: string;
+    conversationId: string;
+    fromIndex?: number;
+    fetchImpl?: unknown;
+    duties?: string[];
+    timeoutMs?: number;
+    pollMs?: number;
+    idleGraceMs?: number;
+    isFresh?: (stretchId: string) => boolean;
+    now?: () => number;
+    sleep?: (ms: number) => Promise<void>;
+  }): Promise<{ text: string; duty: string | null; stretchId: string; timedOut: boolean } | null>;
 }

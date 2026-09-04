@@ -15,6 +15,7 @@
 //   GET  {base}/:id/payload/:ref       one L3 payload, raw bytes, confined
 //   GET  {base}/:id/stream?from=       SSE SessionEvents {init|events|end}
 //   POST {base}/:id/message            admit a user message (allowed fields)
+//   POST {base}/:id/note               append a note nobody answers (allowed fields)
 //   GET  {base}/search?q&id&limit      fixed-string search over L1/L2/L3
 //
 // Reading is not free of consequence: a payload/log/handoff read writes a `dig`
@@ -34,6 +35,10 @@ export const CONVERSATION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
  *  `..` are rejected separately because both match the character class. */
 const PAYLOAD_REF_RE = /^[A-Za-z0-9._-]{1,200}$/;
 const HANDOFF_ORDINAL_RE = /^\d{1,4}$/;
+/** The two ways a message reaches a RUNNING conversation: `steer` interrupts
+ *  the stretch in flight and re-runs its duty with the message in the brief;
+ *  `queue` holds it for the next brief the loop builds. */
+export const DELIVERY_MODES = new Set(["steer", "queue"]);
 
 const STREAM_POLL_MS = 350;
 const KEEPALIVE_MS = 15_000;
@@ -142,6 +147,10 @@ export async function handleConversationRequest(req, res, opts = {}) {
   }
   if (method === "POST" && tail.length === 1 && tail[0] === "message") {
     await handleMessage(req, res, { store, conversationId, forwardMessage: opts.forwardMessage });
+    return true;
+  }
+  if (method === "POST" && tail.length === 1 && tail[0] === "note") {
+    await handleNote(req, res, { store, conversationId });
     return true;
   }
 
@@ -369,6 +378,59 @@ function handleStream(req, res, { store, conversationId, from, pollMs }) {
  * responder). Only when it did not does this router write the record itself, so
  * one message can never appear twice in the ledger.
  */
+/**
+ * A note is the one record a machine may add to a conversation WITHOUT
+ * waking the responder: a recording digest, a report of something that
+ * happened elsewhere. It renders as an assistant-side text block and opens
+ * no stretch, so nothing answers it; a caller that wants an answer posts a
+ * message. `clientRequestId` dedupes a replayed post (a session end can be
+ * finalised twice); the second post is acknowledged with the first record's
+ * seq and appends nothing.
+ */
+const NOTE_TEXT_CAP = 32_000;
+const NOTE_DEDUPE_WINDOW = 500;
+
+async function handleNote(req, res, { store, conversationId }) {
+  let body;
+  try {
+    body = await readJsonBody(req);
+  } catch (err) {
+    sendJson(res, err?.code === "BODY_TOO_LARGE" ? 413 : 400, { error: err?.message ?? "unreadable body" });
+    return;
+  }
+  const allowed = new Set(["text", "clientRequestId", "origin"]);
+  const unknown = Object.keys(body ?? {}).filter((key) => !allowed.has(key));
+  if (unknown.length) {
+    sendJson(res, 400, { error: `unknown fields: ${unknown.join(", ")}` });
+    return;
+  }
+  const text = typeof body?.text === "string" ? body.text : "";
+  if (!text.trim()) {
+    sendJson(res, 400, { error: "text is required" });
+    return;
+  }
+  const clientRequestId = typeof body?.clientRequestId === "string" ? body.clientRequestId.slice(0, 200) : null;
+  const origin = typeof body?.origin === "string" ? body.origin.slice(0, 80) : "web";
+  if (clientRequestId) {
+    const earlier = store
+      .tail(NOTE_DEDUPE_WINDOW, { kinds: ["note"] })
+      .find((record) => record?.payload?.clientRequestId === clientRequestId);
+    if (earlier) {
+      sendJson(res, 202, { accepted: true, conversationId, seq: earlier.index ?? null, duplicate: true });
+      return;
+    }
+  }
+  const record = store.append({
+    kind: "note",
+    payload: { text: text.slice(0, NOTE_TEXT_CAP), origin, clientRequestId },
+  });
+  if (!record.ok) {
+    sendJson(res, 500, { error: record.error ?? "the note could not be appended" });
+    return;
+  }
+  sendJson(res, 202, { accepted: true, conversationId, seq: record.seq, duplicate: false });
+}
+
 async function handleMessage(req, res, { store, conversationId, forwardMessage }) {
   if (typeof forwardMessage !== "function") {
     sendJson(res, 500, { error: "this mount has no message forwarder" });
@@ -381,7 +443,7 @@ async function handleMessage(req, res, { store, conversationId, forwardMessage }
     sendJson(res, err?.code === "BODY_TOO_LARGE" ? 413 : 400, { error: err?.message ?? "unreadable body" });
     return;
   }
-  const allowed = new Set(["message", "clientRequestId", "origin", "context", "routing"]);
+  const allowed = new Set(["message", "clientRequestId", "origin", "context", "routing", "delivery"]);
   const unknown = Object.keys(body ?? {}).filter((key) => !allowed.has(key));
   if (unknown.length) {
     sendJson(res, 400, { error: `unknown fields: ${unknown.join(", ")}` });
@@ -404,21 +466,43 @@ async function handleMessage(req, res, { store, conversationId, forwardMessage }
   }
   const context = typeof body?.context === "string" ? body.context.slice(0, 8000) : null;
   const routing = body?.routing ?? null;
+  // How a message that lands on a RUNNING conversation is delivered. `steer`
+  // interrupts the stretch in flight and re-runs its duty with the message in
+  // the brief (what typing into a working Claude Code session does); `queue`
+  // holds it for the next brief the loop builds. Absent = the responder's
+  // default, which is queue. Anything else is a typo, not a third mode.
+  if (body?.delivery !== undefined && !DELIVERY_MODES.has(body.delivery)) {
+    sendJson(res, 400, { error: "delivery must be steer or queue" });
+    return;
+  }
+  const delivery = typeof body?.delivery === "string" ? body.delivery : null;
 
   let forwarded;
   try {
-    forwarded = await forwardMessage({ conversationId, message, clientRequestId, origin, context, routing });
+    forwarded = await forwardMessage({
+      conversationId,
+      message,
+      clientRequestId,
+      origin,
+      context,
+      routing,
+      ...(delivery ? { delivery } : {}),
+    });
   } catch (err) {
     forwarded = { ok: false, error: err?.message ?? String(err) };
   }
   if (!forwarded?.ok) {
+    const detail = forwarded?.error ?? forwarded?.status ?? null;
     sendJson(res, 502, {
-      error: "the conversation responder is unreachable; the message was NOT recorded",
-      detail: forwarded?.error ?? forwarded?.status ?? null,
+      // The detail rides the error TEXT as well as its own field: the composer
+      // renders only the text, and "unreachable" with no reason is exactly the
+      // message a person cannot act on.
+      error: `the conversation responder is unreachable; the message was NOT recorded${detail ? ` (${detail})` : ""}`,
+      detail,
     });
     return;
   }
-  let seq = null;
+  let seq = typeof forwarded.seq === "number" ? forwarded.seq : null;
   if (!forwarded.recorded) {
     const running = store.currentStretch();
     const record = store.append({
@@ -428,7 +512,8 @@ async function handleMessage(req, res, { store, conversationId, forwardMessage }
         origin,
         clientRequestId,
         arrivedDuringStretch: running,
-        disposition: running ? "queued" : "opened",
+        disposition: running ? (delivery === "steer" ? "steer" : "queued") : "opened",
+        ...(delivery ? { delivery } : {}),
       },
     });
     seq = record.ok ? record.seq : null;
@@ -438,8 +523,13 @@ async function handleMessage(req, res, { store, conversationId, forwardMessage }
     conversationId,
     recordedBy: forwarded.recorded ? "responder" : "router",
     seq,
+    // What the responder did with it, when it said: `steer` (a stretch was
+    // interrupted for it), `running-stretch` (held for the next brief),
+    // `responder` (nothing was running; a responder stretch was opened).
+    ...(typeof forwarded.pickedUpBy === "string" ? { pickedUpBy: forwarded.pickedUpBy } : {}),
   });
 }
+
 
 /**
  * The forwarder every real mount uses: POST the gateway's own
@@ -452,7 +542,7 @@ async function handleMessage(req, res, { store, conversationId, forwardMessage }
  * the message in the transcript twice.
  */
 export function gatewayMessageForwarder(gatewayUrl) {
-  return async ({ conversationId, message, origin, clientRequestId = null, context = null, routing = null }) => {
+  return async ({ conversationId, message, origin, clientRequestId = null, context = null, routing = null, delivery = null }) => {
     if (!gatewayUrl) return { ok: false, error: "this mount has no gateway URL" };
     try {
       const response = await fetch(new URL("/conversation/message", gatewayUrl), {
@@ -465,11 +555,25 @@ export function gatewayMessageForwarder(gatewayUrl) {
           ...(clientRequestId ? { clientRequestId } : {}),
           ...(context ? { context } : {}),
           ...(routing ? { routing } : {}),
+          ...(delivery ? { delivery } : {}),
         }),
         signal: AbortSignal.timeout(10_000),
       });
-      if (!response.ok) return { ok: false, status: response.status, error: `gateway answered ${response.status}` };
-      return { ok: true, recorded: true };
+      if (!response.ok) {
+        // The gateway's own reason (a not-ready router, a refused id) is the
+        // one thing the person can act on, so it is carried up, not flattened
+        // into a status code.
+        const body = await response.json().catch(() => null);
+        const why = typeof body?.error === "string" ? `: ${body.error.slice(0, 200)}` : "";
+        return { ok: false, status: response.status, error: `gateway answered ${response.status}${why}` };
+      }
+      const body = await response.json().catch(() => null);
+      return {
+        ok: true,
+        recorded: true,
+        ...(typeof body?.seq === "number" ? { seq: body.seq } : {}),
+        ...(typeof body?.pickedUpBy === "string" ? { pickedUpBy: body.pickedUpBy } : {}),
+      };
     } catch (err) {
       return { ok: false, error: err?.message ?? String(err) };
     }

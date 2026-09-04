@@ -71,6 +71,9 @@ const LEDGER_KIND_MAP = {
   escalation: "escalation",
   "policy-rewrite": "policy-rewrite",
   "summary-trimmed": "policy-rewrite",
+  // A user steer interrupting the stretch in flight: the platform rewriting
+  // the flow on the person's word, so it lands beside the other rewrites.
+  "stretch-steered": "policy-rewrite",
   // The Autonomous gate's ask — first-class, so the renderer can style the
   // pause and the activity derivation can recognise an unanswered ask.
   "approval-requested": "approval-requested",
@@ -157,6 +160,15 @@ function adaptRecord(record, cid, starts, slots = new Map(), bags = new Map()) {
     const text = typeof payload.text === "string" ? payload.text : "";
     if (!text.trim()) return null;
     return { ...base, role: "user", blocks: [{ type: "text", text }] };
+  }
+
+  // A note (the router's POST /:id/note): prose a machine added without waking
+  // the responder, a recording digest for one. It reads as an assistant turn
+  // of its own, outside any stretch.
+  if (record.kind === "note") {
+    const text = typeof payload.text === "string" ? payload.text : "";
+    if (!text.trim()) return null;
+    return { ...base, role: "assistant", blocks: [{ type: "text", text }] };
   }
 
   if (record.kind === "stretch-started") {
@@ -347,6 +359,11 @@ function buildTitleAndDetail(record, payload) {
       return {
         title: `Routing rewritten: ${payload.from ?? "?"} -> ${payload.to ?? "?"}`,
         detail: payload.reason ? text(payload.reason) : null,
+      };
+    case "stretch-steered":
+      return {
+        title: `Steered: ${record.duty ?? "the stretch"} interrupted to take your message`,
+        detail: text(payload.text) || null,
       };
     case "summary-trimmed": {
       const dropped = Array.isArray(payload.dropped) ? payload.dropped : [];

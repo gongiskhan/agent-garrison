@@ -1286,6 +1286,367 @@ button, so no cross-node path problem arises. A broadcast started from the
 capture page (no conversation id) still takes the classifier lane and ends
 in a digest.
 
+### D51. A committed manifest is not live until it reaches the state service (2026-09-03)
+
+Found while D50 did nothing on any node although `66c84865` was built and
+running everywhere: the state service on dev-madrid, not git, is the source
+of truth for a composition's shared files (`src/lib/composition-sync.ts`).
+`up()` materialises the service copy over the working tree, and the only
+write-back path is a Muster edit (`src/app/api/muster/model.ts` ->
+`pushManifestToState`). The commit turned `screen_audio_transcribe` on, the
+service still held `false`, so every node's `up()` reverted the file and
+started capture-service with the flag off. The `git diff` on each node was
+the tell: a working tree that differs from HEAD only where the service copy
+differs.
+
+Decision: a change to `compositions/*/apm.yml` that arrives through git is
+pushed to the service explicitly, with
+`tsx scripts/state-push-composition.ts <id>` (refuses an un-committed
+manifest, prints the diff against the service copy, writes with rev CAS).
+The manifest stays under git as the reviewable record; the service stays the
+runtime truth; the script is the bridge until the redeploy does it itself
+(handoff §4). Not chosen: making git win over the service in `up()` -
+that would silently discard Muster edits made on another node, which is the
+fork the sync was built to prevent.
+
+### D52. The typed lane transcribes English by default; the wake lane keeps its Portuguese pin (2026-09-03)
+
+The dictation quality complaint had one cause: `lib/config.mjs` pins Deepgram
+to `pt` for every lane (the pin exists so nova-3 hears "Zeca" as a name and
+not as the German "Zecke" `multi` produced), and the composer's dictation and
+hands-free clips went through the same pin. English speech under a Portuguese
+model comes back as near-random Portuguese words - the "quality" was the
+language. The `?language=` override already crossed every hop
+(`voice-clip.ts` -> `/api/voice/stt` -> capture-service `/stt` ->
+`transcribeClip`); nothing set it.
+
+Decision: the browser sends the language on every clip. `startCapture` takes
+`language` (a value or a per-clip function), `voice-conversation.tsx` keeps
+an `EN / PT / Auto` choice per browser in `localStorage`
+(`talk.stt.language`, default `en`, `Auto` = Deepgram `multi`) and shows the
+switch in the dictation panel, where a wrong guess is seen first. Both the
+dictation and hands-free lanes read it. The wake lane (REC broadcast, pendant)
+stays on the server pin: it needs the name heard, and the words after it are
+routed to the conversation as text, where the operative reads either language.
+Not chosen: flipping the server default to `en` - that would break the wake
+word for the pendant and for Portuguese broadcasts alike.
+
+### D53. The composer is two rows: the message box alone, the labelled controls beneath (2026-09-03)
+
+One row held Route, Dictate, Record, Attach, the box and Send, which left the
+box ~150px wide on a phone, and the WebKit the app runs in has no
+`field-sizing: content`, so the box never grew past one line: a dictated
+paragraph was unreadable. `ClaudeChat.tsx` now renders the textarea on its own
+row and every control on a second row (`.cc-composertools`, Send at the
+right-hand end), and an effect grows the box with its text up to half the
+viewport (`max-height: 50vh` plus a JS cap for WebKit), scrolling past that.
+With the width back, the controls carry their words again on every viewport:
+`Route`, `Dictate`, `Record` / `Stop`, `Attach`, `Send` / `Queue` / `Resend`
+(`.cc-btnlabel`; the phone rules that hid the labels and replaced the record
+face with a bare `REC` are gone; the record button's aria-label keeps the
+long form). Applies to every ClaudeChat host, the dev-env chat included.
+
+### D54. A wake hit binds its conversation at the hit, not at dispatch (2026-09-03)
+
+The "said Zeca during a broadcast, nothing happened" report, traced on
+dev-madrid (session `01M1M77XGMPN9ZERJJH5ZF`): the transcript was fine and
+the hit counted, but the words became a Kanban card (`create_task`), never a
+turn in the conversation. `WakeBus.handleCommand` resolved the conversation
+id when the capture window closed - 15s after the hit, 32s with the
+classifier - by looking up the LIVE ingress session, and by then the user had
+stopped REC and the session was gone: `conversationFn` returned null and the
+command fell through to the classifier lane. The digest that did land in the
+thread was the only trace.
+
+Decision: `handleSegments` binds `s.conversationId` the moment the wake word
+is heard and carries it through `close()` -> `dispatch()` -> `handleCommand()`
+(the late lookup survives only for direct callers). The server's
+`conversationFn` also falls back to the persisted session record on disk, so
+a hit delivered by the transcription lane's final flush, after the ingress has
+already dropped the session, still routes to the conversation the broadcast
+was started from. Regression test in
+`tests/capture-service-wake-conversation.test.ts` (fails on the previous
+code). Once the turn lands it IS the feedback the user was missing: the
+message and the reply appear in the conversation and the push opens it.
+
+### D55. The wake turn and the digest go through the conversation doors (2026-09-03)
+
+D54 deployed, the phone retest said "nothing happened" again. The counters
+and the log said otherwise: the turn posted (`wake_conversation_turn`), the
+routing gate answered it, the digest landed. All of it went through
+`POST /api/threads/:id/inputs` and `POST /api/threads/:id/messages` - the
+chat/FIFO lane, whose replies live in `thread.messages`. A conversation-backed
+thread (every thread whose id matches `CONVERSATION_ID_RE`, which is the norm
+since G1) renders ONLY the conversation ledger, so the turn, the reply and the
+digest were recorded in a transcript the open view never reads. The user was
+right: nothing happened where they were looking.
+
+Decision: capture-service is one more client of the conversation door, the
+same one the composer's Send uses. The wake turn is
+`POST /api/conversation/:id/message` with `origin: "capture"` and
+`clientRequestId: "wake:<eventId>"` (one hit, one turn; the responder's dedupe
+keys on it). The digest, which nobody should answer, goes through a new
+`POST /api/conversation/:id/note`: it appends a `note` record (a new ledger
+kind, stored like every other kind; `conversation-adapt.mjs` renders it as
+assistant text) without opening a responder stretch, dedupes on the client id
+over the last 500 notes, and accepts only `text`, `clientRequestId`, `origin`.
+The `/inputs` and `/messages` thread lanes are untouched for the callers that
+still live there (remote-shell threads, Slack, the scheduler).
+
+Two more things from the same retest, both fixed here: the pill that jumps
+back to the bottom of a transcript never worked under a finger because the
+press feedback every button gets (`transform: translateY(1px)`) REPLACED the
+pill's own `translateY(-100%)` lift, so the pill dropped its own height out
+from under the tap and the click landed on the transcript - the lift is now
+flex alignment, not a transform; and the live transcription of the screen
+broadcast is pinned to English (`screenSttLanguage`, env
+`GARRISON_CAPTURESERVICE_SCREEN_STT_LANGUAGE`, default `en`) while the
+pendant keeps the household pin: the phone held up to a coding session speaks
+the session's language, and the pt-pinned stream turned an English request
+into Portuguese nonsense ("tu moro aonde tu vai a Nascarim?"). The wake word
+survives through `stt_keyterms`.
+
+### D56. The answer comes back to the phone: pushed, and spoken while the page is open (2026-09-03)
+
+D55 landed and the phone retest read "Now it seems to work": the turn is in
+the conversation, the frames are described. Three complaints stayed. The
+wake-word banner was still on screen after the first capture; there was "no
+feedback" at all (the old Companion pushed a notification and spoke the
+answer, the app now does neither when the pendant is not the source); and "it
+is not capturing again", which recon narrowed down to the same thing: the
+second hit did land in the ledger four minutes later, but with nothing coming
+back to the phone every repeated "Zeca" read as a dead one.
+
+The old Companion's feedback loop ran on the pendant lane: a hit spoke a
+confirmation, the answer came back as an APNs push with the text. The web
+channel's broadcast lane posts the turn and stops there - the confirmation
+push says "Sent to the conversation" and the answer is only ever visible in
+the transcript. The whole point of the app is the opposite: converse from
+another app, open the conversation only when something needs the screen.
+
+Decision, in two halves that share one ledger:
+
+- **The voice layer watches for the answer and pushes it.** After every
+  spoken conversation turn, `wake.mjs` starts a tracked, fire-and-forget
+  watch (`lib/conversation-reply.mjs`) over
+  `GET /api/conversation/:id/log?fromIndex=<total at post time>`. The first
+  `stretch-ended` of a user-facing duty (`GARRISON_CAPTURESERVICE_WAKE_REPLY_DUTIES`,
+  default `discuss`; the triage and test stretches are the session talking to
+  itself) is the answer. It is cleaned (code fences dropped, the `[route:]`
+  and `[orchestrator-active]` trailer lines dropped, 700 chars) and sent as
+  the new `conversation_reply` template: title "Zeca", body the answer, opens
+  `/talk/<id>`, on the interactive budget, and NEVER degraded to the web
+  thread when APNs is off (the answer is already there). On a mic or pendant
+  session with an open socket it is spoken first, like the confirmation. The
+  watch gives up after `GARRISON_CAPTURESERVICE_WAKE_REPLY_TIMEOUT_MS`
+  (5 min); when the responder stops without a user-facing stretch, the last
+  stretch's text is used after a 20 s idle grace. Stretches already announced
+  on a conversation are skipped, so two hits close together do not push the
+  same answer twice, and the watch is deliberately NOT on the delegate chain:
+  a second hit must not queue behind a five-minute wait. The wake-results
+  record gains `reply` (`text`, `duty`, `stretchId`, `delivery`).
+- **The open page speaks the same answer.** `packages/talk/ui/capture-feedback.ts`
+  polls the same ledger while the broadcast is live (and five minutes after
+  it stops): a `user-message` with `origin: "capture"` shows "Heard: <text>"
+  under the record button for 8 s and retires the wake-word hint for the rest
+  of the session (`captured`), and the matching user-facing `stretch-ended`
+  is spoken through the app's `GarrisonSpeech` plugin when the page is
+  visible - out of app the push carries it, so nothing is said twice. Before
+  speaking, the page registers the text with the voice layer's echo guard
+  (`POST /api/voice/spoken` through the talk router to capture-service's new
+  `POST /spoken`, re-registered every 20 s while speaking, the guard's TTL is
+  30 s) so the phone hearing itself say the answer over the broadcast mic
+  does not become the next turn. The speech master switch is honoured. A
+  typed turn is never spoken: it was typed.
+
+Debt this leaves, all in the handoff: the hit itself still has no instant
+feedback on the broadcast lane (the confirmation push is the first sign, a
+few seconds after the phrase; the broadcast session is not a speakable
+session by ADR §6, so nothing is spoken at the hit); an out-of-app spoken
+answer needs a Notification Service Extension with a synthesized sound, which
+is a native change and a TestFlight - deferred; and the STT quality on the
+broadcast mic decides whether the wake phrase is heard at all.
+
+### D57. The pushed answer has to show while the app is open, and a triage-only answer is still an answer (2026-09-04)
+
+D56 was live on this Mac and the phone retest read: "it shows a message on
+the conversation saying what it heard after zeca but nothing else happens.
+No push notification no voice feedback nothing sent to the session". The
+06:15Z hit (`01M1NGXWH40Z9H66RVCAGENM2E`, conversation
+`chat-mtmk7lbe-efclxz`) tells the whole story from the node side: the turn
+posted with three frames, the gateway ran ONE stretch (triage, 90 s, ended
+`blocked` asking who "him" is and on which channel), no discuss stretch
+followed, and the reply watch pushed the triage text after its 20 s idle
+grace (`wake reply ... -> triage (700 chars, push)`, APNs 200). So the
+server did push. Two things swallowed it on the phone and one on the page:
+
+- **Capacitor owned the notification center.** `CapacitorBridge.init` sets
+  its `NotificationRouter` as the `UNUserNotificationCenter` delegate
+  whenever `handleApplicationNotifications` is true, and the default is
+  YES (`CAPInstanceDescriptor.m`). That replaced `PushManager`, installed
+  at launch, the moment the webview loaded. With no `pushNotificationHandler`
+  registered the router's `willPresent` completes with `[]` (no banner, no
+  sound while the app is in front) and `didReceive` routes nowhere. A push
+  arriving with the app in the background still shows, which is why the test
+  push sent from this Mac (`POST /notify`, tag `ask`) reached the phone and
+  the user answered "i see the push now" while the in-conversation ones
+  never appeared: the phone was on the conversation, waiting.
+  Fix: `GarrisonBridgeViewController.instanceDescriptor()` sets
+  `handleApplicationNotifications = false` (mirrored in
+  `capacitor.config.json` so a config-built descriptor agrees) and
+  `capacitorDidLoad()` re-asserts `PushManager.shared` as the delegate. The
+  XCTest `testBridgeLeavesNotificationsToPushManager` pins the descriptor.
+  Native change: a TestFlight.
+- **The page only spoke a discuss answer.** `foldCaptureEvents` waited for a
+  user-facing duty and the server's idle fallback had no counterpart in the
+  browser, so a triage-only answer was pushed (to a swallowed banner) and
+  never read aloud. The fold now keeps the last ended stretch of any duty
+  after a capture turn (`lastEnded`), a following `stretch-started` drops
+  it, and `settleCaptureIdle` speaks it once the conversation has sat idle
+  for `CAPTURE_REPLY_IDLE_MS` (20 s, the server's grace). The status line
+  says "Zeca is answering ..." while a reply is outstanding (`onAwaiting`),
+  and the split on the attachments trailer accepts the plural
+  `Attached files:` the voice layer actually writes.
+- **Nothing asked for notification permission on the conversation.** The
+  prompt lived on the Capture page only; a phone that never opened it had
+  `notDetermined` authorization and no token uploaded to the node it talks
+  to. The record button now takes the phone's push registration
+  (`PushBridge`, from the shell's `nativePush`): it auto-requests once when
+  a broadcast goes live with authorization still undetermined, and shows a
+  notifications line under the button when the phone is not registered
+  (`describePushStatus`: denied points at Settings, undetermined offers
+  "Turn on notifications", a failed upload offers "Retry", a registration in
+  flight says so). Registered means silent. The hint / heard / error line
+  and the notifications line stack in one `.wc-rec-notes` block above the
+  composer instead of two bubbles painting over each other.
+- **`device_name`** now uploads `UIDevice.current.name` instead of the App
+  Group value the old Companion left behind ("Mac mini" for an iPhone).
+
+What this does NOT change: a capture turn in a plain chat conversation is
+still routed by the gateway's inference, which is why triage alone answered
+here (the ask named "him" and no channel; triage was right to stop). The
+talk page pins `discuss` only for the `?source=discuss` and kickoff URLs.
+Whether a capture-created conversation should carry a `discuss` pin, so a
+spoken question is always answered by the operative rather than gated, is
+open debt in the handoff; with D57 the gate's question at least reaches the
+phone as a push and as speech.
+
+### D58. The spoken answer is the voice layer's voice, not the phone's (2026-09-04)
+
+With D57 live the phone finally spoke the answer, and the user heard the
+default iPhone voice: "The feedback is using the default iPhone voice
+instead of using Eleven Labs or Deepgram." `speakReply` handed the text to
+`GarrisonSpeech.speak`, and that plugin's only engine is `SpeechUtterer`,
+an `AVSpeechSynthesizer`. The Deepgram / ElevenLabs voice existed all along
+but only the pendant heard it: capture-service renders `POST /tts` clips
+(`voice.render`, mp3, 600 chars per call, the backend named in
+`x-voice-backend`), the talk router proxies it at `/api/voice/tts` with the
+vault's capture token, and the native `ClipPlayer` plays those clips for
+pendant and mic acks when the server sends an `audioPath`. The conversation
+page never asked for one.
+
+Decision: the page renders the answer through the voice layer and plays the
+clips itself; the phone's synthesizer is the fallback, not the voice.
+
+- `speakViaVoiceLayer` splits the answer with `chunkForTts` (sentence ends
+  first, then clauses, then spaces, never inside a word unless a word is
+  longer than the 600-char cap), posts each chunk to `/api/voice/tts`
+  (`{text, lang, format: "mp3"}`), renders chunk N+1 while chunk N plays,
+  and plays them in order through a `ClipPlayer` - by default an
+  `HTMLAudioElement` over a blob URL, revoked on `ended`. Capacitor's
+  webview allows media playback without a gesture
+  (`mediaTypesRequiringUserActionForPlayback = []`), so no tap is needed,
+  and while a broadcast is live the capture session is `.playAndRecord`
+  with `.defaultToSpeaker`, so the clip comes out of the speaker like the
+  synthesizer did.
+- The echo guard is unchanged: `/api/voice/spoken` learns the full text
+  before the first clip and every 20 s while a long answer is still
+  playing, so a live mic does not transcribe our own voice back in. The
+  master speech switch is still honoured before anything is fetched.
+- Fallback to `speech.speak` happens only when the voice layer cannot
+  render (503 no provider / no TTS key, a 400, a network failure) or the
+  first clip cannot be played. Once any clip has been heard the fallback is
+  NOT taken: a restart in the phone voice would read the same words twice.
+- Web-side only: no `ios/` change, so no TestFlight. Rendering on the node
+  costs one Deepgram TTS call per chunk; the pendant already pays the same.
+
+On this node the ElevenLabs key is unset, so `/health` reports
+`ttsBackend: "deepgram"` and Deepgram speaks; setting the key in the vault
+switches the backend without a page change (the voice layer picks it).
+
+### D59. Vault saves reach the mesh authority; a failed ElevenLabs render falls back to Aura; the phone says why it used its own voice (2026-09-04)
+
+After D58 the user still heard the iPhone voice: "still iphone again. the
+keys from the vault should materialize in the mesh nodes... check if it is
+on dev-madrid (im sure it must be) and if the mechanism to materialize is
+working." Findings, in order:
+
+1. The materialise mechanism works. Every enrolled node renders its
+   `.env` and every own-port fitting's `secret_scope` from the state
+   service on dev-madrid (`scopedSecretsViaAuthority`,
+   `POST /v1/secrets/resolve`); grants are `*` for every node;
+   `DEEPGRAM_API_KEY` resolved everywhere.
+2. `ELEVENLABS_API_KEY` was in dev-madrid's Vault UI and in no node's
+   `.env`, dev-madrid's included. The authority was seeded ONCE at install
+   (`services/state/scripts/import-from-files.mjs`) from dev-madrid's local
+   `vault.json`; the Vault surface (`PUT /api/vault/secrets` ->
+   `applyVaultSecretUpdates`) wrote only that local file, which the mesh
+   never reads. A key saved after enrolment reached nobody.
+3. Once the key was in the authority and capture-service healed on all
+   three nodes (`ttsBackend: "elevenlabs"`), every render failed:
+   ElevenLabs answers an exhausted account with `401` + code
+   `quota_exceeded` ("You have 0 credits remaining"), `voice.render` had
+   no second try, and `tts_quota_exhausted` counted only `429`. With the
+   key present the voice layer was WORSE than without it: acks and answers
+   alike fell back to the phone.
+4. The D58 page path was verified server-side after the reload
+   (`POST /api/voice/tts` 200 audio/mpeg, the served bundle carries the
+   code), and the user's tests at the time were wake COMMANDS whose
+   confirmations ride the native ack lane; the page had not been
+   relaunched since the reload.
+
+Decisions:
+
+- **Vault write-through.** On an enrolled node `applyVaultSecretUpdates`
+  puts every saved value to the authority (`PUT /v1/secrets/<key>`) BEFORE
+  the local file; an unreachable authority fails the save loudly and writes
+  nothing. `vaultViewMasked` lists the authority's keys beside the local
+  ones (`preview: "held by the mesh (dev-madrid)"`, no value ever crosses).
+  Removing a row never deletes from the authority: a page that never
+  listed a mesh key must not be able to drop it, so the row comes back on
+  reload; a mesh secret is deleted through the state service. Round-tripped
+  mesh rows are not invented locally as `""`. Standalone (un-enrolled)
+  behaviour is unchanged. `tests/vault-mesh-write-through.test.ts`.
+- **Immediate remediation** ran on dev-madrid: one script revealed the key
+  through the audited loopback `POST /api/vault/secrets/reveal` and PUT it
+  to the authority with dev-madrid's own `state.json` token; the value was
+  never printed and never on a command line. Authority: 27 keys,
+  `ELEVENLABS_API_KEY` present; `resolve` from this Mac returns both TTS
+  keys; capture-service healed on the MacBook Pro, the mini and
+  dev-madrid (`elevenLabsApiKey: true`).
+- **Aura fallback.** In `tts_backend: auto`, a failed ElevenLabs render is
+  rendered again through Deepgram Aura under Aura's own clip id, and
+  ElevenLabs is PARKED for `FALLBACK_HOLD_MS` (15 min) so the following
+  lines go straight to Aura instead of each paying a failed round trip.
+  `backend()` / `available()` report the effective engine; `/health` adds
+  `voice.ttsFallback: { since, until, reason } | null`; counters
+  `tts_fallback_deepgram`, and `tts_quota_exhausted` now also counts the
+  `401 quota_exceeded` form. A pinned `tts_backend: elevenlabs` is still
+  honoured or refused, never swapped (D21). Verified live here: `POST
+  /api/voice/tts` 200 audio/mpeg while `ttsFallback.reason` names the
+  quota wall.
+- **Visible fallback on the page.** `speakViaVoiceLayer` returns
+  `{ played, reason }`; `speakReply({ onFallback })` reports why the
+  phone's own voice was used ("voice layer 503 (no tts)", "voice layer
+  unreachable", "clip would not play", "no clip player"); the record button
+  shows it for 15 s as `Phone voice used: <reason>.`
+  (`data-testid="wc-rec-voice"`). Silent degradation is what made this
+  report undiagnosable from the phone.
+
+Not done: a way to delete a mesh secret from the Vault surface (state CLI
+for now); the ElevenLabs account itself has 0 credits until the user tops
+it up - until then every node speaks Aura and `/health` says why.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |

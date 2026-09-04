@@ -12,3 +12,10 @@ native code at: cbe5d512 (GarrisonNode.select(name, path) + PushRouter.arm(path:
 run: https://github.com/gongiskhan/ios-thing/actions/runs/33695608972 (id 33695608972)
 started: 2026-09-02T23:33:18Z
 outcome: success (Run fastlane (beta) and Upload IPA artifact green); this is the build phone check 10 needs
+
+--- D57 build (2026-09-04)
+workflow: gongiskhan/ios-thing garrison-ios.yml, lane=beta, garrison_ref=node/goncalos-macbook-pro
+native code at: 6a75549d (bridge leaves the notification center to PushManager; device_name = UIDevice.current.name)
+run: https://github.com/gongiskhan/ios-thing/actions/runs/33846121664 (id 33846121664)
+started: 2026-09-04T06:51:26Z
+outcome: success at 2026-09-04T06:55:20Z; XCTest on the mini at 6a75549d: 101 tests, 0 failures (evidence/garrison-app/voice-d57/xctest.log). This is the build phone check 3e needs.

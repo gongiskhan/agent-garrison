@@ -1,0 +1,7 @@
+# D53 composer in Playwright WebKit 390x844 against http://127.0.0.1:8777, 2026-09-03T18:39:54.973Z
+
+[empty] {"input":{"x":10,"y":741,"w":370,"h":46},"tools":{"x":10,"y":792,"w":370,"h":44},"composer":{"x":0,"y":732,"w":390,"h":112},"docW":390,"vh":844,"labels":["Route","Dictate","Attach","Send"]}
+[long] {"input":{"x":10,"y":365,"w":370,"h":422},"tools":{"x":10,"y":792,"w":370,"h":44},"composer":{"x":0,"y":356,"w":390,"h":488},"docW":390,"vh":844,"labels":["Route","Dictate","Attach","Send"]}
+[long] box height 422 <= half viewport 422: true; tools bottom 836 <= 844: true
+[cleared] input h 46 (empty was 46)
+console errors: none

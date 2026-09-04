@@ -4802,18 +4802,41 @@ const server = http.createServer(async (request, response) => {
         if (!conversationId || !message.trim()) {
           return sendJson(response, 400, { error: "conversationId and message are required" });
         }
+        // How the message reaches a RUNNING conversation. `steer` interrupts
+        // the stretch in flight and re-runs its duty with this message in the
+        // brief - what typing into a working Claude Code session does. `queue`
+        // (and absent, the responder's default) holds it for the next brief.
+        if (body.delivery !== undefined && body.delivery !== "steer" && body.delivery !== "queue") {
+          return sendJson(response, 400, { error: "delivery must be steer or queue" });
+        }
+        const delivery = typeof body.delivery === "string" ? body.delivery : null;
         const store = openConversation(conversationId, { role: "gateway" });
         store.init({});
+        const running = store.currentStretch();
+        const controllers = (globalThis.__conversationAborts ??= new Map());
+        const advancing = controllers.has(conversationId);
+        // A steer only means something while a stretch can be interrupted;
+        // between stretches the loop's next brief carries the message anyway.
+        const steerable = delivery === "steer" && stretchLib.steerableStretch(conversationId) !== null;
         const rec = stretchLib.recordUserMessage(store, {
           text: message,
           origin: typeof body.origin === "string" ? body.origin : "web",
           threadId: typeof body.threadId === "string" ? body.threadId : null,
           context: typeof body.context === "string" ? body.context : null,
           routing: body.routing && typeof body.routing === "object" && !Array.isArray(body.routing) ? body.routing : null,
+          delivery,
+          steered: steerable,
         });
-        const running = store.currentStretch();
-        const controllers = (globalThis.__conversationAborts ??= new Map());
-        const advancing = controllers.has(conversationId);
+        if (steerable) {
+          // Recorded FIRST, interrupted second: the loop's next brief reads the
+          // ledger, so the message must be durable before the stretch it
+          // steers is stopped. A steer that lands after the stretch already
+          // ended (the race) is simply the queued case - the brief still
+          // carries it.
+          const steered = stretchLib.steerRunningStretch(conversationId, { seq: rec.seq, text: message });
+          logEvent("stdout", { kind: "conversation-steer", conversationId, seq: rec.seq, interrupted: steered });
+          return sendJson(response, 202, { accepted: true, seq: rec.seq, pickedUpBy: steered ? "steer" : "running-stretch", steered });
+        }
         // Nothing running → a responder stretch answers from L1. Fire and
         // forget on the conversation lane; the caller watches the store/SSE.
         if (!running && !advancing) {

@@ -22,6 +22,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
+# shellcheck source=lib/app-server.sh
+. "$SCRIPT_DIR/lib/app-server.sh"
 
 PROD_PORT="$(bash scripts/garrison-instance.sh prod env | sed -n 's/^GARRISON_APP_PORT=//p')"
 PROD_HOME="$(bash scripts/garrison-instance.sh prod env | sed -n 's/^GARRISON_HOME=//p')"
@@ -78,12 +80,17 @@ restart_supervised() {
   fi
   return 1
 }
+# The pid serving the app port right now is the server we are replacing; the
+# supervisor only signals its parent (`concurrently`), so we track it ourselves
+# and make sure it is gone afterwards (scripts/lib/app-server.sh says why).
+old_server_pid="$(app_server_pid_on_port "$PROD_PORT")"
 if ! restart_supervised; then
   echo "[redeploy] no app supervisor found (systemd: $UNIT, launchd: $LAUNCHD_LABEL)." >&2
   echo "           Enroll this machine with scripts/install-node.sh, or start by hand:" >&2
   echo "           bash scripts/garrison-instance.sh prod start" >&2
   exit 1
 fi
+ensure_old_app_server_gone "$old_server_pid"
 
 # --- wait for the new server ------------------------------------------------
 say "waiting for $BASE"

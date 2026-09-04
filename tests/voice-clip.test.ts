@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { DEFAULT_CHUNK_CHARS, SegmentGate, chunkSpeech, rmsLevel, pickRecorderMimeType } from "../packages/talk/ui/voice-clip";
+import { DEFAULT_CHUNK_CHARS, SegmentGate, chunkSpeech, rmsLevel, pickRecorderMimeType, sttUrlFor } from "../packages/talk/ui/voice-clip";
 
 // The pure half of the REST voice-clip path. The capture loop itself needs a
 // microphone and a MediaRecorder, but every decision it makes is delegated to
@@ -441,5 +441,28 @@ describe("chunkSpeech", () => {
     expect(words(out.join(" "))).toEqual(words(text));
     // The advertised cap wins over the default when the health probe named one.
     for (const c of chunkSpeech(text, 400)) expect(c.length).toBeLessThanOrEqual(400);
+  });
+});
+
+// The language hint (D52): the server pins its wake lane to Portuguese, so the
+// typed lane says which language the browser's clips are in on every request.
+describe("sttUrlFor", () => {
+  it("appends the language as a query parameter", () => {
+    expect(sttUrlFor("/api/voice/stt", "en")).toBe("/api/voice/stt?language=en");
+  });
+  it("joins an existing query with &", () => {
+    expect(sttUrlFor("/api/voice/stt?x=1", "pt")).toBe("/api/voice/stt?x=1&language=pt");
+  });
+  it("consults a function per call so a mid-dictation switch reaches the next clip", () => {
+    let lang = "en";
+    const pick = () => lang;
+    expect(sttUrlFor("/stt", pick)).toBe("/stt?language=en");
+    lang = "multi";
+    expect(sttUrlFor("/stt", pick)).toBe("/stt?language=multi");
+  });
+  it("leaves the URL alone without a hint", () => {
+    expect(sttUrlFor("/stt", undefined)).toBe("/stt");
+    expect(sttUrlFor("/stt", () => null)).toBe("/stt");
+    expect(sttUrlFor("/stt", "  ")).toBe("/stt");
   });
 });

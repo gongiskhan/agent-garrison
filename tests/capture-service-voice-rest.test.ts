@@ -241,7 +241,7 @@ describe("voice REST - keyed, Deepgram-only (auto picks Aura)", () => {
 
   it("reports the voice block on /health", async () => {
     const health = await fetch(`${base}/health`).then((r) => r.json());
-    expect(health.voice).toEqual({ stt: true, tts: true, ttsBackend: "deepgram", restEnabled: true, maxTextChars: 600 });
+    expect(health.voice).toEqual({ stt: true, tts: true, ttsBackend: "deepgram", ttsFallback: null, restEnabled: true, maxTextChars: 600 });
     expect(health.keyConfigured).toBe(true);
     expect(health.secrets).toMatchObject({ deepgramApiKey: true, elevenLabsApiKey: false, captureToken: true });
   });
@@ -289,7 +289,7 @@ describe("voice REST - backend selection", () => {
     );
     handles.push(handle);
     const health = await fetch(`${urlOf(handle)}/health`).then((r) => r.json());
-    expect(health.voice).toEqual({ stt: true, tts: true, ttsBackend: "elevenlabs", restEnabled: true, maxTextChars: 600 });
+    expect(health.voice).toEqual({ stt: true, tts: true, ttsBackend: "elevenlabs", ttsFallback: null, restEnabled: true, maxTextChars: 600 });
   });
 
   it("tts_backend=deepgram with both keys sealed speaks through Aura", async () => {
@@ -350,7 +350,7 @@ describe("voice REST - unkeyed and sealed-off", () => {
     expect(tts.status).toBe(503);
     expect((await tts.json()).error).toContain("no TTS backend");
     const health = await fetch(`${base}/health`).then((r) => r.json());
-    expect(health.voice).toEqual({ stt: false, tts: false, ttsBackend: null, restEnabled: true, maxTextChars: 600 });
+    expect(health.voice).toEqual({ stt: false, tts: false, ttsBackend: null, ttsFallback: null, restEnabled: true, maxTextChars: 600 });
     expect(health.keyConfigured).toBe(false);
     expect(upstream.calls).toHaveLength(0);
   });

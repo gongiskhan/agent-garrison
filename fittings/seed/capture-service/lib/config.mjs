@@ -151,6 +151,13 @@ export function loadConfig(env = process.env) {
     // stt_language, so the one pin above covers both lanes unless a caller
     // deliberately splits them.
     sttRestLanguage: (env.GARRISON_CAPTURESERVICE_STT_REST_LANGUAGE || "").trim() || sttLanguage,
+    // Language for the screen broadcast's live stream (the app's Record
+    // button). The pin above is the household's; the broadcast is the phone
+    // held up to a coding session, which the user runs in English, and an
+    // English request after "Zeca" through a pt-pinned stream came out as
+    // Portuguese nonsense (2026-09-03). The wake word survives the switch
+    // through stt_keyterms. Empty = follow stt_language.
+    screenSttLanguage: (env.GARRISON_CAPTURESERVICE_SCREEN_STT_LANGUAGE || "").trim() || "en",
     // Keyterm prompting (nova-3): lifts the wake word from conf ~0.74 to
     // 0.99-1.0 on real captures and rescues embedded English product words.
     sttKeyterms: (() => {
@@ -296,6 +303,13 @@ export function loadConfig(env = process.env) {
     // Say "Não percebi - repete?" when a wake window closes with nothing
     // usable, rather than leaving the wearer in silence after two cues.
     wakeUnheardEnabled: parseBool(env.GARRISON_CAPTURESERVICE_WAKE_UNHEARD_ENABLED, true),
+    // The answer to a spoken conversation turn (D56) is the last text of the
+    // first stretch that ends with one of these duties; it is pushed to the
+    // phone and spoken in the app. The loop's triage/test stretches talk to the
+    // loop, not to the person. The watch gives up after the timeout.
+    wakeReplyDuties: parseCsv(env.GARRISON_CAPTURESERVICE_WAKE_REPLY_DUTIES ?? "discuss"),
+    wakeReplyTimeoutMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_REPLY_TIMEOUT_MS, 300000),
+    wakeReplyPollMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_REPLY_POLL_MS, 3000),
     // Which language the wake path confirms in. "auto" (the default) reads it
     // off what the user actually said; an explicit pt/en pins it.
     wakeLanguage: (() => {

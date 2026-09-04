@@ -315,7 +315,30 @@ describe("cursor-runtime bridge probe", () => {
     expect(probeFailure(run, { HOME: "/home/tester" })).toBeNull();
   });
 
-  it("reports 'unauthenticated' (not 'absent') when the CLI is present but LOGGED OUT", () => {
+  // cursor-agent 2025.10.01 (what a box that installed the CLI last autumn still
+  // runs after `cursor-agent update`, which is a no-op there) has `status` but
+  // no `--format`; the json probe alone read a logged-in Mac as logged out and
+  // took the whole composition down with it (2026-09-03).
+  it("falls back to the plain status verdict when the CLI has no --format flag", () => {
+    const noFormat = { status: 1, stdout: "", stderr: "error: unknown option '--format'\n(Did you mean --force?)\n" };
+    const loggedIn = (_bin: string, argv: string[]) => {
+      if (argv[0] === "--version") return { status: 0, stdout: "2025.10.01-369e3d0\n", stderr: "" };
+      if (argv.includes("--format")) return noFormat;
+      return { status: 0, stdout: "Checking authentication status...\n\n \u2713 Login successful!\n", stderr: "" };
+    };
+    expect(probeFailure(loggedIn, {})).toBeNull();
+    const loggedOut = (_bin: string, argv: string[]) => {
+      if (argv[0] === "--version") return { status: 0, stdout: "2025.10.01-369e3d0\n", stderr: "" };
+      if (argv.includes("--format")) return noFormat;
+      return { status: 1, stdout: "Not logged in. Run cursor-agent login.\n", stderr: "" };
+    };
+    // The merge of the two lines of work: origin/main's --format fallback, on
+    // top of this branch's {level, reason} return (it was a bare string there).
+    expect(probeFailure(loggedOut, {})).toMatchObject({ level: "unauthenticated" });
+    expect(probeFailure(loggedOut, {}).reason).toMatch(/not authenticated[\s\S]*cursor-agent login/);
+  });
+
+  it("reports 'unauthenticated' (not 'absent') when the CLI is present but LOGGED OUT (a version-only probe would have passed)", () => {
     const run = (_bin: string, argv: string[]) =>
       argv[0] === "--version" ? okVersion : { status: 0, stdout: JSON.stringify({ status: "unauthenticated", isAuthenticated: false }), stderr: "" };
     const failure = probeFailure(run, {});

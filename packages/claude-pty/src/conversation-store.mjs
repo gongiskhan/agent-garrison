@@ -29,7 +29,7 @@
 // vocabulary can grow without redeploying every writer):
 //   conversation-opened, stretch-started, stretch-ended, handoff,
 //   delegation-dispatched, delegation-returned, delegation-failed,
-//   user-message, card-materialized, card-state-changed, policy-rewrite,
+//   user-message, note, card-materialized, card-state-changed, policy-rewrite,
 //   escalation, summary-trimmed, dig
 import {
   appendFileSync,
@@ -61,6 +61,7 @@ export const CONVERSATION_EVENT_KINDS = [
   "delegation-returned",
   "delegation-failed",
   "user-message",
+  "note",
   "card-materialized",
   "card-state-changed",
   "policy-rewrite",

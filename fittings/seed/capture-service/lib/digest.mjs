@@ -1,10 +1,11 @@
 // The recording digest (plan G5): a recording started from a Conversations
-// thread ends with ONE assistant message posted back into that thread, and a
-// push whose deep link opens it. The digest is built from the ended session
-// record and its transcript, posted through the same REST lane the shell
-// mounts at /api/threads/:id/messages, and keyed by the session id so a
-// replayed session end (reconnect, restart, double finalize) posts nothing
-// twice - the thread store dedupes on idempotencyKey.
+// thread ends with ONE note posted back into that conversation, and a push
+// whose deep link opens it. The digest is built from the ended session record
+// and its transcript, posted through the conversation router's note door
+// (POST /api/conversation/:id/note, a ledger record the view renders and no
+// responder answers), and keyed by the session id so a replayed session end
+// (reconnect, restart, double finalize) posts nothing twice - the door
+// dedupes on clientRequestId.
 //
 // Only sessions that carried a conversation_id in session_start get a digest;
 // a recording started from the capture page or Control Center has no thread
@@ -105,13 +106,13 @@ export async function postConversationDigest({
   const transcript = record.transcript_ref && store ? readJSON(path.join(store.root, record.transcript_ref)) : null;
   const text = buildDigest({ record, transcript, cfg, now: now() });
   try {
-    const posted = await fetchImpl(`${base}/api/threads/${encodeURIComponent(threadId)}/messages`, {
+    // A note, not a message: it lands in the conversation ledger the view
+    // renders without opening a responder stretch (nobody should answer a
+    // transcript). The session id keys the door's dedupe.
+    const posted = await fetchImpl(`${base}/api/conversation/${encodeURIComponent(threadId)}/note`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        messages: [{ role: "assistant", text, ts: now().toISOString(), sessionId: record.id }],
-        idempotencyKey: digestIdempotencyKey(record.id)
-      }),
+      body: JSON.stringify({ text, origin: "capture", clientRequestId: digestIdempotencyKey(record.id) }),
       signal: AbortSignal.timeout(8000)
     });
     if (!posted.ok) {
@@ -152,8 +153,12 @@ export async function postConversationDigest({
 // message and the latest screen frames ride along as attached files, using
 // the same "Attached file(s):" convention the composer writes for uploads
 // so the runtime reads them the way it reads a pasted screenshot. Admission
-// goes through the router's input door (POST /inputs), so the turn runs
-// exactly like one typed on the phone - same routing, same transcript.
+// goes through the conversation door (POST /api/conversation/:id/message),
+// the same one the composer's Send uses, so the turn is a record in the
+// conversation ledger the view renders and a responder stretch answers it.
+// The thread's older /inputs lane still exists, but a conversation-backed
+// thread never paints it: a turn posted there ran and was answered without
+// the person ever seeing either (the 2026-09-03 phone run).
 export function conversationTurnMessage({ command, frames = [] }) {
   const text = String(command ?? "").trim();
   const files = frames.map((f) => f?.file).filter(Boolean);
@@ -180,12 +185,25 @@ export async function postConversationTurn({
   const message = conversationTurnMessage({ command, frames });
   if (!message) return { ok: false, reason: "empty command" };
   const url = `${base}/talk/${encodeURIComponent(conversationId)}`;
+  // Where the ledger stood BEFORE the turn: the reply watcher (conversation-
+  // reply.mjs) reads forward from here. Best effort - an unreadable meta means
+  // the watcher starts at 0 and skips to the tail on its own.
+  let fromIndex = 0;
   try {
-    const posted = await fetchImpl(`${base}/api/threads/${encodeURIComponent(conversationId)}/inputs`, {
+    const meta = await fetchImpl(`${base}/api/conversation/${encodeURIComponent(conversationId)}`, {
+      signal: AbortSignal.timeout(5000)
+    });
+    const parsed = meta.ok ? await meta.json().catch(() => null) : null;
+    if (typeof parsed?.total === "number") fromIndex = parsed.total;
+  } catch {
+    fromIndex = 0;
+  }
+  try {
+    const posted = await fetchImpl(`${base}/api/conversation/${encodeURIComponent(conversationId)}/message`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      // One wake hit is one turn: the event id keys the router's dedupe.
-      body: JSON.stringify({ message, clientRequestId: `wake:${eventId}` }),
+      // One wake hit is one turn: the event id keys the responder's dedupe.
+      body: JSON.stringify({ message, origin: "capture", clientRequestId: `wake:${eventId}` }),
       signal: AbortSignal.timeout(8000)
     });
     if (!posted.ok) {
@@ -196,7 +214,7 @@ export async function postConversationTurn({
     const body = await posted.json().catch(() => ({}));
     counters?.bump("conversation_turn_posted");
     log.log(`[capture-service] wake turn ${eventId} -> thread ${conversationId} (${frames.length} frame${frames.length === 1 ? "" : "s"})`);
-    return { ok: true, inputId: body?.input?.id ?? null, duplicate: Boolean(body?.duplicate), url };
+    return { ok: true, seq: typeof body?.seq === "number" ? body.seq : null, recordedBy: body?.recordedBy ?? null, url, base, fromIndex };
   } catch (err) {
     counters?.bump("conversation_turn_post_failed");
     log.error(`[capture-service] wake turn ${eventId} -> thread ${conversationId}: ${err?.message ?? err}`);

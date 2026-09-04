@@ -39,6 +39,11 @@ export function renderTemplate(template, params = {}) {
     }
     case "ask":
       return String(params.text ?? "").trim();
+    case "conversation_reply":
+      // The operative's answer to a spoken conversation turn (D56), already
+      // cleaned and capped by conversation-reply.mjs. The push opens the
+      // conversation it came from (`params.path`).
+      return String(params.text ?? "").trim();
     case "tip":
       return `Tip: ${params.text ?? ""}`.trim();
     case "relay":
@@ -53,6 +58,7 @@ export function renderTemplate(template, params = {}) {
 const TEMPLATE_TITLES = {
   card_created: "New card",
   wake_confirmation: "Zeca",
+  conversation_reply: "Zeca",
   ask: "Zeca asks",
   tip: "Tip",
   relay: "Garrison"
@@ -61,7 +67,12 @@ const TEMPLATE_TITLES = {
 // Templates that answer something the user just DID (spoke a command, was
 // asked a question). These draw on the interactive push budget — never
 // starved by the operative's routine fan-out.
-const INTERACTIVE_TEMPLATES = new Set(["wake_confirmation", "card_created", "ask"]);
+const INTERACTIVE_TEMPLATES = new Set(["wake_confirmation", "conversation_reply", "card_created", "ask"]);
+
+// Templates whose text ALREADY lives in a conversation: when the push fails
+// there is nothing to degrade to - appending the answer to the Companion
+// thread would show it twice and in the wrong conversation.
+const NO_WEB_FALLBACK_TEMPLATES = new Set(["conversation_reply"]);
 
 // The /notify relay sink carries the same names as tags, so one rule serves
 // both paths.
@@ -271,17 +282,18 @@ export class CompanionNotifier {
       link: cleanParams.cardUrl ?? null,
       path: appPathFor({ path: cleanParams.path, link: cleanParams.cardUrl }, this.env),
       tag: template,
-      priority: INTERACTIVE_TEMPLATES.has(template) ? "interactive" : "routine"
+      priority: INTERACTIVE_TEMPLATES.has(template) ? "interactive" : "routine",
+      webFallback: !NO_WEB_FALLBACK_TEMPLATES.has(template)
     });
   }
 
   // The real chain: push, degrading to the Conversations thread. Receipts for
   // every means attempted, in delivery order.
-  async deliver({ title, body, link, path = null, tag, priority = "routine" }) {
+  async deliver({ title, body, link, path = null, tag, priority = "routine", webFallback = true }) {
     const push = await this.sendPush({ title, body, link, path, tag, priority });
     const receipts = [push];
     if (!push.ok) {
-      receipts.push(await this.sendWebChannelFallback(body));
+      receipts.push(webFallback ? await this.sendWebChannelFallback(body) : { means: "web-channel", ok: false, skipped: "answer already in the conversation" });
     }
     this.log.log(
       `[capture-service] notify ${tag ?? "message"} -> ${receipts

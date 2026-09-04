@@ -22,6 +22,29 @@ import {
 import { startCapture, startTts, isCaptureSupported, captureUnsupportedReason, type CaptureHandle, type TtsHandle } from "./voice-clip";
 import { LatencyTracker, type BudgetVerdict } from "./voice-latency";
 
+// Which language the browser's clips are transcribed in (D52). The server pins
+// the wake lane to Portuguese so "Zeca" is heard as a name; the typed lane is
+// where the user works, and they work in English, so a Portuguese pin turned
+// English dictation into near-random Portuguese words. English by default,
+// switchable per browser; `multi` lets Deepgram code-switch.
+export type SttLanguage = "en" | "pt" | "multi";
+export const STT_LANGUAGE_KEY = "talk.stt.language";
+export const STT_LANGUAGES: ReadonlyArray<{ value: SttLanguage; label: string; title: string }> = [
+  { value: "en", label: "EN", title: "Transcribe as English" },
+  { value: "pt", label: "PT", title: "Transcrever como Português" },
+  { value: "multi", label: "Auto", title: "Let the transcriber pick the language per sentence" }
+];
+export function readSttLanguage(): SttLanguage {
+  try {
+    const v = window.localStorage.getItem(STT_LANGUAGE_KEY);
+    if (v === "en" || v === "pt" || v === "multi") return v;
+  } catch {}
+  return "en";
+}
+function writeSttLanguage(v: SttLanguage) {
+  try { window.localStorage.setItem(STT_LANGUAGE_KEY, v); } catch {}
+}
+
 export interface VoiceConversationProps {
   /** Submit a transcribed utterance as a real chat turn (renders + streams). */
   send: (text: string) => string | null;
@@ -183,6 +206,17 @@ export function VoiceConversation(props: VoiceConversationProps) {
   const [level, setLevel] = useState(0);
   const [latency, setLatency] = useState<BudgetVerdict | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sttLanguage, setSttLanguageState] = useState<SttLanguage>(() =>
+    typeof window === "undefined" ? "en" : readSttLanguage()
+  );
+  // Consulted per clip by startCapture, so a switch mid-dictation reaches the
+  // next segment without reopening the microphone.
+  const sttLanguageRef = useRef<SttLanguage>(sttLanguage);
+  sttLanguageRef.current = sttLanguage;
+  const setSttLanguage = useCallback((v: SttLanguage) => {
+    setSttLanguageState(v);
+    writeSttLanguage(v);
+  }, []);
   /** Hands-free is reached by TAPPING the mic; holding it is push-to-talk. */
   const [voiceSheetOpen, setVoiceSheetOpen] = useState(false);
   const holdTimer = useRef<number | null>(null);
@@ -313,7 +347,7 @@ export function VoiceConversation(props: VoiceConversationProps) {
           onLevel: (l) => { if (mountedRef.current) setLevel(l); },
           onError: (e) => { if (mountedRef.current) setError(e); dispatchRef.current({ type: "ERROR", error: e }); },
         },
-        { sttUrl: props.sttUrl, mode },
+        { sttUrl: props.sttUrl, mode, language: () => sttLanguageRef.current },
       );
       if (!mountedRef.current || ctxRef.current.state === "idle") { handle.stop(); return; }
       captureRef.current = handle;
@@ -536,7 +570,7 @@ export function VoiceConversation(props: VoiceConversationProps) {
           onLevel: (l) => { if (mountedRef.current && dictGenRef.current === gen) setDictLevel(l); },
           onError: (e) => { if (mountedRef.current && dictGenRef.current === gen) setDictError(e); },
         },
-        { sttUrl: props.sttUrl, mode: "conversation" },
+        { sttUrl: props.sttUrl, mode: "conversation", language: () => sttLanguageRef.current },
       );
       if (!mountedRef.current || dictGenRef.current !== gen) { handle.stop(); return; }
       dictRef.current = handle;
@@ -649,6 +683,7 @@ export function VoiceConversation(props: VoiceConversationProps) {
             <path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
           </svg>
         )}
+        <span className="wcv-mic-label">{dictating ? "Stop" : conversationOn ? "Stop" : "Dictate"}</span>
       </button>
 
       {(dictating || dictErrorShown) && (
@@ -662,6 +697,22 @@ export function VoiceConversation(props: VoiceConversationProps) {
             <span className="wcv-dict-actions">
               {dictating ? (
                 <>
+                  <span className="wcv-dict-lang" role="radiogroup" aria-label="Transcription language" data-testid="wcv-dict-lang">
+                    {STT_LANGUAGES.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={sttLanguage === opt.value}
+                        className={`wcv-dict-lang-opt${sttLanguage === opt.value ? " wcv-dict-lang-on" : ""}`}
+                        data-testid={`wcv-dict-lang-${opt.value}`}
+                        onClick={() => setSttLanguage(opt.value)}
+                        title={opt.title}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </span>
                   <button
                     type="button"
                     className="wcv-dict-btn wcv-dict-stop"
