@@ -177,8 +177,13 @@ REMOTE
   # pipe can't both feed one command) so the token can still flow through
   # stdin untouched via a normal argv-based invocation of this wrapper.
   # shellcheck disable=SC2086
+  # bash, not sh: nvm.sh's own sourcing-path detection relies on
+  # BASH_SOURCE, which dash (Ubuntu's /bin/sh) does not have - sourcing it
+  # from a plain #!/bin/sh wrapper derives the WRONG NVM_DIR (found live:
+  # NVM_DIR ended up /usr/bin, from sh's own $0) and node never lands on PATH
+  # even though nvm reports success.
   $CSG 'cat > /tmp/run-install-node.sh && chmod +x /tmp/run-install-node.sh' <<'REMOTE'
-#!/bin/sh
+#!/bin/bash
 if [ -s "$HOME/.nvm/nvm.sh" ]; then
   # shellcheck disable=SC1090
   . "$HOME/.nvm/nvm.sh"
