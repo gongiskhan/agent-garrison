@@ -118,17 +118,17 @@ do_install() {
   # this script never dials a second devtunnel client.
   local CSG="ssh -p $CSG_SSH_PORT -i $CSG_SSH_IDENTITY -o BatchMode=yes -o StrictHostKeyChecking=accept-new $CSG_SSH_USER@$CSG_SSH_HOST"
 
-  say "step 1/8: tether key on csg (idempotent)"
+  say "step 1/9: tether key on csg (idempotent)"
   # shellcheck disable=SC2086
   $CSG 'test -f ~/.ssh/garrison-tether || ssh-keygen -t ed25519 -N "" -f ~/.ssh/garrison-tether -q -C garrison-csg-tether'
   # shellcheck disable=SC2086
   local pubkey
   pubkey="$($CSG 'cat ~/.ssh/garrison-tether.pub')"
 
-  say "step 2/8: dev-madrid authorized_keys entry"
+  say "step 2/9: dev-madrid authorized_keys entry"
   append_authorized_key "$pubkey" "$HOME/.ssh/authorized_keys" "$REPO_ROOT"
 
-  say "step 3/8: dev-madrid ~/.ssh/config Host csg alias"
+  say "step 3/9: dev-madrid ~/.ssh/config Host csg alias"
   append_ssh_config_host "csg" "$(cat <<CFG
 HostName $CSG_SSH_HOST
 Port $CSG_SSH_PORT
@@ -139,28 +139,47 @@ StrictHostKeyChecking accept-new
 CFG
 )" "$HOME/.ssh/config"
 
-  say "step 4/8: issuing csg's mesh token"
+  say "step 4/9: issuing csg's mesh token"
   local TOKEN
   TOKEN="$(cd "$REPO_ROOT/services/state" && node scripts/issue-node-token.mjs csg --accent steel --platform linux)"
 
-  say "step 5/8: copying install-node.sh to csg:/tmp"
+  say "step 5/9: copying install-node.sh to csg:/tmp"
   # shellcheck disable=SC2086
   scp -P "$CSG_SSH_PORT" -i "$CSG_SSH_IDENTITY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
     "$REPO_ROOT/scripts/install-node.sh" "$CSG_SSH_USER@$CSG_SSH_HOST:/tmp/install-node.sh"
 
-  say "step 6/8: running install-node.sh --tethered on csg (token via stdin, never argv)"
+  say "step 6/9: ensuring node is available on csg (nvm install --lts if missing - the preflight already flags when this is needed)"
+  # shellcheck disable=SC2086
+  $CSG 'bash -s' <<'REMOTE'
+set -e
+if command -v node >/dev/null 2>&1; then
+  echo "node already present: $(node --version)"
+  exit 0
+fi
+if [ ! -s "$HOME/.nvm/nvm.sh" ]; then
+  echo "node is missing on csg and nvm is not available - cannot bootstrap" >&2
+  exit 1
+fi
+# shellcheck disable=SC1090
+. "$HOME/.nvm/nvm.sh"
+nvm install --lts
+nvm alias default 'lts/*'
+echo "node installed via nvm: $(node --version)"
+REMOTE
+
+  say "step 7/9: running install-node.sh --tethered on csg (token via stdin, never argv)"
   # shellcheck disable=SC2086
   printf '%s\n' "$TOKEN" | $CSG "bash /tmp/install-node.sh --name csg --accent steel \
     --state-url $STATE_URL --token-stdin \
     --tethered --tether-host $TETHER_HOST --app-origin $APP_ORIGIN --shell-origin $SHELL_ORIGIN \
     --repo-source github"
 
-  say "step 7/8: writing csg's compositions/default/local.yml"
+  say "step 8/9: writing csg's compositions/default/local.yml"
   # shellcheck disable=SC2086
   scp -P "$CSG_SSH_PORT" -i "$CSG_SSH_IDENTITY" -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
     "$HERE/csg-local.yml.example" "$CSG_SSH_USER@$CSG_SSH_HOST:~/dev/garrison/compositions/default/local.yml"
 
-  say "step 8/8: verifying csg answers through $APP_ORIGIN"
+  say "step 9/9: verifying csg answers through $APP_ORIGIN"
   for i in $(seq 1 15); do
     curl -sf -o /dev/null --max-time 5 "$APP_ORIGIN/api/mesh/self" && break
     sleep 3
