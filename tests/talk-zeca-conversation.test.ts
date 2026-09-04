@@ -17,6 +17,7 @@ const THREADS = pathToFileURL(path.resolve(__dirname, "../packages/talk/src/thre
 type Loose = Record<string, any>;
 interface ZecaModule {
   ZECA_TITLE: string;
+  ZECA_DUTY: string;
   ZECA_SOURCE: string;
   zecaPointerPath(): string;
   newZecaThreadId(now?: Date): string;
@@ -48,6 +49,11 @@ describe("the standing Zeca conversation", () => {
     expect(first.previous).toEqual([]);
     const thread = await threads.getThread(first.conversationId);
     expect(thread).toMatchObject({ id: first.conversationId, title: zeca.ZECA_TITLE, source: zeca.ZECA_SOURCE });
+    // Pinned to the one user-facing duty at creation (D62). Unpinned, a spoken
+    // "what time is it in Lisbon" opened the delivery loop - triage, plan on
+    // Sonnet, test - two minutes of stretches and no answer, because the reply
+    // the phone waits for is the `discuss` duty's.
+    expect(thread?.routing).toEqual({ duty: zeca.ZECA_DUTY, level: 1 });
 
     const again = await zeca.zecaConversation({ nowIso: "2026-09-04T09:00:00.000Z" });
     expect(again.conversationId).toBe(first.conversationId);
@@ -80,6 +86,9 @@ describe("the standing Zeca conversation", () => {
     const fresh = await threads.getThread(rotated.conversationId);
     expect(fresh).toMatchObject({ title: zeca.ZECA_TITLE, source: zeca.ZECA_SOURCE });
     expect(fresh.messages ?? []).toHaveLength(0);
+    // Every rotation, not just the first creation: a conversation that loses
+    // the pin overnight is a conversation that answers in two minutes again.
+    expect(fresh.routing).toEqual({ duty: zeca.ZECA_DUTY, level: 1 });
 
     expect((await zeca.zecaConversation()).conversationId).toBe(rotated.conversationId);
   });

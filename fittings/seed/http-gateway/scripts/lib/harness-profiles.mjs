@@ -113,7 +113,15 @@ export function runtimeCodexEnabled(env = process.env) {
 
 export const SHARED_MCP_TOOLS = [CAPABILITY_DOC, ...LAYER3, ...FINDINGS];
 
-export const DUTY_MCP_TOOLS = {};
+// The one duty that needs a tool the others must not have (D62): `dialogue` is
+// the spoken conversation, and its whole contract is that real work leaves the
+// conversation as a card instead of opening the loop inside it. It runs on its
+// own target in its own conversation, so the forked prefix costs nothing that
+// is shared - and putting `create_card` in SHARED_MCP_TOOLS instead would hand
+// every working stretch a way to spawn cards mid-flight.
+export const DUTY_MCP_TOOLS = {
+  dialogue: [...SHARED_MCP_TOOLS, "garrison_create_card"]
+};
 
 export function toolProfileForDuty(duty) {
   return DUTY_TOOL_PROFILES[duty] ?? DEFAULT_PROFILE;

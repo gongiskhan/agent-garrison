@@ -16,10 +16,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { ensureThread, renameThread, threadExistsSync } from "./threads.mjs";
+import { ensureThread, renameThread, setThreadRouting, threadExistsSync } from "./threads.mjs";
 
 export const ZECA_TITLE = "Zeca";
 export const ZECA_SOURCE = "zeca";
+// The duty every turn in this conversation runs as (D62). `dialogue` answers
+// the person in one pass and never opens the delivery loop; it is also one of
+// the duties capture-service will speak (conversation-reply.mjs
+// DEFAULT_REPLY_DUTIES), so a turn here is answered out loud.
+export const ZECA_DUTY = "dialogue";
 // How many rotated-out ids the pointer remembers. The review reads the newest
 // one; the rest are a breadcrumb trail, not a database.
 export const ZECA_HISTORY_CAP = 60;
@@ -78,6 +83,13 @@ function serialize(fn) {
 async function createCurrent(previous, nowIso) {
   const id = newZecaThreadId(new Date(nowIso));
   await ensureThread({ id, title: ZECA_TITLE, source: ZECA_SOURCE, nowIso });
+  // A spoken sentence is a CONVERSATION, and an unrouted thread is work: the
+  // first Zeca conversation went in unpinned, so "que horas são em Lisboa"
+  // opened the delivery loop - triage, then triage again, then plan on Sonnet,
+  // then test - two minutes of stretches, three spoken closing lines, and no
+  // answer, because the reply the phone waits for is the `discuss` duty's.
+  // Pinned here, at creation, so every rotation lands the same way.
+  await setThreadRouting(id, { duty: ZECA_DUTY, level: 1 }, { nowIso }).catch(() => null);
   return writePointer({ conversationId: id, since: nowIso, previous: previous.slice(0, ZECA_HISTORY_CAP) });
 }
 
