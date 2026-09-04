@@ -60,6 +60,22 @@ function parseCsv(raw) {
     .filter((s) => s.length > 0);
 }
 
+// "CANONICAL:variant1|variant2,CANONICAL2:variant1" -> { CANONICAL: [...] }.
+// An unparseable or empty override falls back to fallback rather than to {},
+// since {} would silently turn the alias layer off.
+function parseAliasMap(raw, fallback) {
+  const s = String(raw ?? "").trim();
+  if (!s) return fallback;
+  const map = {};
+  for (const entry of s.split(",")) {
+    const [canonical, variantsRaw] = entry.split(":");
+    if (!canonical?.trim() || !variantsRaw) continue;
+    const variants = variantsRaw.split("|").map((v) => v.trim()).filter(Boolean);
+    if (variants.length > 0) map[canonical.trim()] = variants;
+  }
+  return Object.keys(map).length > 0 ? map : fallback;
+}
+
 // Same default set as omi-channel's config (the operative answers to Zeca);
 // the byte-identical wake module copied from there consumes it. Kept as a
 // plain default here rather than re-implementing the retired-variant
@@ -69,6 +85,16 @@ function parseCsv(raw) {
 // wake word as German "Zecke" (2026-08-13). language=pt makes that unlikely
 // to recur, but the variant is cheap insurance against relapses.
 export const DEFAULT_WAKE_VARIANTS = ["zeca", "zeka", "zecca", "zéca", "ze ca", "zecke"];
+
+// Post-ASR pronunciation fixes (lib/pronunciation-aliases.mjs), applied AFTER
+// stt_keyterms bias rather than instead of it - keyterm prompting lifts the
+// odds Deepgram gets a word right, this catches the misheard renderings when
+// it still doesn't. "EKOA" is the operator's company name, spoken often
+// enough that a nova-3 pt-pinned stream (see sttLanguage below) mishears it as
+// a similar-sounding PT word; these are the phonetically nearest ones.
+export const DEFAULT_STT_ALIASES = {
+  EKOA: ["eco a", "eco-a", "ecoa", "e coa", "eqoa", "ecoá", "êcoa"]
+};
 
 // Gateway URL resolution — GARRISON_GATEWAY_URL, else HOST/PORT pair when the
 // port is explicitly numeric. NEVER a baked port literal. null = the
@@ -162,8 +188,11 @@ export function loadConfig(env = process.env) {
     // 0.99-1.0 on real captures and rescues embedded English product words.
     sttKeyterms: (() => {
       const v = parseCsv(env.GARRISON_CAPTURESERVICE_STT_KEYTERMS);
-      return v.length > 0 ? v : ["Zeca", "companion"];
+      return v.length > 0 ? v : ["Zeca", "companion", "EKOA"];
     })(),
+    // Post-ASR corrections for renderings the keyterm bias above still misses
+    // (lib/pronunciation-aliases.mjs). Applied on both the live and REST lanes.
+    sttAliases: parseAliasMap(env.GARRISON_CAPTURESERVICE_STT_ALIASES, DEFAULT_STT_ALIASES),
     // Zeca's voice (ADR: ElevenLabs over iOS AVSpeechSynthesizer). OFF by
     // default like every other pipe (I9); with it off, or with no key, the
     // phone keeps speaking in its own synthesizer and nothing else changes.

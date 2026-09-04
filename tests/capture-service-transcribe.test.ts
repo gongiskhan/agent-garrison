@@ -309,7 +309,7 @@ describe("capture-service transcription", () => {
     // speaker in two on real sessions).
     expect(url.searchParams.has("diarize")).toBe(false);
     // keyterm repeats per term (URLSearchParams collapses in the object view).
-    expect(url.searchParams.getAll("keyterm")).toEqual(["Zeca", "companion"]);
+    expect(url.searchParams.getAll("keyterm")).toEqual(["Zeca", "companion", "EKOA"]);
     expect(captured[0].auth).toBe(`Token ${DG_KEY}`);
     expect(deepgramUrl(loadConfig({ DEEPGRAM_API_KEY: DG_KEY }))).toContain("model=nova-3");
   });

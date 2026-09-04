@@ -91,10 +91,17 @@ x-garrison:
         stt_keyterms handles the operator's embedded English fine.
     - key: stt_keyterms
       type: string
-      default: Zeca,companion
+      default: Zeca,companion,EKOA
       description: >-
         Comma-separated Deepgram keyterm prompts (nova-3). Lifts wake-word
         confidence to ~1.0 and rescues embedded English product words.
+    - key: stt_aliases
+      type: string
+      default: 'EKOA:eco a|eco-a|ecoa|e coa|eqoa|ecoá|êcoa'
+      description: >-
+        Post-ASR corrections for renderings stt_keyterms bias alone still
+        misses: "CANONICAL:variant1|variant2,CANONICAL2:variant1". Applied to
+        both the live and whole-clip lanes before storage.
     - key: stt_rest_language
       type: string
       default: ''

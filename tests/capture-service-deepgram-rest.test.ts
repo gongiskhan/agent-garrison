@@ -19,6 +19,8 @@ const cfg = {
   sttRestLanguage: "en",
   sttLanguage: "en",
   sttModel: "nova-3",
+  sttKeyterms: ["Zeca", "companion", "EKOA"],
+  sttAliases: { EKOA: ["eco a", "ecoa"] },
   ttsDeepgramModel: "aura-2-thalia-en"
 };
 
@@ -55,6 +57,24 @@ describe("deepgram REST lane", () => {
     expect(err.status).toBe(0);
     expect(err.message).toMatch(/deepgram unreachable/);
     expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it("sends the keyterm bias on the clip lane, same as the live lane", async () => {
+    const seen: string[] = [];
+    const fetchImpl = async (url: string) => {
+      seen.push(url);
+      return new Response(JSON.stringify({ results: { channels: [{ alternatives: [{ transcript: "hi", confidence: 0.9 }] }] } }), { status: 200 });
+    };
+    await transcribeClip({ cfg, bytes: Buffer.from("abc"), fetchImpl });
+    const url = new URL(seen[0]);
+    expect(url.searchParams.getAll("keyterm")).toEqual(["Zeca", "companion", "EKOA"]);
+  });
+
+  it("corrects a known mishearing of a keyterm before returning the transcript", async () => {
+    const fetchImpl = async () =>
+      new Response(JSON.stringify({ results: { channels: [{ alternatives: [{ transcript: "manda para a eco a", confidence: 0.9 }] }] } }), { status: 200 });
+    const { transcript } = await transcribeClip({ cfg, bytes: Buffer.from("abc"), fetchImpl });
+    expect(transcript).toBe("manda para a EKOA");
   });
 
   it("upstreamSignal is off for a non-positive budget", () => {
