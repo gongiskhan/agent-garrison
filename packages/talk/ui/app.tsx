@@ -917,8 +917,12 @@ function BriefPanel({ path: briefPath, onClose }: { path: string; onClose: () =>
   );
 }
 
-/** Where the wide-layout session list remembers whether it was open. */
-const SESSIONS_OPEN_KEY = "wc.sessions.open";
+/** Where the wide-layout session list remembers whether it was open.
+ *  v2 on purpose: the previous version wrote the default into storage on every
+ *  mount, so every browser that had ever loaded /talk carried an explicit "0"
+ *  nobody had chosen - and the default could never be changed again, because
+ *  that stale "0" always won. The old key is deliberately left unread. */
+const SESSIONS_OPEN_KEY = "wc.sessions.open.v2";
 
 // ── Threaded app (sidebar + chat) ───────────────────────────────────────────
 // "Still working" banner for a turn that was already running when this view
@@ -1006,23 +1010,31 @@ function ThreadedApp({
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // The WIDE-layout session list, independent of the narrow drawer above.
-  // Collapsed by default (the list is navigation, not the work) and sticky: a
-  // preference you set once should survive the next visit, so it is read from
-  // localStorage at init rather than reset to the default on every mount.
+  // OPEN by default: this page is Conversations, and the list IS the page - a
+  // 42px rail with every conversation hidden is not what anyone opens it for.
+  // (It used to default to collapsed on the theory that the list is navigation
+  // rather than the work; on a real desktop that just read as broken.)
+  // Still sticky, but only for a choice you actually made: the write moved out
+  // of a mount effect and into the toggle, so the default stays a default
+  // instead of being frozen into storage the first time the page renders.
   const [listOpen, setListOpen] = useState<boolean>(() => {
     try {
-      return window.localStorage.getItem(SESSIONS_OPEN_KEY) === "1";
+      return window.localStorage.getItem(SESSIONS_OPEN_KEY) !== "0";
     } catch {
-      return false;
+      return true;
     }
   });
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(SESSIONS_OPEN_KEY, listOpen ? "1" : "0");
-    } catch {
-      /* private mode / storage disabled - the toggle still works for this visit */
-    }
-  }, [listOpen]);
+  const toggleList = useCallback(() => {
+    setListOpen((open) => {
+      const next = !open;
+      try {
+        window.localStorage.setItem(SESSIONS_OPEN_KEY, next ? "1" : "0");
+      } catch {
+        /* private mode / storage disabled - the toggle still works for this visit */
+      }
+      return next;
+    });
+  }, []);
   const [briefOpen, setBriefOpen] = useState(false);
   // Bumped to re-mount BriefPanel (re-fetch fresh content) when the brief changes on disk.
   const [briefReloadKey, setBriefReloadKey] = useState(0);
@@ -1834,7 +1846,7 @@ function ThreadedApp({
           transports={rshTransports}
           activeId={activeId}
           listOpen={listOpen}
-          onToggleList={() => setListOpen((v) => !v)}
+          onToggleList={toggleList}
           onSelect={(id) => { void selectThread(id); }}
           onNewLocal={() => { void newChat(); }}
           onOpenRemote={(target) => { void openRemote(target); }}

@@ -22,6 +22,7 @@ import path from "node:path";
 const UI = path.resolve(__dirname, "..", "packages", "talk", "ui");
 const CSS = readFileSync(path.join(UI, "styles.css"), "utf8");
 const RAIL_TSX = readFileSync(path.join(UI, "sessions-rail.tsx"), "utf8");
+const APP_TSX = readFileSync(path.join(UI, "app.tsx"), "utf8");
 
 /** The `display: none` selector list inside the wide-layout rail block. */
 function railHiddenSelectors(): string[] {
@@ -76,5 +77,38 @@ describe("the collapsed conversations rail (>= 901px)", () => {
       leaked,
       `these rail-head children are visible in the 42px collapsed rail and will overflow it: ${leaked.join(", ")}`
     ).toEqual([]);
+  });
+});
+
+// Source-level guards, standing in for an e2e assertion until the Playwright
+// specs land. They exist because the FIRST fix here (making the chevron
+// reachable again) still left the page opening on a 42px sliver with every
+// conversation hidden, which is what "broken on desktop" actually meant.
+describe("the wide-layout session list opens by default", () => {
+  const init = APP_TSX.match(/const \[listOpen, setListOpen\] = useState<boolean>\(\(\) => \{[\s\S]*?\n {2}\}\);/);
+
+  it("defaults to OPEN - the list is the page, not a drawer over it", () => {
+    expect(init, "listOpen must still be initialised from storage").toBeTruthy();
+    // Open unless storage explicitly says "0"; the old form was `=== "1"`,
+    // i.e. closed unless told otherwise.
+    expect(init![0]).toMatch(/!==\s*"0"/);
+    expect(init![0]).not.toMatch(/===\s*"1"/);
+  });
+
+  it("never writes the default into storage on mount - that is what froze the old default", () => {
+    // The trap: a `useEffect(..., [listOpen])` that persists on every render
+    // stamps an explicit "0" into every browser on its first visit, so the
+    // default can never be changed again. The write belongs in the toggle.
+    const effects = [...APP_TSX.matchAll(/useEffect\(\(\) => \{[\s\S]*?\n {2}\}, \[[^\]]*\]\);/g)].map((m) => m[0]);
+    const writesInEffect = effects.filter((e) => e.includes("SESSIONS_OPEN_KEY"));
+    expect(
+      writesInEffect,
+      "SESSIONS_OPEN_KEY is written from a useEffect; move it into the toggle or the default is frozen for every existing browser"
+    ).toEqual([]);
+    expect(APP_TSX).toMatch(/const toggleList = useCallback\([\s\S]*?SESSIONS_OPEN_KEY/);
+  });
+
+  it("uses a versioned key, so a stale stamped default cannot outvote a new one", () => {
+    expect(APP_TSX).toMatch(/const SESSIONS_OPEN_KEY = "wc\.sessions\.open\.v\d+"/);
   });
 });
