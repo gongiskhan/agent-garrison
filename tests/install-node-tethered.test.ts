@@ -106,6 +106,23 @@ describe("install-node.sh argument validation (no side effects)", () => {
     expect(result.status).toBe(1);
     expect(result.stderr).not.toMatch(/usage: install-node\.sh/);
   });
+
+  it("accepts a token via stdin with NO trailing newline (a caller piping via printf '%s' rather than '%s\\n') - does not silently abort with zero output", () => {
+    // Regression test: found live against real csg. `IFS= read -r TOKEN`
+    // under `set -e` reports failure on EOF-without-a-trailing-newline even
+    // though it still populates TOKEN - a bare `read` here silently aborted
+    // the whole script (exit 1, zero output) the instant a caller piped the
+    // token via `printf '%s'` instead of `printf '%s\n'`. Same assertion
+    // shape as the case above (reaches the real preflight, not exit 2) -
+    // the only difference is the missing trailing newline on stdin.
+    const result = runValidationOnly(
+      ["--name", "n", "--token-stdin", "--state-url", "http://127.0.0.1:1"],
+      { __stdin: "the-token" }
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).not.toMatch(/usage: install-node\.sh/);
+    expect(result.stderr).toMatch(/preflight/);
+  });
 });
 
 describe("install-node.sh --tethered preflight (real subprocess, curated PATH)", () => {

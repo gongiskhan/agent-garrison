@@ -150,7 +150,7 @@ CFG
 
   say "step 6/8: running install-node.sh --tethered on csg (token via stdin, never argv)"
   # shellcheck disable=SC2086
-  printf '%s' "$TOKEN" | $CSG "bash /tmp/install-node.sh --name csg --accent steel \
+  printf '%s\n' "$TOKEN" | $CSG "bash /tmp/install-node.sh --name csg --accent steel \
     --state-url $STATE_URL --token-stdin \
     --tethered --tether-host $TETHER_HOST --app-origin $APP_ORIGIN --shell-origin $SHELL_ORIGIN \
     --repo-source github"

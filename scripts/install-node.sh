@@ -46,7 +46,11 @@ USAGE="usage: install-node.sh --name <node> --token <mesh-token> --state-url <ht
 
 if [ "$TOKEN_STDIN" = "1" ]; then
   [ -z "$TOKEN" ] || { echo "$USAGE (pass either --token or --token-stdin, not both)" >&2; exit 2; }
-  IFS= read -r TOKEN
+  # `|| true`: under set -e, `read` reports failure on EOF without a trailing
+  # newline (a caller piping via `printf '%s'` instead of `%s\n`) even though
+  # it still populates TOKEN correctly - a bare `read` here would silently
+  # abort the whole script with zero output the moment that happens.
+  IFS= read -r TOKEN || true
 fi
 case "$REPO_SOURCE" in
   github|mirror) ;;
