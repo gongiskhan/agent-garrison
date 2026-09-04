@@ -1531,6 +1531,49 @@ spoken question is always answered by the operative rather than gated, is
 open debt in the handoff; with D57 the gate's question at least reaches the
 phone as a push and as speech.
 
+### D58. The spoken answer is the voice layer's voice, not the phone's (2026-09-04)
+
+With D57 live the phone finally spoke the answer, and the user heard the
+default iPhone voice: "The feedback is using the default iPhone voice
+instead of using Eleven Labs or Deepgram." `speakReply` handed the text to
+`GarrisonSpeech.speak`, and that plugin's only engine is `SpeechUtterer`,
+an `AVSpeechSynthesizer`. The Deepgram / ElevenLabs voice existed all along
+but only the pendant heard it: capture-service renders `POST /tts` clips
+(`voice.render`, mp3, 600 chars per call, the backend named in
+`x-voice-backend`), the talk router proxies it at `/api/voice/tts` with the
+vault's capture token, and the native `ClipPlayer` plays those clips for
+pendant and mic acks when the server sends an `audioPath`. The conversation
+page never asked for one.
+
+Decision: the page renders the answer through the voice layer and plays the
+clips itself; the phone's synthesizer is the fallback, not the voice.
+
+- `speakViaVoiceLayer` splits the answer with `chunkForTts` (sentence ends
+  first, then clauses, then spaces, never inside a word unless a word is
+  longer than the 600-char cap), posts each chunk to `/api/voice/tts`
+  (`{text, lang, format: "mp3"}`), renders chunk N+1 while chunk N plays,
+  and plays them in order through a `ClipPlayer` - by default an
+  `HTMLAudioElement` over a blob URL, revoked on `ended`. Capacitor's
+  webview allows media playback without a gesture
+  (`mediaTypesRequiringUserActionForPlayback = []`), so no tap is needed,
+  and while a broadcast is live the capture session is `.playAndRecord`
+  with `.defaultToSpeaker`, so the clip comes out of the speaker like the
+  synthesizer did.
+- The echo guard is unchanged: `/api/voice/spoken` learns the full text
+  before the first clip and every 20 s while a long answer is still
+  playing, so a live mic does not transcribe our own voice back in. The
+  master speech switch is still honoured before anything is fetched.
+- Fallback to `speech.speak` happens only when the voice layer cannot
+  render (503 no provider / no TTS key, a 400, a network failure) or the
+  first clip cannot be played. Once any clip has been heard the fallback is
+  NOT taken: a restart in the phone voice would read the same words twice.
+- Web-side only: no `ios/` change, so no TestFlight. Rendering on the node
+  costs one Deepgram TTS call per chunk; the pendant already pays the same.
+
+On this node the ElevenLabs key is unset, so `/health` reports
+`ttsBackend: "deepgram"` and Deepgram speaks; setting the key in the vault
+switches the backend without a page change (the voice layer picks it).
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |

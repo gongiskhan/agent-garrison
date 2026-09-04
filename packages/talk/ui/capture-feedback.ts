@@ -215,18 +215,112 @@ export interface SpeechBridge {
   settings(): Promise<{ master?: boolean; info?: boolean }>;
 }
 
+/** Plays one rendered clip to the end; resolves false when it could not. */
+export interface ClipPlayer {
+  play(audio: Blob): Promise<boolean>;
+}
+
+/** The voice layer's `/tts` ceiling per request (capture-service MAX_TEXT_CHARS). */
+export const TTS_MAX_CHARS = 600;
+
+/**
+ * Split an answer into pieces the voice layer renders in one call, breaking
+ * at sentence ends, then at clause ends, then at spaces, never inside a word
+ * unless one word is longer than the cap.
+ */
+export function chunkForTts(text: string, max: number = TTS_MAX_CHARS): string[] {
+  const out: string[] = [];
+  let rest = text.trim();
+  // Candidate break points, most preferred first: after a sentence end, after a clause, at any space.
+  const breakers = [/[.!?]["')\]]?\s+/g, /[,;:]\s+/g, /\s+/g];
+  while (rest.length > max) {
+    const window = rest.slice(0, max + 1);
+    let cut = -1;
+    for (const re of breakers) {
+      for (const m of window.matchAll(re)) {
+        const at = m.index ?? 0;
+        if (at > 0 && at + m[0].length <= max + 1) cut = at + m[0].length;
+      }
+      if (cut > 0) break;
+    }
+    if (cut <= 0) cut = max;
+    out.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) out.push(rest);
+  return out;
+}
+
+/** An HTMLAudioElement-backed player; the webview allows playback without a gesture. */
+export function createAudioClipPlayer(): ClipPlayer {
+  return {
+    play(audio: Blob) {
+      return new Promise<boolean>((resolve) => {
+        if (typeof Audio === "undefined" || typeof URL === "undefined" || typeof URL.createObjectURL !== "function") { resolve(false); return; }
+        const url = URL.createObjectURL(audio);
+        const el = new Audio(url);
+        const done = (ok: boolean) => { URL.revokeObjectURL(url); resolve(ok); };
+        el.addEventListener("ended", () => done(true), { once: true });
+        el.addEventListener("error", () => done(false), { once: true });
+        el.play().catch(() => done(false));
+      });
+    },
+  };
+}
+
+/**
+ * Render the answer with the voice layer (`POST /api/voice/tts`, the same
+ * Deepgram / ElevenLabs voice the pendant hears) and play the clips in order.
+ * The next chunk renders while the current one plays. Resolves false when the
+ * voice layer is unavailable (no provider, no key, upstream failure) or a clip
+ * could not be played, so the caller can fall back to the phone's own voice.
+ */
+export async function speakViaVoiceLayer(
+  text: string,
+  { lang, fetchImpl, player, maxChars = TTS_MAX_CHARS }: { lang?: string; fetchImpl?: typeof fetch; player: ClipPlayer; maxChars?: number },
+): Promise<boolean> {
+  const doFetch = fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
+  const render = async (chunk: string): Promise<Blob | null> => {
+    try {
+      const r = await doFetch("/api/voice/tts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(lang ? { text: chunk, lang, format: "mp3" } : { text: chunk, format: "mp3" }),
+      });
+      if (!r.ok) return null;
+      const blob = await r.blob();
+      return blob.size > 0 ? blob : null;
+    } catch {
+      return null;
+    }
+  };
+  const chunks = chunkForTts(text, maxChars);
+  if (chunks.length === 0) return false;
+  let next = render(chunks[0]);
+  for (let i = 0; i < chunks.length; i += 1) {
+    const clip = await next;
+    if (!clip) return i > 0; // the start was heard; the phone must not restart it
+    if (i + 1 < chunks.length) next = render(chunks[i + 1]);
+    const played = await player.play(clip);
+    if (!played) return i > 0;
+  }
+  return true;
+}
+
 /**
  * Speak an answer through the phone, echo-guarded: the voice layer learns the
  * text (`POST /api/voice/spoken`) before the speaker says it, and again every
  * 20 s while a long answer is still being read, so a live broadcast mic does
- * not transcribe our own voice back into the conversation. Speech settings the
- * user turned off (master) are honoured; a page that is not visible stays
- * silent - the push carries the answer then.
+ * not transcribe our own voice back into the conversation. The voice is the
+ * voice layer's own (D58: rendered clips over `/api/voice/tts`); the phone's
+ * synthesizer speaks only when no clip can be had. Speech settings the user
+ * turned off (master) are honoured; a page that is not visible stays silent -
+ * the push carries the answer then.
  */
 export async function speakReply(
   speech: SpeechBridge,
   text: string,
-  { lang, fetchImpl, registerEveryMs = 20_000 }: { lang?: string; fetchImpl?: typeof fetch; registerEveryMs?: number } = {},
+  { lang, fetchImpl, registerEveryMs = 20_000, player = createAudioClipPlayer() }: { lang?: string; fetchImpl?: typeof fetch; registerEveryMs?: number; player?: ClipPlayer | null } = {},
 ): Promise<boolean> {
   const doFetch = fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
   try {
@@ -244,6 +338,7 @@ export async function speakReply(
   await register();
   const timer = setInterval(() => { void register(); }, registerEveryMs);
   try {
+    if (player && await speakViaVoiceLayer(text, { lang, fetchImpl: doFetch, player })) return true;
     const r = await speech.speak(lang ? { text, lang } : { text });
     return r?.completed !== false;
   } catch {

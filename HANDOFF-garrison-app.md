@@ -138,6 +138,18 @@ on the iPhone and walk this list on the real device against this node
    `tests/talk-capture-feedback.test.ts` (idle fallback, `describePushStatus`),
    `ios/Tests/BridgePluginRegistryTests.swift`
    (`testBridgeLeavesNotificationsToPushManager`).
+3f. The spoken answer is the voice layer's voice (D58, no new TestFlight:
+   web-side only, needs this node reloaded). With the broadcast live, ask
+   Zeca something and listen: the answer is read in the Deepgram voice the
+   pendant uses (`/health` on capture-service says `ttsBackend: "deepgram"`
+   here; the ElevenLabs key is unset on this node, set it in the vault to
+   switch), NOT the default iPhone voice the D57 build spoke with. A long
+   answer plays in sentence-sized clips with no gap you would notice; the
+   iPhone voice is heard only when the voice layer cannot render (no TTS
+   key at all, node unreachable). On the node each clip is one
+   `POST /tts` line in `~/.garrison/ui-fittings/capture-service.log`.
+   Regressions: `tests/talk-capture-feedback.test.ts` (`speakReply` D58,
+   `chunkForTts`).
 4. Capture page (`/capture`, shown only in the app): the microphone lane and
    the broadcast picker (screen capture consent is native), the live status,
    a session that ends cleanly.
@@ -327,6 +339,13 @@ the simulator and where the code is.
   is in front, and the notifications line under the record button reads the
   status through the D50 `GarrisonPush` plugin (already in the app).
   Evidence in `evidence/garrison-app/voice-d57/`.
+
+- **2026-09-04 (D58): this Mac and the mini reloaded; dev-madrid still
+  NOT.** `packages/talk/ui/capture-feedback.ts` only, so `node:reload`; the
+  same reload also made the capture-service log rotation
+  (`src/lib/own-port-lifecycle.ts`, `.log.1`) live. No `ios/` change, so
+  the D57 TestFlight build is still the one to test with. Evidence in
+  `evidence/garrison-app/voice-d58/`.
 
 ## 3. Operator-triggered follow-ups
 

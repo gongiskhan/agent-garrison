@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
   CAPTURE_REPLY_IDLE_MS,
+  chunkForTts,
   cleanSpokenText,
   createFoldState,
   foldCaptureEvents,
   settleCaptureIdle,
   speakReply,
+  TTS_MAX_CHARS,
   watchCaptureFeedback,
   type CaptureHeard,
-  type CaptureReply
+  type CaptureReply,
+  type ClipPlayer
 } from "../packages/talk/ui/capture-feedback";
 import { describePushStatus } from "../packages/talk/ui/record-button";
 
@@ -116,24 +119,89 @@ describe("watchCaptureFeedback", () => {
 });
 
 describe("speakReply", () => {
-  it("registers the text with the voice layer before the phone says it, and honours the master switch", async () => {
+  /** A voice layer that renders any text under the cap and a player that remembers what it played. */
+  function voiceLayer(opts: { tts?: number | "throw"; player?: boolean } = {}) {
     const posts: string[] = [];
     const fetchImpl = (async (url: RequestInfo | URL, init?: RequestInit) => {
-      posts.push(`${String(url)} ${String(init?.body ?? "")}`);
+      const body = String(init?.body ?? "");
+      posts.push(`${String(url)} ${body}`);
+      if (String(url) === "/api/voice/tts") {
+        if (opts.tts === "throw") throw new Error("offline");
+        if (opts.tts && opts.tts !== 200) return new Response(JSON.stringify({ error: "no tts" }), { status: opts.tts });
+        const { text } = JSON.parse(body) as { text: string };
+        if (text.length > TTS_MAX_CHARS) return new Response(JSON.stringify({ error: "chunk it" }), { status: 400 });
+        return new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { "content-type": "audio/mpeg", "x-voice-backend": "deepgram" } });
+      }
       return new Response("{}", { status: 202 });
     }) as typeof fetch;
+    const played: number[] = [];
+    const player: ClipPlayer = { play: async (blob) => { played.push(blob.size); return opts.player !== false; } };
     const spoken: string[] = [];
     const speech = {
       speak: async ({ text }: { text: string }) => { spoken.push(text); return { completed: true }; },
       settings: async () => ({ master: true })
     };
-    expect(await speakReply(speech, "Answer.", { fetchImpl })).toBe(true);
-    expect(posts).toEqual(['/api/voice/spoken {"text":"Answer."}']);
-    expect(spoken).toEqual(["Answer."]);
+    return { posts, fetchImpl, player, played, spoken, speech };
+  }
 
-    const muted = { ...speech, settings: async () => ({ master: false }) };
-    expect(await speakReply(muted, "Quiet.", { fetchImpl })).toBe(false);
-    expect(spoken).toEqual(["Answer."]);
+  it("registers the text with the voice layer, plays its rendered clip, and never uses the phone voice (D58)", async () => {
+    const v = voiceLayer();
+    expect(await speakReply(v.speech, "Answer.", { fetchImpl: v.fetchImpl, player: v.player })).toBe(true);
+    expect(v.posts).toEqual([
+      '/api/voice/spoken {"text":"Answer."}',
+      '/api/voice/tts {"text":"Answer.","format":"mp3"}'
+    ]);
+    expect(v.played).toEqual([3]);
+    expect(v.spoken).toEqual([]);
+  });
+
+  it("honours the master switch before touching the voice layer", async () => {
+    const v = voiceLayer();
+    const muted = { ...v.speech, settings: async () => ({ master: false }) };
+    expect(await speakReply(muted, "Quiet.", { fetchImpl: v.fetchImpl, player: v.player })).toBe(false);
+    expect(v.posts).toEqual([]);
+    expect(v.played).toEqual([]);
+    expect(v.spoken).toEqual([]);
+  });
+
+  it("renders a long answer in sentence-sized chunks the voice layer accepts, in order", async () => {
+    const sentence = "This sentence is repeated so that the answer runs well past the cap. ";
+    const text = sentence.repeat(20).trim();
+    const v = voiceLayer();
+    expect(await speakReply(v.speech, text, { fetchImpl: v.fetchImpl, player: v.player, lang: "en" })).toBe(true);
+    const chunks = v.posts.filter((p) => p.startsWith("/api/voice/tts ")).map((p) => JSON.parse(p.slice("/api/voice/tts ".length)) as { text: string; lang?: string });
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every((c) => c.text.length <= TTS_MAX_CHARS && c.lang === "en")).toBe(true);
+    expect(chunks.every((c) => c.text.endsWith("."))).toBe(true);
+    expect(chunks.map((c) => c.text).join(" ")).toBe(text);
+    expect(v.played).toHaveLength(chunks.length);
+    expect(v.spoken).toEqual([]);
+  });
+
+  it("falls back to the phone voice only when the voice layer cannot render (no provider, offline, unplayable)", async () => {
+    for (const opts of [{ tts: 503 as const }, { tts: "throw" as const }, { player: false }]) {
+      const v = voiceLayer(opts);
+      expect(await speakReply(v.speech, "Fallback.", { fetchImpl: v.fetchImpl, player: v.player })).toBe(true);
+      expect(v.spoken).toEqual(["Fallback."]);
+      expect(v.posts[0]).toBe('/api/voice/spoken {"text":"Fallback."}');
+    }
+  });
+});
+
+describe("chunkForTts", () => {
+  it("keeps a short answer whole and never cuts inside a word", () => {
+    expect(chunkForTts("Short answer.")).toEqual(["Short answer."]);
+    expect(chunkForTts("   ")).toEqual([]);
+    const words = Array.from({ length: 400 }, (_, i) => `w${i}`).join(" ");
+    const chunks = chunkForTts(words, 100);
+    expect(chunks.every((c) => c.length <= 100)).toBe(true);
+    expect(chunks.join(" ")).toBe(words);
+  });
+
+  it("prefers sentence ends, then clauses, then spaces, and splits an overlong word only when it must", () => {
+    expect(chunkForTts("One two. Three four. Five six.", 18)).toEqual(["One two.", "Three four.", "Five six."]);
+    expect(chunkForTts("alpha, beta, gamma, delta", 13)).toEqual(["alpha, beta,", "gamma, delta"]);
+    expect(chunkForTts("a".repeat(25), 10)).toEqual(["a".repeat(10), "a".repeat(10), "a".repeat(5)]);
   });
 });
 
