@@ -81,6 +81,36 @@ describe("awaitConversationReply", () => {
     expect(urls[1]).toBe("http://app.test/api/conversation/conv-1/log?fromIndex=13&limit=500");
   });
 
+  // D62: several watchers poll the SAME conversation - one per spoken sentence
+  // into the standing Zeca thread. Exactly one of them may speak the answer.
+  it("hands one stretch to exactly one watcher, and the losers stop instead of waiting for the next", async () => {
+    const announced = new Set<string>();
+    const claim = (stretchId: string) => {
+      if (announced.has(stretchId)) return false;
+      announced.add(stretchId);
+      return true;
+    };
+    const events = [started("s-1"), said("Cinco da tarde."), ended("s-1", "dialogue")];
+    const fetchImpl = async () => ({ ok: true, json: async () => ({ events, nextIndex: 3 }) });
+    const args = {
+      base: "http://app.test",
+      conversationId: "conv-race",
+      fetchImpl,
+      pollMs: 1,
+      timeoutMs: 50,
+      claim,
+      sleep: async () => {}
+    };
+    const [first, second, third] = await Promise.all([
+      awaitConversationReply(args),
+      awaitConversationReply(args),
+      awaitConversationReply(args)
+    ]);
+    const spoken = [first, second, third].filter(Boolean);
+    expect(spoken, "one answer, one voice").toHaveLength(1);
+    expect(spoken[0]).toMatchObject({ text: "Cinco da tarde.", duty: "dialogue", stretchId: "s-1" });
+  });
+
   it("falls back to the last stretch once the loop has been idle, and gives up at the deadline", async () => {
     let clock = 0;
     const events = [started("s-t"), said("Direct answer from triage."), ended("s-t", "triage")];

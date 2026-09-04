@@ -17,7 +17,13 @@
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 const DEFAULT_POLL_MS = 3_000;
 const DEFAULT_IDLE_GRACE_MS = 20_000;
-export const DEFAULT_REPLY_DUTIES = ["discuss"];
+// The duties whose stretch END is an answer TO THE PERSON. `dialogue` is the
+// spoken conversation's own duty (D62) and comes first; `discuss` is the
+// written back-and-forth; `responder` answers a person on a settled work
+// conversation. Every other duty talks to the loop, not to the wearer - and
+// when none of these matches, the idle fallback speaks whatever ended last,
+// which is how a `test` stretch's "Nothing left to do here" was read aloud.
+export const DEFAULT_REPLY_DUTIES = ["dialogue", "discuss", "responder"];
 // APNs caps the whole payload at 4 KB; a phone shows the first few lines.
 export const REPLY_TEXT_CAP = 700;
 
@@ -65,6 +71,10 @@ export function foldReplyEvents(state, events, { duties = DEFAULT_REPLY_DUTIES, 
       const id = payload.stretchId ?? state.running;
       const text = cleanReplyText(state.texts.get(id) ?? "");
       state.running = null;
+      // Only skip a stretch another watcher has ALREADY announced; a stretch
+      // that merely becomes `lastEnded` here is not spoken yet, and burning it
+      // in this branch is what made the idle fallback speak the stretch after
+      // the one it meant (D62).
       if (!isFresh(id)) continue;
       const duty = typeof payload.duty === "string" ? payload.duty : null;
       if (duty && duties.includes(duty) && text) return { text, duty, stretchId: id };
@@ -84,6 +94,10 @@ export async function awaitConversationReply({
   pollMs = DEFAULT_POLL_MS,
   idleGraceMs = DEFAULT_IDLE_GRACE_MS,
   isFresh = () => true,
+  // Called once, synchronously, when this watcher is about to announce a
+  // stretch: true = it is mine to speak, false = another watcher already took
+  // it and I stop. Defaults to "always mine" for the single-watcher callers.
+  claim = () => true,
   now = () => Date.now(),
   sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 } = {}) {
@@ -106,12 +120,19 @@ export async function awaitConversationReply({
     if (events.length) {
       cursor = typeof page.nextIndex === "number" ? page.nextIndex : cursor + events.length;
       const reply = foldReplyEvents(state, events, { duties, now: now(), isFresh });
-      if (reply) return { ...reply, timedOut: false };
+      // The claim is SYNCHRONOUS and happens at the return point, not during the
+      // fold: several watchers poll the same conversation (one per spoken turn),
+      // and a check-then-act across their awaits let all of them announce the
+      // same stretch - the user heard one answer three times (D62). A watcher
+      // that loses the claim gives up rather than polling on, or it would speak
+      // the NEXT unrelated stretch minutes later.
+      if (reply) return claim(reply.stretchId) ? { ...reply, timedOut: false } : null;
     }
     const idle = state.lastEnded && !state.running && now() - state.lastEnded.at >= idleGraceMs;
     if (idle) {
       const { text, duty, stretchId } = state.lastEnded;
-      return text ? { text, duty, stretchId, timedOut: false } : null;
+      if (!text) return null;
+      return claim(stretchId) ? { text, duty, stretchId, timedOut: false } : null;
     }
     await sleep(pollMs);
   }

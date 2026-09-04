@@ -309,7 +309,7 @@ export function loadConfig(env = process.env) {
     // first stretch that ends with one of these duties; it is pushed to the
     // phone and spoken in the app. The loop's triage/test stretches talk to the
     // loop, not to the person. The watch gives up after the timeout.
-    wakeReplyDuties: parseCsv(env.GARRISON_CAPTURESERVICE_WAKE_REPLY_DUTIES ?? "discuss"),
+    wakeReplyDuties: parseCsv(env.GARRISON_CAPTURESERVICE_WAKE_REPLY_DUTIES ?? "dialogue,discuss,responder"),
     wakeReplyTimeoutMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_REPLY_TIMEOUT_MS, 300000),
     wakeReplyPollMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_REPLY_POLL_MS, 3000),
     // Which language the wake path confirms in. "auto" (the default) reads it

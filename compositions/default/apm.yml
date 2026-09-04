@@ -675,6 +675,20 @@ x-garrison:
               effort: medium
         default: floor
         ceiling: middle
+      - id: dialogue
+        title: Dialogue
+        description: >-
+          Talk with the person and finish it in this one pass: answer the question, keep the note,
+          remember the fact, put the reminder on the board, do the small thing now. Never opens the
+          delivery loop and never hands off - real project or automation work becomes its own card,
+          which runs on triage there while this reply just says so.
+        levels:
+          - description: >-
+              standard: answer from what is already known, act on what is small, card what is work,
+              then stop
+            cell:
+              target: cc-sonnet
+              effort: medium
       - id: responder
         title: Responder
         description: Answer a user message in a conversation when no work is running.
@@ -688,6 +702,7 @@ x-garrison:
         default: floor
         ceiling: middle
     selected_duties:
+      - dialogue
       - implement
       - test
       - review

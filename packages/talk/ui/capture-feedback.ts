@@ -17,7 +17,7 @@
 // The page and the push therefore say the same thing. Typed turns never
 // trigger a spoken answer.
 
-export const CAPTURE_REPLY_DUTIES = ["discuss"];
+export const CAPTURE_REPLY_DUTIES = ["dialogue", "discuss", "responder"];
 // Mirrors capture-service's wakeReplyPollMs-scaled grace: a stretch loop that
 // has been quiet this long is not going to add a discuss stretch.
 export const CAPTURE_REPLY_IDLE_MS = 20_000;

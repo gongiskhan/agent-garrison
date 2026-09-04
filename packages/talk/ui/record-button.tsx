@@ -99,6 +99,9 @@ type Step = "idle" | "starting" | "live" | "stopping";
 export type RecordMode = "screen" | "listen";
 
 const MODE_KIND: Record<RecordMode, RecordKind> = { screen: "screen_audio", listen: "microphone" };
+// How long a status line under the composer stays before it gets out of the
+// way of the conversation it is about.
+const NOTE_LINGER_MS = 8000;
 const MIC_LIVE_PHASES = new Set(["connecting", "live", "interrupted"]);
 
 // What each button says. The screen button never mentions the microphone:
@@ -144,6 +147,8 @@ export function RecordButton({ bridge, conversationId, mode = "screen", feedback
   // Why the last answer came out in the phone's own voice instead of the voice
   // layer's (D58). Null while clips play; the line clears itself.
   const [voiceNote, setVoiceNote] = useState<string | null>(null);
+  // Status lines under the composer linger, then leave (see `transient` below).
+  const [noteShown, setNoteShown] = useState(true);
   const [captured, setCaptured] = useState(false);
   const [awaiting, setAwaiting] = useState(0);
   const [pushStatus, setPushStatus] = useState<PushBridgeStatus | null>(null);
@@ -332,6 +337,20 @@ export function RecordButton({ bridge, conversationId, mode = "screen", feedback
       : null;
   const pushLine = feedback ? describePushStatus(pushStatus) : null;
 
+  // Every one of these lines sits between the composer and the last reply, so a
+  // line that never leaves covers the answer it is announcing. They are status,
+  // not content: show the newest one, then get out of the way. Errors stay -
+  // they are the one thing the user has to act on - and so does the push line
+  // when it carries a button.
+  const transient = voiceNote && feedback ? voiceNote : heardLine ?? liveHint;
+  useEffect(() => {
+    if (!transient) return;
+    setNoteShown(true);
+    const timer = setTimeout(() => setNoteShown(false), NOTE_LINGER_MS);
+    return () => clearTimeout(timer);
+  }, [transient]);
+  const showTransient = transient !== null && noteShown;
+
   return (
     <span className="wc-rec" data-testid="wc-rec" data-step={step}>
       <button
@@ -354,11 +373,11 @@ export function RecordButton({ bridge, conversationId, mode = "screen", feedback
         )}
         <span className="wc-rec-label">{face}</span>
       </button>
-      {error || voiceNote || heardLine || liveHint || pushLine ? (
+      {error || showTransient || pushLine ? (
         <span className="wc-rec-notes">
           {error ? (
             <span className="wc-rec-err" role="status">{error}</span>
-          ) : voiceNote && feedback ? (
+          ) : !showTransient ? null : voiceNote && feedback ? (
             <span className="wc-rec-heard" role="status" data-testid="wc-rec-voice">{voiceNote}</span>
           ) : heardLine ? (
             <span className="wc-rec-heard" role="status" data-testid="wc-rec-heard">{heardLine}</span>

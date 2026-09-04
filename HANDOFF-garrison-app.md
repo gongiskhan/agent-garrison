@@ -3,7 +3,7 @@
 What this run did: the September 2026 plan "one app, the web channel home, one
 voice layer, screencast inside conversations" ran as gates G0-G8 on
 `node/goncalos-macbook-pro`, each gate committed and deployed to this node's
-live instance, decisions D1-D61 recorded in
+live instance, decisions D1-D62 recorded in
 `docs/decisions/2026-09-garrison-app.md`, evidence under
 `evidence/garrison-app/<gate>/`. Everything a machine could prove is proven:
 vitest, typecheck, playwright (both configs), XCTest on the mini's simulator,

@@ -1822,6 +1822,89 @@ depends on which node it is pointed at - the mesh state service does not
 carry talk threads. A clarification answer still lands only in the delegate
 lane, not in the conversation.
 
+### D62. `dialogue`: the duty a person speaks to, and one voice per answer (2026-09-04)
+
+Three reports in one evening, one root: the standing Zeca conversation was
+running the delivery loop. "Que horas são em Lisboa" opened `triage`, was
+rewritten by `triage-never-done` into `plan` on Sonnet at high effort, then by
+`done-without-evidence` into `test` - two minutes of stretches for a clock
+reading, and what the phone finally read aloud was the `test` stretch's closing
+line, three times over.
+
+**Why a question became a project.** A talk thread with no routing pin runs
+whatever dispatch infers, and every inference lands in the loop, because the
+loop is what the duties describe. Pinning `discuss` (D61's stopgap) only moved
+it: `discuss` is a WRITTEN back-and-forth that ends in a brief, so the carding
+seam still treated the turn as work.
+
+**Why it was spoken three times.** `WakeBus.trackReplyWatch` started one
+watcher PER SPOKEN TURN, all against the same standing conversation, and the
+only dedupe - `announcedReplies` - was a check-then-act across their awaits:
+`isFresh` was read during the poll, `announced.add` ran after the await
+resolved, so every watcher passed the check and every one of them spoke.
+`acks-log.jsonl` has three `conversation_reply` speaks at 16:27:18.702/.703/.703
+carrying one `stretchId`. And the line they spoke was a `test` stretch closing
+because `DEFAULT_REPLY_DUTIES = ["discuss"]` matched nothing the loop produced,
+so every reply came from the 20-second idle fallback, which speaks whatever
+ended last.
+
+**The duty.** `dialogue`: one level, `cc-sonnet` at medium effort, and
+deliberately NO ladder, default or ceiling - `resolveDutyLadders` then builds a
+synthetic one-rung ladder, so no tripwire can move a spoken sentence onto opus
+mid-conversation. It is `selected_duties`-listed (the exit gate refuses an
+unselected duty) and it is what `zeca.mjs` pins at creation and at every
+nightly rotation. Its contract is one pass: answer, act, stop.
+
+- **It finishes small things itself**: answers, memories, notes, a reminder
+  with a due date on the board, a message through a connector.
+- **It refuses to start big ones inline.** Real project or automation work
+  becomes a card through the new `garrison_create_card` MCP tool (POST /cards on
+  `todo` with an `origin_id` idempotency key, then POST /cards/:id/start), which
+  opens its own conversation at the card id and runs triage THERE. The spoken
+  reply is one sentence saying it is on the board. This is the whole point: the
+  loop is right for work and wrong for a conversation someone is listening to.
+- **It never hands off.** `applyFlowPolicy` gains the same exemption
+  `responder` has, so an answered-and-done dialogue stretch is not rewritten
+  into `test` for lack of evidence. An answer has no evidence to show.
+- **Its register is the earpiece's**, not the loop's: `DUTY_GUIDANCE.dialogue`
+  (the live per-duty seam in `stretch.mjs`, the same one `responder` uses)
+  carries the 55-word hard cap, the markdown ban, European Portuguese, "ask ONE
+  question when it is ambiguous" and "disagree when they are about to do
+  something daft" - the doctrine `buildVoiceDiscussPrompt` has carried since
+  D25, now applied where the conversation actually runs. The word cap is not
+  taste: `tts.mjs` refuses to render past 600 characters.
+- **`garrison_create_card` is `dialogue`'s alone** (`DUTY_MCP_TOOLS.dialogue`,
+  not `SHARED_MCP_TOOLS`): a working stretch that can spawn cards mid-flight is
+  a different system.
+
+**One voice per answer.** `trackReplyWatch` now coalesces per CONVERSATION -
+a turn arriving while a watch runs joins it, still gets its `reply` block in its
+own wake-result, and does not open a second mouth. The dedupe became a
+synchronous `claim(stretchId)` applied at both return points inside
+`awaitConversationReply`, and a watcher that loses the claim returns null rather
+than polling on - otherwise duplicates would become one correct answer plus a
+stray unrelated line minutes later. `DEFAULT_REPLY_DUTIES` is now
+`["dialogue", "discuss", "responder"]` in all three places that hardcode it
+(capture-service's module and its config default, the talk UI's
+`CAPTURE_REPLY_DUTIES`); miss one and the duty answers into the ledger while the
+phone stays silent, with no error anywhere.
+
+**Also**: the D61 echo guard was one token too strict. Zeca's "Não percebi -
+repete?" came back through the microphone as "Não percebi, repito.", failed the
+strict token-subset test, and was dispatched as if the user had said it. It is
+now containment at 0.6 of a segment no longer than the line.
+
+Tests: `tests/dialogue-duty.test.ts` (declared, selected, one rung, the flow
+exemption is dialogue's alone, the guidance carries the cap and the escalation
+contract, the card tool is on `dialogue` and not on every stretch),
+`tests/capture-service-conversation-reply.test.ts` (three concurrent watchers,
+one spoken answer), plus the Zeca and wake suites for the pin.
+
+Debts: the escalation prose asks the model to use its memory tools, which the
+plain routed turn has and a narrowed stretch does not; a card created from
+dialogue carries `origin: "dialogue"` but the board still has no dedupe of its
+own beyond the `origin_id` the caller passes.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |

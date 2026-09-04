@@ -792,6 +792,8 @@ export class WakeBus {
     this.fetchImpl = fetchImpl;
     this.replyWatches = new Set();
     this.announcedReplies = new Map(); // conversationId -> Set<stretchId>
+    // conversationId -> { promise, eventIds } - see trackReplyWatch.
+    this.replyWatchByConversation = new Map();
   }
 
   // Tests await this so the deferred reply watch has settled.
@@ -799,13 +801,31 @@ export class WakeBus {
     return Promise.all([...this.replyWatches]);
   }
 
+  // One watch per CONVERSATION, not per turn (D62). The standing Zeca
+  // conversation takes every spoken sentence, so three sentences used to start
+  // three watchers on one ledger; each found the same stretch and each spoke it,
+  // and the user heard the same answer three times. A turn that arrives while a
+  // watch is already running joins it - it still gets its `reply` block in the
+  // wake-result, it just does not open a second mouth.
   trackReplyWatch(args) {
-    const watch = this.watchConversationReply(args).catch((err) => {
+    const key = args?.conversationId ?? null;
+    const joined = key ? this.replyWatchByConversation.get(key) : null;
+    if (joined) {
+      if (args?.eventId) joined.eventIds.add(args.eventId);
+      this.counters.bump("wake_reply_watches_joined");
+      return joined.promise;
+    }
+    const eventIds = new Set(args?.eventId ? [args.eventId] : []);
+    const watch = this.watchConversationReply({ ...args, eventIds }).catch((err) => {
       this.log.error(`[${this.source.logPrefix}] wake reply watch error: ${err?.message ?? err}`);
       return null;
     });
     this.replyWatches.add(watch);
-    watch.finally(() => this.replyWatches.delete(watch));
+    if (key) this.replyWatchByConversation.set(key, { promise: watch, eventIds });
+    watch.finally(() => {
+      this.replyWatches.delete(watch);
+      if (key) this.replyWatchByConversation.delete(key);
+    });
     return watch;
   }
 
@@ -815,7 +835,7 @@ export class WakeBus {
   // a push otherwise - the phone owner is in another app and the old companion
   // never left them without the answer. The reply is also appended to the
   // wake-results record so the exchange reads back whole.
-  async watchConversationReply({ conversationId, eventId, sessionId = null, lang = "en", base, fromIndex }) {
+  async watchConversationReply({ conversationId, eventId, sessionId = null, lang = "en", base, fromIndex, eventIds = null }) {
     const announced = this.announcedReplies.get(conversationId) ?? new Set();
     this.announcedReplies.set(conversationId, announced);
     if (this.announcedReplies.size > 50) this.announcedReplies.delete(this.announcedReplies.keys().next().value);
@@ -831,6 +851,14 @@ export class WakeBus {
       timeoutMs,
       ...(typeof this.cfg.wakeReplyPollMs === "number" ? { pollMs: this.cfg.wakeReplyPollMs } : {}),
       isFresh: (stretchId) => !announced.has(stretchId),
+      // Test and take in one tick: an async gap between the two is how three
+      // watchers announced one stretch.
+      claim: (stretchId) => {
+        if (announced.has(stretchId)) return false;
+        announced.add(stretchId);
+        if (announced.size > 200) announced.delete(announced.values().next().value);
+        return true;
+      },
       now: this.now
     });
     if (!reply) {
@@ -838,8 +866,6 @@ export class WakeBus {
       this.log.log(`[${this.source.logPrefix}] wake reply ${eventId}: no ${duties.join("/")} answer in ${conversationId} within ${Math.round(timeoutMs / 1000)}s`);
       return null;
     }
-    announced.add(reply.stretchId);
-    if (announced.size > 200) announced.delete(announced.values().next().value);
     this.counters.bump("wake_conversation_replies");
     this.counters.observe("wake_conversation_reply_ms", this.now() - startedAt);
     const receipts = await this.notifier.send({
@@ -860,14 +886,18 @@ export class WakeBus {
         ? "push"
         : "undelivered";
     this.log.log(`[${this.source.logPrefix}] wake reply ${eventId} -> ${reply.duty ?? "?"} (${reply.text.length} chars, ${delivery})`);
-    const resultFile = path.join(this.store.root, "wake-results", `${eventId}.json`);
-    try {
-      const record = JSON.parse(readFileSync(resultFile, "utf8"));
-      record.reply = { text: reply.text, duty: reply.duty ?? null, stretchId: reply.stretchId, at: new Date(this.now()).toISOString(), delivery };
-      atomicWriteJSON(resultFile, record);
-    } catch {
-      // The record is written by dispatch after this turn's confirmation; a
-      // missing one (tests, a reset store) costs the forensic line, not the push.
+    // Every turn that joined this watch gets the reply on its own record: one
+    // answer was spoken, and the trail still says which sentences it answered.
+    for (const id of eventIds?.size ? eventIds : [eventId]) {
+      const resultFile = path.join(this.store.root, "wake-results", `${id}.json`);
+      try {
+        const record = JSON.parse(readFileSync(resultFile, "utf8"));
+        record.reply = { text: reply.text, duty: reply.duty ?? null, stretchId: reply.stretchId, at: new Date(this.now()).toISOString(), delivery };
+        atomicWriteJSON(resultFile, record);
+      } catch {
+        // The record is written by dispatch after this turn's confirmation; a
+        // missing one (tests, a reset store) costs the forensic line, not the push.
+      }
     }
     return { ...reply, delivery };
   }
@@ -1083,7 +1113,12 @@ export class WakeBus {
     const line = new Set(normalizeTokens(spoken));
     if (line.size === 0) return false;
     if (said.length > line.size) return false;
-    return said.every((tok) => line.has(tok));
+    // Containment, not equality: the microphone hears the line through a
+    // speaker and Deepgram re-renders it - "Não percebi - repete?" came back as
+    // "Não percebi, repito." and, one token off a strict subset, was dispatched
+    // as if the user had said it. Two thirds of a short line is our own voice.
+    const hits = said.filter((tok) => line.has(tok)).length;
+    return hits / said.length >= 0.6;
   }
 
   // ---- spoken discussions --------------------------------------------------
