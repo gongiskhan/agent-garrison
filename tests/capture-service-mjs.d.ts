@@ -428,6 +428,8 @@ declare module "*/capture-service/lib/wake.mjs" {
     constructor(deps: Record<string, unknown>);
     stripLeadingCueEcho(command: unknown): string;
     delegateChain?: Promise<unknown>;
+    dispatchChain: Promise<unknown>;
+    counters: { read(): Record<string, number>; bump(key: string, by?: number): number };
     handleSegments(args: { sessionId: string; segments: unknown[] }): void;
     handleCommand(args: {
       command: string;
@@ -455,10 +457,22 @@ declare module "*/capture-service/lib/wake.mjs" {
     expectAnswer(
       sessionId: string,
       ackId: string,
-      opts?: { lang?: string | null; rounds?: number; eventId?: string | null }
+      opts?: { lang?: string | null; rounds?: number; eventId?: string | null; reprompt?: boolean; spoken?: string | null }
     ): void;
     armAnswerWindow(ackId: string): string | null;
-    openAnswerWindow(sessionId: string): { ackId: string; lang: string; rounds: number } | null;
+    openAnswerWindow(sessionId: string): { ackId: string; lang: string; rounds: number; reprompt?: boolean } | null;
+    isSpokenEcho(text: string, spoken: string | null): boolean;
+    dispatch(args: {
+      sessionId: string | null;
+      command: string;
+      wakeHitAt?: number;
+      reason?: string;
+      context?: unknown[];
+      trailing?: string;
+      screen?: unknown;
+      conversationId?: string | null;
+      repromptRounds?: number;
+    }): Promise<any>;
     resolveLanguage(command: string, parsed?: unknown): string;
   }
 }
@@ -584,7 +598,7 @@ declare module "*/capture-service/lib/zeca.mjs" {
     refresh(): Promise<string | null>;
     start(): void;
     stop(): void;
-    health(): { conversationId: string | null; fetchedAt: string | null; error: string | null };
+    health(): { conversationId: string | null; base: string | null; fetchedAt: string | null; error: string | null };
   }
 }
 

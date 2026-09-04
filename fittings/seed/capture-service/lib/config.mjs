@@ -297,6 +297,7 @@ export function loadConfig(env = process.env) {
     // always-on mic must not stay promiscuous), and rounds are capped so a
     // model that keeps asking stops being answered.
     wakeFollowupWindowMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_FOLLOWUP_WINDOW_MS, 12000),
+    wakeRepromptWindowMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_REPROMPT_WINDOW_MS, 20000),
     wakeFollowupMaxRounds: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_FOLLOWUP_MAX_ROUNDS, 3),
     // "Ainda estou a tratar disso." while a delegated turn runs - spoken only,
     // never pushed. 0 disables.

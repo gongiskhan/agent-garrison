@@ -3,7 +3,7 @@
 What this run did: the September 2026 plan "one app, the web channel home, one
 voice layer, screencast inside conversations" ran as gates G0-G8 on
 `node/goncalos-macbook-pro`, each gate committed and deployed to this node's
-live instance, decisions D1-D60 recorded in
+live instance, decisions D1-D61 recorded in
 `docs/decisions/2026-09-garrison-app.md`, evidence under
 `evidence/garrison-app/<gate>/`. Everything a machine could prove is proven:
 vitest, typecheck, playwright (both configs), XCTest on the mini's simulator,
@@ -162,8 +162,14 @@ on the iPhone and walk this list on the real device against this node
    phone still hears Aura, `voice.ttsFallback.reason` names why and
    ElevenLabs is re-tried every 15 min. Regressions: `tests/vault-mesh-write-through.test.ts`,
    `tests/capture-service-voice.test.ts` (fallback block).
-3h. The standing Zeca conversation (D60, no new TestFlight: web and voice
-   layer only, needs this node redeployed - done 2026-09-04). Items 3 to 3g
+3h. The standing Zeca conversation (D60/D61, no new TestFlight: web and voice
+   layer only). CHECK THE NODE FIRST: the phone's selected node is both the
+   shell you read and the capture-service that hears you, so a Zeca
+   conversation looks permanently empty if that node is behind. Settings ->
+   node, then `curl -s https://<node>.tail31efa.ts.net:8497/health | jq
+   .zeca` - a `conversationId` means D60 is live there, `null` means that
+   node needs `npm run node:redeploy`. Both this MacBook Pro and dev-madrid
+   were redeployed on 2026-09-04. Items 3 to 3g
    above still describe the mechanics, but the SHAPE changed: there is no
    record button on ordinary conversations any more. Force-quit and reopen
    the app, open Conversations: a pinned `Zeca` row sits first in the list
@@ -193,6 +199,14 @@ on the iPhone and walk this list on the real device against this node
      it restarts cleanly (this is also the recovery when a session looks
      stuck). Listen and Record together: the Listen turn carries the
      frames.
+   - Not understood, say it again (D61): say "Zeca" and then something it
+     cannot place. It answers "Não percebi - repete?" / "Didn't catch that -
+     say it again?" and KEEPS LISTENING for 20 seconds: repeat the command
+     with no wake word and it goes through as an ordinary command. Its own
+     line coming back through the microphone must not count as the repeat
+     (`wake_reprompt_echo_ignored` rises, the window stays open); three
+     failed rounds inside one attempt stop re-opening until you say "Zeca"
+     again. Counters: `wake_followup_windows_armed`, `wake_reprompt_answers`.
    - Nightly: the scheduler job `zeca-nightly-review` (03:05 local; on an
      enrolled node it lives in the mesh scheduler store, listed with
      `GARRISON_HOME=$HOME/.garrison node scripts/scheduler.mjs list` from

@@ -1721,6 +1721,105 @@ Debts: a Listen session persists its audio and transcript like a recording
 the 12-line tail of each review file, the operative saves the memories
 itself during the review turn; dev-madrid still runs pre-D59 code.
 
+### D61. "Didn't catch that" keeps the microphone open, and a cold Zeca cache no longer sends the whole day down the classifier lane (2026-09-04)
+
+Two reports, one hour after D60 shipped here: "when I say something to Zeca
+and he doesn't understand, it tells me it doesn't understand but doesn't
+keep listening ... it should open the listening window again without me
+having to say the wake word again", and "nothing is going into the Zeca
+conversation. I was expecting to see what I said".
+
+**The conversation was empty for a reason that had nothing to do with the
+conversation.** The pendant and the phone talk to the node whose record is
+selected in the app, and that node is dev-madrid: `NodeRecord` ties
+`shellOrigin` and `captureBaseURL` to one host, so the shell the user reads
+and the capture-service that hears them are always the same machine. That
+machine was five commits behind: its `/health` answered `zeca: null`,
+because it was running pre-D60 code that had no standing conversation at
+all. Every spoken command there took the classifier lane and became a card,
+a note or a spoken answer, exactly as before D60. The fix for the report is
+a deploy, not a patch - but the deploy exposed the real trap below.
+
+**The trap: the resolver is fire-and-forget, and its failure is invisible.**
+`ZecaConversation.id()` returns the cached id or null and never waits, which
+is right at the wake hit (the id is bound in the same tick the name is
+heard) and wrong at dispatch, thirty seconds later. A capture-service whose
+first `GET /api/zeca` has not landed - or landed on the timeout this node
+saw twice today - answers null at both sites, the
+`if (conversationId && this.conversationTurnFn)` gate is skipped, and every
+spoken command for the rest of that process's life goes down the classifier
+lane. Nothing said so: `refresh()` returned before touching a counter when
+there was no `GARRISON_APP_URL`, so "the voice layer has no Conversations
+host" and "the voice layer is fine" looked identical from `/health`. On
+this node every wake-result written today carried `conversation_id: null`.
+
+So, four changes in the voice layer:
+
+- `conversationWaitFn` (`scripts/server.mjs`) is the same resolve allowed to
+  wait, handed to all three buses. `handleCommand` uses it only when nothing
+  is bound and nothing is cached: dispatch already runs after the capture
+  window closed, so one bounded fetch costs nothing perceptible and turns a
+  cold-cache stretch from "every turn lost" into "one slower turn". The
+  synchronous bind at the wake hit is untouched.
+- `wake_conversation_unresolved` counts every fall-through to the classifier
+  for lack of an id, and `zeca_conversation_unconfigured` counts a refresh
+  with no host. `health().zeca` now carries the `base` it would call.
+- A failed post is retried once before it degrades into a memory note. An
+  app restarting under a redeploy is the common case, and turning a spoken
+  sentence into a note loses it from the one place the user is looking.
+
+**And the microphone.** The follow-up window was armed by a heuristic in the
+speak-first notifier: `!isProgress && text.endsWith("?")`. Two consequences,
+both exactly backwards. The "didn't catch that" line is spoken `speakOnly`
+(an unheard capture is not worth a banner) and `speakOnly` was folded into
+`isProgress`, so the one line whose entire purpose is *say it again* was the
+one line that never re-opened. And "I wasn't sure what to do with that, so I
+saved it as a note" carries no question mark, so it never re-opened either.
+
+`reprompt: true` now rides in the notifier params from the branch that
+decided to say it - the empty capture in `close()`, the one-word unknown,
+the unparseable reply, the unknown-intent note - and the notifier arms on it
+explicitly. Punctuation is still honoured for the operative's own clarifying
+questions. Four properties keep it safe:
+
+1. **A repeat is a command, not an answer.** A clarification window sends
+   the next utterance to `runDelegate` because it belongs to that turn. A
+   re-prompt window sends it through `dispatch()` - classifier, conversation
+   turn, card, note - exactly as if the wake word had preceded it, and
+   re-resolves the conversation so it still lands in Zeca's thread.
+2. **Wider window.** `wake_reprompt_window_ms` defaults to 20s against the
+   clarification window's 12s: repeating a whole command takes longer than
+   answering a question.
+3. **Zeca's own voice cannot answer.** The echo guard's containment lane has
+   a three-token floor precisely so it never eats a real "yes", and
+   "Não percebi - repete?" comes back through the microphone as one- and
+   two-token fragments underneath it. So the window itself refuses a segment
+   whose every token appears in the line just spoken, and stays open.
+4. **The rounds are capped and threaded.** Each repeat carries the next
+   round number, the existing `wake_followup_max_rounds` ceiling applies, and
+   saying "Zeca" resets it - the cap exists to stop the two of them trading
+   "didn't catch that" inside one attempt, not to punish a wearer who comes
+   back an hour later.
+
+Not re-prompted on purpose: `wake.unreachable` and `wake.not_saved`.
+Repeating yourself at a gateway that is down is wasted breath.
+
+Tests: `tests/pendant-reprompt-window.test.ts` (the unheard line carries
+`reprompt` and not a question mark; the repeat is classified, never
+delegated; the spoken line coming back leaves the window open; the wide
+window; the cap; a fresh wake hit resets it; a dead gateway does not
+re-prompt), `tests/pendant-capture.test.ts` (the server wiring, over a real
+pendant socket: the unheard line arms a window),
+`tests/capture-service-wake-conversation.test.ts` (a cold cache waits
+instead of classifying; a failed post is retried; the classifier
+fall-through is counted), `tests/capture-service-zeca.test.ts` (no host is
+counted and visible in `health()`).
+
+Debts: the standing Zeca conversation is per node, so what the phone sees
+depends on which node it is pointed at - the mesh state service does not
+carry talk threads. A clarification answer still lands only in the delegate
+lane, not in the conversation.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |

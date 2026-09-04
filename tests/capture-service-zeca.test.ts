@@ -65,10 +65,16 @@ describe("ZecaConversation resolver", () => {
     expect(zeca.health().error).toBe("HTTP 502");
   });
 
-  it("is null with no Conversations host", async () => {
-    const zeca = new ZecaConversation({ env: {}, fetchImpl: async () => okJson({}), log: { log: () => {} } });
+  it("is null with no Conversations host - and counts it, because silence here looks like health", async () => {
+    const store = new CaptureStore(path.join(tmpHome("zeca-unconfigured-"), "capture"));
+    const counters = new Counters(store.root, "wake");
+    const zeca = new ZecaConversation({ env: {}, fetchImpl: async () => okJson({}), counters, log: { log: () => {} } });
     expect(await zeca.refresh()).toBeNull();
     expect(zeca.health().error).toContain("GARRISON_APP_URL");
+    expect(zeca.health().base).toBeNull();
+    // Without this the voice layer answers by voice, files everything through
+    // the classifier, and nothing anywhere says the conversation lane is off.
+    expect(counters.read().zeca_conversation_unconfigured).toBe(1);
   });
 });
 

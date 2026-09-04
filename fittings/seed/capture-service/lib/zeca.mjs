@@ -46,7 +46,12 @@ export class ZecaConversation {
     if (this.inFlight) return this.inFlight;
     const base = this.base();
     if (!base) {
+      // Loudly, in counters: without a host every spoken command quietly takes
+      // the pre-D60 classifier lane, which looks exactly like working from the
+      // outside. This is the difference between "Zeca answered but the
+      // conversation is empty" being a mystery and being a one-line answer.
       this.lastError = "no Conversations host: GARRISON_APP_URL unset";
+      this.counters?.bump("zeca_conversation_unconfigured");
       return null;
     }
     this.inFlight = (async () => {
@@ -88,6 +93,11 @@ export class ZecaConversation {
   }
 
   health() {
-    return { conversationId: this.current, fetchedAt: this.fetchedAt ? new Date(this.fetchedAt).toISOString() : null, error: this.lastError };
+    return {
+      conversationId: this.current,
+      base: this.base(),
+      fetchedAt: this.fetchedAt ? new Date(this.fetchedAt).toISOString() : null,
+      error: this.lastError
+    };
   }
 }

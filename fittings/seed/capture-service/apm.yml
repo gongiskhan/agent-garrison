@@ -322,6 +322,14 @@ x-garrison:
         After Zeca speaks a clarifying question, how long the next utterance -
         no wake word needed - counts as the answer. Opens only once the phone
         confirms the question was actually spoken.
+    - key: wake_reprompt_window_ms
+      type: integer
+      default: 20000
+      description: >-
+        After Zeca says it did not understand, how long the next utterance - no
+        wake word needed - counts as the repeat. Wider than the clarifying-
+        question window: repeating a whole command takes longer than answering
+        a question.
     - key: wake_followup_max_rounds
       type: integer
       default: 3

@@ -186,10 +186,49 @@ describe("wake hit inside a broadcast started from a conversation", () => {
   });
 
   it("leaves a session with no conversation on the classifier lane", async () => {
-    const { bus, runCalls, turns } = makeBus();
+    const { bus, counters, runCalls, turns } = makeBus();
     await bus.handleCommand({ command: "note this down", eventId: "ev2", sessionId: "pendant-1" });
     expect(turns).toEqual([]);
     expect(runCalls).toHaveLength(1);
+    // ...and says so. The classifier lane is the honest fallback, but taking it
+    // because the standing conversation could not be resolved is exactly the
+    // failure the user sees as "Zeca answered and the conversation is empty",
+    // so it is a counter, not a silence.
+    expect(counters.read().wake_conversation_unresolved).toBe(1);
+  });
+
+  // D61: the pendant has no conversation of its own - its id comes from the
+  // ZecaConversation cache, which is empty until the first GET /api/zeca
+  // lands. A wake hit in that stretch used to become a card forever.
+  it("waits once for a cold Zeca cache instead of classifying the turn away", async () => {
+    let warm: string | null = null;
+    const { bus, counters, runCalls, turns } = makeBus({
+      conversationFn: () => warm,
+      conversationWaitFn: async () => {
+        warm = "zeca-20260904t000000z-aaaa";
+        return warm;
+      }
+    });
+    await bus.handleCommand({ command: "guarda isto para amanhã", eventId: "ev9", sessionId: "pendant-2" });
+    expect(runCalls, "the classifier never saw it").toEqual([]);
+    expect(turns).toHaveLength(1);
+    expect(turns[0].conversationId).toBe("zeca-20260904t000000z-aaaa");
+    expect(counters.read().wake_conversation_unresolved ?? 0).toBe(0);
+  });
+
+  it("retries a failed post once - a redeploy mid-sentence is not a note", async () => {
+    let attempts = 0;
+    const { bus, counters } = makeBus({
+      conversationTurnFn: async () => {
+        attempts += 1;
+        return attempts === 1 ? { ok: false, reason: "HTTP 502" } : { ok: true, inputId: "in-2" };
+      }
+    });
+    const outcome = await bus.handleCommand({ command: "look at this", eventId: "ev10", sessionId: "rec-1" });
+    expect(attempts).toBe(2);
+    expect(counters.read().wake_conversation_turn_retried).toBe(1);
+    expect(counters.read().wake_conversation_turn_failed ?? 0).toBe(0);
+    expect(outcome.result.intent).toBe("conversation_turn");
   });
 
   it("falls back to a note, saying so, when the conversation cannot be reached", async () => {

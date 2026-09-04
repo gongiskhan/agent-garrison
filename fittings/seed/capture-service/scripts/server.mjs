@@ -986,12 +986,22 @@ export async function startServer(cfg = loadConfig()) {
         // A question opens the expectation BEFORE the speak leaves, so the
         // phone's {spoken} receipt can arm it - never the other way round, or
         // the receipt races the registration.
-        if (!isProgress && text.endsWith("?") && params.sessionId) {
+        //
+        // Two ways in. A question ends in "?" - that is the operative asking
+        // for a clarification. A re-prompt says so in params: "didn't catch
+        // that" is spoken speakOnly (no banner is worth it), and that flag used
+        // to disqualify it from opening a window at all, so the one line whose
+        // whole purpose is "say it again" was the one line that stopped
+        // listening.
+        const wantsAnswer = params.reprompt === true || (!isProgress && text.endsWith("?"));
+        if (wantsAnswer && params.sessionId) {
           for (const bus of answerBuses) {
             bus.expectAnswer(params.sessionId, ackId, {
               lang: params.lang ?? null,
               rounds: params.followupRounds ?? 0,
-              eventId: params.eventId ?? null
+              eventId: params.eventId ?? null,
+              reprompt: params.reprompt === true,
+              spoken: text
             });
           }
         }
@@ -1051,6 +1061,18 @@ export async function startServer(cfg = loadConfig()) {
     }
     return zeca.id();
   };
+  // The same resolve, allowed to WAIT. `zeca.id()` is fire-and-forget by
+  // design (the wake hit needs an answer in the same tick), so a capture-service
+  // that has not yet had one successful GET /api/zeca answers null - and every
+  // spoken command in that stretch silently takes the pre-D60 classifier lane
+  // and never appears in the conversation. Dispatch runs after the capture
+  // window has closed, where one bounded fetch costs nothing perceptible, so
+  // that is where the cold cache gets its chance to warm.
+  const conversationWaitFn = async (sessionId) => {
+    const known = conversationFn(sessionId);
+    if (known) return known;
+    return (await zeca.refresh()) ?? null;
+  };
   const conversationTurnFn = ({ conversationId, command, eventId, frames }) =>
     postConversationTurn({
       conversationId,
@@ -1070,6 +1092,7 @@ export async function startServer(cfg = loadConfig()) {
     screenContextFn,
     screenFramesFn,
     conversationFn,
+    conversationWaitFn,
     conversationTurnFn,
     activeConversation,
     cfg: live,
@@ -1126,6 +1149,7 @@ export async function startServer(cfg = loadConfig()) {
     screenContextFn,
     screenFramesFn,
     conversationFn,
+    conversationWaitFn,
     conversationTurnFn,
     activeConversation,
     onLifecycle: (name, payload) => feedbackBus.emit(name, payload)
@@ -1149,6 +1173,7 @@ export async function startServer(cfg = loadConfig()) {
     screenContextFn,
     screenFramesFn,
     conversationFn,
+    conversationWaitFn,
     conversationTurnFn,
     activeConversation
   });

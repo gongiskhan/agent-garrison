@@ -500,6 +500,12 @@ describe("pendant capture path", () => {
     const closing = session.feedback.find((e: any) => e.name === "window_closed");
     expect(closing?.empty).toBe(true);
     expect(closing?.speak ?? null).toBeNull();
+
+    // ...and the microphone stays open (D61). The line means "say it again", so
+    // the phone's spoken receipt arms a window and the repeat needs no second
+    // "Zeca". This is the server wiring, not the bus's: the notifier used to
+    // arm only on a trailing "?" and to disqualify anything speakOnly.
+    await waitFor(() => (handle.counters.read().wake_followup_windows_armed ?? 0) >= 1, 8000);
     session.ws.close();
   });
 
