@@ -49,11 +49,21 @@
 /* The past-conversations toggle sits first in the conversation row (the skin's
    .wc-threads-toggle); the floating one only backs the lanes without that row,
    and starts under the app bar rather than under the status bar. */
-.shell-phone .talk-page .wc-sidebar-toggle { top: 8px; }
+/* `top` is measured from the VIEWPORT, not from this page: the toggle is
+   absolutely positioned and nothing between it and the document establishes a
+   containing block (.talk-page, .talk-host and .wc-shell are all static). A
+   bare `top: 8px` therefore put it 8px below the top of the SCREEN - i.e.
+   underneath the app bar - where it could not be seen or tapped, and the shell
+   lanes (which have no conversation row of their own to carry the in-row
+   toggle) lost their only way back to the conversation list. The bar's own
+   height already carries the status-bar inset, so this clears both. */
+.shell-phone .talk-page .wc-sidebar-toggle { top: calc(var(--app-bar-h) + 8px); }
 .shell-phone .talk-page .wc-threads-toggle { width: 36px; height: 36px; min-height: 36px; margin-left: -2px; }
+/* The conversation lanes carry the toggle INSIDE their row, so 12px is right
+   there. The shell/session deck does not - the floating toggle overlays its
+   left edge - so it keeps the clearance talk's own narrow rule gives it. */
 .shell-phone .talk-page .cc-conv-head,
-.shell-phone .talk-page .wc-main .cc-conversation .cc-header,
-.shell-phone .talk-page .wc-wb-head { padding-left: 12px; }
+.shell-phone .talk-page .wc-main .cc-conversation .cc-header { padding-left: 12px; }
 /* The chat's status row (connection dot, model, ctx, theme, Raw) is desk
    furniture; on a phone the composer's stop and the thread's messages are the
    status. Inside a conversation it goes; the console at ?console=1 keeps it. */
