@@ -9,7 +9,8 @@
   "ios": {
     "contentInset": "never",
     "allowsLinkPreview": false,
-    "scrollEnabled": true
+    "scrollEnabled": true,
+    "handleApplicationNotifications": false
   },
   "packageClassList": []
 }

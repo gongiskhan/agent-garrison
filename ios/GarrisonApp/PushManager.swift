@@ -65,7 +65,10 @@ final class PushManager: NSObject, ObservableObject, UNUserNotificationCenterDel
         guard let request = AppGroup.request(
             path: "/capture/devices",
             method: "POST",
-            body: try? JSONSerialization.data(withJSONObject: ["apns_token": token, "device_name": AppGroup.deviceName])
+            // The registry names the device the token belongs to; the App Group
+            // capture name is whatever the capture settings last said (it read
+            // "Mac mini" on a phone), so the system name goes instead.
+            body: try? JSONSerialization.data(withJSONObject: ["apns_token": token, "device_name": UIDevice.current.name])
         ) else {
             status = "set the base URL and token first"
             return

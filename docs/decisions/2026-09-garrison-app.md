@@ -1467,6 +1467,70 @@ answer needs a Notification Service Extension with a synthesized sound, which
 is a native change and a TestFlight - deferred; and the STT quality on the
 broadcast mic decides whether the wake phrase is heard at all.
 
+### D57. The pushed answer has to show while the app is open, and a triage-only answer is still an answer (2026-09-04)
+
+D56 was live on this Mac and the phone retest read: "it shows a message on
+the conversation saying what it heard after zeca but nothing else happens.
+No push notification no voice feedback nothing sent to the session". The
+06:15Z hit (`01M1NGXWH40Z9H66RVCAGENM2E`, conversation
+`chat-mtmk7lbe-efclxz`) tells the whole story from the node side: the turn
+posted with three frames, the gateway ran ONE stretch (triage, 90 s, ended
+`blocked` asking who "him" is and on which channel), no discuss stretch
+followed, and the reply watch pushed the triage text after its 20 s idle
+grace (`wake reply ... -> triage (700 chars, push)`, APNs 200). So the
+server did push. Two things swallowed it on the phone and one on the page:
+
+- **Capacitor owned the notification center.** `CapacitorBridge.init` sets
+  its `NotificationRouter` as the `UNUserNotificationCenter` delegate
+  whenever `handleApplicationNotifications` is true, and the default is
+  YES (`CAPInstanceDescriptor.m`). That replaced `PushManager`, installed
+  at launch, the moment the webview loaded. With no `pushNotificationHandler`
+  registered the router's `willPresent` completes with `[]` (no banner, no
+  sound while the app is in front) and `didReceive` routes nowhere. A push
+  arriving with the app in the background still shows, which is why the test
+  push sent from this Mac (`POST /notify`, tag `ask`) reached the phone and
+  the user answered "i see the push now" while the in-conversation ones
+  never appeared: the phone was on the conversation, waiting.
+  Fix: `GarrisonBridgeViewController.instanceDescriptor()` sets
+  `handleApplicationNotifications = false` (mirrored in
+  `capacitor.config.json` so a config-built descriptor agrees) and
+  `capacitorDidLoad()` re-asserts `PushManager.shared` as the delegate. The
+  XCTest `testBridgeLeavesNotificationsToPushManager` pins the descriptor.
+  Native change: a TestFlight.
+- **The page only spoke a discuss answer.** `foldCaptureEvents` waited for a
+  user-facing duty and the server's idle fallback had no counterpart in the
+  browser, so a triage-only answer was pushed (to a swallowed banner) and
+  never read aloud. The fold now keeps the last ended stretch of any duty
+  after a capture turn (`lastEnded`), a following `stretch-started` drops
+  it, and `settleCaptureIdle` speaks it once the conversation has sat idle
+  for `CAPTURE_REPLY_IDLE_MS` (20 s, the server's grace). The status line
+  says "Zeca is answering ..." while a reply is outstanding (`onAwaiting`),
+  and the split on the attachments trailer accepts the plural
+  `Attached files:` the voice layer actually writes.
+- **Nothing asked for notification permission on the conversation.** The
+  prompt lived on the Capture page only; a phone that never opened it had
+  `notDetermined` authorization and no token uploaded to the node it talks
+  to. The record button now takes the phone's push registration
+  (`PushBridge`, from the shell's `nativePush`): it auto-requests once when
+  a broadcast goes live with authorization still undetermined, and shows a
+  notifications line under the button when the phone is not registered
+  (`describePushStatus`: denied points at Settings, undetermined offers
+  "Turn on notifications", a failed upload offers "Retry", a registration in
+  flight says so). Registered means silent. The hint / heard / error line
+  and the notifications line stack in one `.wc-rec-notes` block above the
+  composer instead of two bubbles painting over each other.
+- **`device_name`** now uploads `UIDevice.current.name` instead of the App
+  Group value the old Companion left behind ("Mac mini" for an iPhone).
+
+What this does NOT change: a capture turn in a plain chat conversation is
+still routed by the gateway's inference, which is why triage alone answered
+here (the ask named "him" and no channel; triage was right to stop). The
+talk page pins `discuss` only for the `?source=discuss` and kickoff URLs.
+Whether a capture-created conversation should carry a `discuss` pin, so a
+spoken question is always answered by the operative rather than gated, is
+open debt in the handoff; with D57 the gate's question at least reaches the
+phone as a push and as speech.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |

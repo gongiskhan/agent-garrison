@@ -21,6 +21,14 @@ final class BridgePluginRegistryTests: XCTestCase {
         XCTAssertEqual(Set(GarrisonPlugins.jsNames), Set(Self.expectedMethods.keys), "every listed plugin has a method table here")
     }
 
+    // The bridge must not take the notification-center delegate away from
+    // PushManager: Capacitor's router would then present a notification that
+    // arrives while the app is open with no options (no banner) and route no
+    // tap. Read off the descriptor, so the test needs no bridge.
+    func testBridgeLeavesNotificationsToPushManager() {
+        XCTAssertFalse(GarrisonBridgeViewController().instanceDescriptor().handleApplicationNotifications)
+    }
+
     // Constructing the host is enough: its view is never loaded, so no bridge
     // and no web view come up in the test host.
     func testMakeBuildsOneInstancePerNameInOrder() {

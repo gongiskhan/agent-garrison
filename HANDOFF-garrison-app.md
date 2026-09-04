@@ -113,12 +113,39 @@ on the iPhone and walk this list on the real device against this node
    `tests/capture-service-wake-conversation.test.ts` and
    `tests/capture-service-apns.test.ts`. No native change, no new
    TestFlight: the app already carries `GarrisonSpeech`.
+3e. The answer reaches the phone while the app is open (D57, NEEDS the
+   TestFlight build from the D57 commit or later): with the broadcast live
+   and the conversation on screen, say "Zeca, what is on this screen". When
+   the answer comes, a BANNER "Zeca: <answer>" shows at the top of the
+   screen with a sound, in the app, on the conversation. Before D57 the
+   Capacitor bridge owned the notification center and dropped every push
+   that arrived with the app in front; the same push showed only when the
+   app was in the background, which is what the 2026-09-04 test push
+   proved ("i see the push now" with the app closed, nothing on the open
+   conversation). Tap the banner from another app: the conversation opens
+   at `/talk/<id>`. Under the record button, a notifications line shows
+   ONLY when the phone is not registered on this node: "Turn on
+   notifications" (first broadcast also prompts on its own), "Retry" after
+   a failed upload, or the Settings path when notifications are denied;
+   registered means no line. A spoken request that triage alone answers
+   (a question back, no discuss stretch, as the 06:15Z hit "send a message
+   to him saying that dinosaurs are awesome" got) is now SPOKEN by the
+   page about 20 s after the triage stretch ends, and the status line reads
+   "Zeca is answering ..." in between. On the node the phone's registration
+   is `~/.garrison/capture/devices.json` (`device_name` is the phone's own
+   name from this build on; the earlier "Mac mini" entry is the same
+   token under the stale App Group name). Regressions:
+   `tests/talk-capture-feedback.test.ts` (idle fallback, `describePushStatus`),
+   `ios/Tests/BridgePluginRegistryTests.swift`
+   (`testBridgeLeavesNotificationsToPushManager`).
 4. Capture page (`/capture`, shown only in the app): the microphone lane and
    the broadcast picker (screen capture consent is native), the live status,
    a session that ends cleanly.
 5. Push: on first launch the app registers with APNs and posts the device
-   token to capture-service. Today NO device is registered on this node, so
-   every push falls back to web push (`notify_fallback_web` counts them).
+   token to capture-service. This Mac has the phone registered since
+   2026-09-03T20:34Z; the mini has NO device (open the app pointed at the
+   mini once), so on the mini every push falls back to web push
+   (`notify_fallback_web` counts them).
    After registration, trigger a notification (a Kanban card done, or a
    conversation reply while backgrounded) and tap it: it deep-links into
    `/talk/<thread>` or the Kanban row (G4). Cold start (app killed) must land
@@ -291,6 +318,16 @@ the simulator and where the code is.
   the TestFlight build from D50 is the one to test with. WebKit evidence in
   `evidence/garrison-app/voice-d56/`.
 
+- **2026-09-04 morning (D57): this Mac and the mini reloaded; dev-madrid
+  still NOT.** App-only change on the node side (`packages/talk`,
+  `src/components/talk`), so `node:reload`, not a redeploy; capture-service
+  is untouched. The native half (Capacitor no longer owns the notification
+  center; `device_name`) needs the TestFlight build cut from the D57 commit:
+  until the phone runs it, an in-app push still shows nothing while the app
+  is in front, and the notifications line under the record button reads the
+  status through the D50 `GarrisonPush` plugin (already in the app).
+  Evidence in `evidence/garrison-app/voice-d57/`.
+
 ## 3. Operator-triggered follow-ups
 
 - **Remove the legacy fittings.** `evidence/garrison-app/g8/remove-web-channel-default.patch`
@@ -413,11 +450,20 @@ the simulator and where the code is.
 - **An out-of-app spoken answer (D56).** The push carries the answer as
   text; hearing it while in another app needs a Notification Service
   Extension synthesizing the body to a sound file at delivery. Native;
-  deferred until the push path is confirmed on the phone.
-- **Stale App Group `device_name` ("Mac mini")** from the old Companion is
-  still what the voice layer reports for this phone; the capture page shows
-  it. Clearing it on the app's first launch under the new bundle is a
-  one-liner in `GarrisonCapturePlugin`.
+  deferred until the push path is confirmed on the phone (D57 confirmed
+  APNs delivery; the in-app presentation was the missing piece).
+- **Capture turns are routed by inference (D57).** A spoken turn lands in a
+  plain chat conversation with no routing pin, so the gateway may run
+  triage alone and answer with a question (the 06:15Z hit). The talk page
+  pins `discuss` only for `?source=discuss` / kickoff URLs. Decide whether a
+  capture-created or capture-used conversation should carry a `discuss`
+  pin (`apiSetRouting`) so a spoken question is answered by the operative,
+  not gated; the gate's question now at least reaches the phone.
+- **Stale App Group `device_name` ("Mac mini")** from the old Companion:
+  D57 uploads `UIDevice.current.name` with the push token, so the voice
+  layer's device list reads right from the D57 build on; the capture page
+  still shows the App Group value until it is cleared on the app's first
+  launch under the new bundle (a one-liner in `GarrisonCapturePlugin`).
 - **Broadcast-mic STT quality** decides whether the wake phrase is heard at
   all: the English pin (D55) helped, `stt_keyterms` carries "Zeca", but a
   phone on a table across a room still misses. Deepgram's `keyterm`

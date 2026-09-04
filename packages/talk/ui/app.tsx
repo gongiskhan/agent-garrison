@@ -46,7 +46,7 @@ import { SessionsRail, type RailMeshNode, type RailSelf } from "./sessions-rail"
 import { ShellsModal, type ShellOpenSpec, type ShellSpawnSpec } from "./shells-modal";
 import { enablePush, pushState, registerServiceWorker, onNotification, type PushState } from "./push-client";
 import { COMPOSER_OVERLAY_SELECTOR, composerInset } from "./composer-inset";
-import { RecordButton, type CaptureBridge } from "./record-button";
+import { RecordButton, type CaptureBridge, type PushBridge } from "./record-button";
 import type { SpeechBridge } from "./capture-feedback";
 
 // The streaming voice surface (S6b): hands-free conversation mode + push-to-talk,
@@ -968,11 +968,13 @@ function ThreadedApp({
   url,
   captureBridge,
   speechBridge = null,
+  pushBridge = null,
   openRemote = navigateHere
 }: {
   url: UrlState;
   captureBridge: CaptureBridge | null;
   speechBridge?: SpeechBridge | null;
+  pushBridge?: PushBridge | null;
   openRemote?: (url: string) => void | Promise<void>;
 }) {
   const [threads, setThreads] = useState<ThreadMeta[]>([]);
@@ -1083,10 +1085,10 @@ function ThreadedApp({
       captureBridge && conversationId ? (
         <>
           {voiceAdornment(api)}
-          <RecordButton bridge={captureBridge} conversationId={conversationId} speech={speechBridge} />
+          <RecordButton bridge={captureBridge} conversationId={conversationId} speech={speechBridge} push={pushBridge} />
         </>
       ) : voiceAdornment(api),
-    [captureBridge, speechBridge, conversationId]
+    [captureBridge, speechBridge, pushBridge, conversationId]
   );
 
   useEffect(() => {
@@ -1821,6 +1823,11 @@ export interface TalkAppProps {
    *  answer to a spoken (wake-word) turn is read aloud while the page is on
    *  screen (D56). Absent in a browser. */
   speechBridge?: SpeechBridge | null;
+  /** The phone's push registration when the host is the Garrison app (D57):
+   *  the record button asks for notification permission when a broadcast
+   *  starts and shows what stands between the phone and Zeca's pushed
+   *  answers. Absent in a browser (the web push enroller covers that). */
+  pushBridge?: PushBridge | null;
   /** How this window opens a page another node owns (a remote conversation, a
    *  peer's "+ New"). Default: a same-window navigation. The Garrison app
    *  switches its node instead, since its webview is bound to one origin. */
@@ -2106,7 +2113,7 @@ export function TalkApp(props: TalkAppProps = {}) {
     };
   }, []);
 
-  if (threaded) return (<><ThreadedApp url={url} captureBridge={props.captureBridge ?? null} speechBridge={props.speechBridge ?? null} openRemote={props.openRemote} /><PushEnroller /></>);
+  if (threaded) return (<><ThreadedApp url={url} captureBridge={props.captureBridge ?? null} speechBridge={props.speechBridge ?? null} pushBridge={props.pushBridge ?? null} openRemote={props.openRemote} /><PushEnroller /></>);
   // Explicit ?console=1: the rich session console (live PTY surface).
   return (
     <>

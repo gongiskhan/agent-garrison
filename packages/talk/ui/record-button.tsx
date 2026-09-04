@@ -27,6 +27,42 @@ export interface CaptureBridge {
   onState(cb: (status: CaptureBridgeStatus) => void): Promise<{ remove(): void | Promise<void> }>;
 }
 
+// The phone's push registration as GarrisonPushPlugin reports it:
+// `authorization` is the UNAuthorizationStatus case name, `registered` means
+// the APNs token reached this node, `detail` is the human line behind it.
+export interface PushBridgeStatus {
+  authorization: string;
+  registered: boolean;
+  detail: string;
+}
+
+export interface PushBridge {
+  /** Prompt when the system has not asked yet, then register with this node. */
+  register(): Promise<PushBridgeStatus>;
+  status(): Promise<PushBridgeStatus>;
+  onStatus?(cb: (status: PushBridgeStatus) => void): Promise<{ remove(): void | Promise<void> }>;
+}
+
+/**
+ * What the notifications line under the button says, or null when push is
+ * set up and nothing needs the user. Pure, so the copy is testable: the answer
+ * to a spoken turn reaches the phone as a push once the user leaves the app,
+ * so a broadcast without push is a broadcast that answers into the void.
+ */
+export function describePushStatus(status: PushBridgeStatus | null | undefined): { text: string; action: "enable" | "retry" | null } | null {
+  if (!status) return null;
+  if (status.registered) return null;
+  if (status.authorization === "denied") {
+    return { text: "Notifications are off for Garrison, so Zeca's answers cannot reach you outside the app. Turn them on in Settings > Garrison > Notifications.", action: null };
+  }
+  if (status.authorization === "notDetermined") {
+    return { text: "Turn on notifications to get Zeca's answers when you leave the app.", action: "enable" };
+  }
+  const detail = status.detail && status.detail !== "registered" ? status.detail : "not registered with this node";
+  if (/requesting token/i.test(detail)) return { text: "Registering this phone for notifications...", action: null };
+  return { text: `Notifications: ${detail}.`, action: "retry" };
+}
+
 export interface RecordButtonProps {
   bridge: CaptureBridge;
   /** The thread the digest lands in. */
@@ -38,6 +74,10 @@ export interface RecordButtonProps {
    *  a spoken turn is read aloud while the page is visible. Absent, the answer
    *  is only pushed. */
   speech?: SpeechBridge | null;
+  /** The phone's push registration (D57): the button asks for permission the
+   *  moment a broadcast starts, since that is when the answer will need a way
+   *  back, and shows what stands in the way until the phone is registered. */
+  push?: PushBridge | null;
   /** How long "Heard: ..." stays under the button. */
   heardMs?: number;
   /** How long after the broadcast ends the page still watches for an answer. */
@@ -55,14 +95,18 @@ export function describeRecordError(error: unknown): string {
   return text.length > 160 ? `${text.slice(0, 157)}...` : text;
 }
 
-export function RecordButton({ bridge, conversationId, pollMs = 2500, speech = null, heardMs = 8000, afterStopMs = 5 * 60_000 }: RecordButtonProps) {
+export function RecordButton({ bridge, conversationId, pollMs = 2500, speech = null, push = null, heardMs = 8000, afterStopMs = 5 * 60_000 }: RecordButtonProps) {
   const [step, setStep] = useState<Step>("idle");
   const [error, setError] = useState<string | null>(null);
   // What the broadcast heard after the wake word, shown briefly; `captured`
   // stays true for the rest of the broadcast so the instructions go away once
-  // they have been followed.
+  // they have been followed; `awaiting` counts heard turns Zeca has not yet
+  // answered, so the line under the button says the answer is on its way.
   const [heard, setHeard] = useState<CaptureHeard | null>(null);
   const [captured, setCaptured] = useState(false);
+  const [awaiting, setAwaiting] = useState(0);
+  const [pushStatus, setPushStatus] = useState<PushBridgeStatus | null>(null);
+  const [pushBusy, setPushBusy] = useState(false);
   const stepRef = useRef<Step>("idle");
   const setStepBoth = useCallback((next: Step) => {
     stepRef.current = next;
@@ -103,6 +147,47 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500, speech = n
     return () => window.clearInterval(timer);
   }, [bridge, step, pollMs, absorb]);
 
+  // Push (D57): read where the registration stands, follow its changes, and
+  // ask in context - the first broadcast is the moment the phone needs a way
+  // to be answered. A phone that already said no is told where to fix it,
+  // never re-prompted (iOS would not show the sheet again anyway).
+  useEffect(() => {
+    if (!push) return;
+    let cancelled = false;
+    let handle: { remove(): void | Promise<void> } | null = null;
+    void push.status().then((s) => { if (!cancelled) setPushStatus(s); }).catch(() => {});
+    if (push.onStatus) {
+      void push.onStatus(() => {
+        void push.status().then((s) => { if (!cancelled) setPushStatus(s); }).catch(() => {});
+      }).then((h) => {
+        if (cancelled) void h.remove();
+        else handle = h;
+      }).catch(() => {});
+    }
+    return () => {
+      cancelled = true;
+      if (handle) void handle.remove();
+    };
+  }, [push]);
+  const registerPush = useCallback(async () => {
+    if (!push || pushBusy) return;
+    setPushBusy(true);
+    try {
+      setPushStatus(await push.register());
+    } catch {
+      // The status line keeps showing whatever the last status() said.
+    } finally {
+      setPushBusy(false);
+    }
+  }, [push, pushBusy]);
+  const askedRef = useRef(false);
+  useEffect(() => {
+    if (step !== "live" || !push || !pushStatus || askedRef.current) return;
+    if (pushStatus.authorization !== "notDetermined") return;
+    askedRef.current = true;
+    void registerPush();
+  }, [step, push, pushStatus, registerPush]);
+
   // Feedback (D56): while the broadcast runs - and for a while after it stops,
   // since the answer takes its time - watch the conversation for the turns the
   // broadcast heard and for the operative's answer to them; speak the answer
@@ -118,6 +203,9 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500, speech = n
   useEffect(() => {
     if (!live) setCaptured(false);
   }, [live]);
+  useEffect(() => {
+    if (!watching) setAwaiting(0);
+  }, [watching]);
   const speechRef = useRef<SpeechBridge | null>(speech);
   speechRef.current = speech;
   useEffect(() => {
@@ -127,6 +215,7 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500, speech = n
         setCaptured(true);
         setHeard(h);
       },
+      onAwaiting: setAwaiting,
       onReply: (reply) => {
         const bridgeNow = speechRef.current;
         if (!bridgeNow || typeof document === "undefined" || document.visibilityState !== "visible") return;
@@ -186,7 +275,12 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500, speech = n
     : step === "starting"
       ? "Starting the broadcast. Once it runs, say \"Zeca\" and then your request."
       : null;
-  const heardLine = heard ? `Heard: ${heard.text.length > 90 ? `${heard.text.slice(0, 87)}...` : heard.text || "(nothing after the wake word)"}` : null;
+  const heardLine = heard
+    ? `Heard: ${heard.text.length > 90 ? `${heard.text.slice(0, 87)}...` : heard.text || "(nothing after the wake word)"}`
+    : awaiting > 0
+      ? "Zeca is answering. The answer is read aloud here and pushed to the phone."
+      : null;
+  const pushLine = describePushStatus(pushStatus);
 
   return (
     <span className="wc-rec" data-testid="wc-rec" data-step={step}>
@@ -210,12 +304,26 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500, speech = n
         )}
         <span className="wc-rec-label">{face}</span>
       </button>
-      {error ? (
-        <span className="wc-rec-err" role="status">{error}</span>
-      ) : heardLine ? (
-        <span className="wc-rec-heard" role="status" data-testid="wc-rec-heard">{heardLine}</span>
-      ) : liveHint ? (
-        <span className="wc-rec-hint" role="status" data-testid="wc-rec-hint">{liveHint}</span>
+      {error || heardLine || liveHint || pushLine ? (
+        <span className="wc-rec-notes">
+          {error ? (
+            <span className="wc-rec-err" role="status">{error}</span>
+          ) : heardLine ? (
+            <span className="wc-rec-heard" role="status" data-testid="wc-rec-heard">{heardLine}</span>
+          ) : liveHint ? (
+            <span className="wc-rec-hint" role="status" data-testid="wc-rec-hint">{liveHint}</span>
+          ) : null}
+          {pushLine ? (
+            <span className="wc-rec-push" role="status" data-testid="wc-rec-push">
+              {pushLine.text}
+              {pushLine.action ? (
+                <button type="button" className="wc-rec-push-btn" data-testid="wc-rec-push-btn" disabled={pushBusy} onClick={() => { void registerPush(); }}>
+                  {pushLine.action === "enable" ? "Turn on notifications" : "Retry"}
+                </button>
+              ) : null}
+            </span>
+          ) : null}
+        </span>
       ) : null}
     </span>
   );

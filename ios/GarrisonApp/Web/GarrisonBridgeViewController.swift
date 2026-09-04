@@ -1,5 +1,6 @@
 import Capacitor
 import UIKit
+import UserNotifications
 import WebKit
 
 /// The one screen: a Capacitor bridge pointed at the selected node's shell.
@@ -32,10 +33,21 @@ final class GarrisonBridgeViewController: CAPBridgeViewController {
         // The page owns its safe areas (viewport-fit=cover + env() insets).
         descriptor.contentInsetAdjustmentBehavior = .never
         descriptor.allowLinkPreviews = false
+        // Capacitor defaults to making its NotificationRouter the
+        // UNUserNotificationCenter delegate when the bridge is built, which
+        // silently replaces PushManager (installed at launch): with no push
+        // handler registered on that router a notification arriving while the
+        // app is open is presented with no options - no banner, no sound - and
+        // a tap routes nowhere. This app handles notifications itself.
+        descriptor.handleApplicationNotifications = false
         return descriptor
     }
 
     override func capacitorDidLoad() {
+        // Belt to the descriptor's braces: whatever a future Capacitor does at
+        // bridge construction, the app's own delegate is in place once the
+        // bridge is up.
+        UNUserNotificationCenter.current().delegate = PushManager.shared
         for plugin in GarrisonPlugins.make(host: self) {
             bridge?.registerPluginInstance(plugin)
             if let push = plugin as? GarrisonPushPlugin {
