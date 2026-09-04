@@ -444,6 +444,16 @@ interface HistoryExchange {
 // that renders it the moment either side gains a field.
 type RouteOptions = RailOptions;
 
+/** The standing Zeca conversation's id (D60), or null when the host has no talk
+ *  engine answering (an old node): the buttons then stay off every thread. */
+async function apiZecaConversation(): Promise<string | null> {
+  try {
+    const r = await fetch("/api/zeca", { cache: "no-store" });
+    if (!r.ok) return null;
+    const d = await r.json();
+    return typeof d.conversationId === "string" ? d.conversationId : null;
+  } catch { return null; }
+}
 async function apiListThreads(): Promise<ThreadMeta[]> {
   try {
     const r = await fetch("/api/threads", { cache: "no-store" });
@@ -978,6 +988,9 @@ function ThreadedApp({
   openRemote?: (url: string) => void | Promise<void>;
 }) {
   const [threads, setThreads] = useState<ThreadMeta[]>([]);
+  // The one conversation that owns the Record and Listen buttons and sits
+  // pinned at the top of the rail (D60).
+  const [zecaId, setZecaId] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeThread, setActiveThread] = useState<Thread | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1077,18 +1090,24 @@ function ThreadedApp({
   // its turns are delegated to an agent on ANOTHER machine rather than run as a
   // stretch here, so it keeps the chat lane, its FIFO and its thread transcript.
   const conversationId = activeRshTransport ? null : (activeThread?.conversationId ?? null);
-  // The record button (G5) rides beside the mic only where a host supplied a
-  // native capture bridge; the conversation id it passes is where
-  // capture-service posts the digest.
+  // The Record (screen) and Listen (microphone) buttons ride beside the mic
+  // only where a host supplied a native capture bridge, and only in the Zeca
+  // conversation (D60): every spoken "Zeca" lands there, so that is the one
+  // place a broadcast or a listening ear can be started from. The Listen
+  // button carries the conversation's voice feedback and watches it even while
+  // idle, because the pendant speaks into this conversation with no button
+  // pressed.
+  const isZeca = conversationId !== null && conversationId === zecaId;
   const conversationAdornment = useCallback(
     (api: ComposerAdornmentApi) =>
-      captureBridge && conversationId ? (
+      captureBridge && conversationId && isZeca ? (
         <>
           {voiceAdornment(api)}
-          <RecordButton bridge={captureBridge} conversationId={conversationId} speech={speechBridge} push={pushBridge} />
+          <RecordButton bridge={captureBridge} conversationId={conversationId} mode="screen" feedback={false} />
+          <RecordButton bridge={captureBridge} conversationId={conversationId} mode="listen" alwaysWatch speech={speechBridge} push={pushBridge} />
         </>
       ) : voiceAdornment(api),
-    [captureBridge, speechBridge, pushBridge, conversationId]
+    [captureBridge, speechBridge, pushBridge, conversationId, isZeca]
   );
 
   useEffect(() => {
@@ -1197,6 +1216,11 @@ function ThreadedApp({
     let alive = true;
     (async () => {
       setLoading(true);
+      // Ask for the Zeca conversation FIRST: the ask creates it when the node
+      // has none yet, and the list below must already show it pinned.
+      const zeca = await apiZecaConversation();
+      if (!alive) return;
+      setZecaId(zeca);
       const list = await apiListThreads();
       if (!alive) return;
       setThreads(list);
@@ -1638,6 +1662,7 @@ function ThreadedApp({
       <aside className="wc-sidebar" aria-label="Conversations">
         <SessionsRail
           threads={threads}
+          pinnedId={zecaId}
           meshNodes={meshNodes}
           self={meshSelf}
           transports={rshTransports}

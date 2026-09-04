@@ -67,6 +67,17 @@ export interface RecordButtonProps {
   bridge: CaptureBridge;
   /** The thread the digest lands in. */
   conversationId: string;
+  /** What the button captures (D60). `screen` broadcasts the screen only - the
+   *  frames ride along with the next spoken "Zeca" turn; `listen` opens the
+   *  phone's microphone as a wake-word ear for when no pendant is worn. */
+  mode?: RecordMode;
+  /** Whether the notes under the button carry the conversation's voice
+   *  feedback (what was heard, the answer, push state). One button per
+   *  conversation should, or two buttons repeat every line. */
+  feedback?: boolean;
+  /** Keep watching the conversation for spoken turns even while the button is
+   *  idle: the Zeca conversation hears the pendant with no button pressed. */
+  alwaysWatch?: boolean;
   /** How often the button re-reads status while a recording is starting or
    *  live (the broadcast extension reports through a heartbeat, not events). */
   pollMs?: number;
@@ -85,6 +96,32 @@ export interface RecordButtonProps {
 }
 
 type Step = "idle" | "starting" | "live" | "stopping";
+export type RecordMode = "screen" | "listen";
+
+const MODE_KIND: Record<RecordMode, RecordKind> = { screen: "screen_audio", listen: "microphone" };
+const MIC_LIVE_PHASES = new Set(["connecting", "live", "interrupted"]);
+
+// What each button says. The screen button never mentions the microphone:
+// since D60 a broadcast carries pixels only, and the voice comes from the
+// pendant or the Listen button.
+const SCREEN_COPY = {
+  idleLabel: "Record screen",
+  stopLabel: "Stop recording",
+  face: "Record",
+  idleTitle: "Broadcast the screen into this conversation. While it runs, the latest screen frames ride along with your next spoken \"Zeca\" request.",
+  liveTitle: "Broadcasting the screen into this conversation. Say \"Zeca\" and then your request; the frames ride along. Tap to stop.",
+  liveHint: "Broadcasting the screen. Say \"Zeca\" and then your request - the words after it plus the latest screen frames are sent into this conversation.",
+  startingHint: "Starting the broadcast. Once it runs, your next \"Zeca\" request carries the screen."
+};
+const LISTEN_COPY = {
+  idleLabel: "Listen",
+  stopLabel: "Stop listening",
+  face: "Listen",
+  idleTitle: "Open the phone's microphone as Zeca's ear. Only what follows \"Zeca\" is sent; tap again to stop listening.",
+  liveTitle: "Listening. Say \"Zeca\" and then your request. Tap to stop.",
+  liveHint: "Listening. Say \"Zeca\" and then your request - only the words after it are sent into this conversation.",
+  startingHint: "Opening the microphone. Once it runs, say \"Zeca\" and then your request."
+};
 
 export function describeRecordError(error: unknown): string {
   const raw = error instanceof Error ? error.message : typeof error === "string" ? error : String((error as { message?: unknown })?.message ?? "");
@@ -95,7 +132,8 @@ export function describeRecordError(error: unknown): string {
   return text.length > 160 ? `${text.slice(0, 157)}...` : text;
 }
 
-export function RecordButton({ bridge, conversationId, pollMs = 2500, speech = null, push = null, heardMs = 8000, afterStopMs = 5 * 60_000 }: RecordButtonProps) {
+export function RecordButton({ bridge, conversationId, mode = "screen", feedback = true, alwaysWatch = false, pollMs = 2500, speech = null, push = null, heardMs = 8000, afterStopMs = 5 * 60_000 }: RecordButtonProps) {
+  const kind = MODE_KIND[mode];
   const [step, setStep] = useState<Step>("idle");
   const [error, setError] = useState<string | null>(null);
   // What the broadcast heard after the wake word, shown briefly; `captured`
@@ -120,13 +158,16 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500, speech = n
   // whatever the button believed; an ended one returns it to idle unless a
   // start is still in flight (the picker is up).
   const absorb = useCallback((status: CaptureBridgeStatus) => {
-    if (status.broadcasting) {
+    // The broadcast reports its own flag; the microphone IS the capture
+    // controller, whose phase is the native status's `phase`.
+    const running = mode === "screen" ? status.broadcasting : MIC_LIVE_PHASES.has(status.phase);
+    if (running) {
       setStepBoth("live");
       setError(null);
       return;
     }
     if (stepRef.current === "live" || stepRef.current === "stopping") setStepBoth("idle");
-  }, [setStepBoth]);
+  }, [setStepBoth, mode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -196,13 +237,13 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500, speech = n
   // broadcast heard and for the operative's answer to them; speak the answer
   // when the page is on screen (off screen, capture-service's push carries it).
   const live = step === "live" || step === "stopping";
-  const [watching, setWatching] = useState(false);
+  const [watching, setWatching] = useState(alwaysWatch);
   useEffect(() => {
-    if (live) { setWatching(true); return; }
+    if (live || alwaysWatch) { setWatching(true); return; }
     if (!watching) return;
     const timer = window.setTimeout(() => setWatching(false), afterStopMs);
     return () => window.clearTimeout(timer);
-  }, [live, watching, afterStopMs]);
+  }, [live, watching, afterStopMs, alwaysWatch]);
   useEffect(() => {
     if (!live) setCaptured(false);
   }, [live]);
@@ -212,7 +253,7 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500, speech = n
   const speechRef = useRef<SpeechBridge | null>(speech);
   speechRef.current = speech;
   useEffect(() => {
-    if (!watching) return;
+    if (!watching || !feedback) return;
     const stop = watchCaptureFeedback(conversationId, {
       onHeard: (h) => {
         setCaptured(true);
@@ -226,7 +267,7 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500, speech = n
       }
     });
     return stop;
-  }, [watching, conversationId]);
+  }, [watching, feedback, conversationId]);
   useEffect(() => {
     if (!heard) return;
     const timer = window.setTimeout(() => setHeard(null), heardMs);
@@ -243,7 +284,7 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500, speech = n
     setError(null);
     setStepBoth("starting");
     try {
-      absorb(await bridge.start("screen_audio", { conversationId }));
+      absorb(await bridge.start(kind, { conversationId }));
       // The plugin resolves once the broadcast is up; anything else (the user
       // dismissed the system sheet without a status the bridge reports) is idle.
       if ((stepRef.current as Step) === "starting") setStepBoth("idle");
@@ -251,44 +292,45 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500, speech = n
       setError(describeRecordError(err));
       setStepBoth("idle");
     }
-  }, [bridge, conversationId, absorb, setStepBoth]);
+  }, [bridge, kind, conversationId, absorb, setStepBoth]);
 
   const onStop = useCallback(async () => {
     if (stepRef.current !== "live") return;
     setStepBoth("stopping");
     try {
-      absorb(await bridge.stop("screen_audio"));
+      absorb(await bridge.stop(kind));
     } catch (err) {
       setError(describeRecordError(err));
       setStepBoth("live");
     }
-  }, [bridge, absorb, setStepBoth]);
+  }, [bridge, kind, absorb, setStepBoth]);
 
+  const copy = mode === "screen" ? SCREEN_COPY : LISTEN_COPY;
   const label =
     step === "starting" ? "Starting" :
     step === "stopping" ? "Stopping" :
-    step === "live" ? "Stop recording" :
-    "Record screen";
+    step === "live" ? copy.stopLabel :
+    copy.idleLabel;
   // The button's face: short, so the controls row keeps every label on a phone.
-  const face = step === "live" ? "Stop" : step === "idle" ? "Record" : label;
+  const face = step === "live" ? "Stop" : step === "idle" ? copy.face : label;
   const title =
-    step === "live" ? "Broadcasting into this conversation. Say \"Zeca\" and then your request. Tap to stop." :
-    step === "idle" ? "Broadcast the screen and microphone into this conversation. Say \"Zeca\" and then your request; the words after it plus the latest screen frames are sent as your message." :
+    step === "live" ? copy.liveTitle :
+    step === "idle" ? copy.idleTitle :
     label;
-  // The wake word is the whole interface once the broadcast runs, so the
+  // The wake word is the whole interface once the capture runs, so the
   // instruction stays on screen until it has been followed once; after that
   // the button's dot says enough and the space shows what was heard.
   const liveHint = step === "live" && !captured
-    ? "Broadcasting. Say \"Zeca\" and then your request - the words after it plus the latest screen frames are sent into this conversation."
+    ? copy.liveHint
     : step === "starting"
-      ? "Starting the broadcast. Once it runs, say \"Zeca\" and then your request."
+      ? copy.startingHint
       : null;
-  const heardLine = heard
+  const heardLine = !feedback ? null : heard
     ? `Heard: ${heard.text.length > 90 ? `${heard.text.slice(0, 87)}...` : heard.text || "(nothing after the wake word)"}`
     : awaiting > 0
       ? "Zeca is answering. The answer is read aloud here and pushed to the phone."
       : null;
-  const pushLine = describePushStatus(pushStatus);
+  const pushLine = feedback ? describePushStatus(pushStatus) : null;
 
   return (
     <span className="wc-rec" data-testid="wc-rec" data-step={step}>
@@ -316,7 +358,7 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500, speech = n
         <span className="wc-rec-notes">
           {error ? (
             <span className="wc-rec-err" role="status">{error}</span>
-          ) : voiceNote ? (
+          ) : voiceNote && feedback ? (
             <span className="wc-rec-heard" role="status" data-testid="wc-rec-voice">{voiceNote}</span>
           ) : heardLine ? (
             <span className="wc-rec-heard" role="status" data-testid="wc-rec-heard">{heardLine}</span>

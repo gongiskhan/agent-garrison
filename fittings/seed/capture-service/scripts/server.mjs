@@ -47,6 +47,7 @@ import { ScreenContextIndex } from "../lib/screen-context.mjs";
 import { makeConnectorFn } from "../lib/connector-call.mjs";
 import { LanguageMemory } from "../lib/language-memory.mjs";
 import { emitSessionEvent } from "../lib/events.mjs";
+import { ZecaConversation } from "../lib/zeca.mjs";
 import { discussRunFn, inferenceRunFn, operativeRunFn } from "../lib/gateway-client.mjs";
 
 // Source identity handed to the byte-identical wake module (invariant I2:
@@ -677,6 +678,9 @@ export function makeRequestHandler(ctx) {
             };
           })(),
           liveSessions: ctx.ingress ? ctx.ingress.sessions.size : 0,
+          // Where a spoken "Zeca" lands right now (D60); null means the talk
+          // engine has not answered and wakes fall back to the classifier.
+          zeca: ctx.zeca?.health?.() ?? null,
           counters: mergedCounters(store.root)
         });
       }
@@ -1026,20 +1030,26 @@ export async function startServer(cfg = loadConfig()) {
   const screenContextFn = (q) => screenContext?.latest(q) ?? null;
   const screenFramesFn = (q) => screenContext?.recent(q) ?? null;
 
-  // The REC button's broadcast is a microphone into ONE conversation: a wake
-  // hit on a session that carries a conversation_id becomes a user turn there
-  // (words after the wake word + the latest frames), never a classified
-  // command. The ingress is constructed below; the index holds it.
-  // Falls back to the persisted session record: a wake hit carried by the
-  // transcription lane's final flush arrives after the ingress has already
-  // dropped the live session, and that late word still belongs to the
-  // conversation the broadcast was started from.
+  // Every spoken "Zeca" is a user turn in ONE conversation (D60): the words
+  // after the wake word, plus the latest screen frames when a broadcast is
+  // live, and no classifier in between. A capture started FROM a conversation
+  // (the phone's Listen button) names its own; every other source - the
+  // pendant, Omi, a late final from a session the ingress already dropped -
+  // lands in the standing Zeca conversation the talk engine owns. The ingress
+  // is constructed below; the index holds it. Falls back to the persisted
+  // session record because a wake hit carried by the transcription lane's
+  // final flush can arrive after the live session is gone.
+  // Zeca unreachable (app down, no GARRISON_APP_URL): null, and the bus keeps
+  // the pre-D60 classifier lane rather than dropping the turn.
+  const zeca = new ZecaConversation({ env: cfg.env ?? process.env, fetchImpl: live.fetchImpl ?? fetch, counters });
   const conversationFn = (sessionId) => {
-    if (!sessionId) return null;
-    const live = screenContext?.ingress?.sessions?.get(sessionId)?.record?.conversation_id;
-    if (live) return live;
-    const stored = readJSON(path.join(store.dirs.sessions, `${sessionId}.json`));
-    return typeof stored?.conversation_id === "string" ? stored.conversation_id : null;
+    if (sessionId) {
+      const bound = screenContext?.ingress?.sessions?.get(sessionId)?.record?.conversation_id;
+      if (bound) return bound;
+      const stored = readJSON(path.join(store.dirs.sessions, `${sessionId}.json`));
+      if (typeof stored?.conversation_id === "string" && stored.conversation_id) return stored.conversation_id;
+    }
+    return zeca.id();
   };
   const conversationTurnFn = ({ conversationId, command, eventId, frames }) =>
     postConversationTurn({
@@ -1114,6 +1124,9 @@ export async function startServer(cfg = loadConfig()) {
     connectorFn,
     cortexFn,
     screenContextFn,
+    screenFramesFn,
+    conversationFn,
+    conversationTurnFn,
     activeConversation,
     onLifecycle: (name, payload) => feedbackBus.emit(name, payload)
   });
@@ -1134,6 +1147,9 @@ export async function startServer(cfg = loadConfig()) {
     notifier: speakingNotifier,
     source: OMI_TEXT_WAKE_SOURCE,
     screenContextFn,
+    screenFramesFn,
+    conversationFn,
+    conversationTurnFn,
     activeConversation
   });
   answerBuses.push(wakeBus, pendantWakeBus, omiWakeBus);
@@ -1189,7 +1205,11 @@ export async function startServer(cfg = loadConfig()) {
     // M4: every ended session with a transcript becomes ONE pending
     // capture_event for the shared triage tick (dedupe by session id).
     onSessionEnd: (record) => {
-      emitSessionEvent({ record, store, counters, cfg: live });
+      // A capture bound to a conversation reports into that conversation and
+      // nowhere else (D60): its wake turns already landed there, and the rest
+      // of what a Listen session heard is not a card. Unbound sessions keep
+      // the triage tick.
+      if (!record.conversation_id) emitSessionEvent({ record, store, counters, cfg: live });
       // G5: a recording started from a conversation reports back into it.
       if (record.conversation_id) {
         void postConversationDigest({
@@ -1322,7 +1342,8 @@ export async function startServer(cfg = loadConfig()) {
       echoGuard,
       notifier,
       voice,
-      ackSink
+      ackSink,
+      zeca
     })
   );
   server.on("upgrade", (req, socket, head) => ingress.handleUpgrade(req, socket, head));
@@ -1341,6 +1362,7 @@ export async function startServer(cfg = loadConfig()) {
   await new Promise((resolve) => server.listen(cfg.port, cfg.bindHost, resolve));
   live.port = server.address().port;
   await writeStatusFile(live);
+  zeca.start();
   console.log(
     `[capture-service] listening on http://${live.bindHost}:${live.port} ` +
       `(home ${live.home}; flags ${JSON.stringify(flagSummary(live))})`
@@ -1351,6 +1373,7 @@ export async function startServer(cfg = loadConfig()) {
 
   const shutdown = async (signal) => {
     console.log(`[capture-service] ${signal} received; shutting down`);
+    zeca.stop();
     ingress.close();
     transcriber.close();
     await clearStatusFile(live.statusFile);

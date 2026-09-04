@@ -243,11 +243,12 @@ export function loadConfig(env = process.env) {
     // exactly as before.
     screenContextEnabled: parseBool(env.GARRISON_CAPTURESERVICE_SCREEN_CONTEXT_ENABLED, false),
     screenContextMaxAgeMs: parseIntOr(env.GARRISON_CAPTURESERVICE_SCREEN_CONTEXT_MAX_AGE_MS, 30000),
-    // Whether a screen_audio session ALSO transcribes. Defaults true to
-    // preserve the documented behaviour; the composition sets it false, because
-    // with a pendant on, one sentence otherwise reaches two microphones and
-    // dispatches twice.
-    screenAudioTranscribe: parseBool(env.GARRISON_CAPTURESERVICE_SCREEN_AUDIO_TRANSCRIBE, true),
+    // Whether a screen_audio session ALSO transcribes. OFF by default (D60):
+    // the Record button captures the screen only; the words come from the
+    // pendant or the Listen button, so one sentence never reaches two
+    // microphones. TRUE restores the pre-D60 broadcast microphone (still muted
+    // by itself while a pendant session is live).
+    screenAudioTranscribe: parseBool(env.GARRISON_CAPTURESERVICE_SCREEN_AUDIO_TRANSCRIBE, false),
     // Zombie-socket watchdog: reconnect the STT socket when we have been
     // feeding it audio this recently and NOTHING has come back for this long.
     // Generous on purpose - Deepgram is legitimately silent through a quiet

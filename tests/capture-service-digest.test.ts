@@ -41,6 +41,13 @@ async function fakeConversations(status = 200): Promise<{ base: string; posts: P
     let raw = "";
     req.on("data", (chunk) => (raw += chunk));
     req.on("end", () => {
+      // The Zeca resolver polls GET /api/zeca from boot (D60); this fake is
+      // only the note door, so reads are answered empty and never counted.
+      if (req.method === "GET") {
+        res.writeHead(404, { "content-type": "application/json" });
+        res.end("{}");
+        return;
+      }
       posts.push({ url: req.url ?? "", body: raw ? JSON.parse(raw) : null });
       res.writeHead(status, { "content-type": "application/json" });
       res.end(JSON.stringify({ thread: { id: THREAD } }));
@@ -139,8 +146,26 @@ describe("recording digest text", () => {
     expect(buildDigest({ record, transcript: null, cfg: { transcribeEnabled: false }, now })).toContain(
       "transcription is off on this node"
     );
-    expect(buildDigest({ record: { ...record, mode: "audio" }, transcript: { segments: [] }, cfg: { transcribeEnabled: true }, now })).toContain(
+    expect(buildDigest({ record: { ...record, mode: "audio", conversation_id: null }, transcript: { segments: [] }, cfg: { transcribeEnabled: true }, now })).toContain(
       "Recording ended: microphone, 2m 13s, from Test iPhone.\n\nNo transcript: no speech was recognised"
+    );
+  });
+
+  it("describes a screen-only broadcast without pretending a microphone was open", () => {
+    const text = buildDigest({ record, transcript: null, cfg: { transcribeEnabled: true, screenAudioTranscribe: false }, now });
+    expect(text).toBe(`Broadcast ended: screen, 2m 13s, from Test iPhone.\n\nRecording id ${SID}.`);
+    expect(text).not.toContain("No transcript");
+  });
+
+  it("keeps a Listen session's transcript out of the conversation", () => {
+    const listening = { ...record, mode: "audio" };
+    const heard = { words: 42, segments: [{ text: "zeca send him a message" }, { text: "unrelated chatter" }] };
+    const text = buildDigest({ record: listening, transcript: heard, cfg: { transcribeEnabled: true }, now });
+    expect(text).toContain("Listening ended: 2m 13s, from Test iPhone.");
+    expect(text).toContain('Heard 42 words; only what followed "Zeca" was sent here.');
+    expect(text).not.toContain("unrelated chatter");
+    expect(buildDigest({ record: listening, transcript: null, cfg: {}, now })).toBe(
+      `Listening ended: 2m 13s, from Test iPhone.\n\nRecording id ${SID}.`
     );
   });
 
@@ -181,7 +206,8 @@ describe("recording digest delivery", () => {
     expect(post.url).toBe(`/api/conversation/${THREAD}/note`);
     expect(post.body.clientRequestId).toBe(`capture-digest:${SID}`);
     expect(post.body.origin).toBe("capture");
-    expect(post.body.text).toContain("Recording ended: screen audio");
+    // Default config is a screen-only broadcast (D60), so the note says so.
+    expect(post.body.text).toContain("Broadcast ended: screen");
     expect(post.body.text).toContain(`Recording id ${SID}.`);
     expect(handle.counters.read().digest_posted).toBe(1);
   });

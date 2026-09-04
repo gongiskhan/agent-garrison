@@ -567,3 +567,51 @@ declare module "*/capture-service/lib/conversation-reply.mjs" {
     sleep?: (ms: number) => Promise<void>;
   }): Promise<{ text: string; duty: string | null; stretchId: string; timedOut: boolean } | null>;
 }
+
+declare module "*/capture-service/lib/zeca.mjs" {
+  export const ZECA_REFRESH_MS: number;
+  export class ZecaConversation {
+    constructor(opts?: {
+      env?: Record<string, string | undefined>;
+      fetchImpl?: unknown;
+      refreshMs?: number;
+      counters?: { bump(key: string, by?: number): unknown } | null;
+      log?: { log(...args: unknown[]): void };
+      now?: () => number;
+    });
+    current: string | null;
+    id(): string | null;
+    refresh(): Promise<string | null>;
+    start(): void;
+    stop(): void;
+    health(): { conversationId: string | null; fetchedAt: string | null; error: string | null };
+  }
+}
+
+declare module "*/capture-service/scripts/zeca-nightly.mjs" {
+  export const ZECA_REVIEW_TRANSCRIPT_CAP: number;
+  export const ZECA_FORCE_ROTATE_MESSAGES: number;
+  export function reviewsDir(env?: Record<string, string | undefined>): string;
+  export function transcriptOf(thread: { messages?: Array<Record<string, unknown>> } | null): string;
+  export function reviewPrompt(args: {
+    conversationId: string;
+    since: string | null;
+    thread: { messages?: Array<Record<string, unknown>> } | null;
+    day: string;
+  }): string;
+  export function runZecaNightly(opts?: {
+    env?: Record<string, string | undefined>;
+    fetchImpl?: unknown;
+    runFn?: ((args: { prompt: string; sessionTitle?: string }) => Promise<{ reply: string }>) | null;
+    log?: { log(...args: unknown[]): void; error(...args: unknown[]): void };
+    now?: () => Date;
+  }): Promise<{
+    ok: boolean;
+    skipped?: string;
+    reason?: string;
+    conversationId?: string;
+    reviewed?: boolean;
+    rotated?: string | null;
+    file?: string;
+  }>;
+}

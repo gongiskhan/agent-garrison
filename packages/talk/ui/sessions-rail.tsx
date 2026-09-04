@@ -85,6 +85,9 @@ interface Row {
   queued: number;
   source: string | null;
   openUrl: string | null;
+  /** The standing Zeca conversation (D60): first in the list, outside every
+   *  group, never deleted from here. */
+  pinned?: boolean;
 }
 
 /**
@@ -285,6 +288,8 @@ function TextPrompt({ title, initial, onSubmit, onClose }: {
 
 export function SessionsRail(props: {
   threads: RailThread[];
+  /** The local thread pinned above the groups (the Zeca conversation). */
+  pinnedId?: string | null;
   meshNodes: RailMeshNode[];
   self: RailSelf;
   transports: RailTransport[];
@@ -306,7 +311,7 @@ export function SessionsRail(props: {
   onOpenShells?: () => void;
 }) {
   const {
-    threads, meshNodes, self, transports, activeId,
+    threads, pinnedId = null, meshNodes, self, transports, activeId,
     listOpen, onToggleList, onSelect, onNewLocal, onOpenRemote, onOpenRemoteShell, onDeleteLocal, onRenameLocal,
     onOpenShells
   } = props;
@@ -382,7 +387,8 @@ export function SessionsRail(props: {
       // A shell row's useful chip is the MACHINE it runs on: every one of them
       // would otherwise read "remote-shell", which distinguishes nothing.
       source: t.remoteShell?.transport ?? (t.source && t.source !== "chat" ? t.source : null),
-      openUrl: null
+      openUrl: null,
+      ...(pinnedId && t.id === pinnedId ? { pinned: true } : {})
     }));
     const remote = meshNodes.flatMap((n) =>
       n.threads.map((t): Row => ({
@@ -400,7 +406,8 @@ export function SessionsRail(props: {
       }))
     );
     return [...local, ...remote];
-  }, [threads, meshNodes, self]);
+  }, [threads, meshNodes, self, pinnedId]);
+  const pinnedRow = useMemo(() => rows.find((r) => r.pinned) ?? null, [rows]);
 
   const rowByKey = useMemo(() => new Map(rows.map((r) => [r.key, r])), [rows]);
 
@@ -411,7 +418,7 @@ export function SessionsRail(props: {
   }, [sidebar]);
 
   const sectionRows = useCallback(
-    (section: string): Row[] => orderSectionRows(rows.filter((r) => sectionOf(r.key) === section), sidebar.order[section] ?? []),
+    (section: string): Row[] => orderSectionRows(rows.filter((r) => !r.pinned && sectionOf(r.key) === section), sidebar.order[section] ?? []),
     [rows, sidebar, sectionOf]
   );
 
@@ -535,7 +542,15 @@ export function SessionsRail(props: {
     items.push(
       unread(r)
         ? { label: "Mark as read", onPick: () => markRead(r.key) }
-        : { label: "Mark as unread", disabled: !r.activity, onPick: () => markUnread(r.key) },
+        : { label: "Mark as unread", disabled: !r.activity, onPick: () => markUnread(r.key) }
+    );
+    // The pinned conversation has one place and one name: no groups, no
+    // archive, no rename, no delete (the nightly review rotates it).
+    if (r.pinned) {
+      setMenu({ x, y, items });
+      return;
+    }
+    items.push(
       { label: "Move to", submenu: moveItems },
       isArchived
         ? { label: "Unarchive", onPick: () => moveTo(r.key, UNGROUPED) }
@@ -666,7 +681,7 @@ export function SessionsRail(props: {
           dragKey === r.key ? "wc-thread--dragging" : "",
           hinted ? "wc-thread--drophint" : ""
         ].filter(Boolean).join(" ")}
-        draggable
+        draggable={!r.pinned}
         onDragStart={onRowDragStart(r)}
         onDragOver={onRowDragOver(r)}
         onDrop={onRowDrop(r)}
@@ -692,7 +707,7 @@ export function SessionsRail(props: {
           <svg className="wc-row-out" width="11" height="11" viewBox="0 0 11 11" aria-hidden="true">
             <path d="M3 8 8 3M4.2 3H8v3.8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" fill="none" />
           </svg>
-        ) : (
+        ) : r.pinned ? null : (
           <button
             type="button"
             className="wc-thread-del"
@@ -787,6 +802,12 @@ export function SessionsRail(props: {
         }}
       >
         {rows.length === 0 && <div className="wc-empty-list">No conversations yet</div>}
+
+        {pinnedRow && (
+          <div className="wc-group wc-group--pinned" data-testid="wc-pinned">
+            {renderRow(pinnedRow)}
+          </div>
+        )}
 
         {sidebar.groups.map((g) => {
           const members = sectionRows(g.id);

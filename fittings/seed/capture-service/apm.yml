@@ -343,13 +343,14 @@ x-garrison:
         often. Spoken only, never pushed; 0 disables.
     - key: screen_audio_transcribe
       type: boolean
-      default: true
+      default: false
       description: >-
-        Whether a screen-sharing session also transcribes. A broadcast that
-        starts while a pendant session is live is muted by itself (one spoken
-        sentence would otherwise reach two microphones and dispatch twice);
-        FALSE mutes every broadcast regardless, which also silences the REC
-        button's wake word.
+        Whether a screen-sharing session also transcribes. OFF: the Record
+        button captures the screen only, and the words reach Zeca through the
+        pendant or the Listen button (a spoken "Zeca" while a broadcast is live
+        carries the latest frames). ON restores the broadcast as a microphone,
+        still muted by itself while a pendant session is live so one sentence
+        never reaches two microphones.
     - key: transcribe_mute_timeout_ms
       type: integer
       default: 120000

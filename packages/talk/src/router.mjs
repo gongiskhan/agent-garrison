@@ -24,6 +24,7 @@
 import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { meshThreads } from "./mesh-threads.mjs";
 import { gatewayMessageForwarder, handleConversationRequest } from "@garrison/claude-pty";
+import { rotateZecaConversation, zecaConversation } from "./zeca.mjs";
 import { loadSidebar, saveSidebar } from "./sidebar-state.mjs";
 import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import http from "node:http";
@@ -3446,6 +3447,22 @@ export function createTalkRouter(liveOpts, { distDir = null, log = console } = {
       if (pathname === "/api/brief" && method === "GET") { settle(res, handleBriefGet(res, parsed.query.path), log); return true; }
       if (pathname === "/api/brief" && method === "PUT") { settle(res, handleBriefPut(req, res), log); return true; }
       if (pathname.startsWith("/api/threads") && routeThreads(req, res, pathname, method, liveOpts, log)) return true;
+      // The standing Zeca conversation (D60): the voice layer asks where every
+      // spoken "Zeca" lands; the nightly review rotates it.
+      if (pathname === "/api/zeca" && method === "GET") {
+        void zecaConversation()
+          .then((body) => jsonRes(res, 200, body))
+          .catch((err) => jsonRes(res, 500, { error: String(err?.message ?? err) }));
+        return true;
+      }
+      if (pathname === "/api/zeca/rotate" && method === "POST") {
+        void readJsonBody(req)
+          .catch(() => ({}))
+          .then((body) => rotateZecaConversation({ reason: typeof body?.reason === "string" ? body.reason.slice(0, 80) : "rotate" }))
+          .then((body) => jsonRes(res, 200, body))
+          .catch((err) => jsonRes(res, 500, { error: String(err?.message ?? err) }));
+        return true;
+      }
       if (pathname === "/api/claude/stream" && method === "GET") { settle(res, handleClaudeStream(req, res, liveOpts), log); return true; }
       if (pathname === "/api/claude/status" && method === "GET") { settle(res, handleClaudeProxy(req, res, liveOpts, "status", "GET"), log); return true; }
       if (pathname === "/api/claude/commands" && method === "GET") { settle(res, handleClaudeProxy(req, res, liveOpts, "commands", "GET"), log); return true; }

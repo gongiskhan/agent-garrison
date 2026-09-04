@@ -53,17 +53,51 @@ function clipTranscript(text) {
   return `${head}\n\n[...]\n\n${tail}`;
 }
 
+// A screen-only broadcast (D60): the Record button captures frames, never
+// words, so "no speech was recognised" would describe a microphone that was
+// never open.
+export function isScreenOnlyBroadcast(record, cfg) {
+  return record?.mode === "screen_audio" && cfg?.screenAudioTranscribe === false;
+}
+
+// The Listen button (D60): a microphone session opened FROM a conversation.
+// Its words after "Zeca" already landed there as turns while it ran; the rest
+// of what it heard is not the conversation's business, so its digest never
+// carries the transcript.
+export function isListeningSession(record) {
+  return record?.mode === "audio" && typeof record?.conversation_id === "string" && record.conversation_id.length > 0;
+}
+
 // Pure: the message text for an ended session. `transcript` is the parsed
 // transcripts/<id>.json (or null when the session produced none).
 export function buildDigest({ record, transcript, cfg, now = new Date() }) {
   const lines = [];
-  const facts = [describeMode(record.mode)];
   const duration = describeDuration(record, now);
+  const segments = transcript?.segments ?? [];
+  const facts = [];
   if (duration) facts.push(duration);
   if (record.device_name) facts.push(`from ${record.device_name}`);
+
+  if (isScreenOnlyBroadcast(record, cfg) && segments.length === 0) {
+    lines.push(`Broadcast ended: screen${facts.length ? `, ${facts.join(", ")}` : ""}.`);
+    lines.push("");
+    lines.push(`Recording id ${record.id}.`);
+    return lines.join("\n");
+  }
+  if (isListeningSession(record)) {
+    lines.push(`Listening ended${facts.length ? `: ${facts.join(", ")}` : ""}.`);
+    if (segments.length > 0) {
+      lines.push("");
+      lines.push(`Heard ${transcript.words ?? segments.length} words; only what followed "Zeca" was sent here.`);
+    }
+    lines.push("");
+    lines.push(`Recording id ${record.id}.`);
+    return lines.join("\n");
+  }
+
+  facts.unshift(describeMode(record.mode));
   lines.push(`Recording ended: ${facts.join(", ")}.`);
 
-  const segments = transcript?.segments ?? [];
   if (segments.length > 0) {
     const words = transcript.words ?? null;
     lines.push("");

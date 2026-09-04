@@ -1647,6 +1647,80 @@ Not done: a way to delete a mesh secret from the Vault surface (state CLI
 for now); the ElevenLabs account itself has 0 credits until the user tops
 it up - until then every node speaks Aura and `/health` says why.
 
+### D60. One standing Zeca conversation: Record captures the screen only, Listen is the phone's microphone, and a nightly review rotates it (2026-09-04)
+
+The report after D59: "I pressed Rec, moved to whatsapp, said Zeca send him
+a message ... after 2 minutes nothing happened ... Recording ended: screen
+audio, 2m 41s, from Mac mini. No transcript: no speech was recognised".
+Three faults were one design: the Record button opened a broadcast that was
+ALSO a microphone, the pendant was live so that microphone was muted
+(D50's one-sentence-one-microphone rule), the pendant heard the sentence
+and routed it down the classifier lane with no conversation to land in,
+and the voice layer's "I will send a message" ack went out during the
+broadcast where the user could not tell which path had spoken. Every
+non-Record "Zeca" then vanished into a lane with no visible record. The
+user's own convergence, adopted whole:
+
+- **One standing Zeca conversation** owned by the talk engine
+  (`packages/talk/src/zeca.mjs`): a pointer file
+  `$GARRISON_HOME/web-channel/zeca.json` names the current thread
+  (`zeca-<utc stamp>-<4 chars>`, title `Zeca`, source `zeca`), created on
+  the first ask, re-created when its thread is deleted, and remembered
+  through rotation (`previous[]`, capped at 60). `GET /api/zeca` and
+  `POST /api/zeca/rotate` are the only API. The rail pins it first
+  (`wc-group--pinned`, not draggable, not deletable). Every spoken "Zeca"
+  from the pendant, from Omi or from the phone lands as a turn there:
+  capture-service caches the id (`lib/zeca.mjs` `ZecaConversation`,
+  refreshed each minute, re-asked on a miss, reported at
+  `/health.zeca`) and the per-session `conversation_id` set by the old
+  REC flow still wins when a session carries one. Conversation-bound
+  sessions no longer emit the triage capture_event: the turn IS the
+  record. When the talk engine is unreachable the buses keep the
+  pre-D60 behaviour (per-session conversation or classifier lane) instead
+  of dropping turns.
+- **Record captures the screen only.** `screen_audio_transcribe` defaults
+  to `false` in the fitting and the default composition; a broadcast is
+  frames, never words, so nothing is muted and nothing races the pendant.
+  The words reach Zeca through the pendant or the Listen button, and
+  because `ScreenContextIndex.recent` is global across live broadcasts, a
+  wake heard while a broadcast is live carries the latest frames with the
+  turn and one heard without a broadcast carries none - the same wake
+  path, the same voice processing, only the context differs. The digest
+  reads `Broadcast ended: screen, 2m 13s, from X.` instead of pretending a
+  microphone was open (`isScreenOnlyBroadcast`).
+- **Listen is a second button** on the Zeca conversation only
+  (`RecordButton mode="listen"`): the existing native `microphone`
+  capture kind bound to the Zeca conversation, started and stopped by hand
+  because an always-on phone microphone does not survive iOS. It still
+  sends only what follows "Zeca"; the digest reads `Listening ended: ...
+  Heard N words; only what followed "Zeca" was sent here.`
+  (`isListeningSession`). No `ios/` change, so no TestFlight.
+- **Nightly review, then rotate**
+  (`fittings/seed/capture-service/scripts/zeca-nightly.mjs`, scheduler job
+  `zeca-nightly-review`, `5 3 * * *`, registered by `setup.sh` with the
+  app and gateway URLs baked into the command because the scheduler
+  daemon's environment carries neither). It reads the current thread, hands
+  it to the operative for ONE bounded turn (save durable facts with
+  basic-memory, list `## Memories` / `## Learnings`, act on nothing), files
+  the reply under `$GARRISON_HOME/zeca/reviews/<day>-<id>.md` where the
+  improver's `collectInputs` now lists it, and only then rotates: the old
+  thread keeps its file under the title `Zeca until <date>`, a fresh one
+  takes the name. Empty = nothing to review, nothing to rotate. A review
+  that cannot run (gateway or talk engine down) keeps the conversation for
+  tomorrow (exit 75, `EX_TEMPFAIL`) unless it has passed 500 turns, when
+  it rotates unreviewed and says so in the file.
+
+Tests: `tests/talk-zeca-conversation.test.ts`,
+`tests/capture-service-zeca.test.ts` (resolver, pendant bus into the Zeca
+conversation with and without frames, nightly order and refusals),
+`tests/capture-service-digest.test.ts` (screen-only and listening
+wording).
+
+Debts: a Listen session persists its audio and transcript like a recording
+(a wake-only microphone mode is an `ios/` change); the improver sees only
+the 12-line tail of each review file, the operative saves the memories
+itself during the review turn; dev-madrid still runs pre-D59 code.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |

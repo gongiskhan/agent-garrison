@@ -3,7 +3,7 @@
 What this run did: the September 2026 plan "one app, the web channel home, one
 voice layer, screencast inside conversations" ran as gates G0-G8 on
 `node/goncalos-macbook-pro`, each gate committed and deployed to this node's
-live instance, decisions D1-D48 recorded in
+live instance, decisions D1-D60 recorded in
 `docs/decisions/2026-09-garrison-app.md`, evidence under
 `evidence/garrison-app/<gate>/`. Everything a machine could prove is proven:
 vitest, typecheck, playwright (both configs), XCTest on the mini's simulator,
@@ -162,6 +162,51 @@ on the iPhone and walk this list on the real device against this node
    phone still hears Aura, `voice.ttsFallback.reason` names why and
    ElevenLabs is re-tried every 15 min. Regressions: `tests/vault-mesh-write-through.test.ts`,
    `tests/capture-service-voice.test.ts` (fallback block).
+3h. The standing Zeca conversation (D60, no new TestFlight: web and voice
+   layer only, needs this node redeployed - done 2026-09-04). Items 3 to 3g
+   above still describe the mechanics, but the SHAPE changed: there is no
+   record button on ordinary conversations any more. Force-quit and reopen
+   the app, open Conversations: a pinned `Zeca` row sits first in the list
+   (not draggable, not deletable). Open it. Its composer carries TWO extra
+   buttons, Record and Listen.
+   - Pendant only, no buttons: say "Zeca, what time is it in Lisbon". The
+     turn lands in the Zeca conversation (your words, no frames), the
+     answer follows there and is spoken / pushed as in 3d-3e. Nothing is
+     created anywhere else; `~/.garrison/capture/wake-results/` still gets
+     its record. `curl -s http://127.0.0.1:8097/health | jq .zeca` names the
+     conversation the node is sending to (`conversationId` = the id in the
+     page URL); `null` with an `error` means the talk engine could not be
+     asked and wakes fell back to the old lane.
+   - Record: tap it, allow the broadcast, switch to another app, say "Zeca,
+     what is on this screen" (the pendant hears it). The turn lands in the
+     Zeca conversation WITH the latest frames. Stop the broadcast: the note
+     reads `Broadcast ended: screen, <duration>, from <device>.` and nothing
+     about a transcript - the broadcast never listened. If the turn has no
+     frames, `screen_context_frames` in `/health` says whether frames were
+     ever indexed.
+   - Listen (pendant off or out of reach): tap Listen, allow the microphone
+     if asked, say "Zeca, what time is it in Lisbon", pause. The hint under
+     the button says only the words after "Zeca" are sent; the turn lands
+     in the Zeca conversation, the answer follows. Tap Stop listening: the
+     note reads `Listening ended: <duration>, from <device>. Heard N words;
+     only what followed "Zeca" was sent here.` Tap Listen again and repeat:
+     it restarts cleanly (this is also the recovery when a session looks
+     stuck). Listen and Record together: the Listen turn carries the
+     frames.
+   - Nightly: the scheduler job `zeca-nightly-review` (03:05 local,
+     `~/.garrison/scheduler-jobs.json`) reviews the day's turns through one
+     operative turn, files `~/.garrison/zeca/reviews/<day>-<id>.md`, then
+     rotates: the old thread is renamed `Zeca until <date>` and stays in
+     the list, the pinned `Zeca` row is a fresh id. Run it by hand to see
+     it: `node fittings/seed/capture-service/scripts/zeca-nightly.mjs` with
+     `GARRISON_APP_URL` and `GARRISON_GATEWAY_URL` in the environment (the
+     job command carries them). An empty day rotates nothing; a dead
+     gateway keeps the conversation for tomorrow (exit 75).
+   Regressions: `tests/talk-zeca-conversation.test.ts`,
+   `tests/capture-service-zeca.test.ts`,
+   `tests/capture-service-digest.test.ts`. Known debts: a Listen session is
+   stored like a recording (audio and transcript on the node); the improver
+   reads only the tail of each review file.
 4. Capture page (`/capture`, shown only in the app): the microphone lane and
    the broadcast picker (screen capture consent is native), the live status,
    a session that ends cleanly.
