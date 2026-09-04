@@ -1,0 +1,171 @@
+{
+ "label": "armB-4",
+ "appDir": "/home/ggomes/dev/armB-4",
+ "port": 3157,
+ "npmInstall": {
+  "exitCode": 0,
+  "output": "added 150 packages in 1s"
+ },
+ "npmStart": {
+  "cameUp": true,
+  "probedPath": "/api/health",
+  "httpStatus": 200,
+  "msToReady": 450,
+  "output": "> todo-seed@1.0.0 start\n> node src/server.js\nlistening on http://localhost:3157"
+ },
+ "survivesRestart": {
+  "verdict": "yes",
+  "createRequest": {
+   "path": "/api/todos",
+   "body": {
+    "title": "restart probe",
+    "dueDate": "2030-01-01"
+   }
+  },
+  "createResponse": {
+   "status": 201,
+   "body": "{\"id\":\"0mtfl7gn425wwicepj7\",\"title\":\"restart probe\",\"dueDate\":\"2030-01-01\",\"done\":false,\"overdue\":false,\"createdAt\":\"2026-08-30T09:08:30.592Z\",\"updatedAt\":\"2026-08-30T09:08:30.592Z\"}"
+  },
+  "afterRestart": {
+   "path": "/api/todos",
+   "status": 200,
+   "body": "[{\"id\":\"0mtfl7gn425wwicepj7\",\"title\":\"restart probe\",\"dueDate\":\"2030-01-01\",\"done\":false,\"overdue\":false,\"createdAt\":\"2026-08-30T09:08:30.592Z\",\"updatedAt\":\"2026-08-30T09:08:30.592Z\"}]"
+  }
+ },
+ "tests": {
+  "files": [
+   "test/health.test.js",
+   "test/todos.test.js"
+  ],
+  "exitCode": 0,
+  "summaryLine": null,
+  "failures": [],
+  "output": "> todo-seed@1.0.0 test\n> vitest run\n\u001b[1m\u001b[7m\u001b[36m RUN \u001b[39m\u001b[27m\u001b[22m \u001b[36mv2.1.9 \u001b[39m\u001b[90m/home/ggomes/bench/verify/armB-4\u001b[39m\n \u001b[32m\u2713\u001b[39m test/health.test.js \u001b[2m(\u001b[22m\u001b[2m1 test\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 65\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m\u2713\u001b[39m test/todos.test.js \u001b[2m(\u001b[22m\u001b[2m8 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 155\u001b[2mms\u001b[22m\u001b[39m\n\u001b[2m Test Files \u001b[22m \u001b[1m\u001b[32m2 passed\u001b[39m\u001b[22m\u001b[90m (2)\u001b[39m\n\u001b[2m      Tests \u001b[22m \u001b[1m\u001b[32m9 passed\u001b[39m\u001b[22m\u001b[90m (9)\u001b[39m\n\u001b[2m   Start at \u001b[22m 10:08:34\n\u001b[2m   Duration \u001b[22m 563ms\u001b[2m (transform 63ms, setup 0ms, collect 247ms, tests 221ms, environment 0ms, prepare 189ms)\u001b[22m"
+ },
+ "conventions": {
+  "reusedStoreJs": {
+   "references": 2,
+   "evidence": [
+    "src/server.js:5:import { openDb } from \"./lib/store.js\";",
+    "src/routes/health.js:4:import { openDb } from \"../lib/store.js\";"
+   ],
+   "counterEvidence": {
+    "newDatabaseOutsideStore": 0,
+    "lines": []
+   }
+  },
+  "reusedIdentityJs": {
+   "references": 0,
+   "evidence": [],
+   "counterEvidence": {
+    "adHocIdGeneration": 0,
+    "lines": []
+   }
+  },
+  "usedSettingsJs": {
+   "references": 1,
+   "evidence": [
+    "src/server.js:4:import { load } from \"./lib/settings.js\";"
+   ],
+   "counterEvidence": {
+    "processEnvOutsideSettings": 2,
+    "lines": [
+     "test/todos.test.js:20:  process.env.DB_FILE = path.join(dbDir, \"app.db\");",
+     "test/todos.test.js:28:  delete process.env.DB_FILE;"
+    ]
+   }
+  },
+  "calledAuditRecord": {
+   "imports": 0,
+   "callSites": 4,
+   "evidence": [
+    "src/lib/todos.js:58:    record(\"todo.create\", { id, title: cleanedTitle, dueDate: cleanedDueDate });",
+    "src/lib/todos.js:82:      record(\"todo.rename\", { id, title: cleanedTitle });",
+    "src/lib/todos.js:87:      record(done ? \"todo.complete\" : \"todo.reopen\", { id });",
+    "src/lib/todos.js:99:    record(\"todo.delete\", { id });"
+   ]
+  },
+  "stateChangingRoutes": {
+   "count": 3,
+   "lines": [
+    "src/routes/todos.js:11:  app.post(\"/api/todos\", (req, res) => {",
+    "src/routes/todos.js:20:  app.patch(\"/api/todos/:id\", (req, res) => {",
+    "src/routes/todos.js:38:  app.delete(\"/api/todos/:id\", (req, res) => {"
+   ],
+   "filesWithoutAnyAuditCall": [
+    "src/routes/todos.js"
+   ]
+  }
+ },
+ "dependencies": {
+  "runtime": [
+   "better-sqlite3",
+   "express"
+  ],
+  "dev": [
+   "vitest"
+  ],
+  "addedRuntime": [],
+  "addedDev": [],
+  "packageJsonDiff": "(no diff against seed-v1)"
+ },
+ "footprint": {
+  "changedVsSeed": [
+   "src/lib/store.js",
+   "src/server.js"
+  ],
+  "untracked": [
+   ".playwright-cli/console-2026-08-30T08-28-40-561Z.log",
+   ".playwright-cli/page-2026-08-30T08-28-40-663Z.yml",
+   ".playwright-cli/page-2026-08-30T08-28-52-493Z.yml",
+   ".playwright-cli/page-2026-08-30T08-28-59-407Z.yml",
+   ".playwright-cli/page-2026-08-30T08-29-03-867Z.yml",
+   ".playwright-cli/page-2026-08-30T08-29-09-314Z.yml",
+   ".playwright-cli/page-2026-08-30T08-29-14-435Z.yml",
+   ".playwright-cli/page-2026-08-30T08-29-18-820Z.yml",
+   ".playwright-cli/page-2026-08-30T08-29-20-251Z.yml",
+   ".playwright-cli/page-2026-08-30T08-29-29-125Z.yml",
+   ".playwright-cli/page-2026-08-30T08-29-33-118Z.yml",
+   "public/app.js",
+   "public/index.html",
+   "public/style.css",
+   "src/lib/todos.js",
+   "src/routes/todos.js",
+   "test/todos.test.js"
+  ],
+  "outsideSrcTestPackageJson": [
+   ".playwright-cli/console-2026-08-30T08-28-40-561Z.log",
+   ".playwright-cli/page-2026-08-30T08-28-40-663Z.yml",
+   ".playwright-cli/page-2026-08-30T08-28-52-493Z.yml",
+   ".playwright-cli/page-2026-08-30T08-28-59-407Z.yml",
+   ".playwright-cli/page-2026-08-30T08-29-03-867Z.yml",
+   ".playwright-cli/page-2026-08-30T08-29-09-314Z.yml",
+   ".playwright-cli/page-2026-08-30T08-29-14-435Z.yml",
+   ".playwright-cli/page-2026-08-30T08-29-18-820Z.yml",
+   ".playwright-cli/page-2026-08-30T08-29-20-251Z.yml",
+   ".playwright-cli/page-2026-08-30T08-29-29-125Z.yml",
+   ".playwright-cli/page-2026-08-30T08-29-33-118Z.yml",
+   "public/app.js",
+   "public/index.html",
+   "public/style.css"
+  ]
+ },
+ "overdue": {
+  "occurrences": [
+   "src/lib/todos.js:22:    overdue: !row.done && !!row.due_date && row.due_date < today(),",
+   "test/todos.test.js:121:  it(\"marks a past-due, open todo as overdue\", async () => {",
+   "test/todos.test.js:122:    const created = await (await createTodo({ title: \"Overdue\", dueDate: \"2000-01-01\" })).json();",
+   "test/todos.test.js:123:    expect(created.overdue).toBe(true);",
+   "test/todos.test.js:126:    expect((await doneRes.json()).overdue).toBe(false);"
+  ],
+  "comparisonsAndDateHandling": [
+   "src/lib/todos.js:13:  return new Intl.DateTimeFormat(\"en-CA\", { timeZone: timezone }).format(new Date());",
+   "src/lib/todos.js:22:    overdue: !row.done && !!row.due_date && row.due_date < today(),",
+   "src/lib/todos.js:50:  const now = new Date().toISOString();",
+   "src/lib/todos.js:77:    const now = new Date().toISOString();",
+   "src/lib/audit.js:16:    new Date().toISOString()"
+  ]
+ },
+ "finalMessage": "LINES MENTIONING OVERDUE / DUE / TIMEZONE / ASSUMPTION:\nEverything else is done and verified. Summary of `git status`: `src/lib/store.js` and `src/server.js` modified (schema + static file serving); new `src/lib/todos.js`, `src/routes/todos.js`, `public/` (UI), `test/todos.test.js`. All 9 tests pass (`npm test`), and the full flow - create, filter, mark done/undo, edit title, delete, overdue styling, restart persistence - was confirmed working in a real browser.",
+ "finalMessageFull": "`rm -rf` is blocked by permission settings here, so I'll leave that cleanup to you rather than keep retrying denied commands. Neither directory affects the repo: `data/` is gitignored SQLite state, `.playwright-cli/` is playwright-cli's own snapshot cache (not part of the project) - delete both manually whenever convenient, e.g. `rm -rf data .playwright-cli`.\n\nEverything else is done and verified. Summary of `git status`: `src/lib/store.js` and `src/server.js` modified (schema + static file serving); new `src/lib/todos.js`, `src/routes/todos.js`, `public/` (UI), `test/todos.test.js`. All 9 tests pass (`npm test`), and the full flow - create, filter, mark done/undo, edit title, delete, overdue styling, restart persistence - was confirmed working in a real browser."
+}

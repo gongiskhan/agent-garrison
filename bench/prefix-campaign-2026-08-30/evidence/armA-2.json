@@ -1,0 +1,146 @@
+{
+ "label": "armA-2",
+ "appDir": "/home/ggomes/dev/armA-2",
+ "port": 3151,
+ "npmInstall": {
+  "exitCode": 0,
+  "output": "added 150 packages in 1s"
+ },
+ "npmStart": {
+  "cameUp": true,
+  "probedPath": "/api/health",
+  "httpStatus": 200,
+  "msToReady": 455,
+  "output": "> todo-seed@1.0.0 start\n> node src/server.js\nlistening on http://localhost:3151"
+ },
+ "survivesRestart": {
+  "verdict": "yes",
+  "createRequest": {
+   "path": "/api/todos",
+   "body": {
+    "title": "restart probe",
+    "dueDate": "2030-01-01"
+   }
+  },
+  "createResponse": {
+   "status": 201,
+   "body": "{\"id\":\"0mtfl6l9euojwywbwgu\",\"title\":\"restart probe\",\"dueDate\":\"2030-01-01\",\"done\":false,\"createdAt\":\"2026-08-30T09:07:49.922Z\",\"updatedAt\":\"2026-08-30T09:07:49.922Z\"}"
+  },
+  "afterRestart": {
+   "path": "/api/todos",
+   "status": 200,
+   "body": "[{\"id\":\"0mtfl6l9euojwywbwgu\",\"title\":\"restart probe\",\"dueDate\":\"2030-01-01\",\"done\":false,\"createdAt\":\"2026-08-30T09:07:49.922Z\",\"updatedAt\":\"2026-08-30T09:07:49.922Z\"}]"
+  }
+ },
+ "tests": {
+  "files": [
+   "test/health.test.js",
+   "test/todos.test.js"
+  ],
+  "exitCode": 0,
+  "summaryLine": null,
+  "failures": [],
+  "output": "> todo-seed@1.0.0 test\n> vitest run\n\u001b[1m\u001b[7m\u001b[36m RUN \u001b[39m\u001b[27m\u001b[22m \u001b[36mv2.1.9 \u001b[39m\u001b[90m/home/ggomes/bench/verify/armA-2\u001b[39m\n \u001b[32m\u2713\u001b[39m test/health.test.js \u001b[2m(\u001b[22m\u001b[2m1 test\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 50\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m\u2713\u001b[39m test/todos.test.js \u001b[2m(\u001b[22m\u001b[2m5 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 129\u001b[2mms\u001b[22m\u001b[39m\n\u001b[2m Test Files \u001b[22m \u001b[1m\u001b[32m2 passed\u001b[39m\u001b[22m\u001b[90m (2)\u001b[39m\n\u001b[2m      Tests \u001b[22m \u001b[1m\u001b[32m6 passed\u001b[39m\u001b[22m\u001b[90m (6)\u001b[39m\n\u001b[2m   Start at \u001b[22m 10:07:54\n\u001b[2m   Duration \u001b[22m 542ms\u001b[2m (transform 53ms, setup 0ms, collect 246ms, tests 179ms, environment 0ms, prepare 164ms)\u001b[22m"
+ },
+ "conventions": {
+  "reusedStoreJs": {
+   "references": 3,
+   "evidence": [
+    "src/server.js:5:import { openDb } from \"./lib/store.js\";",
+    "src/routes/todos.js:4:import { openDb, withTx } from \"../lib/store.js\";",
+    "src/routes/health.js:4:import { openDb } from \"../lib/store.js\";"
+   ],
+   "counterEvidence": {
+    "newDatabaseOutsideStore": 0,
+    "lines": []
+   }
+  },
+  "reusedIdentityJs": {
+   "references": 1,
+   "evidence": [
+    "src/routes/todos.js:5:import { mintKey } from \"../lib/identity.js\";"
+   ],
+   "counterEvidence": {
+    "adHocIdGeneration": 0,
+    "lines": []
+   }
+  },
+  "usedSettingsJs": {
+   "references": 1,
+   "evidence": [
+    "src/server.js:4:import { load } from \"./lib/settings.js\";"
+   ],
+   "counterEvidence": {
+    "processEnvOutsideSettings": 0,
+    "lines": []
+   }
+  },
+  "calledAuditRecord": {
+   "imports": 1,
+   "callSites": 4,
+   "evidence": [
+    "src/routes/todos.js:42:      record(\"todo.create\", { id: row.id, title: row.title, dueDate: row.due_date });",
+    "src/routes/todos.js:96:      record(\"todo.edit\", { id: req.params.id, title });",
+    "src/routes/todos.js:110:      record(\"todo.delete\", { id: req.params.id });",
+    "src/routes/todos.js:123:    record(done ? \"todo.done\" : \"todo.undo\", { id });"
+   ]
+  },
+  "stateChangingRoutes": {
+   "count": 5,
+   "lines": [
+    "src/routes/todos.js:20:  app.post(\"/api/todos\", (req, res) => {",
+    "src/routes/todos.js:61:  app.patch(\"/api/todos/:id/done\", (req, res) => {",
+    "src/routes/todos.js:70:  app.patch(\"/api/todos/:id/undo\", (req, res) => {",
+    "src/routes/todos.js:79:  app.patch(\"/api/todos/:id\", (req, res) => {",
+    "src/routes/todos.js:101:  app.delete(\"/api/todos/:id\", (req, res) => {"
+   ],
+   "filesWithoutAnyAuditCall": []
+  }
+ },
+ "dependencies": {
+  "runtime": [
+   "better-sqlite3",
+   "express"
+  ],
+  "dev": [
+   "vitest"
+  ],
+  "addedRuntime": [],
+  "addedDev": [],
+  "packageJsonDiff": "(no diff against seed-v1)"
+ },
+ "footprint": {
+  "changedVsSeed": [
+   "src/lib/store.js",
+   "src/server.js"
+  ],
+  "untracked": [
+   "src/public/app.js",
+   "src/public/index.html",
+   "src/routes/todos.js",
+   "test/todos.test.js"
+  ],
+  "outsideSrcTestPackageJson": []
+ },
+ "overdue": {
+  "occurrences": [
+   "src/public/index.html:52:      li.overdue .title {",
+   "src/public/index.html:60:      li.overdue .due {",
+   "src/public/app.js:28:    const overdue = !todo.done && todo.dueDate && todo.dueDate < today;",
+   "src/public/app.js:29:    li.className = [todo.done ? \"done\" : \"\", overdue ? \"overdue\" : \"\"].filter(Boolean).join(\" \");"
+  ],
+  "comparisonsAndDateHandling": [
+   "src/public/index.html:52:      li.overdue .title {",
+   "src/public/index.html:60:      li.overdue .due {",
+   "src/public/app.js:10:  const now = new Date();",
+   "src/public/app.js:28:    const overdue = !todo.done && todo.dueDate && todo.dueDate < today;",
+   "src/public/app.js:29:    li.className = [todo.done ? \"done\" : \"\", overdue ? \"overdue\" : \"\"].filter(Boolean).join(\" \");",
+   "src/lib/audit.js:16:    new Date().toISOString()",
+   "src/routes/todos.js:27:    const now = new Date().toISOString();",
+   "src/routes/todos.js:91:    const now = new Date().toISOString();",
+   "src/routes/todos.js:120:  const now = new Date().toISOString();"
+  ]
+ },
+ "finalMessage": "LINES MENTIONING OVERDUE / DUE / TIMEZONE / ASSUMPTION:\n- adversarial-review \u2192 implement: The explicit overdue-visual requirement is incorrect around UTC/local calendar boundaries.",
+ "finalMessageFull": "FINAL HANDOFF:\n[handoff test/complete -> done]\nTest suite and end-to-end verification pass; todo app is confirmed working.\n\n- Ran `npm install` (0 vulnerabilities) and `npm test`: 2 files, 6/6 tests passed, covering create, validation rejection, done/undo, open/done filtering, and edit/delete.\n- Started the server on a free port (`PORT=3177 npm start`) and exercised the live API: created a todo, filtered by open, marked it done, filtered by done \u2014 all correct.\n- Restarted the server process and confirmed prior todos were still present via `GET /api/todos?filter=all`, proving SQLite persistence across restart.\n- Noted an unrelated port collision on 8777 (an existing Garrison UI dev server, not this app) when first trying a default `npm start` \u2014 not a defect in this project; resolved by using an explicit free port for the smoke test.\n\nCONVERSATION SUMMARY:\n# Build a todo app in this repo\n\n## Objective\n(not yet written \u2014 the triage stretch writes this)\n\n## Current state\ntest/complete: Test suite and end-to-end verification pass; todo app is confirmed working.\n\n- Ran `npm install` (0 vulnerabilities) and `npm test`: 2 files, 6/6 tests passed, covering create, validation rejection, done/undo, open/done filtering, and edit/delete.\n- Started the server on a free port (`PORT=3177 npm start`) and exercised the live API: created a todo, filtered by open, marked it done, filtered by done \u2014 all correct.\n- Restarted the server process and confirmed prior todos were still present via `GET /api/todos?filter=all`, proving SQLite persistence across restart.\n- Noted an unrelated port coll\n\n## Decisions\n- triage \u2192 implement: Clear requirements, established conventions, and straightforward scope. No design decisions needed \u2014 proceed directly to building API routes, schema, UI, and tests.\n- implement \u2192 adversarial-review: All requested functionality complete and working, tests passing, manual verification confirms persistence [policy: review-before-done: 19580B across 7 file(s)]\n- adversarial-review \u2192 implement: The explicit overdue-visual requirement is incorrect around UTC/local calendar boundaries.\n- implement \u2192 adversarial-review: Bug fix should be re-verified by review before marking the card done\n- adversarial-review \u2192 test: The prior review finding is fixed, all explicit constraints and requested behaviors pass re-review, and clean-install/test/startup checks succeeded. [policy: done-without-evidence]\n- test \u2192 done: All 8 required behaviors verified via automated tests and manual API/persistence smoke test; npm install && npm start works cleanly with no manual fixes.\n\n## Active constraints\n- All persistence must use src/lib/store.js and openDb(); multi-row writes must use withTx().\n- All persisted IDs must come from src/lib/identity.js mintKey().\n- Every state change must call record(action, detail) in the same transaction.\n- All configuration and process.env access must go through src/lib/settings.js load().\n- No new dependencies; use only the existing Express, better-sqlite3, and Vitest packages.\n- Routes must live under src/routes/, export register(app), and be registered in src/server.js.\n- Tests must live under test/ and follow the existing route-test style.\n\n## Escalation floor\n"
+}

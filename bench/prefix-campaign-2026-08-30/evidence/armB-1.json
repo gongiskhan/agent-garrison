@@ -1,0 +1,140 @@
+{
+ "label": "armB-1",
+ "appDir": "/home/ggomes/dev/armB-1",
+ "port": 3154,
+ "npmInstall": {
+  "exitCode": 0,
+  "output": "added 150 packages in 1s"
+ },
+ "npmStart": {
+  "cameUp": true,
+  "probedPath": "/api/health",
+  "httpStatus": 200,
+  "msToReady": 449,
+  "output": "> todo-seed@1.0.0 start\n> node src/server.js\nlistening on http://localhost:3154"
+ },
+ "survivesRestart": {
+  "verdict": "yes",
+  "createRequest": {
+   "path": "/api/todos",
+   "body": {
+    "title": "restart probe",
+    "dueDate": "2030-01-01"
+   }
+  },
+  "createResponse": {
+   "status": 201,
+   "body": "{\"id\":\"0mtfl70yy4ugxkuytou\",\"title\":\"restart probe\",\"dueDate\":\"2030-01-01\",\"done\":false,\"createdAt\":\"2026-08-30T09:08:10.282Z\",\"updatedAt\":\"2026-08-30T09:08:10.282Z\"}"
+  },
+  "afterRestart": {
+   "path": "/api/todos",
+   "status": 200,
+   "body": "[{\"id\":\"0mtfl70yy4ugxkuytou\",\"title\":\"restart probe\",\"dueDate\":\"2030-01-01\",\"done\":false,\"createdAt\":\"2026-08-30T09:08:10.282Z\",\"updatedAt\":\"2026-08-30T09:08:10.282Z\"}]"
+  }
+ },
+ "tests": {
+  "files": [
+   "test/health.test.js",
+   "test/todos.test.js"
+  ],
+  "exitCode": 0,
+  "summaryLine": null,
+  "failures": [],
+  "output": "> todo-seed@1.0.0 test\n> vitest run\n\u001b[1m\u001b[7m\u001b[36m RUN \u001b[39m\u001b[27m\u001b[22m \u001b[36mv2.1.9 \u001b[39m\u001b[90m/home/ggomes/bench/verify/armB-1\u001b[39m\n \u001b[32m\u2713\u001b[39m test/health.test.js \u001b[2m(\u001b[22m\u001b[2m1 test\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 50\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m\u2713\u001b[39m test/todos.test.js \u001b[2m(\u001b[22m\u001b[2m6 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 108\u001b[2mms\u001b[22m\u001b[39m\n\u001b[2m Test Files \u001b[22m \u001b[1m\u001b[32m2 passed\u001b[39m\u001b[22m\u001b[90m (2)\u001b[39m\n\u001b[2m      Tests \u001b[22m \u001b[1m\u001b[32m7 passed\u001b[39m\u001b[22m\u001b[90m (7)\u001b[39m\n\u001b[2m   Start at \u001b[22m 10:08:14\n\u001b[2m   Duration \u001b[22m 481ms\u001b[2m (transform 64ms, setup 0ms, collect 229ms, tests 157ms, environment 0ms, prepare 175ms)\u001b[22m"
+ },
+ "conventions": {
+  "reusedStoreJs": {
+   "references": 3,
+   "evidence": [
+    "src/server.js:5:import { openDb } from \"./lib/store.js\";",
+    "src/routes/todos.js:4:import { openDb, withTx } from \"../lib/store.js\";",
+    "src/routes/health.js:4:import { openDb } from \"../lib/store.js\";"
+   ],
+   "counterEvidence": {
+    "newDatabaseOutsideStore": 0,
+    "lines": []
+   }
+  },
+  "reusedIdentityJs": {
+   "references": 1,
+   "evidence": [
+    "src/routes/todos.js:5:import { mintKey } from \"../lib/identity.js\";"
+   ],
+   "counterEvidence": {
+    "adHocIdGeneration": 0,
+    "lines": []
+   }
+  },
+  "usedSettingsJs": {
+   "references": 1,
+   "evidence": [
+    "src/server.js:4:import { load } from \"./lib/settings.js\";"
+   ],
+   "counterEvidence": {
+    "processEnvOutsideSettings": 0,
+    "lines": []
+   }
+  },
+  "calledAuditRecord": {
+   "imports": 1,
+   "callSites": 4,
+   "evidence": [
+    "src/routes/todos.js:40:      record(\"todo.create\", { id, title, dueDate });",
+    "src/routes/todos.js:84:        record(\"todo.edit\", { id: existing.id, title });",
+    "src/routes/todos.js:87:        record(done ? \"todo.complete\" : \"todo.reopen\", { id: existing.id });",
+    "src/routes/todos.js:104:      record(\"todo.delete\", { id: existing.id });"
+   ]
+  },
+  "stateChangingRoutes": {
+   "count": 3,
+   "lines": [
+    "src/routes/todos.js:24:  app.post(\"/api/todos\", (req, res) => {",
+    "src/routes/todos.js:57:  app.patch(\"/api/todos/:id\", (req, res) => {",
+    "src/routes/todos.js:95:  app.delete(\"/api/todos/:id\", (req, res) => {"
+   ],
+   "filesWithoutAnyAuditCall": []
+  }
+ },
+ "dependencies": {
+  "runtime": [
+   "better-sqlite3",
+   "express"
+  ],
+  "dev": [
+   "vitest"
+  ],
+  "addedRuntime": [],
+  "addedDev": [],
+  "packageJsonDiff": "(no diff against seed-v1)"
+ },
+ "footprint": {
+  "changedVsSeed": [
+   ".gitignore",
+   "src/lib/store.js",
+   "src/server.js"
+  ],
+  "untracked": [
+   "public/app.js",
+   "public/index.html",
+   "public/style.css",
+   "src/routes/todos.js",
+   "test/todos.test.js"
+  ],
+  "outsideSrcTestPackageJson": [
+   ".gitignore",
+   "public/app.js",
+   "public/index.html",
+   "public/style.css"
+  ]
+ },
+ "overdue": {
+  "occurrences": [],
+  "comparisonsAndDateHandling": [
+   "src/lib/audit.js:16:    new Date().toISOString()",
+   "src/routes/todos.js:31:    const now = new Date().toISOString();",
+   "src/routes/todos.js:77:    const now = new Date().toISOString();"
+  ]
+ },
+ "finalMessage": "LINES MENTIONING OVERDUE / DUE / TIMEZONE / ASSUMPTION:\n1-5. Create (title + optional due date), list with all/open/done filter, mark done/undo, delete, edit title - all via `/api/todos` CRUD routes and the vanilla-JS UI.\n7. Overdue todos get a red-tinted row and bold \"Overdue \u00b7 date\" label, distinct from the gray \"Due date\" of others.",
+ "finalMessageFull": "Todo app done. API + web UI on the same Express server (`express.static` serving `public/`), following AGENTS.md conventions (`store.js`, `mintKey`, `record` audit trail, `settings.js`).\n\nCovers all 8 requirements:\n1-5. Create (title + optional due date), list with all/open/done filter, mark done/undo, delete, edit title - all via `/api/todos` CRUD routes and the vanilla-JS UI.\n6. SQLite-backed, verified persistence across a server kill/restart.\n7. Overdue todos get a red-tinted row and bold \"Overdue \u00b7 date\" label, distinct from the gray \"Due date\" of others.\n8. `test/todos.test.js` covers create, complete/undo, and all/open/done filtering - 7/7 tests pass.\n\nVerified with a real clean-checkout run (`npm install && npm start`, no manual fixes) and live in a Chromium browser via playwright-cli: creation, done/undo, filters, inline title edit (Enter to save, Escape to cancel), delete, and persistence after restart. Nothing committed, per your instructions."
+}

@@ -1,0 +1,161 @@
+{
+ "label": "armB-2",
+ "appDir": "/home/ggomes/dev/armB-2",
+ "port": 3155,
+ "npmInstall": {
+  "exitCode": 0,
+  "output": "added 150 packages in 1s"
+ },
+ "npmStart": {
+  "cameUp": true,
+  "probedPath": "/api/health",
+  "httpStatus": 200,
+  "msToReady": 449,
+  "output": "> todo-seed@1.0.0 start\n> node src/server.js\nlistening on http://localhost:3155"
+ },
+ "survivesRestart": {
+  "verdict": "yes",
+  "createRequest": {
+   "path": "/api/todos",
+   "body": {
+    "title": "restart probe",
+    "dueDate": "2030-01-01"
+   }
+  },
+  "createResponse": {
+   "status": 201,
+   "body": "{\"id\":\"0mtfl7651hzynz5zv50\",\"title\":\"restart probe\",\"dueDate\":\"2030-01-01\",\"done\":false,\"overdue\":false,\"createdAt\":\"2026-08-30T09:08:16.981Z\",\"updatedAt\":\"2026-08-30T09:08:16.981Z\"}"
+  },
+  "afterRestart": {
+   "path": "/api/todos",
+   "status": 200,
+   "body": "[{\"id\":\"0mtfl7651hzynz5zv50\",\"title\":\"restart probe\",\"dueDate\":\"2030-01-01\",\"done\":false,\"overdue\":false,\"createdAt\":\"2026-08-30T09:08:16.981Z\",\"updatedAt\":\"2026-08-30T09:08:16.981Z\"}]"
+  }
+ },
+ "tests": {
+  "files": [
+   "test/health.test.js",
+   "test/todos.test.js"
+  ],
+  "exitCode": 0,
+  "summaryLine": null,
+  "failures": [],
+  "output": "> todo-seed@1.0.0 test\n> vitest run\n\u001b[1m\u001b[7m\u001b[36m RUN \u001b[39m\u001b[27m\u001b[22m \u001b[36mv2.1.9 \u001b[39m\u001b[90m/home/ggomes/bench/verify/armB-2\u001b[39m\n \u001b[32m\u2713\u001b[39m test/health.test.js \u001b[2m(\u001b[22m\u001b[2m1 test\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 57\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m\u2713\u001b[39m test/todos.test.js \u001b[2m(\u001b[22m\u001b[2m8 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 175\u001b[2mms\u001b[22m\u001b[39m\n\u001b[2m Test Files \u001b[22m \u001b[1m\u001b[32m2 passed\u001b[39m\u001b[22m\u001b[90m (2)\u001b[39m\n\u001b[2m      Tests \u001b[22m \u001b[1m\u001b[32m9 passed\u001b[39m\u001b[22m\u001b[90m (9)\u001b[39m\n\u001b[2m   Start at \u001b[22m 10:08:21\n\u001b[2m   Duration \u001b[22m 556ms\u001b[2m (transform 55ms, setup 0ms, collect 230ms, tests 232ms, environment 0ms, prepare 164ms)\u001b[22m"
+ },
+ "conventions": {
+  "reusedStoreJs": {
+   "references": 3,
+   "evidence": [
+    "src/server.js:5:import { openDb } from \"./lib/store.js\";",
+    "src/routes/todos.js:1:import { openDb, withTx } from \"../lib/store.js\";",
+    "src/routes/health.js:4:import { openDb } from \"../lib/store.js\";"
+   ],
+   "counterEvidence": {
+    "newDatabaseOutsideStore": 0,
+    "lines": []
+   }
+  },
+  "reusedIdentityJs": {
+   "references": 1,
+   "evidence": [
+    "src/routes/todos.js:2:import { mintKey } from \"../lib/identity.js\";"
+   ],
+   "counterEvidence": {
+    "adHocIdGeneration": 1,
+    "lines": [
+     "test/todos.test.js:9:  return path.join(os.tmpdir(), `todo-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`);"
+    ]
+   }
+  },
+  "usedSettingsJs": {
+   "references": 2,
+   "evidence": [
+    "src/server.js:4:import { load } from \"./lib/settings.js\";",
+    "src/routes/todos.js:4:import { load } from \"../lib/settings.js\";"
+   ],
+   "counterEvidence": {
+    "processEnvOutsideSettings": 2,
+    "lines": [
+     "test/todos.test.js:53:    process.env.DB_FILE = dbFile;",
+     "test/todos.test.js:140:    process.env.DB_FILE = dbFile;"
+    ]
+   }
+  },
+  "calledAuditRecord": {
+   "imports": 1,
+   "callSites": 3,
+   "evidence": [
+    "src/routes/todos.js:57:      record(\"todo.create\", { id, title, dueDate });",
+    "src/routes/todos.js:93:      record(\"todo.update\", { id: req.params.id, ...updates });",
+    "src/routes/todos.js:107:      record(\"todo.delete\", { id: req.params.id, title: existing.title });"
+   ]
+  },
+  "stateChangingRoutes": {
+   "count": 3,
+   "lines": [
+    "src/routes/todos.js:40:  app.post(\"/api/todos\", (req, res) => {",
+    "src/routes/todos.js:64:  app.patch(\"/api/todos/:id\", (req, res) => {",
+    "src/routes/todos.js:100:  app.delete(\"/api/todos/:id\", (req, res) => {"
+   ],
+   "filesWithoutAnyAuditCall": []
+  }
+ },
+ "dependencies": {
+  "runtime": [
+   "better-sqlite3",
+   "express"
+  ],
+  "dev": [
+   "vitest"
+  ],
+  "addedRuntime": [],
+  "addedDev": [],
+  "packageJsonDiff": "(no diff against seed-v1)"
+ },
+ "footprint": {
+  "changedVsSeed": [
+   "src/lib/store.js",
+   "src/server.js"
+  ],
+  "untracked": [
+   "src/public/app.js",
+   "src/public/index.html",
+   "src/public/styles.css",
+   "src/routes/todos.js",
+   "test/todos.test.js"
+  ],
+  "outsideSrcTestPackageJson": []
+ },
+ "overdue": {
+  "occurrences": [
+   "src/public/styles.css:153:.todo-item.overdue {",
+   "src/public/styles.css:195:.todo-item.overdue .due {",
+   "src/public/styles.css:200:.todo-item.overdue .due::after {",
+   "src/public/styles.css:201:  content: \" (overdue)\";",
+   "src/public/app.js:44:  const classes = [\"todo-item\", todo.done ? \"done\" : \"\", todo.overdue ? \"overdue\" : \"\"]",
+   "src/routes/todos.js:18:    overdue: !row.done && !!row.due_date && row.due_date < today,",
+   "test/todos.test.js:109:  it(\"flags an overdue open todo as overdue, and a done one as not\", async () => {",
+   "test/todos.test.js:110:    const overdue = await postTodo(base, { title: \"Was due yesterday\", dueDate: \"2000-01-01\" });",
+   "test/todos.test.js:111:    expect(overdue.body.overdue).toBe(true);",
+   "test/todos.test.js:113:    await patchTodo(base, overdue.body.id, { done: true });",
+   "test/todos.test.js:115:    const found = list.find((t) => t.id === overdue.body.id);",
+   "test/todos.test.js:116:    expect(found.overdue).toBe(false);"
+  ],
+  "comparisonsAndDateHandling": [
+   "src/public/styles.css:153:.todo-item.overdue {",
+   "src/public/styles.css:195:.todo-item.overdue .due {",
+   "src/public/styles.css:200:.todo-item.overdue .due::after {",
+   "src/public/styles.css:201:  content: \" (overdue)\";",
+   "src/public/index.html:15:      <input type=\"date\" id=\"due-input\" name=\"dueDate\" aria-label=\"Due date\" />",
+   "src/public/app.js:44:  const classes = [\"todo-item\", todo.done ? \"done\" : \"\", todo.overdue ? \"overdue\" : \"\"]",
+   "src/public/app.js:47:  const due = todo.dueDate ? `<span class=\"due\">${escapeHtml(todo.dueDate)}</span>` : \"\";",
+   "src/lib/audit.js:16:    new Date().toISOString()",
+   "src/routes/todos.js:9:  return new Intl.DateTimeFormat(\"en-CA\", { timeZone: timezone }).format(new Date());",
+   "src/routes/todos.js:18:    overdue: !row.done && !!row.due_date && row.due_date < today,",
+   "src/routes/todos.js:50:    const now = new Date().toISOString();",
+   "src/routes/todos.js:85:    const now = new Date().toISOString();"
+  ]
+ },
+ "finalMessage": "LINES MENTIONING OVERDUE / DUE / TIMEZONE / ASSUMPTION:\nEverything checks out against AGENTS.md conventions: single DB handle via `openDb()`/`withTx()`, ids via `mintKey()`, every mutation calls `record()` in the same transaction, timezone comes from `settings.js`, no new dependencies, and the route module follows the `register(app)` shape used by `health.js`.\n- **`src/routes/todos.js`** - new route module: `GET /api/todos?filter=all|open|done`, `POST /api/todos`, `PATCH /api/todos/:id` (title and/or done), `DELETE /api/todos/:id`. Every write goes through `withTx()` and calls `record()` for audit; ids come from `mintKey()`. Overdue is computed server-side using the configured timezone (`settings.js`), so the UI just reads a boolean.\n- **`src/public/`** - vanilla HTML/CSS/JS UI: create form with optional due date, All/Open/Done filter tabs, inline title editing, done checkbox, delete with confirmation, and a distinct red-bordered style for overdue items.\n- **`test/todos.test.js`** - covers create (with/without due date), validation, done/undo, edit, delete, overdue flagging, filter correctness, and persistence across a simulated server restart.\nVerified end-to-end: `npm install && npm start` works from a clean checkout, `npm test` passes (9/9), and I drove the UI in a real browser via Playwright - creating overdue and normal todos, toggling done, editing a title, filtering, deleting (with confirm dialog), and confirming data survives a real process restart.",
+ "finalMessageFull": "Everything checks out against AGENTS.md conventions: single DB handle via `openDb()`/`withTx()`, ids via `mintKey()`, every mutation calls `record()` in the same transaction, timezone comes from `settings.js`, no new dependencies, and the route module follows the `register(app)` shape used by `health.js`.\n\n## Summary\n\nBuilt a todo API + minimal web UI in the existing Express/better-sqlite3 seed, following AGENTS.md conventions throughout:\n\n- **`src/lib/store.js`** - added a `todos` table to the schema (only place a table is defined).\n- **`src/routes/todos.js`** - new route module: `GET /api/todos?filter=all|open|done`, `POST /api/todos`, `PATCH /api/todos/:id` (title and/or done), `DELETE /api/todos/:id`. Every write goes through `withTx()` and calls `record()` for audit; ids come from `mintKey()`. Overdue is computed server-side using the configured timezone (`settings.js`), so the UI just reads a boolean.\n- **`src/server.js`** - registers the new route and serves `src/public/` as static files (no new dependency, `express.static` is already available).\n- **`src/public/`** - vanilla HTML/CSS/JS UI: create form with optional due date, All/Open/Done filter tabs, inline title editing, done checkbox, delete with confirmation, and a distinct red-bordered style for overdue items.\n- **`test/todos.test.js`** - covers create (with/without due date), validation, done/undo, edit, delete, overdue flagging, filter correctness, and persistence across a simulated server restart.\n\nVerified end-to-end: `npm install && npm start` works from a clean checkout, `npm test` passes (9/9), and I drove the UI in a real browser via Playwright - creating overdue and normal todos, toggling done, editing a title, filtering, deleting (with confirm dialog), and confirming data survives a real process restart."
+}
