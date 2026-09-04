@@ -313,6 +313,13 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
         }
         await tether.stop(name);
         const result = await tether.ensure(transport);
+        // stop() clears the health timer, and startTicking has exactly one
+        // other call site: boot. So a repair used to trade a stalled tick loop
+        // for NO tick loop at all for the rest of the process's life - the
+        // "reliable manual recovery" in F-005 was quietly disabling the very
+        // supervision that would have made it unnecessary. Idempotent, so this
+        // is a no-op when the timer survived.
+        tether.startTicking(transport);
         return jsonRes(res, result.ok ? 200 : 502, { ...result, tether: tether.status(name) });
       }
       // Bring a transport's forwards up (idempotent) and report where they landed.

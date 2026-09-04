@@ -310,3 +310,99 @@ describe("tether.json: what scripts/tailnet-serve-tether.mjs reads", () => {
     expect(written.forwards).toEqual([{ name: "app", localPort: appPort, servePort: 8977 }]);
   });
 });
+
+// The deadlock this suite did not catch, found the day WSL died under csg.
+//
+// `onUp` is the RECOVERY command - on csg, `node-supervisor.sh ensure`, which
+// starts the node process whose ports the -L forwards carry. Firing it only on
+// the down->up transition made it unreachable exactly when it was needed: the
+// forwards cannot carry until the node runs, and the node did not run until the
+// forwards carried. The tether sat in `suspect` with a perfectly healthy reverse
+// leg (ssh worked by hand) until a human ran the hook's own command.
+//
+// The reverse leg carrying IS "we can run commands over there", which is the
+// only precondition the hook has. That is what gates it now.
+describe("the recovery hook fires on REACHABLE, not only on fully-up", () => {
+  it("runs onUp while the -L forwards carry nothing, because the reverse leg proves we can reach the far side", async () => {
+    const [appPort, shellsPort] = [await freeLocalPort(), await freeLocalPort()];
+    const transport = transportWithFreePorts(appPort, shellsPort);
+    const calls: string[] = [];
+    const exec = vi.fn(async (_t: unknown, cmd: string) => {
+      calls.push(cmd);
+      return { code: 0, stdout: "", stderr: "" }; // the reverse-leg curl succeeds
+    });
+    const mgr = new TetherManager({
+      spawnFn: fakeSshSpawn({ answer: false }), // listeners accept, never answer
+      exec,
+      env: { GARRISON_NODE_NAME: "dev-madrid", GARRISON_HOME: TEST_HOME } as any,
+      log: { warn: () => {} }
+    });
+
+    const res = await mgr.ensure(transport);
+    expect(res.state).toBe("suspect"); // the forwards genuinely are not carrying
+    expect(
+      calls.some((c) => c.includes("node-supervisor.sh ensure")),
+      "the recovery hook must run while the far side is reachable but its forwards are dead - that is the whole point of it"
+    ).toBe(true);
+  });
+
+  it("does NOT run onUp when the reverse leg is down - there is nothing to run it through", async () => {
+    const [appPort, shellsPort] = [await freeLocalPort(), await freeLocalPort()];
+    const transport = transportWithFreePorts(appPort, shellsPort);
+    const calls: string[] = [];
+    const exec = vi.fn(async (_t: unknown, cmd: string) => {
+      calls.push(cmd);
+      return { code: 1, stdout: "", stderr: "no route" }; // reverse leg dead
+    });
+    const mgr = new TetherManager({
+      spawnFn: fakeSshSpawn({ answer: false }),
+      exec,
+      env: { GARRISON_NODE_NAME: "dev-madrid", GARRISON_HOME: TEST_HOME } as any,
+      log: { warn: () => {} }
+    });
+
+    await mgr.ensure(transport);
+    expect(calls.some((c) => c.includes("node-supervisor.sh ensure"))).toBe(false);
+  });
+
+  it("does not re-run the hook on every tick while it is still working", async () => {
+    const [appPort, shellsPort] = [await freeLocalPort(), await freeLocalPort()];
+    const transport = transportWithFreePorts(appPort, shellsPort);
+    const calls: string[] = [];
+    const exec = vi.fn(async (_t: unknown, cmd: string) => {
+      calls.push(cmd);
+      return { code: 0, stdout: "", stderr: "" };
+    });
+    const mgr = new TetherManager({
+      spawnFn: fakeSshSpawn({ answer: false }),
+      exec,
+      env: { GARRISON_NODE_NAME: "dev-madrid", GARRISON_HOME: TEST_HOME } as any,
+      log: { warn: () => {} }
+    });
+
+    await mgr.ensure(transport);
+    await mgr.tick(transport);
+    const hookRuns = calls.filter((c) => c.includes("node-supervisor.sh ensure"));
+    expect(hookRuns).toHaveLength(1);
+  });
+});
+
+describe("#start refuses to run a second ssh over a live one", () => {
+  it("ensure() twice spawns exactly one child (the tether had no live-child guard; a raced tick could orphan a working ssh)", async () => {
+    const [appPort, shellsPort] = [await freeLocalPort(), await freeLocalPort()];
+    const transport = transportWithFreePorts(appPort, shellsPort);
+    let spawns = 0;
+    const inner = fakeSshSpawn({ answer: true });
+    const spawnFn = (cmd: string, argv: string[]) => { spawns += 1; return inner(cmd, argv); };
+    const mgr = new TetherManager({
+      spawnFn,
+      exec: vi.fn().mockResolvedValue({ code: 0, stdout: "", stderr: "" }),
+      env: { GARRISON_NODE_NAME: "dev-madrid", GARRISON_HOME: TEST_HOME } as any,
+      log: { warn: () => {} }
+    });
+
+    await mgr.ensure(transport);
+    await mgr.ensure(transport);
+    expect(spawns).toBe(1);
+  });
+});

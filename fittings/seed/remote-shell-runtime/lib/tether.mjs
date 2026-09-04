@@ -28,6 +28,11 @@ const MAX_BACKOFF_MS = 60_000;
 const MISSES_BEFORE_RETIRE = 2;
 const KILL_GRACE_MS = 2_000;
 const REVERSE_PROBE_TIMEOUT_MS = 5_000;
+// How often the recovery hook may re-run while the far side is reachable but
+// its forwards still carry nothing. Long enough that a hook which takes a
+// while (node-supervisor.sh brings a whole node up) is not stampeded, short
+// enough that a hook which failed gets another go without waiting for a human.
+const RECOVERY_RETRY_MS = 120_000;
 
 /** Is this node the one a tether block is armed for? A tether transport is
  *  otherwise inert - every OTHER node in the mesh reads the same composition
@@ -120,9 +125,16 @@ export class TetherManager {
     return this.#start(transport);
   }
 
-  async #start(transport) {
+  async #start(transport, { replace = false } = {}) {
     const name = transport.name;
     const e = this.#entry(name);
+    // A live child means someone else already started one. TunnelManager's
+    // #startClient has always had this guard; the tether did not, which is how
+    // a raced tick could leave a second ssh fighting the first for the same
+    // forwards. `replace` is the deliberate path (tick retires, then restarts).
+    if (!replace && e.child && e.child.exitCode === null) {
+      return { ok: e.state === "up", state: e.state };
+    }
     e.starting = true;
     this.#setState(e, "connecting");
     try {
@@ -149,6 +161,9 @@ export class TetherManager {
       e.legs = legs.detail;
       e.lastError = legs.detail?.error ?? "tether did not settle";
       this.#setState(e, "suspect");
+      // Reachable but not carrying is exactly the shape a dead far-side node
+      // leaves behind, and it is the shape the recovery hook exists for.
+      this.#maybeRecover(transport, legs);
       return { ok: false, state: "suspect", error: e.lastError };
     } finally {
       e.starting = false;
@@ -233,19 +248,54 @@ export class TetherManager {
     e.state = state;
   }
 
-  #fireOnUp(transport) {
+  /**
+   * Run the recovery hook, gated on the ONE precondition it actually has: that
+   * we can execute commands on the far side (the -R leg carrying proves that).
+   *
+   * Firing it only from #markUp was a deadlock, and it cost a manual recovery
+   * the day WSL died under csg. `onUp` there is `node-supervisor.sh ensure` -
+   * the command that STARTS the node whose ports the -L forwards carry. So the
+   * forwards could not carry until the hook ran, and the hook did not run until
+   * the forwards carried. The tether sat in `suspect` with a perfectly healthy
+   * reverse leg (ssh worked fine by hand) until a human ran the hook's own
+   * command. Reachability, not full health, is the right trigger.
+   */
+  #maybeRecover(transport, legs) {
     const t = transport.tether;
-    if (t?.onUp && this.exec) {
-      this.log?.warn?.(`[remote-shell] tether ${transport.name} is up - running onUp`);
-      this.exec(transport, `bash -lc ${shellQuote(t.onUp)}`, { timeoutMs: 15_000 }).catch((err) => {
-        this.log?.warn?.(`[remote-shell] tether ${transport.name} onUp failed: ${err?.message ?? err}`);
-      });
-    }
+    if (!t?.onUp || !this.exec) return;
+    const e = this.#entry(transport.name);
+    // Not reachable: nothing to run the hook through, and the next reachable
+    // episode should fire immediately rather than inherit this one's cooldown.
+    if (!legs?.detail?.reverse?.ok) { e.recoveryAt = 0; return; }
+    if (e.recoveryAt && Date.now() - e.recoveryAt < RECOVERY_RETRY_MS) return;
+    e.recoveryAt = Date.now();
+    this.log?.warn?.(`[remote-shell] tether ${transport.name} is reachable - running onUp`);
+    this.exec(transport, `bash -lc ${shellQuote(t.onUp)}`, { timeoutMs: 15_000 }).catch((err) => {
+      this.log?.warn?.(`[remote-shell] tether ${transport.name} onUp failed: ${err?.message ?? err}`);
+    });
+  }
+
+  #fireOnUp(transport) {
+    // Reachable is implied by up; the cooldown inside keeps this from running
+    // the hook a second time when recovery just ran it moments ago.
+    this.#maybeRecover(transport, { detail: { reverse: { ok: true } } });
     if (typeof this.onRecovered === "function") {
       try { this.onRecovered(transport); } catch { /* caller's problem */ }
     }
     if (this.notify) {
-      try { this.notify(`tether ${transport.name} is up`); } catch { /* best effort */ }
+      // The object shape every sink expects. This passed a bare string, which
+      // capture-service rejects with a 400 - so the one piece of GOOD news the
+      // tether ever sends was the only one that never arrived.
+      try {
+        this.notify({
+          title: "Tether",
+          text: `${transport.label ?? transport.name}: tether is up`,
+          actions: [],
+          tag: `remote-shell-tether:${transport.name}`,
+          idempotencyKey: `remote-shell-tether:${transport.name}:up:${this.#entry(transport.name).since}`,
+          link: null
+        });
+      } catch { /* best effort */ }
     }
   }
 
@@ -281,24 +331,37 @@ export class TetherManager {
       return;
     }
 
-    const legs = await this.#probeAll(transport);
-    if (legs.ok) {
-      this.#markUp(transport, legs);
-      return;
+    // Everything from here can await for a minute or more (a retire, a backoff,
+    // a fresh #start), so it runs under the same `ticking` guard as the branch
+    // above. Without it a second tick walked in, saw e.child already cleared by
+    // #retire, took the no-child branch and reached a SECOND #start - the loser
+    // died instantly on ExitOnForwardFailure while the orphaned winner kept both
+    // forwards carrying. That is F-005's exact symptom: curl to the forward
+    // works while /tether insists the tether is suspect.
+    e.ticking = true;
+    try {
+      const legs = await this.#probeAll(transport);
+      if (legs.ok) {
+        this.#markUp(transport, legs);
+        return;
+      }
+      e.misses += 1;
+      e.legs = legs.detail;
+      e.lastError = legs.detail?.error ?? "unhealthy";
+      this.#maybeRecover(transport, legs);
+      if (e.misses < MISSES_BEFORE_RETIRE) {
+        this.#setState(e, "suspect");
+        return;
+      }
+      this.log?.warn?.(`[remote-shell] tether ${name} unhealthy for ${e.misses} ticks (${e.lastError}) - retiring and respawning`);
+      await this.#retire(e);
+      const backoff = Math.min(BASE_BACKOFF_MS * 2 ** e.backoffIndex, MAX_BACKOFF_MS);
+      e.backoffIndex += 1;
+      await sleep(backoff);
+      await this.#start(transport, { replace: true });
+    } finally {
+      e.ticking = false;
     }
-    e.misses += 1;
-    e.legs = legs.detail;
-    e.lastError = legs.detail?.error ?? "unhealthy";
-    if (e.misses < MISSES_BEFORE_RETIRE) {
-      this.#setState(e, "suspect");
-      return;
-    }
-    this.log?.warn?.(`[remote-shell] tether ${name} unhealthy for ${e.misses} ticks (${e.lastError}) - retiring and respawning`);
-    await this.#retire(e);
-    const backoff = Math.min(BASE_BACKOFF_MS * 2 ** e.backoffIndex, MAX_BACKOFF_MS);
-    e.backoffIndex += 1;
-    await sleep(backoff);
-    await this.#start(transport);
   }
 
   async #retire(e) {
