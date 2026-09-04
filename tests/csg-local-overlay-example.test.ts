@@ -24,6 +24,8 @@ const EXPECTED_UNSTATION = [
   "codex-runtime",
   "gemini-runtime",
   "opencode-runtime",
+  "huggingface-runtime",
+  "openrouter-runtime",
   "browser-default",
   "screen-share-default",
   "snapshots-default",
