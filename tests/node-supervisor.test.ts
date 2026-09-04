@@ -9,7 +9,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -147,5 +147,28 @@ describe("node-supervisor.sh", () => {
     // several times, proving a startup-crashing child is retried forever
     // rather than leaving the supervisor silently dead.
     await waitFor(() => markerLines().filter((l) => l.startsWith("started pid=")).length >= 3, { timeoutMs: 8000 });
+  });
+
+  it("derives GARRISON_NODE_NAME from node.json's id when the caller does not pass it - found live: a bare 'restart' (no env re-passed) fell through to the raw machine hostname", async () => {
+    // No GARRISON_NODE_NAME anywhere in baseEnv - this is exactly the shape
+    // of install-node.sh's own restart call, which does not re-export it.
+    writeFileSync(path.join(TEST_HOME, "node.json"), JSON.stringify({ id: "csg-test-node" }));
+    run(["daemon"]);
+    await waitFor(() => markerLines().some((l) => l.startsWith("started pid=")));
+    expect(markerLines()[0]).toMatch(/GARRISON_NODE_NAME=csg-test-node/);
+  });
+
+  it("falls back to the raw hostname when node.json is absent (first-ever start, before install-node.sh writes it)", async () => {
+    run(["daemon"]);
+    await waitFor(() => markerLines().some((l) => l.startsWith("started pid=")));
+    expect(markerLines()[0]).not.toMatch(/GARRISON_NODE_NAME=<unset>/);
+    expect(markerLines()[0]).toMatch(/GARRISON_NODE_NAME=\S+/);
+  });
+
+  it("an explicitly-passed GARRISON_NODE_NAME still wins over node.json", async () => {
+    writeFileSync(path.join(TEST_HOME, "node.json"), JSON.stringify({ id: "csg-test-node" }));
+    run(["daemon"], { GARRISON_NODE_NAME: "explicit-override" });
+    await waitFor(() => markerLines().some((l) => l.startsWith("started pid=")));
+    expect(markerLines()[0]).toMatch(/GARRISON_NODE_NAME=explicit-override/);
   });
 });

@@ -41,6 +41,17 @@ CLOCK_SYNC_INTERVAL=600
 
 mkdir -p "$NODE_SUPERVISOR_HOME"
 
+# Found live: a caller invoking `restart`/`start` without re-passing
+# GARRISON_NODE_NAME (every later restart, not just the first start) fell
+# through straight to the raw machine hostname - on csg that is its Azure/WSL
+# hostname, not "csg", and every fitting spawned under it self-identified
+# wrong for the rest of that process's life. node.json's own `id` is the
+# durable identity (install-node.sh writes it once and never again) - prefer
+# it over a caller-dependent env var so a restart is not the ONE call that
+# has to remember to pass it.
+if [ -z "${GARRISON_NODE_NAME:-}" ] && [ -s "$NODE_SUPERVISOR_HOME/node.json" ] && command -v node >/dev/null 2>&1; then
+  GARRISON_NODE_NAME="$(node -e 'try{const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));if(j.id)process.stdout.write(String(j.id))}catch{}' "$NODE_SUPERVISOR_HOME/node.json" 2>/dev/null)"
+fi
 export GARRISON_NODE_NAME="${GARRISON_NODE_NAME:-$( (command -v hostname >/dev/null 2>&1 && hostname) || echo node)}"
 export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost}"
 export PATH="$HOME/.local/bin:$PATH"
