@@ -524,11 +524,16 @@ serves exactly the ports the old prod profile served, so nothing live moved.)
 ### Deploying — reload for app changes, redeploy when a long-lived process holds the code
 
 **Reach for `npm run node:reload` first.** It builds and restarts the Next app
-server and leaves the operative and the own-port fittings running. That is enough
-for anything confined to the app: `src/app/**`, `src/components/**`, and the
-`src/lib/**` modules the app imports. A full redeploy for those costs minutes,
-drops the running session, and re-runs 44 verify hooks to prove nothing that
-changed.
+server, then brings the operative back on `up()`'s fast path (fingerprint
+unchanged = no install, no setup, no verify hooks). It does NOT keep the
+gateway or the own-port fittings alive across the restart: they are children of
+the service unit / launchd job and go down with it, so the voice layer and every
+fitting are unreachable for roughly a minute and any open capture or pendant
+socket drops (the 2026-09-04 pendant error was exactly this window). That is
+still the right tool for anything confined to the app: `src/app/**`,
+`src/components/**`, and the `src/lib/**` modules the app imports. A full
+redeploy for those costs minutes and re-runs 44 verify hooks to prove nothing
+that changed.
 
 **Use `npm run node:redeploy` when the change is in code a LONG-LIVED process is
 holding in memory**: `fittings/seed/**` (fitting servers, runtime adapters, the

@@ -452,6 +452,21 @@ the simulator and where the code is.
   Extension synthesizing the body to a sound file at delivery. Native;
   deferred until the push path is confirmed on the phone (D57 confirmed
   APNs delivery; the in-app presentation was the missing piece).
+- **`node:reload` takes the voice layer down for about a minute.** The
+  gateway and every own-port fitting are children of the launchd job (the
+  systemd unit on dev-madrid), so `launchctl kickstart -k` in
+  `scripts/garrison-reload.sh` kills them with the app server and `up()`
+  respawns them one to two minutes later. The 2026-09-04 06:53Z pendant ask
+  fell into that window: capture-service was down, the pendant's uploader
+  showed its failed state and the wake phrase was never heard; the pendant
+  session resumed on its own once the new process listened
+  (`speakable.byMode.pendant: 1` on `/health` afterwards). Keeping fittings
+  alive across an app restart means spawning them outside the job (their
+  own launchd agents, or a detached session leader launchd does not track)
+  and having the new app server adopt the status files instead of the
+  orphan sweep reaping them. CLAUDE.md's reload paragraph now says what the
+  restart really does. Until then, do not reload while a phone session is
+  live, and expect one lost ask per reload.
 - **Capture turns are routed by inference (D57).** A spoken turn lands in a
   plain chat conversation with no routing pin, so the gateway may run
   triage alone and answer with a question (the 06:15Z hit). The talk page

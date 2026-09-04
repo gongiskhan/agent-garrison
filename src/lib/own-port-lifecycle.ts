@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, mkdirSync, openSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, renameSync, writeFileSync, writeSync } from "node:fs";
 import { readFile, readdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { garrisonDir } from "./claude-home";
@@ -660,9 +660,15 @@ async function startOwnPortFittingLocked(
 
   // Redirect stdout/stderr to a per-Fitting log file so failures are visible.
   // Truncated on each start so the file always reflects the most recent
-  // attempt; persists after exit so a crash leaves diagnostics behind.
+  // attempt; persists after exit so a crash leaves diagnostics behind. The
+  // previous attempt's log moves to `<id>.log.1` first: a restart is usually
+  // the response to an incident, and truncating was erasing the one record
+  // of it (the 2026-09-04 pendant error vanished with the reload's restart).
   mkdirSync(statusDir(), { recursive: true });
   const logPath = logFilePath(entry.id);
+  if (existsSync(logPath)) {
+    try { renameSync(logPath, `${logPath}.1`); } catch { /* best effort: the new log still opens */ }
+  }
   const logFd = openSync(logPath, "w");
   writeSync(logFd, `--- ${new Date().toISOString()} starting ${entry.id} ---\n`);
 
