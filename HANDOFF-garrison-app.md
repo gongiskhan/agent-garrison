@@ -193,7 +193,10 @@ on the iPhone and walk this list on the real device against this node
      it restarts cleanly (this is also the recovery when a session looks
      stuck). Listen and Record together: the Listen turn carries the
      frames.
-   - Nightly: the scheduler job `zeca-nightly-review` (03:05 local,
+   - Nightly: the scheduler job `zeca-nightly-review` (03:05 local; on an
+     enrolled node it lives in the mesh scheduler store, listed with
+     `GARRISON_HOME=$HOME/.garrison node scripts/scheduler.mjs list` from
+     `compositions/default/apm_modules/_local/scheduler`, not in
      `~/.garrison/scheduler-jobs.json`) reviews the day's turns through one
      operative turn, files `~/.garrison/zeca/reviews/<day>-<id>.md`, then
      rotates: the old thread is renamed `Zeca until <date>` and stays in
