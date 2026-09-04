@@ -156,10 +156,11 @@ on the iPhone and walk this list on the real device against this node
    a command's confirmation ("Feito.") is the native ack lane, which was
    already the node's voice. When the page does fall back it now says why
    for 15 s under the record button: `Phone voice used: <reason>.` - copy
-   that line into the report. Expected voice until the ElevenLabs account
-   is topped up: Deepgram Aura on every node (`/health` ->
-   `voice.ttsFallback.reason` names the quota wall; ElevenLabs is
-   re-tried every 15 min). Regressions: `tests/vault-mesh-write-through.test.ts`,
+   that line into the report. The ElevenLabs account was topped up on
+   2026-09-04 and all three nodes render through ElevenLabs again
+   (`/health` -> `ttsBackend: elevenlabs`, `ttsFallback: null`); if the
+   phone still hears Aura, `voice.ttsFallback.reason` names why and
+   ElevenLabs is re-tried every 15 min. Regressions: `tests/vault-mesh-write-through.test.ts`,
    `tests/capture-service-voice.test.ts` (fallback block).
 4. Capture page (`/capture`, shown only in the app): the microphone lane and
    the broadcast picker (screen capture consent is native), the live status,
@@ -373,6 +374,16 @@ the simulator and where the code is.
   the quota wall and the phone speaks itself while pointed at dev-madrid;
   converge that tree (or top up ElevenLabs) to clear it. Evidence in
   `evidence/garrison-app/voice-d59/`.
+  **Top-up landed the same morning**: capture-service restarted on this Mac
+  and the mini, and all three nodes (dev-madrid included, its direct
+  ElevenLabs path works again) return 200 audio/mpeg from
+  `POST /api/voice/tts` through ElevenLabs (`after-topup.md`). One
+  observation left open: the first post-top-up restart on this Mac sat
+  CPU-bound for ~90 s at boot (health unanswered, every in-process fetch
+  timing out while the endpoints answered curl), parked on Aura as designed,
+  then recovered; a second restart booted clean under a two-minute watch
+  and nothing in the capture directories is large enough to explain it. If
+  it recurs, `sample <pid>` it during the stall.
 
 ## 3. Operator-triggered follow-ups
 
