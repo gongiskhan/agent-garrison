@@ -644,9 +644,21 @@
   .wc-sidebar { transition: width .16s ease; }
   .wc-shell--rail .wc-sidebar { width: 42px; }
   /* Hidden, not merely narrow: leaving them in a 42px column produces clipped
-     text rather than a clean rail. */
+     text rather than a clean rail.
+     .wc-shells-btn and .wc-new-wrap are hidden for a sharper reason than tidiness:
+     the head is a flex row (gap 8px) whose children do not shrink, so leaving them
+     in stacked 20 + 8 + (26 + 6 margin) + 8 + 0 = 68px of content into a 42px
+     column. .wc-sidebar does not clip, and the head centres its overflow, so the
+     spill lands on BOTH sides - pushing the collapse chevron out under the shell
+     sidebar, where it cannot be seen or clicked. The rail then had no way back to
+     the list: Conversations looked broken on every wide screen. Hiding them keeps
+     the chevron alone and centred, which is the whole job of a collapsed rail -
+     `+ New` was already hidden on the same reasoning, and both are one click away
+     again the moment the rail is expanded. */
   .wc-shell--rail .wc-sidebar-title,
   .wc-shell--rail .wc-new,
+  .wc-shell--rail .wc-shells-btn,
+  .wc-shell--rail .wc-new-wrap,
   .wc-shell--rail .wc-side-scroll,
   .wc-shell--rail .wc-thread-list { display: none; }
   .wc-shell--rail .wc-sidebar-head {
