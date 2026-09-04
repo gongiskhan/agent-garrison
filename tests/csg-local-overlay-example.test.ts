@@ -39,7 +39,8 @@ const EXPECTED_UNSTATION = [
   "trello",
   "google",
   "cortex-automations",
-  "cortex-client"
+  "cortex-client",
+  "loop-heartbeat"
 ];
 
 function loadOverlay(): LocalOverlay {

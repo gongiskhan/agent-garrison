@@ -30,6 +30,9 @@ unstation:
   - google
   - cortex-automations
   - cortex-client
+  # Found live during the first real G7 install (2026-09-04): setup fails
+  # without a gateway address a tethered node has no correct value for.
+  - loop-heartbeat
 
 # csg must never dial its OWN tunnel back to itself - the transports config
 # (the csg entry with the tether block) belongs to dev-madrid, the tether's
