@@ -501,9 +501,9 @@ body {
 /* Bulk-selection tick, first thing on the title row. */
 .card .ct .card-select {
   flex: 0 0 auto;
-  width: 15px;
-  height: 15px;
-  margin: 2px 0 0;
+  width: 17px;
+  height: 17px;
+  margin: 3px 0 0;
   accent-color: var(--ink);
   cursor: pointer;
 }
@@ -1980,7 +1980,12 @@ button:active, .btn:active { transform: translateY(1px); }
 }
 
 @media (pointer: coarse) {
-  button, .btn, input, select, textarea, .gear { min-height: 44px; }
+  /* Checkboxes/radios are excluded: a native checkbox keeps its own
+     width/height rule (see input[type="checkbox"] below and .card-select),
+     and a blanket min-height here only stretches its hit box vertically
+     while the drawn tick stays put in the top-left corner - a checkbox that
+     reads as a tall, skinny rectangle instead of a square. */
+  button, .btn, input:not([type="checkbox"]):not([type="radio"]), select, textarea, .gear { min-height: 44px; }
   .gear { min-width: 44px; }
   /* The exemptions from this floor - checklist boxes, native checkboxes, the
      inline icon controls - live at the END of this file, after the base rules
@@ -2859,7 +2864,7 @@ label.row { display: flex; align-items: center; gap: 8px; }
      and centres their content, which floats the title a line below its dot.
      The whole card is the tap target that opens it, so the title needs no floor. */
   .card .ct .card-title-open { min-height: 0; }
-  .card .ct .card-select { width: 18px; height: 18px; min-height: 0; margin-top: 1px; }
+  .card .ct .card-select { width: 20px; height: 20px; min-height: 0; margin-top: 0; }
   .card .ct .dot { margin-top: 6px; }
   .card .ct .card-rename { width: 40px; height: 40px; margin: -10px -12px -10px 0; }
   .card .cmeta { gap: 5px 6px; }
