@@ -9,7 +9,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -170,5 +170,26 @@ describe("node-supervisor.sh", () => {
     run(["daemon"], { GARRISON_NODE_NAME: "explicit-override" });
     await waitFor(() => markerLines().some((l) => l.startsWith("started pid=")));
     expect(markerLines()[0]).toMatch(/GARRISON_NODE_NAME=explicit-override/);
+  });
+
+  it("sources ~/.nvm/nvm.sh when present, so a fresh non-login invocation (e.g. a bare ssh restart) still finds node - found live: node-supervisor.sh itself failed with 'node: not found' the first time it was ever restarted outside install-node.sh's own nvm-sourced call chain", async () => {
+    // A real nvm.sh stand-in: sourcing it must run in THIS shell (not a
+    // subshell), so the marker it sets is observable by everything after -
+    // exactly the property the real bug depended on and the real fix relies
+    // on. Plain sh here would silently fail this test the way #!/bin/sh did
+    // live (dash's BASH_SOURCE-free sourcing-path detection), so this also
+    // guards the bash-shebang requirement itself.
+    mkdirSync(path.join(TEST_HOME, ".nvm"), { recursive: true });
+    writeFileSync(path.join(TEST_HOME, ".nvm", "nvm.sh"), 'export NVM_SOURCED_MARKER="yes"\n');
+    run(["daemon"]);
+    await waitFor(() => markerLines().some((l) => l.startsWith("started pid=")));
+    expect(markerLines()[0]).toMatch(/NVM_SOURCED_MARKER=yes/);
+  });
+
+  it("does not fail when ~/.nvm/nvm.sh is absent (a node already on PATH, no nvm at all)", async () => {
+    const result = run(["daemon"]);
+    expect(result.status).toBe(0);
+    await waitFor(() => markerLines().some((l) => l.startsWith("started pid=")));
+    expect(markerLines()[0]).toMatch(/NVM_SOURCED_MARKER=<unset>/);
   });
 });

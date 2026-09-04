@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # node-supervisor.sh <daemon|ensure|start|stop|restart|status|run>
 #
 # Keeps `scripts/garrison-instance.sh node start` (the Garrison node process -
@@ -8,6 +8,14 @@
 # restart or a supervisor crash self-heals the moment connectivity returns -
 # no cron, no manual step, the same self-healing shape host-tunnel.sh already
 # proved for the devtunnel host side.
+#
+# bash, not sh: this script sources nvm.sh when present (csg's node lives
+# there, not on the system PATH), and nvm.sh's own sourcing-path detection
+# needs BASH_SOURCE - found live, reproduced directly: sourced from a plain
+# #!/bin/sh (dash on Ubuntu) file, nvm.sh silently derives the wrong NVM_DIR
+# and node never reaches PATH at all, even though nvm itself reports nothing
+# wrong. Every POSIX-only construct below still works under bash unchanged;
+# this line is the only thing that had to give.
 #
 # `setsid` runs ONLY at the outer `daemon` boundary (detaching the whole
 # supervisor from whatever launched it), never again inside the loop - the
@@ -40,6 +48,20 @@ BASE_BACKOFF="${NODE_SUPERVISOR_BACKOFF:-5}"
 CLOCK_SYNC_INTERVAL=600
 
 mkdir -p "$NODE_SUPERVISOR_HOME"
+
+# Found live: this script exists specifically for machines with no
+# systemd --user, and a fresh (non-login) invocation of it - a plain `ssh
+# host '~/.garrison/node-supervisor.sh restart'`, exactly what a redeploy
+# does - never sources nvm.sh, so `node` was on PATH the first time only
+# because SOME caller upstream (install-node.sh, itself invoked through a
+# wrapper that sourced nvm first) happened to have already sourced it. Every
+# later restart failed outright ("env: node: No such file or directory")
+# once invoked outside that lucky chain. Source it here, unconditionally, so
+# this script never again depends on how it was invoked.
+if [ -s "$HOME/.nvm/nvm.sh" ]; then
+  # shellcheck disable=SC1090
+  . "$HOME/.nvm/nvm.sh" >/dev/null 2>&1
+fi
 
 # Found live: a caller invoking `restart`/`start` without re-passing
 # GARRISON_NODE_NAME (every later restart, not just the first start) fell
