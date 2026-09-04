@@ -190,7 +190,15 @@ describe("web channel — the conversation surface", () => {
   });
 
   it("exempts remote-shell threads, whose turns are delegated off this machine", () => {
-    expect(MAIN).toContain("const conversationId = activeRshTransport ? null : (activeThread?.conversationId ?? null);");
+    // Matched on the CONTRACT, not the exact expression: the exemption started
+    // as `activeRshTransport ? null : ...` and has since grown to cover
+    // shell-bound threads too (`activeRshTransport || activeShellBinding`),
+    // which is a superset - the remote-shell case is still exempted. Pinning
+    // the literal string meant a legitimate widening read as a regression.
+    const line = MAIN.split("\n").find((l) => l.includes("const conversationId ="));
+    expect(line, "app.tsx must still derive conversationId").toBeTruthy();
+    expect(line).toContain("activeRshTransport");
+    expect(line).toMatch(/\?\s*null\s*:\s*\(activeThread\?\.conversationId \?\? null\)/);
     // The chat lane survives for exactly that case - including the exchange
     // reduction that seeds it.
     expect(MAIN).toContain("initialHistory={history}");

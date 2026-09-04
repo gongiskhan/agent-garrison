@@ -66,9 +66,15 @@ describe("tailnet-serve-tether.mjs", () => {
     try {
       writeFileSync(path.join(home, "node.json"), "{}");
       mkdirSync(path.join(home, "remote-shell"), { recursive: true });
+      // GARRISON_HOME is sandboxed, but `tailscale serve status` is NOT: the
+      // script asks the real daemon whether the mapping already exists, so the
+      // verdict is would-add only for a port this machine does not actually
+      // serve. This used 8977 - csg's real app port - and started reporting
+      // [kept] the day csg was published for real. Any never-served port keeps
+      // the assertion about the SCRIPT rather than about the host.
       writeFileSync(
         path.join(home, "remote-shell", "tether.json"),
-        JSON.stringify({ transport: "csg", node: "csg", forwards: [{ name: "app", localPort: 9777, servePort: 8977 }] })
+        JSON.stringify({ transport: "csg", node: "csg", forwards: [{ name: "app", localPort: 9777, servePort: 8979 }] })
       );
       const out = run(home);
       expect(out).toMatch(/would-add/);
