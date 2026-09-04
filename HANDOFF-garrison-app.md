@@ -480,6 +480,23 @@ the simulator and where the code is.
 
 ## 4. Debt seen on the way (not this run's)
 
+- **A composition edit that is only in git is gone by the next deploy.** The
+  state service owns a composition's shared files (`src/lib/composition-sync.ts`),
+  so `up()` materialises `apm.yml` from it. The `dialogue` duty (D62) was
+  committed, deployed, and wiped an hour later by exactly this. The only writer
+  that pushes back is the Muster API (`src/app/api/muster/model.ts` ->
+  `pushManifestToState`), so a manifest change has to go through Muster - or be
+  followed by any Muster write - to survive on this node, let alone reach the
+  others.
+- **A Muster write eats every comment in the manifest.** It dumps the parsed
+  manifest through js-yaml, and a YAML round trip cannot keep comments, so the
+  first write after any hand-edit strips them mesh-wide (commit c270133c is the
+  loss). The manifest's prose - why a port moved, why a flag is off - needs a
+  home a dump cannot eat.
+- **`screen_audio_transcribe` is `true` in shared state**, flipped on dev-madrid,
+  against D60's "Record captures the screen only". Left as the mesh has it until
+  the owner decides; flipping it back is one Muster write.
+
 - A mesh secret cannot be deleted from the Vault surface: removing a row
   drops only the local copy and the row returns from the authority on
   reload (D59, deliberate). Deleting needs `DELETE /v1/secrets/<key>` on
