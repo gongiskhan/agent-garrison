@@ -690,7 +690,6 @@ x-garrison:
         default: floor
         ceiling: middle
     selected_duties:
-      - dialogue
       - implement
       - test
       - review
@@ -715,6 +714,7 @@ x-garrison:
       - dispatch
       - triage
       - responder
+      - dialogue
     targets:
       - id: dispatch-fast
         runtime: agent-sdk
