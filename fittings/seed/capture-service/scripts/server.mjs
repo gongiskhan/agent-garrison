@@ -621,6 +621,9 @@ export function makeRequestHandler(ctx) {
             stt: Boolean(cfg.secrets.deepgramApiKey),
             tts: voice?.available().ok ?? false,
             ttsBackend: voice?.backend() ?? null,
+            // Non-null while ElevenLabs is parked after a failure and Aura is
+            // speaking in its place: { since, until, reason }.
+            ttsFallback: voice?.degraded() ?? null,
             restEnabled: Boolean(cfg.enabled && cfg.secrets.captureToken),
             // The per-request /tts budget. Callers chunk against THIS number
             // rather than a constant of their own, so the cap can move here

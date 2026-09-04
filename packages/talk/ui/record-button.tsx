@@ -103,6 +103,9 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500, speech = n
   // they have been followed; `awaiting` counts heard turns Zeca has not yet
   // answered, so the line under the button says the answer is on its way.
   const [heard, setHeard] = useState<CaptureHeard | null>(null);
+  // Why the last answer came out in the phone's own voice instead of the voice
+  // layer's (D58). Null while clips play; the line clears itself.
+  const [voiceNote, setVoiceNote] = useState<string | null>(null);
   const [captured, setCaptured] = useState(false);
   const [awaiting, setAwaiting] = useState(0);
   const [pushStatus, setPushStatus] = useState<PushBridgeStatus | null>(null);
@@ -219,7 +222,7 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500, speech = n
       onReply: (reply) => {
         const bridgeNow = speechRef.current;
         if (!bridgeNow || typeof document === "undefined" || document.visibilityState !== "visible") return;
-        void speakReply(bridgeNow, reply.text);
+        void speakReply(bridgeNow, reply.text, { onFallback: (reason) => setVoiceNote(`Phone voice used: ${reason}.`) });
       }
     });
     return stop;
@@ -229,6 +232,11 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500, speech = n
     const timer = window.setTimeout(() => setHeard(null), heardMs);
     return () => window.clearTimeout(timer);
   }, [heard, heardMs]);
+  useEffect(() => {
+    if (!voiceNote) return;
+    const timer = window.setTimeout(() => setVoiceNote(null), 15_000);
+    return () => window.clearTimeout(timer);
+  }, [voiceNote]);
 
   const onRecord = useCallback(async () => {
     if (stepRef.current !== "idle") return;
@@ -304,10 +312,12 @@ export function RecordButton({ bridge, conversationId, pollMs = 2500, speech = n
         )}
         <span className="wc-rec-label">{face}</span>
       </button>
-      {error || heardLine || liveHint || pushLine ? (
+      {error || voiceNote || heardLine || liveHint || pushLine ? (
         <span className="wc-rec-notes">
           {error ? (
             <span className="wc-rec-err" role="status">{error}</span>
+          ) : voiceNote ? (
+            <span className="wc-rec-heard" role="status" data-testid="wc-rec-voice">{voiceNote}</span>
           ) : heardLine ? (
             <span className="wc-rec-heard" role="status" data-testid="wc-rec-heard">{heardLine}</span>
           ) : liveHint ? (

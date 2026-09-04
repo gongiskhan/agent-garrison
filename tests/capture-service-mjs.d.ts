@@ -315,6 +315,7 @@ declare module "*/capture-service/lib/tts.mjs" {
     });
     available(): { ok: boolean; reason?: string; backend?: string };
     backend(): "elevenlabs" | "deepgram" | null;
+    degraded(): { since: number; until: number; reason: string } | null;
     readClip(id: unknown): Buffer | null;
     clipFor(text: unknown, opts?: { lang?: string | null }): Promise<{ id: string; cached?: boolean; backend?: string } | null>;
     render(text: unknown, opts?: { lang?: string | null }): Promise<{ id: string; cached: boolean; backend: string } | null>;

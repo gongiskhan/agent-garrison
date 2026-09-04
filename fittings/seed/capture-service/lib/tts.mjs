@@ -32,6 +32,12 @@
 // ElevenLabs if keyed, else Aura if keyed, else none); the phone, the browser
 // and the automations connector all come through clipFor, so they share the
 // one choice and the one cache.
+//
+// In auto mode a failed ElevenLabs render (the monthly quota wall, a dead key,
+// an outage) is rendered again through Aura and ElevenLabs is PARKED for a
+// while, so the next lines go straight to Aura instead of each paying a failed
+// round trip first. Found 2026-09-04: the key reached the mesh with 0 credits
+// left on the account, and every clip - acks included - failed until this.
 
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
@@ -49,6 +55,10 @@ const PT_ANCHOR_BEFORE = "Bom dia. Vamos ver com calma o que temos para hoje.";
 const PT_ANCHOR_AFTER = " Muito bem. E assim mesmo que se diz aqui em Portugal.";
 export const MAX_TEXT_CHARS = 600;
 export const TTS_BACKENDS = ["elevenlabs", "deepgram"];
+// How long a failed ElevenLabs call parks the voice on Aura before ElevenLabs
+// is tried again. Long enough that a quota wall does not cost every line a
+// failed round trip first; short enough that a top-up is heard within the hour.
+export const FALLBACK_HOLD_MS = 15 * 60_000;
 
 // Which engine renders a clip, given the config and the sealed keys. The
 // answer is null with a reason when nothing can speak; "auto" walks the
@@ -131,6 +141,8 @@ export class ZecaVoice {
     // ttsCacheMaxClips distinct card titles and then be missing at the exact
     // moment latency matters most.
     this.pinned = new Set();
+    // { since, until, reason } while ElevenLabs is parked and Aura speaks.
+    this.fallback = null;
   }
 
   pin(id) {
@@ -155,18 +167,56 @@ export class ZecaVoice {
   // /health and stamped on /tts as X-Voice-Backend; resolved on every call so
   // a config or key change at restart is reflected without a rebuild.
   backend() {
-    return resolveBackend(this.cfg).backend;
+    const chosen = resolveBackend(this.cfg).backend;
+    if (chosen === "elevenlabs" && this.canFallBack() && this.fallbackActive()) return "deepgram";
+    return chosen;
+  }
+
+  // Auto mode may swap a failed ElevenLabs render for Aura; a pinned engine is
+  // honoured or refused, never swapped (resolveBackend's contract).
+  canFallBack() {
+    const mode = String(this.cfg?.ttsBackend ?? "auto").trim().toLowerCase() || "auto";
+    return mode === "auto" && Boolean(this.cfg?.secrets?.deepgramApiKey);
+  }
+
+  fallbackActive() {
+    if (!this.fallback) return false;
+    if (this.now() >= this.fallback.until) {
+      this.fallback = null;
+      return false;
+    }
+    return true;
+  }
+
+  // The parked state for /health: null, or { since, until, reason }.
+  degraded() {
+    return this.fallbackActive() ? { ...this.fallback } : null;
+  }
+
+  park(err) {
+    const fresh = !this.fallbackActive();
+    const at = this.now();
+    this.fallback = {
+      since: this.fallback?.since ?? at,
+      until: at + FALLBACK_HOLD_MS,
+      reason: String(err?.message ?? err).slice(0, 200)
+    };
+    this.counters.bump("tts_fallback_deepgram");
+    if (fresh) {
+      this.log.error(
+        `[capture-service] tts parked on deepgram for ${Math.round(FALLBACK_HOLD_MS / 60_000)} min: ${this.fallback.reason}`
+      );
+    }
   }
 
   available() {
     if (!this.cfg.ttsEnabled) return { ok: false, reason: "tts disabled" };
     const { backend, reason } = resolveBackend(this.cfg);
     if (!backend) return { ok: false, reason };
-    return { ok: true, backend };
+    return { ok: true, backend: this.backend() };
   }
 
-  idFor(text, lang) {
-    const backend = this.backend();
+  idFor(text, lang, backend = this.backend()) {
     return clipId({
       text,
       voiceId: this.cfg.ttsVoiceId,
@@ -228,19 +278,27 @@ export class ZecaVoice {
       this.counters.bump("tts_skipped_too_long");
       return null;
     }
-    const backend = avail.backend;
-    const id = this.idFor(trimmed, lang);
+    return this.renderVia(avail.backend, trimmed, lang);
+  }
+
+  // One engine's cache + in-flight dedupe. An ElevenLabs failure in auto mode
+  // parks ElevenLabs and renders the same line through Aura, under Aura's own
+  // clip id, so the fallback clip never masquerades as the ElevenLabs one.
+  async renderVia(backend, text, lang) {
+    const id = this.idFor(text, lang, backend);
     if (this.readClip(id)) {
       this.counters.bump("tts_cache_hits");
       return { id, cached: true, backend };
     }
     if (this.inFlight.has(id)) return this.inFlight.get(id);
-    const work = this.generate(trimmed, id, lang, backend)
+    const work = this.generate(text, id, lang, backend)
       .catch((err) => {
         this.counters.bump("tts_failures");
         this.counters.bump(`tts_failures_${backend}`);
         this.log.error(`[capture-service] tts failed (${backend}): ${err?.message ?? err}`);
-        throw err;
+        if (backend !== "elevenlabs" || !this.canFallBack()) throw err;
+        this.park(err);
+        return this.renderVia("deepgram", text, lang);
       })
       .finally(() => this.inFlight.delete(id));
     this.inFlight.set(id, work);
@@ -291,9 +349,12 @@ export class ZecaVoice {
     }
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
-      // 401 is a dead key and 429 is the monthly wall. Both deserve their own
-      // counter: degrading quietly for a month is how you find out in November.
-      this.counters.bump(res.status === 429 ? "tts_quota_exhausted" : "tts_http_errors");
+      // 401 is a dead key and 429 is the monthly wall - except that ElevenLabs
+      // also answers an exhausted account with 401 + code "quota_exceeded"
+      // (seen 2026-09-04). Both walls deserve their own counter: degrading
+      // quietly for a month is how you find out in November.
+      const quota = res.status === 429 || /quota_exceeded/.test(detail);
+      this.counters.bump(quota ? "tts_quota_exhausted" : "tts_http_errors");
       throw new UpstreamError("elevenlabs", res.status, detail);
     }
     const audio = Buffer.from(await res.arrayBuffer());

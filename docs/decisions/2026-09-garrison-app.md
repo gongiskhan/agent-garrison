@@ -1574,6 +1574,79 @@ On this node the ElevenLabs key is unset, so `/health` reports
 `ttsBackend: "deepgram"` and Deepgram speaks; setting the key in the vault
 switches the backend without a page change (the voice layer picks it).
 
+### D59. Vault saves reach the mesh authority; a failed ElevenLabs render falls back to Aura; the phone says why it used its own voice (2026-09-04)
+
+After D58 the user still heard the iPhone voice: "still iphone again. the
+keys from the vault should materialize in the mesh nodes... check if it is
+on dev-madrid (im sure it must be) and if the mechanism to materialize is
+working." Findings, in order:
+
+1. The materialise mechanism works. Every enrolled node renders its
+   `.env` and every own-port fitting's `secret_scope` from the state
+   service on dev-madrid (`scopedSecretsViaAuthority`,
+   `POST /v1/secrets/resolve`); grants are `*` for every node;
+   `DEEPGRAM_API_KEY` resolved everywhere.
+2. `ELEVENLABS_API_KEY` was in dev-madrid's Vault UI and in no node's
+   `.env`, dev-madrid's included. The authority was seeded ONCE at install
+   (`services/state/scripts/import-from-files.mjs`) from dev-madrid's local
+   `vault.json`; the Vault surface (`PUT /api/vault/secrets` ->
+   `applyVaultSecretUpdates`) wrote only that local file, which the mesh
+   never reads. A key saved after enrolment reached nobody.
+3. Once the key was in the authority and capture-service healed on all
+   three nodes (`ttsBackend: "elevenlabs"`), every render failed:
+   ElevenLabs answers an exhausted account with `401` + code
+   `quota_exceeded` ("You have 0 credits remaining"), `voice.render` had
+   no second try, and `tts_quota_exhausted` counted only `429`. With the
+   key present the voice layer was WORSE than without it: acks and answers
+   alike fell back to the phone.
+4. The D58 page path was verified server-side after the reload
+   (`POST /api/voice/tts` 200 audio/mpeg, the served bundle carries the
+   code), and the user's tests at the time were wake COMMANDS whose
+   confirmations ride the native ack lane; the page had not been
+   relaunched since the reload.
+
+Decisions:
+
+- **Vault write-through.** On an enrolled node `applyVaultSecretUpdates`
+  puts every saved value to the authority (`PUT /v1/secrets/<key>`) BEFORE
+  the local file; an unreachable authority fails the save loudly and writes
+  nothing. `vaultViewMasked` lists the authority's keys beside the local
+  ones (`preview: "held by the mesh (dev-madrid)"`, no value ever crosses).
+  Removing a row never deletes from the authority: a page that never
+  listed a mesh key must not be able to drop it, so the row comes back on
+  reload; a mesh secret is deleted through the state service. Round-tripped
+  mesh rows are not invented locally as `""`. Standalone (un-enrolled)
+  behaviour is unchanged. `tests/vault-mesh-write-through.test.ts`.
+- **Immediate remediation** ran on dev-madrid: one script revealed the key
+  through the audited loopback `POST /api/vault/secrets/reveal` and PUT it
+  to the authority with dev-madrid's own `state.json` token; the value was
+  never printed and never on a command line. Authority: 27 keys,
+  `ELEVENLABS_API_KEY` present; `resolve` from this Mac returns both TTS
+  keys; capture-service healed on the MacBook Pro, the mini and
+  dev-madrid (`elevenLabsApiKey: true`).
+- **Aura fallback.** In `tts_backend: auto`, a failed ElevenLabs render is
+  rendered again through Deepgram Aura under Aura's own clip id, and
+  ElevenLabs is PARKED for `FALLBACK_HOLD_MS` (15 min) so the following
+  lines go straight to Aura instead of each paying a failed round trip.
+  `backend()` / `available()` report the effective engine; `/health` adds
+  `voice.ttsFallback: { since, until, reason } | null`; counters
+  `tts_fallback_deepgram`, and `tts_quota_exhausted` now also counts the
+  `401 quota_exceeded` form. A pinned `tts_backend: elevenlabs` is still
+  honoured or refused, never swapped (D21). Verified live here: `POST
+  /api/voice/tts` 200 audio/mpeg while `ttsFallback.reason` names the
+  quota wall.
+- **Visible fallback on the page.** `speakViaVoiceLayer` returns
+  `{ played, reason }`; `speakReply({ onFallback })` reports why the
+  phone's own voice was used ("voice layer 503 (no tts)", "voice layer
+  unreachable", "clip would not play", "no clip player"); the record button
+  shows it for 15 s as `Phone voice used: <reason>.`
+  (`data-testid="wc-rec-voice"`). Silent degradation is what made this
+  report undiagnosable from the phone.
+
+Not done: a way to delete a mesh secret from the Vault surface (state CLI
+for now); the ElevenLabs account itself has 0 credits until the user tops
+it up - until then every node speaks Aura and `/health` says why.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |

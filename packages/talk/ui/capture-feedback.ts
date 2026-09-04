@@ -271,40 +271,45 @@ export function createAudioClipPlayer(): ClipPlayer {
 /**
  * Render the answer with the voice layer (`POST /api/voice/tts`, the same
  * Deepgram / ElevenLabs voice the pendant hears) and play the clips in order.
- * The next chunk renders while the current one plays. Resolves false when the
- * voice layer is unavailable (no provider, no key, upstream failure) or a clip
- * could not be played, so the caller can fall back to the phone's own voice.
+ * The next chunk renders while the current one plays. `played: false` carries
+ * a short reason (the proxy's status, "unreachable", "unplayable") so the
+ * caller can fall back to the phone's own voice AND say why it did.
  */
 export async function speakViaVoiceLayer(
   text: string,
   { lang, fetchImpl, player, maxChars = TTS_MAX_CHARS }: { lang?: string; fetchImpl?: typeof fetch; player: ClipPlayer; maxChars?: number },
-): Promise<boolean> {
+): Promise<{ played: boolean; reason?: string }> {
   const doFetch = fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
-  const render = async (chunk: string): Promise<Blob | null> => {
+  const render = async (chunk: string): Promise<{ blob: Blob | null; reason?: string }> => {
     try {
       const r = await doFetch("/api/voice/tts", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(lang ? { text: chunk, lang, format: "mp3" } : { text: chunk, format: "mp3" }),
       });
-      if (!r.ok) return null;
+      if (!r.ok) {
+        let detail = "";
+        try { detail = String(((await r.json()) as { error?: string })?.error ?? ""); } catch { /* not json */ }
+        return { blob: null, reason: `voice layer ${r.status}${detail ? ` (${detail})` : ""}` };
+      }
       const blob = await r.blob();
-      return blob.size > 0 ? blob : null;
+      return blob.size > 0 ? { blob } : { blob: null, reason: "voice layer sent an empty clip" };
     } catch {
-      return null;
+      return { blob: null, reason: "voice layer unreachable" };
     }
   };
   const chunks = chunkForTts(text, maxChars);
-  if (chunks.length === 0) return false;
+  if (chunks.length === 0) return { played: false, reason: "nothing to say" };
   let next = render(chunks[0]);
   for (let i = 0; i < chunks.length; i += 1) {
     const clip = await next;
-    if (!clip) return i > 0; // the start was heard; the phone must not restart it
+    // Once the start was heard the phone must not restart it in another voice.
+    if (!clip.blob) return i > 0 ? { played: true } : { played: false, reason: clip.reason };
     if (i + 1 < chunks.length) next = render(chunks[i + 1]);
-    const played = await player.play(clip);
-    if (!played) return i > 0;
+    const played = await player.play(clip.blob);
+    if (!played) return i > 0 ? { played: true } : { played: false, reason: "clip would not play" };
   }
-  return true;
+  return { played: true };
 }
 
 /**
@@ -320,7 +325,7 @@ export async function speakViaVoiceLayer(
 export async function speakReply(
   speech: SpeechBridge,
   text: string,
-  { lang, fetchImpl, registerEveryMs = 20_000, player = createAudioClipPlayer() }: { lang?: string; fetchImpl?: typeof fetch; registerEveryMs?: number; player?: ClipPlayer | null } = {},
+  { lang, fetchImpl, registerEveryMs = 20_000, player = createAudioClipPlayer(), onFallback }: { lang?: string; fetchImpl?: typeof fetch; registerEveryMs?: number; player?: ClipPlayer | null; onFallback?: (reason: string) => void } = {},
 ): Promise<boolean> {
   const doFetch = fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
   try {
@@ -338,7 +343,13 @@ export async function speakReply(
   await register();
   const timer = setInterval(() => { void register(); }, registerEveryMs);
   try {
-    if (player && await speakViaVoiceLayer(text, { lang, fetchImpl: doFetch, player })) return true;
+    if (player) {
+      const rendered = await speakViaVoiceLayer(text, { lang, fetchImpl: doFetch, player });
+      if (rendered.played) return true;
+      onFallback?.(rendered.reason ?? "voice layer failed");
+    } else {
+      onFallback?.("no clip player");
+    }
     const r = await speech.speak(lang ? { text, lang } : { text });
     return r?.completed !== false;
   } catch {

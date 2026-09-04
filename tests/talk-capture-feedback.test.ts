@@ -179,10 +179,17 @@ describe("speakReply", () => {
   });
 
   it("falls back to the phone voice only when the voice layer cannot render (no provider, offline, unplayable)", async () => {
-    for (const opts of [{ tts: 503 as const }, { tts: "throw" as const }, { player: false }]) {
+    const cases: Array<[Parameters<typeof voiceLayer>[0], string]> = [
+      [{ tts: 503 }, "voice layer 503 (no tts)"],
+      [{ tts: "throw" }, "voice layer unreachable"],
+      [{ player: false }, "clip would not play"]
+    ];
+    for (const [opts, why] of cases) {
       const v = voiceLayer(opts);
-      expect(await speakReply(v.speech, "Fallback.", { fetchImpl: v.fetchImpl, player: v.player })).toBe(true);
+      const reasons: string[] = [];
+      expect(await speakReply(v.speech, "Fallback.", { fetchImpl: v.fetchImpl, player: v.player, onFallback: (r) => reasons.push(r) })).toBe(true);
       expect(v.spoken).toEqual(["Fallback."]);
+      expect(reasons).toEqual([why]);
       expect(v.posts[0]).toBe('/api/voice/spoken {"text":"Fallback."}');
     }
   });

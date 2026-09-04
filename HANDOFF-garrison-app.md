@@ -150,6 +150,17 @@ on the iPhone and walk this list on the real device against this node
    `POST /tts` line in `~/.garrison/ui-fittings/capture-service.log`.
    Regressions: `tests/talk-capture-feedback.test.ts` (`speakReply` D58,
    `chunkForTts`).
+3g. If it is STILL the iPhone voice (D59): force-quit the app and reopen it
+   first - the webview keeps the bundle it loaded before the reload. Then
+   test with a QUESTION ("Zeca, what time is it in Lisbon?"), not a command:
+   a command's confirmation ("Feito.") is the native ack lane, which was
+   already the node's voice. When the page does fall back it now says why
+   for 15 s under the record button: `Phone voice used: <reason>.` - copy
+   that line into the report. Expected voice until the ElevenLabs account
+   is topped up: Deepgram Aura on every node (`/health` ->
+   `voice.ttsFallback.reason` names the quota wall; ElevenLabs is
+   re-tried every 15 min). Regressions: `tests/vault-mesh-write-through.test.ts`,
+   `tests/capture-service-voice.test.ts` (fallback block).
 4. Capture page (`/capture`, shown only in the app): the microphone lane and
    the broadcast picker (screen capture consent is native), the live status,
    a session that ends cleanly.
@@ -347,6 +358,17 @@ the simulator and where the code is.
   the D57 TestFlight build is still the one to test with. Evidence in
   `evidence/garrison-app/voice-d58/`.
 
+- **2026-09-04 (D59): ELEVENLABS_API_KEY pushed from dev-madrid's local
+  vault into the mesh authority (27 keys now); capture-service healed on
+  this Mac, the mini and dev-madrid.** The ElevenLabs account has 0 of
+  30212 credits, so every node speaks Aura through the new fallback until
+  it is topped up - a credential/quota item for you, not code. Vault
+  write-through (`src/lib/vault.ts`) is app code -> `node:reload`; the
+  Aura fallback is `fittings/seed/capture-service/lib/tts.mjs` -> a
+  capture-service restart per node (done here on the seed; the mini and
+  dev-madrid need the fast-forward + restart noted below). Evidence in
+  `evidence/garrison-app/voice-d59/`.
+
 ## 3. Operator-triggered follow-ups
 
 - **Remove the legacy fittings.** `evidence/garrison-app/g8/remove-web-channel-default.patch`
@@ -379,6 +401,14 @@ the simulator and where the code is.
   Conversations is the G5 live smoke; delete it when you like.
 
 ## 4. Debt seen on the way (not this run's)
+
+- A mesh secret cannot be deleted from the Vault surface: removing a row
+  drops only the local copy and the row returns from the authority on
+  reload (D59, deliberate). Deleting needs `DELETE /v1/secrets/<key>` on
+  the state service; a state CLI verb would make that a one-liner.
+- The talk router's `/api/voice/tts` proxy does not forward the
+  `x-voice-backend` header, so a browser cannot tell which engine spoke
+  without reading capture-service `/health`.
 
 - The routing-gate reply to a wake turn carries `Card:
   http://127.0.0.1:8089/...`, a machine-local URL handed to the client (the
