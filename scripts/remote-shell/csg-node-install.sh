@@ -168,8 +168,25 @@ echo "node installed via nvm: $(node --version)"
 REMOTE
 
   say "step 7/9: running install-node.sh --tethered on csg (token via stdin, never argv)"
+  # A tiny wrapper, not a direct `bash /tmp/install-node.sh` call: `nvm
+  # install` only updates PATH for a shell that SOURCES nvm.sh (typically via
+  # .bashrc on an interactive login), which `bash /tmp/x.sh` never does - the
+  # step above's freshly-installed node would otherwise be invisible to
+  # install-node.sh's own preflight. Written via a separate ssh call (not a
+  # heredoc on the SAME call as the token pipe below - a heredoc and a stdin
+  # pipe can't both feed one command) so the token can still flow through
+  # stdin untouched via a normal argv-based invocation of this wrapper.
   # shellcheck disable=SC2086
-  printf '%s\n' "$TOKEN" | $CSG "bash /tmp/install-node.sh --name csg --accent steel \
+  $CSG 'cat > /tmp/run-install-node.sh && chmod +x /tmp/run-install-node.sh' <<'REMOTE'
+#!/bin/sh
+if [ -s "$HOME/.nvm/nvm.sh" ]; then
+  # shellcheck disable=SC1090
+  . "$HOME/.nvm/nvm.sh"
+fi
+exec bash /tmp/install-node.sh "$@"
+REMOTE
+  # shellcheck disable=SC2086
+  printf '%s\n' "$TOKEN" | $CSG "/tmp/run-install-node.sh --name csg --accent steel \
     --state-url $STATE_URL --token-stdin \
     --tethered --tether-host $TETHER_HOST --app-origin $APP_ORIGIN --shell-origin $SHELL_ORIGIN \
     --repo-source github"
