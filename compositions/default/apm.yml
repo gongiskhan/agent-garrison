@@ -164,8 +164,10 @@ x-garrison:
           config:
             port: 8098
             transports: >-
-              {"csg":{"ssh":{"host":"127.0.0.1","port":2222,"user":"ggomes","identity":"~/.ssh/garrison-remote-shell"},"via":{"devtunnel":{"tunnel":"peaceful-ocean-zcx3mqx.eun1","port":2222}},"tmuxSession":"csg","cwd":"~/dev/pnmui-monorepo","eventsFile":"~/.garrison/events.jsonl","agentCommand":"cursor-agent","agentResumeCommand":"cursor-agent
-              --force resume","label":"CSG work","routingTarget":"csg-work"}}
+              {"csg":{"ssh":{"host":"127.0.0.1","port":2222,"user":"ggomes","identity":"~/.ssh/garrison-remote-shell"},"via":{"devtunnel":{"tunnel":"swift-book-df6tw47.eun1","port":2222,"pushHostToken":false}},"tmuxSession":"csg","cwd":"~/dev/pnmui-monorepo","eventsFile":"~/.garrison/events.jsonl","agentCommand":"cursor-agent","agentResumeCommand":"cursor-agent
+              --force resume","label":"CSG
+              work","routingTarget":"csg-work","tether":{"owner":"dev-madrid","node":"csg","reverseForwards":[{"name":"state","remotePort":8460,"localPort":8460},{"name":"git","remotePort":2200,"localPort":22}],"forwards":[{"name":"app","remotePort":8777,"localPort":9777,"publish":{"servePort":8977}},{"name":"shells","remotePort":8098,"localPort":9098,"publish":{"servePort":8998}}],"onUp":"$HOME/.garrison/node-supervisor.sh
+              ensure"}}}
         - id: agent-sdk-runtime
           config:
             provider: anthropic
