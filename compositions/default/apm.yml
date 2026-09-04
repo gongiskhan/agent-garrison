@@ -81,8 +81,6 @@ x-garrison:
             triage_enabled: true
             wake_enabled: true
             notify_enabled: true
-            # Wake tuning moved with the wake bus to capture-service (2026-09-02);
-            # this fitting only forwards transcripts there now.
         - id: capture-service
           config:
             port: 8097
@@ -105,21 +103,11 @@ x-garrison:
             discuss_enabled: true
             automate_enabled: true
             screen_context_enabled: true
-            # The Record button captures the screen only; the words reach Zeca
-            # through the pendant or the Listen button, and a spoken "Zeca"
-            # while a broadcast is live carries the latest frames with it.
-            screen_audio_transcribe: false
-            # whatsapp-web is stationed, so the spoken-send lane goes live:
-            # resolve the contact, park the send in the 60s outbox, speak it
-            # back with recipient AND text, cancel by saying "cancela" - no
-            # wake word. Unpaired, every send falls through to the operative.
+            screen_audio_transcribe: true
             send_enabled: true
             confirm_enabled: true
         - id: whatsapp-web
           config:
-            # 8080 on dev-madrid is held by an unrelated java service, and the
-            # daemon rightly refuses to start on a shifted port. 8087 is free
-            # across the mesh port family.
             port: 8087
             bind_host: 127.0.0.1
             session_dir: ~/.config/garrison/whatsapp-web
