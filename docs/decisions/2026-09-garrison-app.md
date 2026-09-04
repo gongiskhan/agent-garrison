@@ -1719,7 +1719,9 @@ wording).
 Debts: a Listen session persists its audio and transcript like a recording
 (a wake-only microphone mode is an `ios/` change); the improver sees only
 the 12-line tail of each review file, the operative saves the memories
-itself during the review turn; dev-madrid still runs pre-D59 code.
+itself during the review turn; dev-madrid ran pre-D59 code until it was
+redeployed with D61 on 2026-09-04 - which is why none of D59/D60 was
+visible on the phone.
 
 ### D61. "Didn't catch that" keeps the microphone open, and a cold Zeca cache no longer sends the whole day down the classifier lane (2026-09-04)
 
