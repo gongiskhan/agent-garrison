@@ -365,8 +365,13 @@ the simulator and where the code is.
   it is topped up - a credential/quota item for you, not code. Vault
   write-through (`src/lib/vault.ts`) is app code -> `node:reload`; the
   Aura fallback is `fittings/seed/capture-service/lib/tts.mjs` -> a
-  capture-service restart per node (done here on the seed; the mini and
-  dev-madrid need the fast-forward + restart noted below). Evidence in
+  capture-service restart per node. This Mac and the mini: reloaded onto
+  `f36dd641`. dev-madrid: NOT - its checkout sits on `main` with local
+  commits absent from origin and uncommitted kanban-loop work, so it is not
+  fast-forwardable and was left alone. Consequence: dev-madrid holds the
+  ElevenLabs key WITHOUT the Aura fallback, so every render there fails on
+  the quota wall and the phone speaks itself while pointed at dev-madrid;
+  converge that tree (or top up ElevenLabs) to clear it. Evidence in
   `evidence/garrison-app/voice-d59/`.
 
 ## 3. Operator-triggered follow-ups
