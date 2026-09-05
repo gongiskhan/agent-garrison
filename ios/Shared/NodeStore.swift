@@ -66,6 +66,9 @@ final class NodeStore: ObservableObject {
 
     @Published private(set) var nodes: [NodeRecord] = []
     @Published private(set) var current: NodeRecord?
+    /// Set when a failover actually moved the app. The app renders it once and
+    /// the user is told which node they are on; nothing else reads it.
+    @Published private(set) var lastFailover: NodeFailoverNotice?
 
     private let defaults: UserDefaults?
 
@@ -108,6 +111,49 @@ final class NodeStore: ObservableObject {
         defaults?.set(record.name, forKey: AppGroup.Key.nodeCurrent)
         mirrorLegacy(record)
         return true
+    }
+
+    /// Move off a dead node, on our own, before the user is looking at a blank
+    /// page they cannot navigate away from.
+    ///
+    /// Called at launch and every time the app comes back to the foreground: a
+    /// node can die mid-session, and on a flapping tunnel it does. Four rules,
+    /// and the last two matter more than the first two:
+    ///
+    ///   * the CURRENT node is probed first, and a reachable one is never
+    ///     switched away from;
+    ///   * an unreachable current moves to the first peer that answers, in list
+    ///     order, so the choice is predictable rather than "whichever raced
+    ///     home first";
+    ///   * if NOTHING answers, `current` stays exactly as it was - the user
+    ///     picked it, the bootstrap page still offers a way out, and thrashing
+    ///     between dead nodes helps nobody;
+    ///   * it fails OVER, never automatically BACK. Nothing here moves the app
+    ///     while the node it is on still answers, so a recovered node is a
+    ///     deliberate switch by the person, not a jump under their hands.
+    ///
+    /// Main-actor isolated: it reads and writes the published state, and every
+    /// await hands off to URLSession and resumes back here.
+    @MainActor
+    @discardableResult
+    func failoverIfNeeded(prober: NodeProber, now: Date = Date()) async -> NodeFailoverOutcome {
+        guard let from = current else { return .noCurrentNode }
+        if await prober.reachable(from.shellOrigin) { return .currentReachable }
+        // `nodes` is re-read after the await on purpose: a node could have been
+        // added or removed from the page while the probe was in flight.
+        for candidate in nodes where candidate.name != from.name {
+            guard await prober.reachable(candidate.shellOrigin) else { continue }
+            guard select(name: candidate.name) else { continue }
+            lastFailover = NodeFailoverNotice(from: from.name, to: candidate.name, at: now)
+            return .switched(from: from.name, to: candidate.name)
+        }
+        return .noneReachable
+    }
+
+    /// The app dismisses its own notice; the store does not time it.
+    @MainActor
+    func clearFailoverNotice() {
+        lastFailover = nil
     }
 
     func remove(name: String) {
