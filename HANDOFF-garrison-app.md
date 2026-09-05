@@ -3,7 +3,7 @@
 What this run did: the September 2026 plan "one app, the web channel home, one
 voice layer, screencast inside conversations" ran as gates G0-G8 on
 `node/goncalos-macbook-pro`, each gate committed and deployed to this node's
-live instance, decisions D1-D62 recorded in
+live instance, decisions D1-D63 recorded in
 `docs/decisions/2026-09-garrison-app.md`, evidence under
 `evidence/garrison-app/<gate>/`. Everything a machine could prove is proven:
 vitest, typecheck, playwright (both configs), XCTest on the mini's simulator,
@@ -480,6 +480,11 @@ the simulator and where the code is.
 
 ## 4. Debt seen on the way (not this run's)
 
+- ~~**A Muster write eats every comment in the manifest.**~~ and ~~**a Muster
+  edit does not reach the mesh**~~ - both fixed in D63 (`src/lib/manifest-write.ts`
+  is the one writer: comment-preserving diff, atomic write, rev-CAS push, loud
+  failure). The manifest's prose is restored and `screen_audio_transcribe` is
+  back to `false`.
 - **A composition edit that is only in git is gone by the next deploy.** The
   state service owns a composition's shared files (`src/lib/composition-sync.ts`),
   so `up()` materialises `apm.yml` from it. The `dialogue` duty (D62) was
@@ -488,14 +493,6 @@ the simulator and where the code is.
   `pushManifestToState`), so a manifest change has to go through Muster - or be
   followed by any Muster write - to survive on this node, let alone reach the
   others.
-- **A Muster write eats every comment in the manifest.** It dumps the parsed
-  manifest through js-yaml, and a YAML round trip cannot keep comments, so the
-  first write after any hand-edit strips them mesh-wide (commit c270133c is the
-  loss). The manifest's prose - why a port moved, why a flag is off - needs a
-  home a dump cannot eat.
-- **`screen_audio_transcribe` is `true` in shared state**, flipped on dev-madrid,
-  against D60's "Record captures the screen only". Left as the mesh has it until
-  the owner decides; flipping it back is one Muster write.
 
 - A mesh secret cannot be deleted from the Vault surface: removing a row
   drops only the local copy and the row returns from the authority on

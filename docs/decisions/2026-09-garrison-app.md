@@ -1905,6 +1905,71 @@ plain routed turn has and a narrowed stretch does not; a card created from
 dialogue carries `origin: "dialogue"` but the board still has no dedupe of its
 own beyond the `origin_id` the caller passes.
 
+### D63. One manifest writer: it reaches the mesh, and it keeps the prose (2026-09-05)
+
+D62's `dialogue` duty was committed, deployed, and gone within the hour - twice,
+on two nodes, for two different reasons. Both were silent, and both were older
+than D62.
+
+**A Muster edit did not leave the node.** `src/app/api/muster/model.ts` had two
+persist paths: `mutateManifestAtomic`, which wrote the file and pushed it to the
+state service, and `mutateCompositionBlock`, which wrote the file and stopped.
+Nine of the ten mutations used the second one - every duty toggle, every cell
+target, every level edit, the standing writes. The state service is the source
+of truth for a composition (`src/lib/composition-sync.ts`): `up()` materialises
+`apm.yml` from it, so an edit that never left the node was reverted on the next
+deploy of any enrolled node, and the API answered 200 the whole time. The
+service was still on rev 37 - the previous day's copy - after three Muster
+writes and a redeploy that looked successful.
+
+**And it ate the manifest's prose.** Both paths dumped the parsed manifest
+through js-yaml, and a YAML round trip cannot keep comments. One Muster write
+after any hand-edit stripped every explanatory line in the manifest, mesh-wide -
+why the whatsapp daemon sits on 8087, why the wake variants are what they are,
+why Record does not transcribe. The loss travelled to every node on the next
+materialisation, so it was not even recoverable from a peer.
+
+`src/lib/manifest-write.ts` is now the one way a manifest is written:
+
+- `applyManifestDiff` writes the mutation onto the ORIGINAL document (the `yaml`
+  package's `Document`, which keeps comments, anchors and key order) rather than
+  re-serialising a parsed object. An untouched node keeps its identity and its
+  comments; lists recurse **by index**, so appending a duty leaves the other
+  entries and their prose alone; a changed scalar keeps its node, so the comment
+  above a flag survives the flag flipping - the case that matters most, because
+  that comment is the one that says why.
+- The accepted loss is a REORDERED list: matched by index, every position after
+  the move reads as changed. Matching by identity is guesswork, and a wrong
+  guess moves a comment onto the wrong item.
+- `persistManifest` then writes atomically and pushes with rev CAS, and a node
+  that cannot reach the service fails loudly. `mutateCompositionBlock` is now
+  that path, not a second one.
+
+**The runner had the mirror bug.** `up()` parsed the composition, THEN
+materialised `apm.yml` from the service, then projected the kanban model from
+the copy it had parsed first. A shared edit therefore took effect one deploy
+late - dev-madrid materialised the `dialogue` duty and, in the same launch,
+projected a model without it. It now re-reads the composition when the sync
+refreshed the manifest.
+
+**Two decisions taken with this.** The manifest's comments are restored from the
+last commit that had them. And `screen_audio_transcribe` goes back to **false**:
+D60 gave the phone a Listen button precisely so Record would not have to be a
+microphone, and Record-with-audio is what produced "Recording ended: screen
+audio, 2m 41s. No transcript" - a live pendant mutes the broadcast mic, so the
+sentence went nowhere. One capture path per purpose.
+
+Tests: `tests/manifest-write.test.ts` (a diff touches only what changed; the
+comment above an edited scalar survives; appending to a list leaves its
+siblings; a no-op write does not rewrite the file; the file and the pushed bytes
+are identical; an unreachable service throws rather than forking). Verified
+live: a Muster write on the running app moved shared state from rev 39 to 40 and
+the 12 comment lines were still there on both sides.
+
+Debt: `pushManifestToState` is a no-op on an unenrolled box by design, which is
+right for a standalone Garrison but means "the edit did not travel" and "this
+box is not in a mesh" look the same at the call site.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |
