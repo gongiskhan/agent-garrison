@@ -65,6 +65,7 @@
     "smol-toml": "^1.7.0",
     "systeminformation": "^5.31.15",
     "ws": "^8.18.0",
+    "yaml": "^2.9.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {

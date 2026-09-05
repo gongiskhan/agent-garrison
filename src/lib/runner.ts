@@ -447,7 +447,10 @@ async function upUnlocked(
 
   try {
     await requireCommand(compositionId, "apm");
-    const composition = await readCompositionWithDerivedTasks(compositionId);
+    // `let`: the state-service sync a few lines below can replace apm.yml under
+    // us, and everything after it - the kanban projection above all - has to
+    // read the manifest that is now on disk, not the one this line parsed.
+    let composition = await readCompositionWithDerivedTasks(compositionId);
     // Claim the composition's working tree for THIS instance before anything
     // destructive touches it. prod/dev/codex share one checkout, so an `up`
     // from a second instance would run apm install + every setup hook inside
@@ -475,6 +478,15 @@ async function upUnlocked(
           "runner",
           `composition refreshed from the state service: ${sync.refreshedFiles.join(", ")}`
         );
+      }
+      // A refreshed manifest is a DIFFERENT composition from the one parsed
+      // above: new duties, new targets, new selections. Re-read it, or this
+      // launch projects the previous manifest's kanban model and runs its
+      // fittings - the shared edit only takes effect one deploy later, which
+      // is exactly how the `dialogue` duty reached a node that then routed
+      // without it.
+      if (sync.refreshedFiles.includes("apm.yml")) {
+        composition = await readCompositionWithDerivedTasks(compositionId);
       }
     }
     // A composition-owned committed routing seed becomes local policy only at
