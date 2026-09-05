@@ -130,7 +130,10 @@ final class NodeFailoverTests: XCTestCase {
     func testNeverFailsBackWhenTheOriginalNodeRecovers() async throws {
         let store = storeWithNodes(["csg", "dev-madrid"], selected: "csg")
         let prober = FakeProber(alive: ["https://dev-madrid.tail31efa.ts.net"])
-        XCTAssertEqual(await store.failoverIfNeeded(prober: prober), .switched(from: "csg", to: "dev-madrid"))
+        // Awaited into a local first: XCTAssert takes autoclosures, which
+        // cannot carry an await.
+        let first = await store.failoverIfNeeded(prober: prober)
+        XCTAssertEqual(first, .switched(from: "csg", to: "dev-madrid"))
 
         // csg comes back; both nodes are healthy now.
         prober.setAlive(["https://csg.tail31efa.ts.net", "https://dev-madrid.tail31efa.ts.net"])
@@ -140,7 +143,8 @@ final class NodeFailoverTests: XCTestCase {
         XCTAssertEqual(store.current?.name, "dev-madrid")
 
         // And again on the next foregrounding, however many times it runs.
-        XCTAssertEqual(await store.failoverIfNeeded(prober: prober), .currentReachable)
+        let third = await store.failoverIfNeeded(prober: prober)
+        XCTAssertEqual(third, .currentReachable)
         XCTAssertEqual(store.current?.name, "dev-madrid")
     }
 
