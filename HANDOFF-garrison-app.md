@@ -3,7 +3,7 @@
 What this run did: the September 2026 plan "one app, the web channel home, one
 voice layer, screencast inside conversations" ran as gates G0-G8 on
 `node/goncalos-macbook-pro`, each gate committed and deployed to this node's
-live instance, decisions D1-D63 recorded in
+live instance, decisions D1-D64 recorded in
 `docs/decisions/2026-09-garrison-app.md`, evidence under
 `evidence/garrison-app/<gate>/`. Everything a machine could prove is proven:
 vitest, typecheck, playwright (both configs), XCTest on the mini's simulator,
@@ -479,6 +479,15 @@ the simulator and where the code is.
   Conversations is the G5 live smoke; delete it when you like.
 
 ## 4. Debt seen on the way (not this run's)
+
+- **`#if DEBUG` is never true in the iOS app target.**
+  `SWIFT_ACTIVE_COMPILATION_CONDITIONS` is set only on `GarrisonTests`
+  (`PENDANT_MOCK_BLE`), so the app never gets `DEBUG`. That makes
+  `NodeStore.seedFromEnvironmentIfRequested()` and
+  `FixtureStreamer.autostartIfRequested()` dead code in every build, and the
+  documented `SIMCTL_CHILD_GARRISON_NODE_ORIGIN` seeding does nothing. Found
+  while proving D64; the proof script seeds the App Group plist directly
+  instead.
 
 - ~~**A Muster write eats every comment in the manifest.**~~ and ~~**a Muster
   edit does not reach the mesh**~~ - both fixed in D63 (`src/lib/manifest-write.ts`

@@ -1970,6 +1970,68 @@ Debt: `pushManifestToState` is a no-op on an unenrolled box by design, which is
 right for a standalone Garrison but means "the edit did not travel" and "this
 box is not in a mesh" look the same at the call site.
 
+### D64. The app moves off a node that stopped answering (2026-09-05)
+
+Reported live: the app was switched to the `csg` node, csg's published origin
+started returning 502, the page went blank - and stayed blank across
+kill-and-reopen. There was no way back, because the only node switcher lives
+inside the page that will not load.
+
+The pinning is deliberate and stays: a Capacitor controller's server URL is
+fixed for its lifetime, so `BridgeHost().id(store.currentOrigin)` is what makes
+a node switch work at all. What was missing is that nothing ever asked whether
+the persisted origin was still there. A dead origin was therefore permanent.
+
+The app now probes the selected node at launch and on every return to the
+foreground - a node can die mid-session, and behind the dev tunnel csg reaches
+the mesh through (its `carrying` flag toggles every 15-30 seconds) it does.
+Failover is just selecting another node: the bridge is keyed on the origin, so
+it re-mounts, and BridgeHost's `onAppear` re-fires, which is what keeps the
+pendant reconnect and the per-node push re-registration pointed at the node the
+app actually landed on.
+
+Four rules, and the last two are the ones that keep it honest:
+
+1. The current node is probed first, and a reachable one is never switched away
+   from - peers are not even probed.
+2. An unreachable one moves to the first peer that answers, in list order.
+   Predictable beats "whichever raced home first".
+3. If NOTHING answers, the selection is left exactly as the user set it. The
+   bootstrap and error pages are still the way out, and thrashing between dead
+   nodes helps nobody.
+4. It fails OVER, never automatically BACK. Nothing moves the app while the node
+   it is on still answers, so a recovered csg is a deliberate switch by the
+   person, not a jump under their hands. A node that dies AFTER a failover does
+   move again, including back to where it came from - that is rule 1, not a
+   fail-back.
+
+`isAlive` is any HTTP answer below 500. The reported failure was a 502 from the
+tunnel, where the origin resolves and answers but nothing is serving the shell
+behind it, so 5xx has to count as dead; a 401 or a 404 on the root is a live
+shell as far as reaching the app goes. The timeout is 3 seconds: this sits on
+the path between launch and first paint, and a node that cannot answer its own
+root in that time is not one the user can work on.
+
+`NodeProber` is a protocol, so the rules are tested without a network
+(`ios/Tests/NodeFailoverTests.swift`, 8 cases). `ios/Shared/` compiles into the
+broadcast extension too, so the prober is Foundation and URLSession only, and
+the failover method is `@MainActor` because it reads and writes the published
+store between awaits.
+
+Verified: 109/109 XCTest green on the mini's iPhone 17 Pro simulator, and the
+live proof (`ios/scripts/sim-failover-proof.sh`) with the app pinned to csg's
+real origin while it was returning 502 - it landed on dev-madrid, the capture
+lane followed to `dev-madrid...:8497`, and a second launch on the healthy node
+did not move. Two traps that script now carries: an `xcodebuild test` build
+(CODE_SIGNING_ALLOWED=NO) gets no app-group container in the simulator, so
+NodeStore silently reads and writes nothing; and DerivedData holds several
+Garrison-* directories, so globbing for the app finds a stale one.
+
+Debt: `#if DEBUG` never fires in this project's app target
+(`SWIFT_ACTIVE_COMPILATION_CONDITIONS` is set only on the test target), which
+makes `seedFromEnvironmentIfRequested` and `FixtureStreamer.autostartIfRequested`
+dead code in every build. Not touched here.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |
