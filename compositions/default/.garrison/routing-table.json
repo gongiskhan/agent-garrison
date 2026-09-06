@@ -26,17 +26,17 @@
     ],
     "test": [
       {
+        "id": "codex-sub",
+        "runtime": "codex",
+        "provider": "chatgpt-subscription",
+        "account": "chatgpt",
+        "model": "gpt-5.6-sol"
+      },
+      {
         "id": "anthropic-sub",
         "runtime": "agent-sdk",
         "provider": "anthropic",
         "model": "claude-sonnet-5"
-      },
-      {
-        "id": "codex-sub",
-        "runtime": "codex",
-        "provider": "openai",
-        "account": "chatgpt",
-        "model": "gpt-5.6-sol"
       },
       {
         "id": "anthropic-api",
@@ -72,6 +72,13 @@
     ],
     "review": [
       {
+        "id": "astra-sub",
+        "runtime": "codex",
+        "provider": "chatgpt-subscription",
+        "account": "chatgpt",
+        "model": "gpt-6-astra"
+      },
+      {
         "id": "anthropic-sub",
         "runtime": "agent-sdk",
         "provider": "anthropic",
@@ -80,7 +87,7 @@
       {
         "id": "codex-sub",
         "runtime": "codex",
-        "provider": "openai",
+        "provider": "chatgpt-subscription",
         "account": "chatgpt",
         "model": "gpt-5.6-sol"
       },

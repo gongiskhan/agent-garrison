@@ -327,6 +327,11 @@ x-garrison:
       adversarial:
         - id: cross
           target: sol
+      codex:
+        - id: standard
+          target: sol
+        - id: deep
+          target: astra
     duties:
       - id: implement
         title: Implement
@@ -359,12 +364,15 @@ x-garrison:
               effort: low
           - description: 'standard: cover the change and its edges'
             cell:
-              target: opus
+              target: sol
               effort: medium
           - description: 'deep: adversarial cases, failure modes, and the paths nobody exercises'
             cell:
               target: cc-opus
               effort: high
+        ladder: codex
+        default: standard
+        ceiling: deep
       - id: review
         title: Review
         description: Read a change against what it claimed to do.
@@ -379,8 +387,11 @@ x-garrison:
               effort: medium
           - description: 'deep: argue with it - assume it is wrong and try to show how'
             cell:
-              target: sol
+              target: astra
               effort: high
+        ladder: codex
+        default: deep
+        ceiling: deep
       - id: research
         title: Research
         description: 'Find things out: look up, survey, investigate.'
@@ -427,10 +438,11 @@ x-garrison:
               effort: xhigh
           - description: 'deep: design alternatives weighed, risks named, sequencing argued'
             cell:
-              target: cc-opus
+              target: astra
               effort: max
-        default: middle
-        ceiling: top
+        ladder: codex
+        default: deep
+        ceiling: deep
       - id: image
         title: Image
         description: Produce or edit an image.
@@ -605,12 +617,15 @@ x-garrison:
         levels:
           - description: 'standard: read the gate records and decide done or not'
             cell:
-              target: cc-sonnet
-              effort: low
+              target: sol
+              effort: medium
           - description: 'strict: re-run what the markers claim rather than trusting them'
             cell:
               target: cc-opus
               effort: low
+        ladder: codex
+        default: standard
+        ceiling: deep
       - id: codex-checkpoint
         title: Codex Checkpoint
         description: A cross-model pass over the security-critical surfaces.
@@ -629,8 +644,11 @@ x-garrison:
               effort: low
           - description: 'standard: what changed, what was proven, what is still open'
             cell:
-              target: cc-opus
+              target: sol
               effort: low
+        ladder: codex
+        default: standard
+        ceiling: standard
       - id: other
         title: Other
         description: Anything that fits no other duty.
@@ -790,10 +808,17 @@ x-garrison:
       - id: sol
         runtime: codex
         model: gpt-5.6-sol
-        provider: anthropic
+        provider: chatgpt-subscription
         params:
           type: secondary
-          authMode: api-key
+          authMode: subscription
+      - id: astra
+        runtime: codex
+        model: gpt-6-astra
+        provider: chatgpt-subscription
+        params:
+          type: secondary
+          authMode: subscription
       - id: fable
         runtime: agent-sdk
         model: claude-opus-5
