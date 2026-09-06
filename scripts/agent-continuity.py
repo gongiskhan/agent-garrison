@@ -114,7 +114,7 @@ def bm_command(cfg, *args):
     return [*binary, *args]
 
 
-def bm(cfg, action, *args, content=None):
+def bm_environment(cfg):
     # Orchestrated workers inherit a composition's isolated Basic Memory/XDG
     # environment. Pin the operator's authority rather than silently publishing
     # into that other store. SSH selects its remote user's default unless the
@@ -122,11 +122,25 @@ def bm(cfg, action, *args, content=None):
     env = os.environ.copy()
     if not cfg.get('ssh_host'):
         env['BASIC_MEMORY_CONFIG_DIR'] = cfg.get('basic_memory_config_dir') or str(Path.home() / '.basic-memory')
+    return env
+
+
+def bm(cfg, action, *args, content=None):
     result = subprocess.run(bm_command(cfg, 'tool', action, '--project', cfg.get('memory_project', 'main'), '--local', *args),
-                            input=content, capture_output=True, text=True, timeout=25, check=False, env=env)
+                            input=content, capture_output=True, text=True, timeout=25, check=False, env=bm_environment(cfg))
     if result.returncode:
         raise RuntimeError('Basic Memory unavailable; private queue retained')
     return result.stdout
+
+
+def memory_cli(cfg, args):
+    """Pass explicit CLI arguments through the same authority as native MCPs.
+
+    Keep stdin/stdout/stderr and the leaf's exit status. This is an operator
+    command, not automatic capture; no prompt or authored notes are inspected.
+    """
+    result = subprocess.run(bm_command(cfg, *args), env=bm_environment(cfg), check=False)
+    return result.returncode if result.returncode >= 0 else 128 - result.returncode
 
 
 def note_content(output):
@@ -404,12 +418,23 @@ def worker(cfg, config_path=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', type=Path, default=DEFAULT_CONFIG)
-    parser.add_argument('action', choices=['hook', 'worker', 'status', 'refresh', 'import-native'])
+    parser.add_argument('action', choices=['hook', 'worker', 'status', 'refresh', 'import-native', 'memory-cli'])
     parser.add_argument('--source', choices=['Claude', 'Codex', 'ChatGPT', 'Garrison'], default='Codex')
     parser.add_argument('--cwd', default=os.getcwd())
-    args = parser.parse_args()
+    raw_args = sys.argv[1:]
+    forwarded = []
+    if '--' in raw_args:
+        separator = raw_args.index('--')
+        forwarded, raw_args = raw_args[separator + 1:], raw_args[:separator]
+    args = parser.parse_args(raw_args)
+    if args.action == 'memory-cli' and not forwarded:
+        parser.error('memory-cli requires -- followed by Basic Memory arguments')
+    if args.action != 'memory-cli' and forwarded:
+        parser.error('only memory-cli accepts forwarded arguments')
     cfg = load_config(args.config)
-    if args.action == 'worker':
+    if args.action == 'memory-cli':
+        raise SystemExit(memory_cli(cfg, forwarded))
+    elif args.action == 'worker':
         worker(cfg, args.config)
     elif args.action in {'status', 'refresh', 'import-native'}:
         project = project_for(args.cwd, cfg)

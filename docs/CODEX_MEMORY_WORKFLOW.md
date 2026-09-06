@@ -188,6 +188,12 @@ MCP entries; existing unowned MCPs remain untouched. SSH uses the remote user's
 normal authority unless an explicit remote configuration directory is supplied.
 No existing store is copied or merged by this selection.
 
+When a registered agent must use the Basic Memory CLI, invoke the configured
+`bridge_command` with `--config /absolute/agent-continuity.json memory-cli --`
+followed by the normal Basic Memory arguments. This preserves the shared local
+or SSH transport, stdin, output and exit status. A bare `basic-memory` command
+inside a fitting can still inherit that fitting's isolated configuration.
+
 The same bridge loads the enrolled project's canonical instruction files
 and available planning files into the working stretch. It respects a local
 `AGENTS.override.md`, deduplicates symlink targets, rejects paths outside enrolled
@@ -223,7 +229,8 @@ unrelated hooks are still present. Offline hosts remain unverified until they
 reconnect; installed configuration is not proof a real client executed it.
 For Garrison, repeat the note round-trip through actual configured Claude SDK
 and Codex duties. A valid MCP map alone is insufficient: the September 6 live
-test caught inherited fitting environment selecting the wrong `main` store.
+test caught inherited fitting environment selecting a different configuration
+and index for `main`, even though both configurations pointed at the same vault.
 
 Only after the operator explicitly approves exporting the existing authored
 note contents, run `python3 scripts/agent-continuity.py import-native --cwd

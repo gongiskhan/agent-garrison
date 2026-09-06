@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import subprocess
 import sys
 import tempfile
 import time
@@ -204,6 +205,25 @@ class ContinuityTests(unittest.TestCase):
             self.cfg['basic_memory_config_dir'] = 'relative'
             with self.assertRaises(ValueError):
                 bridge.bm(self.cfg, 'read-note')
+
+    def test_memory_cli_preserves_arguments_stdin_streams_status_and_authority(self):
+        leaf = self.home / 'memory-cli.py'
+        leaf.write_text("import json, os, sys\n"
+                        "print(json.dumps({'args':sys.argv[1:], 'stdin':sys.stdin.read(), 'authority':os.environ.get('BASIC_MEMORY_CONFIG_DIR')}))\n"
+                        "print('synthetic diagnostic',file=sys.stderr)\n"
+                        "sys.exit(7)\n")
+        self.cfg['basic_memory_command'] = [sys.executable, str(leaf)]
+        self.cfg['basic_memory_config_dir'] = str(self.home / 'shared authority')
+        config = self.home / 'config.json'
+        config.write_text(json.dumps(self.cfg))
+        args = ['tool', 'read-note', '--project', 'main', '--cwd', "literal note; $(private)"]
+        result = subprocess.run([sys.executable, str(ROOT / 'scripts/agent-continuity.py'), '--config', str(config),
+                                 'memory-cli', '--', *args], input='synthetic input\n', text=True, capture_output=True,
+                                env={**os.environ, 'BASIC_MEMORY_CONFIG_DIR': str(self.home / 'isolated')})
+        self.assertEqual(result.returncode, 7)
+        self.assertEqual(result.stderr.strip(), 'synthetic diagnostic')
+        self.assertEqual(json.loads(result.stdout), {'args': args, 'stdin': 'synthetic input\n', 'authority': self.cfg['basic_memory_config_dir']})
+        self.assertFalse((self.home / 'state').exists())
 
     def test_installer_preserves_other_owners_and_is_idempotent(self):
         command = 'python3 /repo/scripts/agent-continuity.py hook --source Codex'
