@@ -193,6 +193,10 @@ When a registered agent must use the Basic Memory CLI, invoke the configured
 followed by the normal Basic Memory arguments. This preserves the shared local
 or SSH transport, stdin, output and exit status. A bare `basic-memory` command
 inside a fitting can still inherit that fitting's isolated configuration.
+The local memory skill directs enrolled agents through this fallback, and
+Improver's reindex/doctor runner uses the same bridge. Invalid enrollment fails
+closed. Unenrolled installations keep their previous command behavior; fitting
+setup/verify diagnostics alone still do not prove shared semantic access.
 
 The same bridge loads the enrolled project's canonical instruction files
 and available planning files into the working stretch. It respects a local

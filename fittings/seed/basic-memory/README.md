@@ -4,6 +4,20 @@ Things about this Fitting that are true, load-bearing, and not obvious from the
 config form. The manifest (`apm.yml`) documents each key; this file documents the
 sharp edges.
 
+## Shared authority in enrolled nodes
+
+Working Claude SDK MCPs and metadata workers explicitly select the enrolled
+Basic Memory configuration. A bare CLI inside Garrison can inherit a different
+configuration/index, even when both point at the same Obsidian vault.
+
+For semantic CLI reads/writes and Improver reindex/doctor, enrolled nodes use the
+configured `bridge_command` with `--config <config> memory-cli -- <arguments>`.
+The bridge preserves stdin, output, exit status and cancellation while selecting
+the same local or SSH authority. Invalid enrollment fails closed; no silent
+fallback, credential copying or data migration occurs. Unenrolled nodes retain
+their prior CLI behavior. Fitting setup/verify may still inspect their isolated
+local configuration; those diagnostics are not shared-memory semantic proof.
+
 ## Two backends, two skill sources
 
 `backend` (default `local`) picks where operative memory lives, and with it which
