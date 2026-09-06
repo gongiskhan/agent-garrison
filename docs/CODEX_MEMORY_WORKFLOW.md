@@ -1,226 +1,186 @@
-# Codex memory workflow
+# Shared agent continuity
 
-This is the selective Claude-to-Codex continuity setup for Garrison. It keeps
-the useful project knowledge and the authoritative Obsidian/Basic Memory vault,
-without importing the Claude hook stack or Auto-thing machinery that had made
-Garrison sessions slow.
+Claude Code, ChatGPT/Codex and Garrison sessions use the same repository
+instructions and durable memory. This workflow replaces the August 2026
+Garrison-only, remote-editing setup. Every enrolled machine is a full mesh node;
+code travels through git on permanent node branches, and session artifacts stay
+on their owner node.
 
-## Source precedence
+## One instruction source
 
-Use sources in this order:
+`AGENTS.md` is a relative symlink to `CLAUDE.md`. The canonical file retains the
+rules that previously existed in both files, with common memory and concurrency
+rules near the beginning. Edit `CLAUDE.md` to update both clients. Because the
+full Garrison document exceeds Codex's default instruction budget, host setup
+must set `project_doc_max_bytes = 65536` or greater in the active Codex config.
+The core shared-memory rules are near the top even when a client truncates.
 
-1. Current user request and repository instructions.
-2. The live checkout and runtime on `dev-madrid`.
-3. The Mac editing checkout and its current working tree.
-4. Current, named Basic Memory topic notes in project `main`.
-5. Claude project memory and historical sessions as evidence only.
-6. Archived checkouts and stale vault clones for archaeology only.
+Other projects can opt into the same arrangement with the installer below. If
+both files exist and differ, it preserves their complete texts in the canonical
+file before creating the symlink, and creates private backups. Read the result
+for conflicting project-specific instructions; mechanical preservation cannot
+resolve differences in meaning. Existing noncanonical symlinks are refused.
 
-`AGENTS.md`, `CLAUDE.md`, and the implementation outrank memory. Also check
-`PRD.md`, `PLANING.md`, and `TASKS.md` whenever they exist. Memory can lag code;
-verify operational claims against the VM.
+Before meaningful work, check `PRD.md`, `PLANING.md`, and `TASKS.md` when present.
+Garrison's current plan of record is `roadmap.json`; `docs/GARRISON_ROADMAP.md`
+is history. Current user instructions, repository code and live node evidence
+outrank older memory notes. Do not restore the retired remote snapshot workflow
+from an August startup brief.
 
-## Authoritative memory service
+## Shared durable memory
 
-The authoritative vault and Basic Memory service remain on `dev-madrid`:
+All clients read and write Basic Memory project `main`, using the service on
+`dev-madrid` for a common read/write view. On that host the command is
+`/home/ggomes/.local/bin/basic-memory`; other nodes reach it through the existing
+SSH alias. Each client must have its Basic Memory MCP configured to that same
+service through the client's supported configuration command. The lifecycle
+installer deliberately does not synthesize or replace MCP configuration.
 
-| item | authoritative location |
-|---|---|
-| Obsidian vault | `/home/ggomes/ObsidianVault` |
-| Basic Memory project | `main` |
-| Basic Memory executable | `/home/ggomes/.local/bin/basic-memory` |
-| Claude Garrison memory source | `/home/ggomes/.claude/projects/-home-ggomes-dev-garrison/memory` |
-| generated Obsidian mirror | `Projects/Garrison/Memory/Claude Native` |
-| mirror program | `/home/ggomes/.claude/tools/claude-memory-to-obsidian.py` |
-| scheduled vault Git sync | `/home/ggomes/.claude/tools/obsidian-vault-sync.sh` |
-| sync schedule | user systemd `garrison-obsidian-vault-sync.timer` (every 5 minutes) |
+The common namespace is `Projects/<project>/Memory`:
 
-Mac Codex connects to that service over the existing `dev-madrid` SSH alias.
-The user-level Codex MCP entry runs:
+- `Agent Startup Brief` is the concise, maintained entry point for every client.
+- Stable topic notes hold decisions, reasons, verification, current state and
+  exact next steps. Search and read before editing; make scoped updates or
+  dated corrections so another session's work survives.
+- `Sessions/Agent Sessions <project-key> <node>` holds that node's bounded
+  session roster, with source, status, last observation, branch and tracked
+  paths. Every client can read every node's roster.
+- `Sessions/Checkpoints/Agent Session <hash>` is the latest structural checkpoint
+  for one session. It provides provenance, not a semantic account of the work.
 
-```text
-/usr/bin/ssh -T -o BatchMode=yes -o ConnectTimeout=5 \
-  dev-madrid /home/ggomes/.local/bin/basic-memory mcp
-```
+Claude-native and Codex-native memories are local hot indexes. When an agent
+records a new durable project fact there, it also writes the fact to the shared
+topic. Semantic milestones require deliberate notes: a metadata hook cannot
+infer why code changed or whether a test demonstrated the intended behavior.
+The maintained shared brief replaces the old Codex-only brief in hook context.
 
-It is deliberately not marked required: editing can continue during a brief VM
-outage, while failed automatic checkpoints remain queued locally.
+Existing Claude-native Garrison notes remain available through the generated
+`Projects/Garrison/Memory/Claude Native` mirror. Keep generated copies read-only;
+edit source notes or the curated shared topic. Historical notes and raw session
+files are preserved. The installer retires known legacy transcript capture
+hook entries; it does not migrate or delete their historical output. Vault Git
+sync remains the mesh's existing memory transport and backup mechanism; this
+bridge does not create another vault or a second sync daemon.
 
-The old Mac vault clone was far behind the VM and contained hundreds of local
-changes, so none of it was merged into the authority. It is preserved at
-`/Users/ggomes/Archived ObsidianVault before Dev Madrid sync 2026-08-03`.
-`/Users/ggomes/ObsidianVault` is now a clean clone of the pushed Dev Madrid
-vault for Obsidian on the Mac. Dev Madrid remains authoritative, and Codex reads
-and writes its Basic Memory project directly rather than relying on clone lag.
+## Session awareness
 
-Claude's native Garrison project memory is also retained. Every top-level
-Markdown note in the source directory is mirrored, by filename, into the
-generated `Claude Native` folder before each scheduled vault Git sync. This
-includes `MEMORY.md` and all notes linked from it. The mirror is atomic,
-single-instance, update-only, and credential-redacting. It never scans sibling
-projects, sessions, prompts, settings, hooks, or skills; it never deletes a
-destination note when Claude removes or renames the source. A hidden manifest
-records source, rendered, and current destination hashes, redaction counts, and
-preserved orphans. Updates are keyed to the Claude source hash so Basic Memory
-can normalize frontmatter without the mirror rewriting every note on each run;
-the existing destination is still credential-scanned every time.
-Edit Claude-native notes at their source; the Obsidian copies are generated.
+`scripts/agent-continuity.py` is the same bridge for both clients. The foreground
+hook only allowlists metadata, writes a private local record and starts a
+detached worker. It does no Git work and waits on no remote service.
 
-The previous isolated checkout is archived at
-`/home/ggomes/dev/Archived Garrison Codex`. It has no unique commits relative
-to current `main`; its one safety stash remains in place for archaeology. Do
-not use it as a development checkout or add a compatibility symlink at its old
-path.
+| Event | Observation |
+| --- | --- |
+| `SessionStart` | Ready, with shared startup context and peer observations |
+| `UserPromptSubmit` | Active, with refreshed cached peer context |
+| `PostToolUse` | Active heartbeat, throttled to at most one per minute |
+| `PreCompact` | Active checkpoint |
+| `Stop` | Idle after a turn; the session remains resumable |
+| `SessionEnd` | Ended |
 
-## What Codex loads and captures
+The worker collects branch, commit and tracked changed paths, publishes the
+checkpoint and per-node roster to Basic Memory, and refreshes the shared brief
+and peer rosters. No transcript path, prompt, response, tool input, tool output,
+diff, untracked file content or environment value is inspected. A known Garrison
+launch marker labels a session `Garrison/Claude` or `Garrison/Codex`; only the
+presence of the marker is used. Session keys hash node, client, project and
+session ID, so independent clients and nodes cannot overwrite each other.
 
-Codex native memory generation and use are enabled in the user config. Native
-memory is generated state; it does not replace checked-in rules or maintained
-Basic Memory notes.
+Metadata, caches, queue and installation backups live at
+`~/.local/state/garrison/agent-continuity`, with private files and directories.
+Failed checkpoint and roster writes remain queued. Later lifecycle events or
+an explicit `worker` invocation retry. Workers are serialized, and a successful
+older write cannot remove a newer pending checkpoint. The old Codex bridge's
+spool is left intact for historical recovery; it is not silently deleted.
 
-The same privacy-safe user hook is installed on both development hosts and is
-scoped by resolved working directory:
+A lifecycle observation is advisory. Ten minutes without a heartbeat means
+**stale**, never automatically ended. Peer cache entries show their fetch time,
+and every roster row has its observation time. A missing cache explicitly says
+that peers have not been fetched. Verify current Garrison sessions on the owner
+node before changing overlapping paths. Long-running sessions without tool
+calls and clients whose hooks are not enabled may not have fresh observations.
+Use Garrison's existing session controls to inspect or steer work; the memory
+bridge does not duplicate the live session controller.
 
-| Codex host | hook program | active repository root | Basic Memory transport |
-|---|---|---|---|
-| Mac | `/Users/ggomes/.codex/garrison-memory-hook.py` | `/Users/ggomes/dev/garrison` | SSH to `dev-madrid` |
-| `dev-madrid` | `/home/ggomes/.codex/garrison-memory-hook.py` | `/home/ggomes/dev/garrison` | direct local CLI |
+## Install on each host
 
-Each copy is silent outside its listed Garrison root. The VM hook writes to the
-same authoritative Basic Memory project directly; it does not SSH back into
-itself. This keeps continuity intact if Codex CLI is used on the VM for an
-exceptional diagnosis, while the normal workflow remains Mac editing with VM
-execution.
+Run from that host's Garrison git checkout after its code has arrived through
+git. The installer preserves unrelated hooks, settings and global instructions,
+including Garrison's native shell-event and coordination hooks. It replaces
+only its own hooks and the known old `garrison-memory-hook.py` /
+`.claude/basic-memory/capture-session.py` entries. Every changed existing file
+receives a private backup, and repeated installation is idempotent.
 
-- `SessionStart` injects a short cached `Codex Startup Brief` and refreshes the
-  cache asynchronously from Basic Memory.
-- `PreCompact` and `SessionEnd` atomically update one structural checkpoint per
-  Codex session.
-- Checkpoints contain only a session hash, event, time, model, branch, commit,
-  and tracked changed paths. They never read prompts, transcripts, command
-  history, environment variables, diffs, or file contents.
-- A detached worker writes checkpoints to Basic Memory. Failed writes remain in
-  `~/.codex/garrison-memory-spool` and retry at the next lifecycle event.
-- The foreground `SessionEnd` path stays below the three-second Codex limit.
-
-This automatic capture is only a safety net. At a meaningful milestone,
-explicitly update a stable topic note with:
-
-- the decision and why it was made;
-- evidence and verification performed;
-- current operational status;
-- remaining risks and exact next steps.
-
-Never store API keys, bearer tokens, JWTs, private keys, full configuration
-files, or raw transcripts. The native-memory mirror strips known credential
-forms and high-entropy secrets before writing. Raw Claude/Omi session files
-remain outside Obsidian and must not be copied wholesale.
-
-Before this migration, a global Claude `PreCompact`/`SessionEnd` hook wrote
-bounded transcript-tail excerpts into timestamped `Memory/session-…` notes.
-All 3,295 existing notes are preserved, but that capture path was retired on
-2026-08-03. Its replacement is Garrison-working-directory scoped,
-transcript-blind, and structural only: it stores a hashed session key and safe
-lifecycle metadata with mode `0600`, never prompt/response text or the raw
-session id. An outside-Garrison lifecycle event writes nothing. Codex does not
-install or call this Claude hook; its own structural checkpoint is the separate
-mechanism described above.
-
-The Mac Claude lifecycle entries use the same scoped structural writer with a
-`Claude` source label and send through the authoritative Basic Memory service;
-they no longer write transcript tails into the Mac vault clone. A stray
-`skill-improver` tail created by the retired Mac command during migration was
-quarantined in the archived pre-sync vault and was never pushed into the
-authoritative vault.
-
-The curated continuity notes created during migration are:
-
-- `Projects/Garrison/Memory/Codex Startup Brief`
-- `Projects/Garrison/Memory/Codex Development Workflow`
-- `Projects/Garrison/Memory/GLM 5.2 Continuation`
-- `Projects/Garrison/Memory/Omi and Personal Assistant Continuation`
-
-Those concise notes are the maintained entry points. The complete historical
-Claude-native notes remain available below
-`Projects/Garrison/Memory/Claude Native/MEMORY` for detailed archaeology and
-Basic Memory search.
-
-## Recovered Claude history
-
-The relevant historical Claude sessions were mapped without copying their raw
-transcripts. Their private session identifiers remain in the authoritative
-vault rather than in public Git history. The current state and remaining work
-from those sessions are captured in the named topic notes and in
-`docs/INSTANCES.md`. The separately authored Claude project-memory
-notes are mirrored into Obsidian as described above. Raw JSONL files stay on the
-VM and are not part of the Codex workflow.
-
-## Deliberate exclusions
-
-Do not import or re-create:
-
-- Claude user/project settings wholesale;
-- Auto-thing, phase, or goal-loop skills;
-- Improver probe or stop-continuation behavior;
-- Claude's per-tool capture or timestamped transcript-tail hook in Codex;
-- the old `run-garrison` launch skill;
-- the archived checkout's projected `AGENTS.md`, `.codex/skills`, vault, or
-  runtime home;
-- a blanket “all multi fittings are defaults” interpretation of `default_fit`.
-
-The remote Claude settings had accumulated 491 hook groups, primarily repeated
-Garrison dev-environment relays and Improver probes. The migration reduced
-those repeated Garrison registrations to one current owner-scoped set while
-preserving Basic Memory and unrelated Claude hooks. None of that Claude hook
-machinery is loaded by Codex.
-
-## Validation and trust
-
-After changing the user-level hooks, fully exit and relaunch the Codex CLI on
-the host being used, then review and trust the exact three Garrison definitions
-when the startup prompt appears. `/new` does not reload hook files. Until the
-definitions are reviewed, Codex skips these non-managed hooks by design.
-
-Both hosts use `~/.codex/hooks.json`, but they are separate files. The compact
-Codex banner shortens both repository paths to `~/dev/garrison`, so use `pwd`
-or `hostname` when the host is ambiguous: `/home/ggomes/dev/garrison` is the VM
-and `/Users/ggomes/dev/garrison` is the Mac. Running `/hooks` in one does not
-inspect the other host's file.
-
-Useful checks from the Mac are:
+For a Mac (substitute its permanent mesh name):
 
 ```bash
-codex mcp get basic-memory
-cd /Users/ggomes/dev/garrison
-curl -fsS http://127.0.0.1:8777/api/mesh/self
+python3 scripts/install-agent-continuity.py \
+  --node mac-pro \
+  --project "Garrison=$HOME/dev/garrison" \
+  --project-parent "$HOME/dev" \
+  --peer-node dev-madrid --peer-node mac-pro \
+  --peer-node mac-air --peer-node mac-mini \
+  --ssh-host dev-madrid \
+  --basic-memory /home/ggomes/.local/bin/basic-memory
 ```
 
-The Basic Memory transport should show `/usr/bin/ssh` and `dev-madrid`. The
-node's own health endpoint must answer without exposing secrets.
-If automatic capture cannot reach the VM, leave queued spool files in place;
-the next Garrison lifecycle event retries them.
+On `dev-madrid`, use the same arguments with `--node dev-madrid` and omit
+`--ssh-host`. The config defaults to
+`~/.config/garrison/agent-continuity.json`. A different Basic Memory executable
+can be supplied explicitly; its location is never guessed from the presence of
+a similarly named local executable.
 
-On the VM, the mirror itself can be checked safely and idempotently with:
+`--project-parent` enrolls Git projects only beneath the selected directory.
+Explicit `--project NAME=/absolute/path` aliases win over discovery and are
+needed when a project has different directory names across nodes. Use the same
+name on every node. Register separate aliases for unrelated repositories with
+the same basename. Unknown folders and missing/relative hook cwd values are
+ignored. Project checkout symlinks are refused during explicit enrollment.
+
+To unify another project's files while enrolling it, append
+`--project "Example=$HOME/dev/example" --unify-instructions`. This changes only
+explicit project roots, not every repository discovered beneath a parent.
+The user-level Claude and Codex instruction files receive the same managed
+continuity section; other existing instructions remain intact. Garrison sessions
+must load that user configuration (or receive the same owned entries in their
+isolated client home) to participate.
+
+## Activation and verification
+
+Open a new Claude Code or Codex session after installation. Codex discovers hooks
+at session start and requires non-managed definitions to be reviewed and trusted;
+this installer does not write trust decisions. The active session cannot be
+assumed to have reloaded changed hooks. There are six owned events per client,
+not the old three. The current hook contract is documented in
+[OpenAI's hooks documentation](https://learn.chatgpt.com/docs/hooks).
+
+Check the local bridge and its queue:
 
 ```bash
-/home/ggomes/.claude/tools/claude-memory-to-obsidian.py
+python3 scripts/agent-continuity.py status --cwd "$HOME/dev/garrison"
+python3 scripts/agent-continuity.py worker
+python3 scripts/agent-continuity.py refresh --cwd "$HOME/dev/garrison"
 ```
 
-Check the automatic owner and its next run with:
+Verify the common MCP by reading the same named topic from each client on each
+host, then writing a bounded test note through one and reading it through the
+others. Exercise `SessionStart`, `UserPromptSubmit`, `Stop` and `SessionEnd`
+with a disposable session and verify its metadata-only checkpoint and roster
+in Basic Memory. Confirm failed writes remain private and queued, and that
+unrelated hooks are still present. Offline hosts remain unverified until they
+reconnect; installed configuration is not proof a real client executed it.
+
+The bridge's regression suite uses only the Python standard library:
 
 ```bash
-systemctl --user status garrison-obsidian-vault-sync.timer
-systemctl --user list-timers garrison-obsidian-vault-sync.timer
+PYTHONDONTWRITEBYTECODE=1 python3 tests/agent-continuity.test.py
 ```
 
-The summary should report the same source-note count as the source directory;
-the 2026-08-03 migration baseline is 44 Markdown notes in each location. A
-second unchanged run should report zero updated notes. The enabled user timer
-invokes the normal vault sync every five minutes; that script runs the mirror
-before committing and pushing Obsidian changes. After a bulk import, run a
-Basic Memory incremental sync so the new notes are searchable immediately
-rather than waiting for its watcher.
+It covers project boundaries and discovery, secret/payload exclusion, private
+permissions, client/node separation, peer injection, heartbeat throttling,
+missing-end expiry, offline retry, concurrent checkpoint replacement, roster
+retry, SSH quoting, hook ownership/idempotency and instruction preservation.
 
-Basic Memory project `main` is the sole active/default project. The former
-`codex` registration was removed without deleting its files; the archived vault
-remains at `/home/ggomes/.garrison-codex/ObsidianVault` for archaeology.
+Ordinary ChatGPT conversations without this project's files and the Basic
+Memory connection cannot acquire local hooks by changing a repository. Use
+ChatGPT's connected Codex workspace/remote host for automatic continuity, or
+read and update the same shared notes explicitly from a connected chat.
