@@ -77,8 +77,8 @@ async function logDecision(rec) {
 // else {level, reason}: "absent" (the binary itself is missing - most nodes in the
 // mesh do not run Cursor, so this is the common, non-fatal case) vs
 // "unauthenticated" (the binary IS here but nobody logged in, which only happens on
-// a node someone specifically set up for Cursor and so is always a real problem).
-// --probe treats the two differently; see main() below.
+// a node that needs `cursor-agent login` before Cursor can run). Both remain
+// unavailable; only nodes explicitly requiring Cursor block composition startup.
 export function probeFailure(run = (bin, argv) => spawnSync(bin, argv, { encoding: "utf8" }), env = process.env) {
   // A bare `cursor-agent` resolves via PATH like a real login shell would; the
   // `~/.local/bin/cursor-agent` fallback covers a non-interactive probe (no login
@@ -135,15 +135,14 @@ async function main() {
       console.log("ok");
       return;
     }
-    // Absent is degraded, not fatal, UNLESS this node was told it must run
-    // Cursor (GARRISON_REQUIRE_CURSOR=1, set in the mini's launchd env) - a
-    // composition-wide `up()` aborts on any verify failure, so a node without
-    // cursor-agent must not break `up` for every OTHER fitting just because
-    // the composition also stations Cursor. Unauthenticated never degrades:
-    // the binary being here at all means someone meant this node to run it.
-    if (failure.level === "absent" && process.env.GARRISON_REQUIRE_CURSOR !== "1") {
+    // Optional Cursor availability must not block every other runtime. Keep
+    // the login failure visible, and fail the whole node only when Cursor is
+    // explicitly required. This is a composition probe policy, not an auth
+    // bypass: actual delegation still uses Cursor's login and fails normally.
+    if (process.env.GARRISON_REQUIRE_CURSOR !== "1") {
       console.log("ok");
-      console.log(`degraded: no cursor-agent on this node (${failure.reason})`);
+      const detail = failure.level === "absent" ? "no cursor-agent on this node" : "Cursor unavailable on this node";
+      console.log(`degraded: ${detail} (${failure.reason})`);
       return;
     }
     console.error(failure.reason);

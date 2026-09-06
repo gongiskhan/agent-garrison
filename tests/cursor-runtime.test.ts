@@ -196,6 +196,15 @@ describe("Cursor runtime adapter (MRr-cursor)", () => {
     await expect(adapter.awaitResponse(s)).rejects.toThrow(/cursor-agent exited 3: boom/);
   });
 
+  it("an optional probe never makes an unauthenticated Cursor delegation succeed", async () => {
+    const adapter = new CursorAdapter({
+      runExec: async () => ({ code: 1, stdout: "", stderr: "Not logged in. Run cursor-agent login." })
+    });
+    const s = await adapter.spawn({ model: "auto" });
+    await adapter.sendTurn(s, "synthetic authentication check");
+    await expect(adapter.awaitResponse(s)).rejects.toThrow(/Not logged in[\s\S]*cursor-agent login/);
+  });
+
   it("cancel settles the in-flight turn with a stop reason instead of throwing, and does not poison the next turn", async () => {
     let settleFn: ((r: unknown) => void) | null = null;
     const fakeChild = { exitCode: null, signalCode: null, kill: () => true };
@@ -380,10 +389,19 @@ describe("cursor-runtime --probe exit behaviour (the composition-wide up() stake
     expect(r.stderr).toMatch(/not found on PATH/);
   });
 
-  it("present but unauthenticated: exits 1 even without GARRISON_REQUIRE_CURSOR", () => {
+  it("present but unauthenticated optional Cursor: exits 0 with a visible login requirement", () => {
     const HOME = path.join(process.cwd(), "tests/fixtures/cursor-runtime/empty-home");
-    const r = run({ HOME, PATH: FAKE_BIN_DIR, CURSOR_FAKE_AUTH: "0" });
+    const r = run({ HOME, PATH: FAKE_BIN_DIR, CURSOR_FAKE_AUTH: "0", GARRISON_REQUIRE_CURSOR: "0", CURSOR_API_KEY: "" });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/^ok/);
+    expect(r.stdout).toMatch(/degraded: Cursor unavailable[\s\S]*not authenticated[\s\S]*cursor-agent login/);
+  });
+
+  it("present but unauthenticated required Cursor: exits 1 and blocks startup", () => {
+    const HOME = path.join(process.cwd(), "tests/fixtures/cursor-runtime/empty-home");
+    const r = run({ HOME, PATH: FAKE_BIN_DIR, CURSOR_FAKE_AUTH: "0", GARRISON_REQUIRE_CURSOR: "1", CURSOR_API_KEY: "" });
     expect(r.status).toBe(1);
+    expect(r.stdout).not.toMatch(/^ok/);
     expect(r.stderr).toMatch(/not authenticated/);
   });
 });
