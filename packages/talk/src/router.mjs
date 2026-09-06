@@ -25,7 +25,7 @@ import { createReadStream, existsSync, readFileSync, realpathSync, statSync } fr
 import { meshThreads } from "./mesh-threads.mjs";
 import { meshSessions } from "./mesh-sessions.mjs";
 import { parseByFormat } from "./transcript-formats.mjs";
-import { gatewayMessageForwarder, handleConversationRequest } from "@garrison/claude-pty";
+import { gatewayCancelForwarder, gatewayMessageForwarder, handleConversationRequest } from "@garrison/claude-pty";
 import { rotateZecaConversation, zecaConversation } from "./zeca.mjs";
 import { loadSidebar, saveSidebar } from "./sidebar-state.mjs";
 import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
@@ -3604,6 +3604,7 @@ export function createTalkRouter(liveOpts, { distDir = null, log = console } = {
           // the shell names itself.
           role: liveOpts.conversationRole ?? "web-channel",
           forwardMessage: gatewayMessageForwarder(liveOpts.gatewayUrl),
+          forwardCancel: gatewayCancelForwarder(liveOpts.gatewayUrl),
           // Tighter than the router's default because THIS mount is the one a
           // person types into: the composer's receipt is terminal on admission
           // (a message has no generation to follow), so the stream's echo of

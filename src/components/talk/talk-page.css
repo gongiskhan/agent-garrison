@@ -122,3 +122,11 @@
 /* The conversation column is the page; no rounded card edges on a phone. */
 .shell-phone .talk-page .wc-shell,
 .shell-phone .talk-page .wc-main { border-radius: 0; }
+
+/* The responsive drawer is anchored to the page below the app bar. Its compact
+   state also covers tablet panes narrowed by Garrison's own sidebar. */
+.talk-page .wc-shell--compact .wc-sidebar { top: 0; z-index: 60; }
+.talk-page .wc-shell--compact .wc-sidebar-scrim { top: 0; z-index: 59; }
+.talk-page .wc-shell--compact .wc-sidebar-toggle { top: 8px; }
+.shell-phone .talk-page .wc-shell--compact .wc-threads-toggle { width: 44px; height: 44px; min-height: 44px; }
+.shell-phone .talk-page .cc-conv-search { flex-basis: 46%; }

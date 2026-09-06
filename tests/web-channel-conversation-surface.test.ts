@@ -25,6 +25,7 @@ import {
   conversationMessageUrl,
   createConversationTransport,
   postConversationMessage,
+  postConversationCancel,
 } from "../packages/talk/ui/conversation-transport";
 
 const ROOT = path.resolve(__dirname, "..");
@@ -68,6 +69,19 @@ afterEach(() => {
 });
 
 describe("web channel — the conversation send door", () => {
+  it("stops a normal conversation through its own same-origin control", async () => {
+    const calls = stubFetch(() => json(202, { cancelled: true }));
+    await postConversationCancel("01CONV");
+    expect(calls).toEqual([{ url: "/api/conversation/01CONV/cancel", body: {} }]);
+  });
+
+  it("accepts an already-finished stop but surfaces a rejected cancellation", async () => {
+    stubFetch(() => json(404, { error: "no advancing conversation" }));
+    await expect(postConversationCancel("01CONV")).resolves.toBeUndefined();
+    stubFetch(() => json(502, { error: "gateway unavailable" }));
+    await expect(postConversationCancel("01CONV")).rejects.toBeInstanceOf(ChatTransportError);
+  });
+
   it("posts to a RELATIVE per-conversation door", () => {
     expect(CONVERSATION_BASE).toBe("/api/conversation");
     expect(conversationMessageUrl("01CONV")).toBe("/api/conversation/01CONV/message");
@@ -77,20 +91,61 @@ describe("web channel — the conversation send door", () => {
     expect(conversationMessageUrl("a b/../c")).toBe("/api/conversation/a%20b%2F..%2Fc/message");
   });
 
-  it("sends exactly the three fields the router's gate allows", async () => {
+  it("forwards context and routing through the conversation door's allowed fields", async () => {
     const calls = stubFetch(() => json(202, { accepted: true, recordedBy: "responder", seq: null }));
     const transport = createConversationTransport(inner, { conversationId: "01CONV" });
     await transport.sendMessage("ship the ladder", {
       clientRequestId: "req-1",
-      // Deliberately offered and deliberately NOT forwarded: the door refuses
-      // unknown fields with a 400, so carrying these would break every send.
       context: { card: "01CARD" },
       routing: { duty: "implement" },
+      mode: "plan",
+      autonomous: true,
     } as never);
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe("/api/conversation/01CONV/message");
-    expect(Object.keys(calls[0].body).sort()).toEqual(["clientRequestId", "message", "origin"]);
-    expect(calls[0].body).toMatchObject({ message: "ship the ladder", clientRequestId: "req-1", origin: "web" });
+    expect(Object.keys(calls[0].body).sort()).toEqual(["clientRequestId", "context", "message", "origin", "routing"]);
+    expect(calls[0].body).toMatchObject({
+      message: "ship the ladder", clientRequestId: "req-1", origin: "web",
+      context: JSON.stringify({ card: "01CARD" }), routing: { duty: "implement" },
+    });
+  });
+
+  it("keeps an unpinned message unchanged", async () => {
+    const calls = stubFetch(() => json(202, { accepted: true }));
+    await createConversationTransport(inner, { conversationId: "01CONV" })
+      .sendMessage("hello", { clientRequestId: "plain" });
+    expect(calls[0].body).toEqual({ message: "hello", clientRequestId: "plain", origin: "web" });
+  });
+
+  it("restores host context and pins, with per-send overrides and native effort taking precedence", async () => {
+    const calls = stubFetch(() => json(202, { accepted: true }));
+    const transport = createConversationTransport(inner, {
+      conversationId: "01CONV",
+      context: { project: "garrison" },
+      routing: { project: "garrison", target: "astra", effort: "medium", duty: "plan" },
+    });
+    await transport.sendMessage("continue", { clientRequestId: "saved" });
+    await transport.sendMessage("review", {
+      clientRequestId: "override", context: "review the current diff", effort: "high",
+      routing: { target: "sol", duty: null, effort: "low" },
+    });
+    await transport.sendMessage("without context", { clientRequestId: "clear", context: null });
+    expect(calls[0].body).toMatchObject({ context: '{"project":"garrison"}', routing: {
+      project: "garrison", target: "astra", effort: "medium", duty: "plan",
+    } });
+    expect(calls[1].body).toMatchObject({ context: "review the current diff", routing: {
+      project: "garrison", target: "sol", effort: "high", duty: null,
+    } });
+    expect(calls[2].body).not.toHaveProperty("context");
+  });
+
+  it("carries bounded Discuss context and pins through the same post helper", async () => {
+    const calls = stubFetch(() => json(202, { accepted: true }));
+    await postConversationMessage("01CONV", "start discussing", {
+      origin: "discuss", context: "x".repeat(9000), routing: { duty: "discuss", target: "astra" },
+    });
+    expect(calls[0].body.context).toBe("x".repeat(8000));
+    expect(calls[0].body.routing).toEqual({ duty: "discuss", target: "astra" });
   });
 
   it("receipts the ADMISSION and settles it, because no generation follows a message", async () => {

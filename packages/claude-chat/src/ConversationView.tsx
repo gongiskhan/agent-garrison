@@ -201,7 +201,7 @@ export function ConversationView({
               type="search"
               className="cc-conv-searchinput"
               value={query}
-              placeholder="Search this conversation"
+              placeholder="Search messages"
               aria-label="Search this conversation"
               onChange={(event) => setQuery(event.target.value)}
               onFocus={() => { if (hits) setHitsOpen(true); }}
@@ -261,6 +261,7 @@ export function ConversationView({
             transcriptOnly
             transcriptLive={live}
             transcriptOnActivityChange={onActivityChange}
+            transcriptEmptyMessage={<div className="cc-conv-welcome"><strong>What would you like to work on?</strong><span>Ask a question, explore an idea, or describe a task. Your conversation will stay here.</span></div>}
             transcriptFocusEventId={seq == null ? undefined : conversationEventId(conversationId, seq)}
             routing={routing}
             routeOptions={routeOptions}

@@ -27,6 +27,24 @@ event exactly once and in order: an existing history of 2,105 records and a
 against the real router and a throwaway store, with no subsequent write to
 unblock the reader.
 
+## Conversation pins must reach the responder
+
+The normal conversation transport discarded context, project/model/duty pins
+and native effort while presenting and saving those controls. Its comment
+still described an older three-field message gate, although the real HTTP
+router now accepts context and routing. The wrapper now forwards those fields,
+combining saved host defaults with per-send overrides. Opaque context becomes
+bounded text; chat-only fields remain outside the conversation contract.
+Unit coverage verifies defaults, overrides, explicit clearing, native effort,
+Discuss kickoff and an unchanged unpinned message body. The host also supplies
+its saved thread context and pins when creating this wrapper.
+
+The full-stack parity fixtures intentionally exercise the older chat/FIFO lane
+with underscore-prefixed thread ids. Their permission and Stop results prove
+that lane; they do not establish controls for the ordinary conversation stretch
+lane. Normal-lane model quality and control verification must use the
+`/api/conversation/:id/message` door and inspect the resulting ledger.
+
 ## Validation status
 
 - Live dev-madrid shell `/api/health` returned `ok: true`; its gateway reported
@@ -40,9 +58,14 @@ unblock the reader.
   the state service's dependency directory was absent and workspace-package
   links resolved back into the canonical checkout. Those disposable links
   were corrected. The rerun reported all 48 suites and all 667 tests passing.
-- Desktop and mobile browser baseline runs are in progress through
+- Desktop and mobile browser baseline runs finished through
   `playwright.web-channel.config.ts`. That harness starts its own shell and
   fake gateway and verifies restart/replay behavior without calling a model.
+  Twenty-two tests passed. Both viewport failures were the same stale fixture
+  assumption: the page now lazily creates
+  its standing Zeca thread in addition to the requested new conversation.
+  The fresh-conversation test now initializes Zeca before measuring the action,
+  preserving the exact-one-new-thread and no-duplicate-on-reload assertions.
 - Validation of the new regression cases awaits the git transport commit.
   This document does not claim a deployment or a live model quality result.
 

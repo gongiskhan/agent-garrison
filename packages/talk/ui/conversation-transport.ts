@@ -13,15 +13,48 @@
 // door moved; nothing else did.
 
 import { ChatTransportError } from "@garrison/claude-chat/transport";
-import type { ChatInputReceipt, ChatTransport } from "@garrison/claude-chat";
+import type { ChatInputReceipt, ChatTransport, TurnRouting } from "@garrison/claude-chat";
 
 /** Same-origin and RELATIVE, always: the browser is almost never on this box,
  *  so an absolute machine-local base is both unreachable and mixed content. */
 export const CONVERSATION_BASE = "/api/conversation";
 
+interface ConversationMessageOptions {
+  base?: string;
+  clientRequestId?: string | null;
+  origin?: string;
+  signal?: AbortSignal;
+  context?: unknown;
+  routing?: TurnRouting | null;
+}
+
 /** The router's message door for one conversation. */
 export function conversationMessageUrl(conversationId: string, base: string = CONVERSATION_BASE): string {
   return `${base.replace(/\/+$/, "")}/${encodeURIComponent(conversationId)}/message`;
+}
+
+/** Stop the active stretch through the same origin as its ledger. A settled
+ * admission has no chat generation, so the FIFO interrupt door cannot stop it. */
+export async function postConversationCancel(conversationId: string, base: string = CONVERSATION_BASE): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(`${base.replace(/\/+$/, "")}/${encodeURIComponent(conversationId)}/cancel`, { method: "POST" });
+  } catch {
+    throw new ChatTransportError({
+      source: "transport", kind: "transport", code: "conversation_cancel_unreachable",
+      text: "The conversation could not be reached. Try Stop again.", retryable: true,
+    });
+  }
+  const body = await response.json().catch(() => null);
+  // A completion racing the click is already the state Stop was asking for.
+  if (response.status === 404 && body?.error === "no advancing conversation") return;
+  if (!response.ok || body?.cancelled !== true) {
+    throw new ChatTransportError({
+      source: "gateway", kind: "runtime", code: "conversation_cancel_failed",
+      text: typeof body?.error === "string" ? body.error : "The conversation could not be stopped. Try again.",
+      retryable: true, httpStatus: response.status,
+    });
+  }
 }
 
 /**
@@ -32,16 +65,21 @@ export function conversationMessageUrl(conversationId: string, base: string = CO
 export async function postConversationMessage(
   conversationId: string,
   message: string,
-  opts: { base?: string; clientRequestId?: string | null; origin?: string; signal?: AbortSignal } = {},
+  opts: ConversationMessageOptions = {},
 ): Promise<{ seq: number | null; recordedBy: string | null }> {
   // The door's allowed-fields gate is exact: `message`, `clientRequestId`,
   // `origin`, `context`, `routing` and `delivery`. Anything else is a 400.
-  // Per-turn context/pins are NOT carried here - see the note on
-  // createConversationTransport - and neither is `delivery`: this surface
+  // The host's opaque context crosses this door as a string. Pins retain
+  // their exact values, including null clears. We omit `delivery`: this surface
   // takes the door's default (queue behind a running stretch); the kanban
   // card's composer is where a message steers the stretch in flight.
   const body: Record<string, unknown> = { message, origin: opts.origin ?? "web" };
   if (opts.clientRequestId) body.clientRequestId = opts.clientRequestId;
+  if (opts.context !== undefined && opts.context !== null) {
+    const context = typeof opts.context === "string" ? opts.context : JSON.stringify(opts.context);
+    if (context) body.context = context.slice(0, 8000);
+  }
+  if (opts.routing && Object.keys(opts.routing).length) body.routing = opts.routing;
   let res: Response;
   try {
     res = await fetch(conversationMessageUrl(conversationId, opts.base ?? CONVERSATION_BASE), {
@@ -93,15 +131,19 @@ export async function postConversationMessage(
  * fact, streamed as `stretch`/`ledger` rows in the body - so a receipt left
  * `running` would be a spinner nothing could ever settle.
  *
- * KNOWN GAP, deliberately not papered over: the door's allowed-fields gate
- * carries no `context`, `routing` or `autonomous`, so a host-supplied Discuss
- * context and the Turn Rail's per-turn pins do not reach the responder. The
- * rail still renders and still persists the thread's sticky pins; they simply
- * do not ride this request.
+ * Host defaults carry the thread's saved context and pins after a reload.
+ * Per-send metadata wins over those defaults; native effort uses the same
+ * routing field the conversation gateway accepts. Other chat-only fields
+ * (mode and autonomous) stay outside the conversation door's exact contract.
  */
 export function createConversationTransport(
   inner: ChatTransport,
-  { conversationId, base = CONVERSATION_BASE }: { conversationId: string; base?: string },
+  { conversationId, base = CONVERSATION_BASE, context, routing }: {
+    conversationId: string;
+    base?: string;
+    context?: unknown;
+    routing?: TurnRouting | null;
+  },
 ): ChatTransport {
   return {
     ...inner,
@@ -113,7 +155,14 @@ export function createConversationTransport(
       const clientRequestId = typeof meta?.clientRequestId === "string" && meta.clientRequestId.trim()
         ? meta.clientRequestId.trim()
         : `conv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-      const { seq } = await postConversationMessage(conversationId, text, { base, clientRequestId });
+      const effectiveRouting = { ...(routing ?? {}), ...(meta?.routing ?? {}) };
+      if (meta?.effort) effectiveRouting.effort = meta.effort;
+      const { seq } = await postConversationMessage(conversationId, text, {
+        base,
+        clientRequestId,
+        context: meta?.context === undefined ? context : meta.context,
+        routing: effectiveRouting,
+      });
       return {
         clientRequestId,
         // A CLIENT coordinate, never dressed up as a ledger one: the router

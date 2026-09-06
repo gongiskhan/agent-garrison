@@ -107,6 +107,8 @@ function useFocusedEvent(
 
 export interface SessionStreamProps {
   url: string;
+  /** A conversation host can provide a useful first-message invitation. */
+  emptyMessage?: React.ReactNode;
   live?: boolean;
   /** Optional compact label when this stream is opened as a related task. */
   title?: string;
@@ -1563,6 +1565,7 @@ export function SessionStream({
   focusEventId,
   conversationLive,
   onActivityChange,
+  emptyMessage,
 }: SessionStreamProps) {
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const [title, setTitle] = useState<string | null>(titleProp ?? null);
@@ -1961,7 +1964,7 @@ export function SessionStream({
                 ? "No rich activity journal is available for this turn."
                 : live
                   ? "Waiting for the first activity…"
-                  : "No journal activity."}
+                  : emptyMessage ?? "No journal activity."}
           </div>
         )}
         {turns.map((turn, turnIndex) => {

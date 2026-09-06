@@ -66,6 +66,7 @@ export {
 export {
   handleConversationRequest,
   gatewayMessageForwarder,
+  gatewayCancelForwarder,
   recordDig,
   CONVERSATION_ID_RE,
 } from "./conversation-http.mjs";

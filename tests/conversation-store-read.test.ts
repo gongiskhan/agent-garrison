@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // @ts-ignore — pure .mjs
 import { openConversation } from "../packages/claude-pty/src/conversation-store.mjs";
 // @ts-ignore — pure .mjs
-import { handleConversationRequest } from "../packages/claude-pty/src/conversation-http.mjs";
+import { gatewayCancelForwarder, handleConversationRequest } from "../packages/claude-pty/src/conversation-http.mjs";
 // @ts-ignore — pure .mjs
 import { conversationEventId, ledgerToSessionEvents } from "../packages/claude-pty/src/conversation-adapt.mjs";
 // @ts-ignore — pure .mjs (the SERVER half of the block-type whitelist)
@@ -311,6 +311,34 @@ describe("conversation router - stream", () => {
 });
 
 describe("conversation router - message", () => {
+  it("stops the addressed conversation through the real gateway cancel door", async () => {
+    const cancellations: unknown[] = [];
+    const gateway = http.createServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      cancellations.push({ path: req.url, body: JSON.parse(Buffer.concat(chunks).toString()) });
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ cancelled: true }));
+    });
+    servers.push(gateway);
+    await new Promise<void>((resolve) => gateway.listen(0, "127.0.0.1", resolve));
+    const port = (gateway.address() as { port: number }).port;
+    const { base } = await mount({ forwardCancel: gatewayCancelForwarder(`http://127.0.0.1:${port}`) });
+    const response = await fetch(`${base}/c-stop/cancel`, { method: "POST" });
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ cancelled: true, conversationId: "c-stop" });
+    expect(cancellations).toEqual([{ path: "/conversation/cancel", body: { conversationId: "c-stop" } }]);
+  });
+
+  it("reports an unavailable stop and a conversation already settled without claiming cancellation", async () => {
+    const unavailable = await mount();
+    expect((await fetch(`${unavailable.base}/c-stop/cancel`, { method: "POST" })).status).toBe(503);
+    const settled = await mount({ forwardCancel: async () => ({ ok: false, status: 404, error: "no advancing conversation" }) });
+    const response = await fetch(`${settled.base}/c-stop/cancel`, { method: "POST" });
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "no advancing conversation" });
+  });
+
   it("refuses unknown fields, forwards, and records what the responder did not", async () => {
     const store = seed("c-msg");
     const { base, forwardMessage } = await mount();

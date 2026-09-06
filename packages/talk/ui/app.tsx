@@ -39,6 +39,7 @@ import {
   CONVERSATION_BASE,
   createConversationTransport,
   postConversationMessage,
+  postConversationCancel,
 } from "./conversation-transport";
 import { VoiceConversation } from "./voice-conversation";
 import { RemoteShellWorkbench } from "./remote-shell-workbench";
@@ -52,6 +53,7 @@ import { ShellPanel, type ShellThreadBinding } from "./shell-panel";
 import { ExternalSessionView } from "./session-view";
 import { NewShellModal, type NewShellSpec } from "./new-shell-modal";
 import { errorCopy, resolveShellOrigin, ShellOriginError } from "./shell-origin";
+import { useConversationLayout } from "./use-conversation-layout";
 
 // The streaming voice surface (S6b): hands-free conversation mode + push-to-talk,
 // rendered into ClaudeChat's composer via the function-form adornment so it can
@@ -1022,6 +1024,10 @@ function ThreadedApp({
   const [activeThread, setActiveThread] = useState<Thread | null>(null);
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [conversationActivity, setConversationActivity] = useState<{ id: string; working: boolean } | null>(null);
+  const [conversationStop, setConversationStop] = useState<{ id: string; pending: boolean; error?: string } | null>(null);
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  const { shellRef, sidebarRef, mainRef, sidebarId, compact } = useConversationLayout(sidebarOpen, closeSidebar);
   // The WIDE-layout session list, independent of the narrow drawer above.
   // OPEN by default: this page is Conversations, and the list IS the page - a
   // 42px rail with every conversation hidden is not what anyone opens it for.
@@ -1817,9 +1823,28 @@ function ThreadedApp({
   // conversation router; the SSE connection, Stop, attachments and permission
   // answers stay on the transport above, so the FIFO lane is untouched.
   const conversationTransport = useMemo(
-    () => (conversationId ? createConversationTransport(transport, { conversationId }) : null),
-    [transport, conversationId]
+    () => (conversationId ? createConversationTransport(transport, { conversationId, context: activeThread?.context, routing: pins }) : null),
+    [transport, conversationId, activeThread?.context, pins]
   );
+  const onConversationActivity = useCallback((activity: { mode: string }) => {
+    if (conversationId) setConversationActivity({
+      id: conversationId,
+      working: ["starting", "working", "handoff"].includes(activity.mode),
+    });
+  }, [conversationId]);
+  const stopConversation = useCallback(async () => {
+    if (!conversationId) return;
+    const id = conversationId;
+    setConversationStop({ id, pending: true });
+    try {
+      await postConversationCancel(id);
+      setConversationStop((current) => current?.id === id ? { id, pending: false } : current);
+    } catch (error) {
+      setConversationStop((current) => current?.id === id ? {
+        id, pending: false, error: error instanceof Error ? error.message : "Could not stop the conversation. Try again.",
+      } : current);
+    }
+  }, [conversationId]);
 
   // A host-opened Discuss carries an opening message the surface sends as if the
   // user had typed it. ClaudeChat owns that for the chat lane (initialMessage);
@@ -1831,9 +1856,9 @@ function ThreadedApp({
     if (!conversationId || !kickoff) return;
     if (kickoffSentRef.current === conversationId) return;
     kickoffSentRef.current = conversationId;
-    void postConversationMessage(conversationId, kickoff, { origin: "discuss" })
+    void postConversationMessage(conversationId, kickoff, { origin: "discuss", context: activeThread?.context, routing: pins })
       .catch(() => { kickoffSentRef.current = null; });
-  }, [conversationId, kickoff]);
+  }, [conversationId, kickoff, activeThread?.context, pins]);
 
   // The narrow-layout drawer toggle (past conversations). Inside a conversation
   // it is the FIRST thing in the conversation's own header row, where a phone
@@ -1852,6 +1877,7 @@ function ThreadedApp({
       className={floating ? "wc-sidebar-toggle" : "wc-threads-toggle"}
       aria-label={sidebarOpen ? "Hide conversations" : "Show conversations"}
       aria-expanded={sidebarOpen}
+      aria-controls={sidebarId}
       onClick={() => setSidebarOpen((v) => !v)}
       title="Conversations"
     >
@@ -1860,9 +1886,12 @@ function ThreadedApp({
   );
 
   return (
-    <div className={`wc-shell${sidebarOpen ? " wc-shell--open" : ""}${listOpen ? "" : " wc-shell--rail"}`}>
+    <div ref={shellRef} className={`wc-shell${compact ? " wc-shell--compact" : ""}${sidebarOpen ? " wc-shell--open" : ""}${listOpen ? "" : " wc-shell--rail"}`}>
       {!inConversation && threadsButton(true)}
-      <aside className="wc-sidebar" aria-label="Conversations">
+      <aside ref={sidebarRef} id={sidebarId} className="wc-sidebar" aria-label="Conversations"
+        role={compact && sidebarOpen ? "dialog" : undefined}
+        aria-modal={compact && sidebarOpen ? true : undefined}
+        aria-hidden={compact && !sidebarOpen ? true : undefined}>
         <SessionsRail
           threads={threads}
           pinnedId={zecaId}
@@ -1883,6 +1912,7 @@ function ThreadedApp({
           activeSessionId={activeSessionRow?.id ?? null}
           onSelectSession={selectSessionRow}
           onOpenNewShell={() => setNewShellOpen(true)}
+          onClose={closeSidebar}
         />
       </aside>
       <div className="wc-sidebar-scrim" onClick={() => setSidebarOpen(false)} aria-hidden="true" />
@@ -1902,7 +1932,7 @@ function ThreadedApp({
           onClose={() => setNewShellOpen(false)}
         />
       )}
-      <main className="wc-main">
+      <main ref={mainRef} className="wc-main">
         {(backLabel || briefPath) && (
           <div className="wc-backbar">
             {backLabel && (
@@ -2007,7 +2037,7 @@ function ThreadedApp({
             base={CONVERSATION_BASE}
             transport={conversationTransport}
             title={activeThread?.title || "Conversation"}
-            placeholder={narrowComposer ? "Message…" : undefined}
+            placeholder={activeId === zecaId ? "Message Zeca…" : "Write a message…"}
             composerAdornment={conversationAdornment}
             draftKey={activeId ?? undefined}
             // Same rail contract as the chat lane below: `voice` stays off (the
@@ -2019,8 +2049,17 @@ function ThreadedApp({
             routeOptions={routeOptions}
             onPinChange={savePins}
             onOpenRuntimeTranscript={openTranscript}
+            onActivityChange={onConversationActivity}
             headerLeading={threadsButton(false)}
             headerExtra={
+              <>
+              {conversationStop?.id === conversationId && conversationStop.error && <span className="wc-conversation-error" role="alert">{conversationStop.error}</span>}
+              {conversationActivity?.id === conversationId && conversationActivity.working && (
+                <button type="button" className="wc-conversation-stop" onClick={() => { void stopConversation(); }}
+                  disabled={conversationStop?.id === conversationId && conversationStop.pending} aria-label="Stop conversation">
+                  <span aria-hidden="true">■</span> {conversationStop?.id === conversationId && conversationStop.pending ? "Stopping…" : "Stop"}
+                </button>
+              )}
               <button
                 type="button"
                 className="wc-conv-id"
@@ -2029,6 +2068,7 @@ function ThreadedApp({
               >
                 {conversationId}
               </button>
+              </>
             }
           />
         ) : (
@@ -2039,7 +2079,7 @@ function ThreadedApp({
             title="Conversation"
             /* The phone composer row also carries voice, mic and attach, leaving
                the field ~180px - the full hint truncates mid-word there. */
-            placeholder={activeRshTransport ? "Send to the remote agent — it lands in the console" : narrowComposer ? "Message…" : undefined}
+            placeholder={activeRshTransport ? "Send to the remote agent — it lands in the console" : narrowComposer ? "Message…" : "Write a message…"}
             composerAdornment={voiceAdornment}
             context={ctx}
             initialMessage={kickoff}

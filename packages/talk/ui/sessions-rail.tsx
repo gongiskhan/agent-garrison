@@ -356,16 +356,24 @@ export function SessionsRail(props: {
   activeSessionId?: string | null;
   onSelectSession?: (row: RailSession) => void;
   onOpenNewShell?: () => void;
+  onClose?: () => void;
 }) {
   const {
     threads, pinnedId = null, meshNodes, self, transports, activeId,
     listOpen, onToggleList, onSelect, onNewLocal, onOpenRemote, onOpenRemoteShell, onDeleteLocal, onRenameLocal,
-    onOpenShells, sessions = [], activeSessionId = null, onSelectSession, onOpenNewShell
+    onOpenShells, sessions = [], activeSessionId = null, onSelectSession, onOpenNewShell, onClose
   } = props;
-  const [sessionsCollapsed, setSessionsCollapsed] = useState(false);
+  const [query, setQuery] = useState("");
+  const searchTerms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
+  const matches = (...values: (string | null | undefined)[]) => {
+    const text = values.filter(Boolean).join(" ").toLocaleLowerCase();
+    return searchTerms.every((term) => text.includes(term));
+  };
+  const searching = searchTerms.length > 0;
+  const [sessionsCollapsed, setSessionsCollapsed] = useState(true);
   const [showEnded, setShowEnded] = useState(false);
   useEffect(() => {
-    try { setSessionsCollapsed(window.localStorage.getItem("wc.sessions.collapsed") === "1"); } catch { /* default expanded */ }
+    try { setSessionsCollapsed(window.localStorage.getItem("wc.sessions.collapsed") !== "0"); } catch { /* default collapsed */ }
   }, []);
   const toggleSessionsCollapsed = useCallback(() => {
     setSessionsCollapsed((prev) => {
@@ -756,7 +764,7 @@ export function SessionsRail(props: {
           title={r.nodeName ?? undefined}
           aria-hidden
         />
-        <button type="button" className="wc-thread-open" onClick={open} title={r.title}>
+        <button type="button" className="wc-thread-open" onClick={open} title={r.title} aria-current={isActive ? "page" : undefined}>
           <span className="wc-thread-main">
             <span className="wc-thread-title">{r.title}</span>
             {meta.length > 0 && <span className="wc-thread-meta">{meta}</span>}
@@ -769,20 +777,26 @@ export function SessionsRail(props: {
         ) : r.pinned ? null : (
           <button
             type="button"
-            className="wc-thread-del"
-            aria-label="Delete conversation"
-            title="Delete"
-            onClick={(e) => { e.stopPropagation(); onDeleteLocal(r.id); }}
+            className="wc-thread-options"
+            aria-label={`Options for ${r.title}`}
+            aria-haspopup="menu"
+            title="Conversation options"
+            onClick={(e) => {
+              e.stopPropagation();
+              const rect = e.currentTarget.getBoundingClientRect();
+              rowMenu(r, rect.left, rect.bottom);
+            }}
           >
-            &times;
+            ···
           </button>
         )}
       </div>
     );
   };
 
-  const archivedRows = sectionRows(ARCHIVED);
-  const ungroupedRows = sectionRows(UNGROUPED);
+  const filterRows = (members: Row[]) => members.filter((r) => matches(r.title, r.nodeName, r.source));
+  const archivedRows = filterRows(sectionRows(ARCHIVED));
+  const ungroupedRows = filterRows(sectionRows(UNGROUPED));
   const hasGroups = sidebar.groups.length > 0;
   const peersWithBase = meshNodes.filter((n) => n.openBase);
 
@@ -868,6 +882,7 @@ export function SessionsRail(props: {
             </svg>
           </button>
         )}
+        {onClose && <button type="button" className="wc-drawer-close" aria-label="Close conversations" onClick={onClose}>×</button>}
         <div className="wc-new-wrap" ref={newRef}>
           <button className="wc-new" data-testid="rail-new" onClick={() => setNewOpen((v) => !v)} title="Start a new conversation" aria-expanded={newOpen}>
             + New
@@ -915,6 +930,17 @@ export function SessionsRail(props: {
           )}
         </div>
       </div>
+      <div className="wc-find">
+        <input
+          type="search"
+          aria-label="Find conversations and sessions"
+          placeholder="Find a conversation…"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => { if (event.key === "Escape" && query) { event.stopPropagation(); setQuery(""); } }}
+        />
+        {query && <button type="button" aria-label="Clear conversation search" onClick={() => setQuery("")}>×</button>}
+      </div>
       <div
         className="wc-side-scroll"
         onContextMenu={(e) => {
@@ -922,6 +948,14 @@ export function SessionsRail(props: {
           if (e.target === e.currentTarget) { e.preventDefault(); listMenu(e.clientX, e.clientY); }
         }}
       >
+        {pinnedRow && matches(pinnedRow.title, pinnedRow.nodeName, pinnedRow.source) && (
+          <div className="wc-group wc-group--pinned" data-testid="wc-pinned">
+            {renderRow(pinnedRow)}
+          </div>
+        )}
+        {searching && filterRows(rows).length === 0 && !sessions.some((s) => matches(s.title, s.project, s.cwd, s.node, s.runtime)) && (
+          <div className="wc-empty-list" role="status">No matches. Try a name, project, or machine.</div>
+        )}
         {sessionsByNode.length > 0 && (
           <div className="wc-group wc-group--sessions" data-testid="rail-section-sessions">
             <button
@@ -937,8 +971,10 @@ export function SessionsRail(props: {
               <span className="wc-group-name">Sessions</span>
               <span className="wc-group-count">{sessionsByNode.reduce((n, [, l]) => n + l.length, 0)}</span>
             </button>
-            {!sessionsCollapsed && sessionsByNode.map(([node, list]) => {
-              const shown = showEnded ? list : list.filter((s) => s.status !== "ended");
+            {sessionsByNode.map(([node, list]) => {
+              const shown = list.filter((s) => searching
+                ? matches(s.title, s.project, s.cwd, s.node, s.runtime)
+                : sessionsCollapsed ? s.status === "working" || s.id === activeSessionId : showEnded || s.status !== "ended");
               if (shown.length === 0) return null;
               return (
                 <div key={node}>
@@ -961,14 +997,9 @@ export function SessionsRail(props: {
 
         {rows.length === 0 && sessionsByNode.length === 0 && <div className="wc-empty-list">No conversations yet</div>}
 
-        {pinnedRow && (
-          <div className="wc-group wc-group--pinned" data-testid="wc-pinned">
-            {renderRow(pinnedRow)}
-          </div>
-        )}
-
         {sidebar.groups.map((g) => {
-          const members = sectionRows(g.id);
+          const members = filterRows(sectionRows(g.id));
+          if (searching && !members.length) return null;
           return (
             <div key={g.id} className="wc-group" onDragOver={onSectionDragOver(g.id)} onDrop={onSectionDrop(g.id)}>
               <button
@@ -987,7 +1018,7 @@ export function SessionsRail(props: {
                 <span className="wc-group-name">{g.name}</span>
                 <span className="wc-group-count">{members.length}</span>
               </button>
-              {(g.collapsed ? peeking(members) : members).map(renderRow)}
+              {(g.collapsed && !searching ? peeking(members) : members).map(renderRow)}
             </div>
           );
         })}
@@ -1007,7 +1038,7 @@ export function SessionsRail(props: {
               <span className="wc-group-count">{ungroupedRows.length}</span>
             </button>
           )}
-          {(!hasGroups || !sidebar.ungroupedCollapsed
+          {(searching || !hasGroups || !sidebar.ungroupedCollapsed
             ? ungroupedRows
             : peeking(ungroupedRows)
           ).map(renderRow)}
@@ -1027,7 +1058,7 @@ export function SessionsRail(props: {
               <span className="wc-group-name">Archived</span>
               <span className="wc-group-count">{archivedRows.length}</span>
             </button>
-            {archOpen && archivedRows.map(renderRow)}
+            {(archOpen || searching) && archivedRows.map(renderRow)}
           </div>
         )}
       </div>

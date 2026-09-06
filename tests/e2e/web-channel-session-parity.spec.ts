@@ -307,6 +307,11 @@ async function sendMessage(page: Page, text: string): Promise<void> {
 test.describe("web channel session parity", () => {
   test("the shell's fresh-conversation entry point mints one thread and settles on a clean address", async ({ page }) => {
     const h = harness!;
+    // The standing Zeca thread is created lazily by the first talk page load.
+    // Establish it before counting, so that background initialization cannot
+    // masquerade as a second thread minted by the New conversation action.
+    const zeca = await fetch(`${h.app.base}/api/zeca`);
+    expect(zeca.ok).toBe(true);
     const listIds = async (): Promise<string[]> =>
       (await fetch(`${h.app.base}/api/threads`).then((r) => r.json())).threads.map((t: any) => t.id);
     const before = await listIds();

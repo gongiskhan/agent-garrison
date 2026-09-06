@@ -16,6 +16,7 @@
 //   GET  {base}/:id/stream?from=       SSE SessionEvents {init|events|end}
 //   POST {base}/:id/message            admit a user message (allowed fields)
 //   POST {base}/:id/note               append a note nobody answers (allowed fields)
+//   POST {base}/:id/cancel             stop the conversation's current work
 //   GET  {base}/search?q&id&limit      fixed-string search over L1/L2/L3
 //
 // Reading is not free of consequence: a payload/log/handoff read writes a `dig`
@@ -72,6 +73,7 @@ const CONTENT_TYPES = {
  * @param {{base?: string, env?: object, role?: string,
  *          onDig?: (dig: object) => void,
  *          forwardMessage: (msg: object) => Promise<{ok: boolean, recorded?: boolean}>,
+ *          forwardCancel?: (msg: object) => Promise<{ok: boolean, status?: number, error?: string}>,
  *          pollMs?: number}} opts
  */
 export async function handleConversationRequest(req, res, opts = {}) {
@@ -151,6 +153,23 @@ export async function handleConversationRequest(req, res, opts = {}) {
   }
   if (method === "POST" && tail.length === 1 && tail[0] === "note") {
     await handleNote(req, res, { store, conversationId });
+    return true;
+  }
+  if (method === "POST" && tail.length === 1 && tail[0] === "cancel") {
+    if (typeof opts.forwardCancel !== "function") {
+      sendJson(res, 503, { error: "conversation cancellation is unavailable" });
+      return true;
+    }
+    try {
+      const result = await opts.forwardCancel({ conversationId });
+      if (!result?.ok) {
+        sendJson(res, result?.status === 404 ? 404 : 502, { error: result?.error ?? "the conversation could not be stopped" });
+      } else {
+        sendJson(res, 202, { cancelled: true, conversationId });
+      }
+    } catch (err) {
+      sendJson(res, 502, { error: err?.message ?? "the conversation could not be stopped" });
+    }
     return true;
   }
 
@@ -580,6 +599,30 @@ export function gatewayMessageForwarder(gatewayUrl) {
         ...(typeof body?.seq === "number" ? { seq: body.seq } : {}),
         ...(typeof body?.pickedUpBy === "string" ? { pickedUpBy: body.pickedUpBy } : {}),
       };
+    } catch (err) {
+      return { ok: false, error: err?.message ?? String(err) };
+    }
+  };
+}
+
+/** The browser stops a conversation by its identity, not a chat/FIFO generation.
+ * The gateway owns its AbortController and reports whether it was still active. */
+export function gatewayCancelForwarder(gatewayUrl) {
+  return async ({ conversationId }) => {
+    if (!gatewayUrl) return { ok: false, error: "this mount has no gateway URL" };
+    try {
+      const response = await fetch(new URL("/conversation/cancel", gatewayUrl), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ conversationId }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok || body?.cancelled !== true) {
+        return { ok: false, status: response.status, error: typeof body?.error === "string"
+          ? body.error.slice(0, 200) : "the gateway did not confirm cancellation" };
+      }
+      return { ok: true };
     } catch (err) {
       return { ok: false, error: err?.message ?? String(err) };
     }
