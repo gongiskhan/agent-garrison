@@ -460,12 +460,16 @@ async function apiZecaConversation(): Promise<string | null> {
     return typeof d.conversationId === "string" ? d.conversationId : null;
   } catch { return null; }
 }
-async function apiListThreads(): Promise<ThreadMeta[]> {
+async function readThreadList(): Promise<ThreadMeta[] | null> {
   try {
     const r = await fetch("/api/threads", { cache: "no-store" });
+    if (!r.ok) return null;
     const d = await r.json();
-    return Array.isArray(d.threads) ? d.threads : [];
-  } catch { return []; }
+    return Array.isArray(d.threads) ? d.threads : null;
+  } catch { return null; }
+}
+async function apiListThreads(): Promise<ThreadMeta[]> {
+  return await readThreadList() ?? [];
 }
 
 interface SessionsListResult {
@@ -1265,8 +1269,8 @@ function ThreadedApp({
   }, [activeRshSpecJson]);
 
   const refreshList = useCallback(async (expectedEpoch = activityEpochRef.current) => {
-    const list = await apiListThreads();
-    if (expectedEpoch !== activityEpochRef.current) return false;
+    const list = await readThreadList();
+    if (!list || expectedEpoch !== activityEpochRef.current) return false;
     setThreads(list);
     return true;
   }, []);
@@ -1620,6 +1624,29 @@ function ThreadedApp({
   const busySinceRef = useRef(0);
   const recoveryPendingRef = useRef<string | null>(null);
   const [historyRev, setHistoryRev] = useState(0);
+  // Other clients and Garrison stretches can create conversations on this node.
+  // Refresh only the rail: replacing the active thread would remount its composer
+  // and stream. Keep the last known list on failure and let live FIFO activity own
+  // its counts until settled; refreshList also rejects stale activity epochs.
+  useEffect(() => {
+    let alive = true;
+    let pending = false;
+    const refresh = async () => {
+      if (!alive || pending || document.visibilityState === "hidden" || busyRef.current) return;
+      pending = true;
+      try { await refreshList(); } finally { pending = false; }
+    };
+    const timer = window.setInterval(() => { void refresh(); }, 10_000);
+    const onVisible = () => { void refresh(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [refreshList]);
   // Matches the 600px composer breakpoint in styles.css. Tracked live so a
   // rotate/resize swaps the placeholder without a reload.
   const [narrowComposer, setNarrowComposer] = useState(false);
