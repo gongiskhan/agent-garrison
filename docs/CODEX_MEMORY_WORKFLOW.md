@@ -179,7 +179,16 @@ explicit `settingSources=[]` cannot guarantee native hooks. The gateway reads
 cached context with a 500 ms bound, records actual admission, heartbeat and end
 metadata, and leaves Basic Memory delivery to the detached worker. Working SDK
 duties receive the configured shared Basic Memory MCP in their explicit server
-map. The same bridge loads the enrolled project's canonical instruction files
+map. Local MCPs and detached workers explicitly pin `BASIC_MEMORY_CONFIG_DIR`
+to the operator's `~/.basic-memory`, or the absolute `basic_memory_config_dir`
+in the bridge configuration. This matters because Garrison isolates fitting
+environment variables: the same executable and project name can otherwise
+resolve a different store. The same pin applies to generated, owned Codex-home
+MCP entries; existing unowned MCPs remain untouched. SSH uses the remote user's
+normal authority unless an explicit remote configuration directory is supplied.
+No existing store is copied or merged by this selection.
+
+The same bridge loads the enrolled project's canonical instruction files
 and available planning files into the working stretch. It respects a local
 `AGENTS.override.md`, deduplicates symlink targets, rejects paths outside enrolled
 roots, and bounds this file context to 65,536 bytes with an explicit truncation
@@ -212,6 +221,9 @@ with a disposable session and verify its metadata-only checkpoint and roster
 in Basic Memory. Confirm failed writes remain private and queued, and that
 unrelated hooks are still present. Offline hosts remain unverified until they
 reconnect; installed configuration is not proof a real client executed it.
+For Garrison, repeat the note round-trip through actual configured Claude SDK
+and Codex duties. A valid MCP map alone is insufficient: the September 6 live
+test caught inherited fitting environment selecting the wrong `main` store.
 
 Only after the operator explicitly approves exporting the existing authored
 note contents, run `python3 scripts/agent-continuity.py import-native --cwd

@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import sys
 import tempfile
 import time
 import unittest
@@ -174,6 +175,35 @@ class ContinuityTests(unittest.TestCase):
         self.assertEqual(argv[:2], ['/usr/bin/ssh', '-T'])
         import shlex
         self.assertEqual(shlex.split(argv[-1])[-1], "project's note; $(private)")
+        self.cfg['basic_memory_config_dir'] = "/remote/operator's config; $(private)"
+        self.assertEqual(shlex.split(bridge.bm_command(self.cfg, 'mcp')[-1])[:2],
+                         ['env', "BASIC_MEMORY_CONFIG_DIR=/remote/operator's config; $(private)"])
+
+    def test_worker_selects_shared_authority_under_isolated_gateway_environment(self):
+        # Launch a real child: merely asserting the projected command missed
+        # the live bug because identical executables selected different stores.
+        leaf = self.home / 'memory.py'
+        leaf.write_text("import json, os\nfrom pathlib import Path\n"
+                        "config = Path(os.environ['BASIC_MEMORY_CONFIG_DIR']) / 'config.json'\n"
+                        "print(config.read_text())\n")
+        self.cfg['basic_memory_command'] = [sys.executable, str(leaf)]
+        authority = self.home / '.basic-memory'
+        authority.mkdir()
+        (authority / 'config.json').write_text(json.dumps({'projects': {'main': 'shared-operator-vault'}}))
+        isolated = self.home / 'isolated'
+        isolated.mkdir()
+        (isolated / 'config.json').write_text(json.dumps({'projects': {'main': 'wrong-composition-vault'}}))
+        with patch.dict(os.environ, {'BASIC_MEMORY_CONFIG_DIR': str(isolated), 'BASIC_MEMORY_HOME': str(isolated),
+                                     'XDG_CONFIG_HOME': str(isolated)}), patch.object(Path, 'home', return_value=self.home):
+            self.assertEqual(json.loads(bridge.bm(self.cfg, 'read-note'))['projects']['main'], 'shared-operator-vault')
+            custom = self.home / 'custom authority'
+            custom.mkdir()
+            (custom / 'config.json').write_text(json.dumps({'projects': {'main': 'custom-shared-vault'}}))
+            self.cfg['basic_memory_config_dir'] = str(custom)
+            self.assertEqual(json.loads(bridge.bm(self.cfg, 'read-note'))['projects']['main'], 'custom-shared-vault')
+            self.cfg['basic_memory_config_dir'] = 'relative'
+            with self.assertRaises(ValueError):
+                bridge.bm(self.cfg, 'read-note')
 
     def test_installer_preserves_other_owners_and_is_idempotent(self):
         command = 'python3 /repo/scripts/agent-continuity.py hook --source Codex'

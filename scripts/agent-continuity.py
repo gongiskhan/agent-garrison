@@ -104,15 +104,26 @@ def bm_command(cfg, *args):
     binary = cfg['basic_memory_command']
     if not isinstance(binary, list) or not binary or not all(isinstance(v, str) for v in binary):
         raise ValueError('basic_memory_command must be an argv array')
+    configured_dir = cfg.get('basic_memory_config_dir')
+    if configured_dir is not None and (not isinstance(configured_dir, str) or not Path(configured_dir).is_absolute()):
+        raise ValueError('basic_memory_config_dir must be an absolute authority path')
     if cfg.get('ssh_host'):
-        command = ' '.join(shlex.quote(v) for v in [*binary, *args])
+        remote = ['env', f'BASIC_MEMORY_CONFIG_DIR={configured_dir}'] if configured_dir else []
+        command = ' '.join(shlex.quote(v) for v in [*remote, *binary, *args])
         return ['/usr/bin/ssh', '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', cfg['ssh_host'], command]
     return [*binary, *args]
 
 
 def bm(cfg, action, *args, content=None):
+    # Orchestrated workers inherit a composition's isolated Basic Memory/XDG
+    # environment. Pin the operator's authority rather than silently publishing
+    # into that other store. SSH selects its remote user's default unless the
+    # operator explicitly enrolled an absolute remote configuration directory.
+    env = os.environ.copy()
+    if not cfg.get('ssh_host'):
+        env['BASIC_MEMORY_CONFIG_DIR'] = cfg.get('basic_memory_config_dir') or str(Path.home() / '.basic-memory')
     result = subprocess.run(bm_command(cfg, 'tool', action, '--project', cfg.get('memory_project', 'main'), '--local', *args),
-                            input=content, capture_output=True, text=True, timeout=25, check=False)
+                            input=content, capture_output=True, text=True, timeout=25, check=False, env=env)
     if result.returncode:
         raise RuntimeError('Basic Memory unavailable; private queue retained')
     return result.stdout

@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-ignore — production ESM helpers
-import { prepareStretchContinuity } from "../fittings/seed/http-gateway/scripts/lib/stretch-continuity.mjs";
+import { continuityMemoryServer, prepareStretchContinuity } from "../fittings/seed/http-gateway/scripts/lib/stretch-continuity.mjs";
 // @ts-ignore — production ESM launcher
 import { runStretch } from "../fittings/seed/http-gateway/scripts/lib/stretch.mjs";
 
@@ -40,7 +41,7 @@ beforeEach(() => {
   const memory = path.join(home, "memory.mjs");
   fs.writeFileSync(memory, `import fs from 'node:fs';
 const content=fs.readFileSync(0,'utf8');
-fs.appendFileSync(${JSON.stringify(path.join(home, "memory.jsonl"))},JSON.stringify({args:process.argv.slice(2),content,workerPid:process.ppid})+'\\n');
+fs.appendFileSync(${JSON.stringify(path.join(home, "memory.jsonl"))},JSON.stringify({args:process.argv.slice(2),content,workerPid:process.ppid,configDir:process.env.BASIC_MEMORY_CONFIG_DIR})+'\\n');
 console.log(JSON.stringify({content:'CURATED_STARTUP: shared memory remains available.'}));`);
   // This recorder forwards to the REAL Python bridge. Only the authority leaf
   // is replaced, so private metadata, hashed keys, queueing and caches are real.
@@ -52,9 +53,10 @@ const result=spawnSync('python3',[${JSON.stringify(path.resolve("scripts/agent-c
 process.stdout.write(result.stdout??''); process.exitCode=result.status??1;`);
   config = path.join(home, "config.json");
   fs.writeFileSync(config, JSON.stringify({ version: 1, node: "test-node", state_dir: path.join(home, "state"),
-    memory_project: "main", basic_memory_command: [process.execPath, memory], bridge_command: [process.execPath, recorder],
+    memory_project: "main", basic_memory_command: [process.execPath, memory], basic_memory_config_dir: path.join(home, "shared-authority"), bridge_command: [process.execPath, recorder],
     projects: [{ root: project, name: "Project", key: "project" }], peer_nodes: [], native_import_enabled: false }));
-  env = { ...process.env, GARRISON_AGENT_CONTINUITY_CONFIG: config, GARRISON_COMPOSITION_ID: "fixture" };
+  env = { ...process.env, GARRISON_AGENT_CONTINUITY_CONFIG: config, GARRISON_COMPOSITION_ID: "fixture",
+    BASIC_MEMORY_CONFIG_DIR: path.join(home, "wrong-composition-config"), BASIC_MEMORY_HOME: path.join(home, "wrong-composition-vault"), XDG_CONFIG_HOME: path.join(home, "isolated-xdg") };
 });
 afterEach(async () => {
   // Await the real detached workers that touched this private fixture. Their
@@ -94,6 +96,7 @@ describe("shared continuity across stretch runtimes", () => {
     expect(received.split("CANONICAL_PROJECT_RULES")).toHaveLength(2);
     await until(() => sessions()[0]?.status === "ended");
     await until(() => readRows(path.join(home, "memory.jsonl")).some((row) => row.content.includes("- Status: ended")));
+    expect(readRows(path.join(home, "memory.jsonl")).every((row) => row.configDir === path.join(home, "shared-authority"))).toBe(true);
     const record = sessions()[0];
     expect(record).toMatchObject({ source: `Garrison/${runtime}`, runtime, duty: "responder", node: "test-node", status: "ended", project: { key: "project" } });
     const shared = JSON.stringify(readRows(path.join(home, "memory.jsonl")));
@@ -101,6 +104,40 @@ describe("shared continuity across stretch runtimes", () => {
     const events = readRows(path.join(home, "events.jsonl"));
     expect(events.map((event) => event.hook_event_name)).toEqual(["SessionStart", "Checkpoint", "SessionEnd"]);
     for (const event of events) expect(Object.keys(event).sort()).toEqual(["cwd", "duty", "hook_event_name", "model", "runtime", "session_id"]);
+  });
+
+  it("launches the SDK memory child against the enrolled authority despite inherited fitting isolation", () => {
+    const cfg = JSON.parse(fs.readFileSync(config, "utf8"));
+    const leaf = path.join(home, "resolve-authority.mjs");
+    fs.writeFileSync(leaf, `import fs from 'node:fs'; import path from 'node:path';
+console.log(fs.readFileSync(path.join(process.env.BASIC_MEMORY_CONFIG_DIR,'config.json'),'utf8'));`);
+    cfg.basic_memory_command = [process.execPath, leaf];
+    delete cfg.basic_memory_config_dir;
+    const authority = path.join(home, ".basic-memory");
+    fs.mkdirSync(authority);
+    fs.writeFileSync(path.join(authority, "config.json"), JSON.stringify({ main: "shared-operator-vault" }));
+    fs.writeFileSync(config, JSON.stringify(cfg));
+    const run = () => {
+      const server = continuityMemoryServer({ env, userHome: home });
+      expect(server).not.toBeNull();
+      const result = spawnSync(server.command, server.args, { encoding: "utf8", env: { ...env, ...server.env } });
+      expect(result.status, result.stderr).toBe(0);
+      return JSON.parse(result.stdout);
+    };
+    expect(run()).toEqual({ main: "shared-operator-vault" });
+    const custom = path.join(home, "custom authority");
+    fs.mkdirSync(custom);
+    fs.writeFileSync(path.join(custom, "config.json"), JSON.stringify({ main: "custom-shared-vault" }));
+    cfg.basic_memory_config_dir = custom;
+    fs.writeFileSync(config, JSON.stringify(cfg));
+    expect(run()).toEqual({ main: "custom-shared-vault" });
+    cfg.ssh_host = "memory-authority";
+    cfg.basic_memory_config_dir = "/remote/operator's authority";
+    fs.writeFileSync(config, JSON.stringify(cfg));
+    expect(continuityMemoryServer({ env, userHome: home }).args.at(-1)).toContain("'env' 'BASIC_MEMORY_CONFIG_DIR=/remote/operator'\"'\"'s authority'");
+    cfg.basic_memory_config_dir = "relative";
+    fs.writeFileSync(config, JSON.stringify(cfg));
+    expect(continuityMemoryServer({ env, userHome: home })).toBeNull();
   });
 
   it("does not invent a session when Stop lands before runtime admission", async () => {

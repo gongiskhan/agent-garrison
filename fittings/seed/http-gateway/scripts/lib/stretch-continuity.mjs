@@ -26,10 +26,17 @@ export function continuityMemoryServer({ env = process.env, userHome = os.homedi
     const cfg = JSON.parse(fs.readFileSync(file, "utf8"));
     if (cfg.version !== 1 || !Array.isArray(cfg.basic_memory_command) || !cfg.basic_memory_command.length
       || !cfg.basic_memory_command.every((value) => typeof value === "string" && value)) return null;
+    const configuredDir = cfg.basic_memory_config_dir;
+    if (configuredDir != null && (typeof configuredDir !== "string" || !path.isAbsolute(configuredDir))) return null;
     const command = [...cfg.basic_memory_command, "mcp"];
+    // The gateway deliberately isolates BASIC_MEMORY_CONFIG_DIR and XDG for
+    // composition fittings. Working agents must select the enrolled authority
+    // explicitly; sharing only an executable name does not share its store.
+    const remoteCommand = cfg.ssh_host && configuredDir
+      ? ["env", `BASIC_MEMORY_CONFIG_DIR=${configuredDir}`, ...command] : command;
     return cfg.ssh_host
-      ? { command: "/usr/bin/ssh", args: ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", String(cfg.ssh_host), command.map(shellQuote).join(" ")] }
-      : { command: command[0], args: command.slice(1) };
+      ? { command: "/usr/bin/ssh", args: ["-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", String(cfg.ssh_host), remoteCommand.map(shellQuote).join(" ")] }
+      : { command: command[0], args: command.slice(1), env: { BASIC_MEMORY_CONFIG_DIR: configuredDir ?? path.join(userHome, ".basic-memory") } };
   } catch { return null; }
 }
 
