@@ -70,6 +70,10 @@ export function ensureCodexContinuityHome({ env = process.env, userHome = os.hom
     }
   }
   const cfg = json(path.join(userHome, ".config", "garrison", "agent-continuity.json"));
+  const configuredMemoryDir = cfg.basic_memory_config_dir;
+  if (configuredMemoryDir != null && (typeof configuredMemoryDir !== "string" || !path.isAbsolute(configuredMemoryDir))) {
+    throw new Error("Continuity basic_memory_config_dir must be an absolute authority path");
+  }
   const nextInstructions = replaceBlock(read(path.join(target, "AGENTS.md")), instructions, START, END);
   const current = json(path.join(target, "hooks.json"));
   const hooks = current.hooks ?? {};
@@ -94,10 +98,17 @@ export function ensureCodexContinuityHome({ env = process.env, userHome = os.hom
   let memoryMcp = "preserved";
   if (cfg.version === 1 && Array.isArray(cfg.basic_memory_command) && cfg.basic_memory_command.length && (!hasMemory || config.includes(MCP_START))) {
     const command = [...cfg.basic_memory_command.map(String), "mcp"];
+    // A gateway runs under its own BASIC_MEMORY_CONFIG_DIR. Generated account
+    // MCPs must select the enrolled authority explicitly rather than inheriting
+    // that unrelated per-composition vault. Existing unowned MCPs stay intact.
+    const memoryDir = configuredMemoryDir ?? path.join(userHome, ".basic-memory");
+    const remoteCommand = cfg.ssh_host && configuredMemoryDir
+      ? ["env", `BASIC_MEMORY_CONFIG_DIR=${memoryDir}`, ...command] : command;
     const argv = cfg.ssh_host
-      ? ["/usr/bin/ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", String(cfg.ssh_host), command.map(shellQuote).join(" ")]
+      ? ["/usr/bin/ssh", "-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", String(cfg.ssh_host), remoteCommand.map(shellQuote).join(" ")]
       : command;
-    const section = `${MCP_START}\n[mcp_servers.basic-memory]\ncommand = ${JSON.stringify(argv[0])}\nargs = ${JSON.stringify(argv.slice(1))}\n${MCP_END}`;
+    const serverEnv = cfg.ssh_host ? "" : `env = { BASIC_MEMORY_CONFIG_DIR = ${JSON.stringify(memoryDir)} }\n`;
+    const section = `${MCP_START}\n[mcp_servers.basic-memory]\ncommand = ${JSON.stringify(argv[0])}\nargs = ${JSON.stringify(argv.slice(1))}\n${serverEnv}${MCP_END}`;
     const previous = block(config, MCP_START, MCP_END);
     config = previous ? config.replace(previous, section) : `${config.trimEnd()}\n\n${section}\n`;
     memoryMcp = previous ? "owned-updated" : "added";
