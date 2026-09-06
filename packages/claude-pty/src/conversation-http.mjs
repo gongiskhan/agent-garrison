@@ -311,9 +311,12 @@ function handleStream(req, res, { store, conversationId, from, pollMs }) {
   const stretchStarts = new Map();
   const eventSlots = new Map();
   const handoffBags = new Map();
+  // Observe the size BEFORE reading: a writer can append while range() runs,
+  // and that write must still be visible to the next change check.
+  let size = logBytes(store);
   const first = store.range({ fromIndex: from, limit: 2000 });
   let cursor = first.nextIndex;
-  let size = logBytes(store);
+  let hasBacklog = cursor < first.total;
   // A valid id with no directory yet is LIVE, not unavailable: a conversation is
   // routinely rendered before its first event lands, and an `end` here would
   // leave the pane dead until a manual reload.
@@ -351,9 +354,12 @@ function handleStream(req, res, { store, conversationId, from, pollMs }) {
       // log every tick, per connected client, for a file that usually did not
       // move.
       const bytes = logBytes(store);
-      if (bytes === size) return;
-      size = bytes;
+      // A bounded page can leave records behind even when no writer appends
+      // again. Drain that backlog before using byte equality as an idle signal.
+      if (bytes === size && !hasBacklog) return;
       const page = store.range({ fromIndex: cursor, limit: 500 });
+      size = bytes;
+      hasBacklog = page.nextIndex < page.total;
       if (!page.events.length) return;
       cursor = page.nextIndex;
       emit({ type: "events", events: ledgerToSessionEvents(page.events, { conversationId, stretchStarts, eventSlots, handoffBags }) });

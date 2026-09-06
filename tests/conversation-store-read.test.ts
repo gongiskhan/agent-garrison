@@ -228,6 +228,47 @@ describe("conversation router - reads", () => {
 });
 
 describe("conversation router - stream", () => {
+  it.each([
+    { name: "an existing history beyond the initial page", initial: 2105, burst: 0 },
+    { name: "a live burst beyond two delta pages", initial: 1, burst: 1205 },
+  ])("drains $name without requiring another write", async ({ initial, burst }) => {
+    const id = `c-backlog-${initial}`;
+    const store = openConversation(id, { role: "gateway", env });
+    const append = (index: number) => {
+      expect(store.append({ kind: "user-message", payload: { text: `message ${index}`, origin: "web" } }).ok).toBe(true);
+    };
+    for (let index = 0; index < initial; index += 1) append(index);
+    const { base } = await mount();
+    const response = await fetch(`${base}/${id}/stream`, { signal: AbortSignal.timeout(3000) });
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    const ids: string[] = [];
+    let buffered = "";
+    let appended = false;
+    try {
+      while (ids.length < initial + burst) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffered += decoder.decode(value, { stream: true });
+        let at: number;
+        while ((at = buffered.indexOf("\n\n")) !== -1) {
+          const raw = buffered.slice(0, at);
+          buffered = buffered.slice(at + 2);
+          if (!raw.startsWith("data: ")) continue;
+          const frame = JSON.parse(raw.slice(6));
+          ids.push(...(frame.events ?? []).map((event: { id: string }) => event.id));
+          if (frame.type === "init" && !appended) {
+            appended = true;
+            for (let index = initial; index < initial + burst; index += 1) append(index);
+          }
+        }
+      }
+      expect(ids).toEqual(Array.from({ length: initial + burst }, (_, index) => conversationEventId(id, index)));
+    } finally {
+      await reader.cancel().catch(() => {});
+    }
+  });
+
   it("emits init from the requested index, then a delta when the ledger grows", async () => {
     const store = seed("c-stream");
     const { base } = await mount();
