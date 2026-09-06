@@ -40,6 +40,10 @@ const KIND_AUDIO = 0;
 const KIND_VIDEO = 1;
 const MAX_TEXT_BYTES = 64 * 1024;
 const MAX_FRAME_BYTES = 4 * 1024 * 1024; // one JPEG still fits comfortably
+// A BLE disconnect can leave its phone websocket alive. Priority follows
+// recently received audio, never just an open session or a client timestamp.
+const AUDIO_SOURCE_FRESH_MS = 2000;
+const AUDIO_SOURCE_PRIORITY = { pendant: 3, audio: 2, screen_audio: 1 };
 
 const SESSION_ID_RE = /^[A-Za-z0-9_-]{10,40}$/;
 // "pendant" (ADR D5): the Companion relaying the BLE pendant's Opus stream.
@@ -328,28 +332,13 @@ export class CaptureIngress {
     if (!stored && !transient) this.writeSessionRecord(record);
     if (!stored && transient) this.counters.bump("pendant_sessions_unpersisted");
 
-    // Pendant + broadcast means ONE spoken sentence reaches TWO microphones in
-    // the same room: the pendant's and the broadcast extension's. Both streams
-    // transcribe, both hit a wake bus, and because those are separate WakeBus
-    // instances no instance-local dedupe can see both - so one "Zeca, cria uma
-    // tarefa" made two cards, and would have made two WhatsApp messages.
-    //
-    // With the pendant carrying mic, wake word, haptics and voice, the
-    // broadcast is a source of PIXELS. Its audio still spools and stores; it
-    // just does not open a second transcription. A context-only broadcast
-    // therefore produces no transcript, and its end-of-session capture_event is
-    // thin - correct, and honest.
-    //
-    // The dedupe is decided per session, not per install: a broadcast that
-    // starts while a pendant session is live stays pixels-only; one started
-    // with no pendant around is the phone's ONLY microphone, and silencing it
-    // is what made "Zeca" from the REC button land on nothing. The flag is the
-    // hard override for a wearer who wants the broadcast mute regardless.
-    const pendantLive = [...this.sessions.values()].some(
-      (live) => live.record.mode === "pendant" && !live.record.ended
-    );
+    // Open every eligible lane now, so clients can subscribe to its SSE before
+    // the first audio packet. Feed arbitration below follows source changes
+    // throughout the recording: a pendant present at startup must not leave
+    // the phone permanently muted after it disconnects. The explicit false
+    // flag still makes a broadcast screen-only.
     const wantsTranscription =
-      record.mode !== "screen_audio" || (this.cfg.screenAudioTranscribe !== false && !pendantLive);
+      record.mode !== "screen_audio" || this.cfg.screenAudioTranscribe !== false;
     if (!wantsTranscription) this.counters.bump("screen_audio_transcription_skipped");
     // The broadcast is the phone in a coding session: it transcribes in the
     // session's language, not the household's (2026-09-03: an English request
@@ -359,9 +348,9 @@ export class CaptureIngress {
     const media = new SessionMedia(this.store.dirs.media, id, {
       counters: this.counters,
       transient,
-      onAudioFrame: transcribing ? (seq, ts, bytes) => this.transcriber.feed(id, bytes) : null
+      onAudioFrame: (seq, ts, bytes) => this.feedAudio(session, bytes)
     });
-    const session = { record, media, socket: ws, idleTimer: null };
+    const session = { record, media, socket: ws, idleTimer: null, transcribing, lastAudioAt: null };
     this.sessions.set(id, session);
     this.armIdleTimer(session);
 
@@ -376,6 +365,31 @@ export class CaptureIngress {
       send({ type: "session_started", session_id: id });
     }
     return session;
+  }
+
+  // Called only after SessionMedia accepts a new frame in sequence. Muted
+  // audio is still persisted and acked; duplicate replay, video and websocket
+  // heartbeats cannot make a silent microphone claim priority. A disconnected
+  // socket yields immediately; an audio-less BLE connection yields after 2 s.
+  feedAudio(session, bytes) {
+    if (!bytes.length) return;
+    const now = this.now();
+    session.lastAudioAt = now;
+    if (!session.transcribing) return;
+    let selected = null;
+    for (const live of this.sessions.values()) {
+      if (!live.transcribing || live.record.ended || !live.socket ||
+          live.socket.readyState !== live.socket.OPEN || live.lastAudioAt === null ||
+          now - live.lastAudioAt > AUDIO_SOURCE_FRESH_MS) continue;
+      if (!selected || AUDIO_SOURCE_PRIORITY[live.record.mode] > AUDIO_SOURCE_PRIORITY[selected.record.mode]) {
+        selected = live;
+      }
+    }
+    if (selected !== session) {
+      this.counters.bump("audio_frames_suppressed_by_source");
+      return;
+    }
+    this.transcriber.feed(session.record.id, bytes);
   }
 
   handleMediaFrame(session, data, send) {

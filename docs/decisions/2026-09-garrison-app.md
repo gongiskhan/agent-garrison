@@ -2069,6 +2069,44 @@ lane before signing/uploading, allowing verification when the mini is offline.
 
 Validation and deployment results: `evidence/garrison-app/csg-recovery/README.md`.
 
+### D66. Record falls back to the phone microphone; dictation must actually start before showing ready (2026-09-06)
+
+The operator reported silent dictation and recording with the pendant
+disconnected and explicitly requested phone-microphone fallback. This
+supersedes D60's screen-only choice for the default composition. The latest
+Mac-hosted recording contained 1,004 valid Opus packets (20.08 seconds) with
+substantial signal, while the active `screen_audio_transcribe=false` policy
+skipped transcription. ReplayKit uploads `.audioMic`, not app playback.
+
+The default composition enables `screen_audio_transcribe`. Record remains an
+explicit user action; Microphone must be On in the system broadcast picker.
+No native code or permission change is required. A fresh pendant stream takes
+priority, then explicit Listen, then Record's microphone. The selection is
+re-evaluated per accepted audio packet, so a recording started with a pendant
+can recover without restarting when that pendant disconnects. Socket close or
+session end yields immediately; an open connection with no new audio yields
+after two seconds. Video, empty packets and duplicate replays do not keep a
+source active. Equal-priority sources retain a stable first-session preference.
+Only one source feeds transcription at a time; raw storage and acknowledgements
+remain unchanged. The unconfigured fitting retains its opt-in default and an
+explicit false setting still forces screen-only recording.
+
+Every eligible transcription lane opens at session start, including one
+currently muted by another source, so an existing SSE subscription can receive
+its later fallback transcript. Handover may lose up to the freshness window of
+speech after an unannounced dropout; this is not an utterance-level exactly-once
+guarantee across two microphones.
+
+Dictation is a separate browser microphone/REST-STT path. It now unlocks its
+AudioContext inside the initiating tap, before waiting for microphone
+permission, verifies audio is running, and propagates recorder startup errors.
+Runtime interruption releases the microphone and returns the UI to idle with
+the draft intact. Record also exposes native failure status. The previous UI
+could claim Dictating while the recorder had failed or its level analyser was
+suspended. Browser regressions cover permission denial, recorder failure,
+STT failure, recovery, and native Record failure. Actual iPhone acceptance
+remains a hardware gate; server evidence is not a phone retest.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |

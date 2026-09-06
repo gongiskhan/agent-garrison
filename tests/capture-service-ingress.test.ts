@@ -354,10 +354,9 @@ describe("screen_audio transcription gate", () => {
     c.ws.close();
   });
 
-  // The flag on is what makes the REC button a microphone when no pendant is
-  // worn; the dedupe against the pendant is dynamic, per session, so a
-  // broadcast opened WHILE a pendant session is live still stays mute.
-  it("mutes a broadcast opened while a pendant session is live, flag on", async () => {
+  // A connected pendant with no audio cannot silence the phone. Packet-level
+  // priority and fallback are exercised in capture-service-audio-fallback.
+  it("keeps a broadcast eligible when an audio-less pendant session is connected, flag on", async () => {
     const { handle, base } = await boot({ screenAudioTranscribe: true, pendantEnabled: true });
     const pendant = connect(base);
     await pendant.opened;
@@ -367,7 +366,7 @@ describe("screen_audio transcription gate", () => {
     await screen.opened;
     screen.ws.send(startMsg("01SCREENWITHPEND1", { mode: "screen_audio" }));
     await screen.next((m) => m.type === "session_started");
-    expect(handle.counters.read().screen_audio_transcription_skipped).toBe(1);
+    expect(handle.counters.read().screen_audio_transcription_skipped ?? 0).toBe(0);
     screen.ws.close();
     pendant.ws.close();
   });

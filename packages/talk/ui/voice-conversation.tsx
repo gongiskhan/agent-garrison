@@ -568,7 +568,13 @@ export function VoiceConversation(props: VoiceConversationProps) {
             dictSettleTimer.current = window.setTimeout(() => teardownDictation(), DICTATION_SETTLE_MS);
           },
           onLevel: (l) => { if (mountedRef.current && dictGenRef.current === gen) setDictLevel(l); },
-          onError: (e) => { if (mountedRef.current && dictGenRef.current === gen) setDictError(e); },
+          onError: (e) => {
+            if (!mountedRef.current || dictGenRef.current !== gen) return;
+            setDictError(e);
+            // Keep the error and offer a fresh tap. A failed recorder must
+            // not retain a "Dictating" badge or keep the microphone open.
+            teardownDictation();
+          },
         },
         { sttUrl: props.sttUrl, mode: "conversation", language: () => sttLanguageRef.current },
       );

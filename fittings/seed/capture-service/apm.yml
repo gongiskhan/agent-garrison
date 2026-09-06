@@ -360,12 +360,12 @@ x-garrison:
       type: boolean
       default: false
       description: >-
-        Whether a screen-sharing session also transcribes. OFF: the Record
-        button captures the screen only, and the words reach Zeca through the
-        pendant or the Listen button (a spoken "Zeca" while a broadcast is live
-        carries the latest frames). ON restores the broadcast as a microphone,
-        still muted by itself while a pendant session is live so one sentence
-        never reaches two microphones.
+        Whether an explicitly started recording also uses the phone microphone
+        (Microphone must be On in the iOS broadcast picker). OFF keeps Record
+        screen-only. ON uses its microphone whenever the pendant and Listen
+        are not supplying audio. Source selection follows disconnects and
+        resumes during the same recording; fresh pendant audio takes priority,
+        then Listen, then Record.
     - key: transcribe_mute_timeout_ms
       type: integer
       default: 120000

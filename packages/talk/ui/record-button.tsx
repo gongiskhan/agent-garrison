@@ -67,9 +67,9 @@ export interface RecordButtonProps {
   bridge: CaptureBridge;
   /** The thread the digest lands in. */
   conversationId: string;
-  /** What the button captures (D60). `screen` broadcasts the screen only - the
-   *  frames ride along with the next spoken "Zeca" turn; `listen` opens the
-   *  phone's microphone as a wake-word ear for when no pendant is worn. */
+  /** `screen` broadcasts screen frames and the system picker's microphone.
+   *  Phone audio is the fallback when no pendant is sending audio; `listen`
+   *  opens the phone microphone without a screen broadcast. */
   mode?: RecordMode;
   /** Whether the notes under the button carry the conversation's voice
    *  feedback (what was heard, the answer, push state). One button per
@@ -104,17 +104,17 @@ const MODE_KIND: Record<RecordMode, RecordKind> = { screen: "screen_audio", list
 const NOTE_LINGER_MS = 8000;
 const MIC_LIVE_PHASES = new Set(["connecting", "live", "interrupted"]);
 
-// What each button says. The screen button never mentions the microphone:
-// since D60 a broadcast carries pixels only, and the voice comes from the
-// pendant or the Listen button.
+// ReplayKit owns the microphone switch: the app cannot turn it on for the
+// user. Explain it before the picker, without claiming that "broadcasting"
+// alone proves any microphone is supplying audio.
 const SCREEN_COPY = {
   idleLabel: "Record screen",
   stopLabel: "Stop recording",
   face: "Record",
-  idleTitle: "Broadcast the screen into this conversation. While it runs, the latest screen frames ride along with your next spoken \"Zeca\" request.",
-  liveTitle: "Broadcasting the screen into this conversation. Say \"Zeca\" and then your request; the frames ride along. Tap to stop.",
-  liveHint: "Broadcasting the screen. Say \"Zeca\" and then your request - the words after it plus the latest screen frames are sent into this conversation.",
-  startingHint: "Starting the broadcast. Once it runs, your next \"Zeca\" request carries the screen."
+  idleTitle: "Broadcast the screen into this conversation. Turn Microphone On in the broadcast picker to use the phone mic when the pendant is disconnected.",
+  liveTitle: "Broadcasting the screen. With the pendant or broadcast microphone on, say \"Zeca\" and then your request. Tap to stop.",
+  liveHint: "Broadcasting the screen. Without the pendant, keep Microphone On in the broadcast picker so the phone can hear you. Say \"Zeca\" and then your request.",
+  startingHint: "Turn Microphone On in the broadcast picker to use the phone mic when the pendant is disconnected."
 };
 const LISTEN_COPY = {
   idleLabel: "Listen",
@@ -171,7 +171,11 @@ export function RecordButton({ bridge, conversationId, mode = "screen", feedback
       setError(null);
       return;
     }
-    if (stepRef.current === "live" || stepRef.current === "stopping") setStepBoth("idle");
+    const failure = mode === "screen" ? status.broadcastError : status.error;
+    if (failure) {
+      setError(describeRecordError(failure));
+      setStepBoth("idle");
+    } else if (stepRef.current === "live" || stepRef.current === "stopping") setStepBoth("idle");
   }, [setStepBoth, mode]);
 
   useEffect(() => {

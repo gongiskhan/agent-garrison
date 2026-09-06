@@ -272,11 +272,10 @@ export function loadConfig(env = process.env) {
     // exactly as before.
     screenContextEnabled: parseBool(env.GARRISON_CAPTURESERVICE_SCREEN_CONTEXT_ENABLED, false),
     screenContextMaxAgeMs: parseIntOr(env.GARRISON_CAPTURESERVICE_SCREEN_CONTEXT_MAX_AGE_MS, 30000),
-    // Whether a screen_audio session ALSO transcribes. OFF by default (D60):
-    // the Record button captures the screen only; the words come from the
-    // pendant or the Listen button, so one sentence never reaches two
-    // microphones. TRUE restores the pre-D60 broadcast microphone (still muted
-    // by itself while a pendant session is live).
+    // Whether an explicitly started screen_audio recording also supplies mic
+    // audio. Off for an unconfigured installation; the default composition
+    // enables phone fallback. Fresh pendant audio takes priority, then Listen,
+    // then Record, and the selection follows disconnects during a recording.
     screenAudioTranscribe: parseBool(env.GARRISON_CAPTURESERVICE_SCREEN_AUDIO_TRANSCRIBE, false),
     // Zombie-socket watchdog: reconnect the STT socket when we have been
     // feeding it audio this recently and NOTHING has come back for this long.

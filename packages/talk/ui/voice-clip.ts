@@ -229,17 +229,42 @@ export async function startCapture(cb: CaptureCallbacks, opts: CaptureOptions = 
     speechThreshold: opts.speechThreshold,
   };
 
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-  });
-
   const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+  // Unlock while still in the tap's call stack. Awaiting microphone permission
+  // first can lose mobile browser activation; a suspended analyser then makes
+  // the speech gate discard every clip even though MediaRecorder is recording.
   const audioCtx: AudioContext = new AC();
-  try { void audioCtx.resume(); } catch {}
-  const source = audioCtx.createMediaStreamSource(stream);
-  const analyser = audioCtx.createAnalyser();
-  analyser.fftSize = 1024;
-  source.connect(analyser);
+  const closeAudio = () => { try { void audioCtx.close().catch(() => {}); } catch {} };
+  let stream: MediaStream | undefined;
+  let source: MediaStreamAudioSourceNode | undefined;
+  let analyser: AnalyserNode;
+  let resumeTimer: number | undefined;
+  try {
+    // Handle rejection immediately, even while the permission sheet is open.
+    const resumed = audioCtx.resume().then(() => ({ error: null }), (error: unknown) => ({ error }));
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
+    const result = await Promise.race([
+      resumed,
+      new Promise<never>((_, reject) => {
+        resumeTimer = window.setTimeout(() => reject(new Error("Microphone audio could not start. Tap Dictate to try again.")), 5000);
+      }),
+    ]);
+    if (result.error) throw result.error;
+    if (audioCtx.state !== "running") throw new Error("Microphone audio is paused. Tap Dictate to try again.");
+    source = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 1024;
+    source.connect(analyser);
+  } catch (error) {
+    try { source?.disconnect(); } catch {}
+    for (const track of stream?.getTracks() ?? []) { try { track.stop(); } catch {} }
+    closeAudio();
+    throw error;
+  } finally {
+    if (resumeTimer !== undefined) window.clearTimeout(resumeTimer);
+  }
   const samples = new Uint8Array(analyser.fftSize);
 
   const mimeType = pickRecorderMimeType();
@@ -248,6 +273,7 @@ export async function startCapture(cb: CaptureCallbacks, opts: CaptureOptions = 
   let recorder: MediaRecorder | null = null;
   const chunksOf = new WeakMap<MediaRecorder, Blob[]>();
   let finishing = false;
+  let levelTimer: number | undefined;
   const gate = new SegmentGate(gateOpts, Date.now());
 
   const fail = (msg: string) => {
@@ -288,43 +314,26 @@ export async function startCapture(cb: CaptureCallbacks, opts: CaptureOptions = 
       if (rec.state !== "inactive") rec.stop();
       else rec.onstop?.(new Event("stop"));
     } catch (e: any) {
-      fail(e?.message || "recorder stop failed");
+      failCapture(e?.message || "recorder stop failed");
     }
+  };
+
+  const failCapture = (msg: string) => {
+    fail(msg);
+    teardown();
   };
 
   const startSegment = (): void => {
     if (closed) return;
-    try {
-      const rec = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      const segChunks: Blob[] = [];
-      chunksOf.set(rec, segChunks);
-      rec.ondataavailable = (ev: BlobEvent) => { if (ev.data && ev.data.size) segChunks.push(ev.data); };
-      rec.onerror = () => fail("recorder error");
-      rec.start(250);
-      recorder = rec;
-      gate.restart(Date.now());
-    } catch (e: any) {
-      fail(e?.message || "recorder start failed");
-    }
+    const rec = new MediaRecorder(stream!, mimeType ? { mimeType } : undefined);
+    const segChunks: Blob[] = [];
+    chunksOf.set(rec, segChunks);
+    rec.ondataavailable = (ev: BlobEvent) => { if (ev.data && ev.data.size) segChunks.push(ev.data); };
+    rec.onerror = () => failCapture("Microphone recorder failed. Tap Dictate to try again.");
+    recorder = rec;
+    rec.start(250);
+    gate.restart(Date.now());
   };
-
-  const levelTimer = window.setInterval(() => {
-    if (closed) return;
-    analyser.getByteTimeDomainData(samples);
-    const level = rmsLevel(samples);
-    try { cb.onLevel?.(level); } catch {}
-    if (finishing || !recorder) return;
-    const verdict = gate.tick(level, Date.now());
-    if (verdict === "onset") {
-      try { cb.onSpeechStarted?.(); } catch {}
-    } else if (mode === "conversation" && verdict === "cut") {
-      cutSegment(true);
-      startSegment();
-    } else if (mode === "conversation" && verdict === "discard") {
-      cutSegment(false);
-      startSegment();
-    }
-  }, LEVEL_INTERVAL_MS);
 
   const teardown = () => {
     if (closed) return;
@@ -333,13 +342,47 @@ export async function startCapture(cb: CaptureCallbacks, opts: CaptureOptions = 
     abort.abort();
     try { recorder?.stop(); } catch {}
     recorder = null;
-    try { source.disconnect(); } catch {}
-    try { void audioCtx.close(); } catch {}
-    for (const t of stream.getTracks()) { try { t.stop(); } catch {} }
+    audioCtx.onstatechange = null;
+    try { source?.disconnect(); } catch {}
+    closeAudio();
+    for (const t of stream!.getTracks()) { try { t.stop(); } catch {} }
     try { cb.onClose?.(); } catch {}
   };
 
-  startSegment();
+  try {
+    startSegment();
+  } catch (error) {
+    teardown();
+    throw error;
+  }
+  levelTimer = window.setInterval(() => {
+    if (closed) return;
+    try {
+      analyser.getByteTimeDomainData(samples);
+      const level = rmsLevel(samples);
+      try { cb.onLevel?.(level); } catch {}
+      if (finishing || !recorder) return;
+      const verdict = gate.tick(level, Date.now());
+      if (verdict === "onset") {
+        try { cb.onSpeechStarted?.(); } catch {}
+      } else if (mode === "conversation" && (verdict === "cut" || verdict === "discard")) {
+        cutSegment(verdict === "cut");
+        startSegment();
+      }
+    } catch (error: any) {
+      failCapture(error?.message || "Microphone recorder failed. Tap Dictate to try again.");
+    }
+  }, LEVEL_INTERVAL_MS);
+  audioCtx.onstatechange = () => {
+    if (!closed && !finishing && audioCtx.state !== "running") {
+      failCapture("Microphone audio was interrupted. Tap Dictate to try again.");
+    }
+  };
+  for (const track of stream!.getAudioTracks()) {
+    track.addEventListener("ended", () => {
+      if (!closed && !finishing) failCapture("Microphone disconnected. Tap Dictate to try again.");
+    }, { once: true });
+  }
   try { cb.onReady?.(); } catch {}
 
   return {
@@ -351,7 +394,7 @@ export async function startCapture(cb: CaptureCallbacks, opts: CaptureOptions = 
       // the handle alive until the machine closes it.
       cutSegment(true);
       window.clearInterval(levelTimer);
-      for (const t of stream.getTracks()) { try { t.stop(); } catch {} }
+      for (const t of stream!.getTracks()) { try { t.stop(); } catch {} }
     },
     get closed() {
       return closed;

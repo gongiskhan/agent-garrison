@@ -1,5 +1,17 @@
 # Handoff - the Garrison app run (September 2026)
 
+Audio recovery 2026-09-06 (D66): the latest failed Record attempt delivered
+non-silent phone-mic packets but the default composition disabled their
+transcription. The new policy enables phone fallback during an explicitly
+started recording, with fresh pendant > Listen > Record source priority.
+Dictation also fixes browser audio activation and recorder failure cleanup.
+No native binary change is required. See D66 and
+`docs/validation/2026-09-06-phone-audio-recovery.md` for rollout and tests.
+Real-phone acceptance remains open: with the pendant disconnected, enable
+Microphone in the system broadcast picker, start Record, say a harmless
+"Zeca" request and check one answer; test Dictate into an unsent draft;
+then connect/disconnect the pendant during Record and check fallback.
+
 Recovery 2026-09-06 (D65): csg has been updated and its existing shell thread
 verified end-to-end, including returning to Conversations at phone width.
 Pendant Connect is idempotent and a manual Disconnect persists across app
