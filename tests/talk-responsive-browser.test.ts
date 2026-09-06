@@ -63,6 +63,8 @@ beforeEach(async () => {
   await context?.close();
   context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   page = await context.newPage();
+  page.setDefaultTimeout(8000);
+  page.on('pageerror', error => console.error('Conversations fixture:', error.message));
   await page.route("http://talk.test/**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/") return route.fulfill({contentType:"text/html",body:'<div id="root"></div>'});
@@ -89,8 +91,8 @@ describe("Conversations navigation and responsive composer", () => {
     await page.getByPlaceholder('Write a message…').fill('Keep my draft while I find history');
     const search = page.getByRole('searchbox',{name:'Find conversations and sessions'});
     await search.fill('migration');
-    expect(await page.getByRole('button',{name:'Migration plan',exact:true}).isVisible()).toBe(true);
-    expect(await page.getByRole('button',{name:'Phone layout',exact:true}).count()).toBe(0);
+    expect(await page.getByRole('button',{name:/^Migration plan/}).isVisible()).toBe(true);
+    expect(await page.getByRole('button',{name:/^Phone layout/}).count()).toBe(0);
     await search.fill('website');
     expect(await page.getByRole('button',{name:/Old shell/}).isVisible()).toBe(true);
     await search.fill('no-such-conversation');
