@@ -36,7 +36,17 @@ start_tether_shells() {
   local node_home="$1" base="$2"
   node -e 'try { const n=JSON.parse(require("fs").readFileSync(process.argv[1]+"/node.json","utf8")); process.exit(n.tethered === true ? 0 : 1); } catch { process.exit(1); }' "$node_home" || return 0
   curl -sf -X POST --max-time 45 -H 'content-type: application/json' -d '{}' \
-    "$base/api/fittings/remote-shell-runtime/start" >/dev/null
+    "$base/api/fittings/remote-shell-runtime/start" >/dev/null || return 1
+  local state_url attempt
+  state_url="$(node -e 'const s=JSON.parse(require("fs").readFileSync(process.argv[1]+"/state.json","utf8")); if (!s.url) process.exit(1); process.stdout.write(s.url.replace(/\/$/, ""));' "$node_home")" || return 1
+  # The owner may already be in its reconnect backoff. A running app/Shells
+  # pair lets that settle; setup must not race the reverse listener reopening.
+  for attempt in $(seq 1 45); do
+    if curl -sf --max-time 2 "$state_url/v1/health" >/dev/null; then return 0; fi
+    sleep 2
+  done
+  echo "[app-server] tether state service did not recover; composition startup withheld" >&2
+  return 1
 }
 
 wait_for_exit() {

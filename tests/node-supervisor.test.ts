@@ -85,14 +85,16 @@ describe.skipIf(!hasSetsid())("node-supervisor.sh", () => {
   it("starts the real Shells fitting before composition startup only on a tethered node", () => {
     const bin = path.join(TEST_HOME, "bin");
     mkdirSync(bin);
-    writeFileSync(path.join(bin, "curl"), '#!/bin/sh\nprintf "%s\\n" "$@" > "$GARRISON_HOME/start-request"\n', { mode: 0o700 });
+    writeFileSync(path.join(bin, "curl"), '#!/bin/sh\nprintf "%s\\n" "$@" >> "$GARRISON_HOME/start-request"\n', { mode: 0o700 });
     const library = path.resolve(__dirname, "../scripts/lib/app-server.sh");
     const start = () => execFileSync("bash", ["-c", 'source "$1"; start_tether_shells "$2" http://127.0.0.1:8777', "test", library, TEST_HOME], { env: { ...baseEnv, PATH: `${bin}:${baseEnv.PATH}` } });
     start();
     expect(() => readFileSync(path.join(TEST_HOME, "start-request"))).toThrow();
     writeFileSync(path.join(TEST_HOME, "node.json"), JSON.stringify({ tethered: true }));
+    writeFileSync(path.join(TEST_HOME, "state.json"), JSON.stringify({ url: "http://127.0.0.1:8460" }));
     start();
     expect(readFileSync(path.join(TEST_HOME, "start-request"), "utf8")).toContain("http://127.0.0.1:8777/api/fittings/remote-shell-runtime/start");
+    expect(readFileSync(path.join(TEST_HOME, "start-request"), "utf8")).toContain("http://127.0.0.1:8460/v1/health");
   });
 
   it("redeploy delegates to the installed fallback supervisor", () => {
