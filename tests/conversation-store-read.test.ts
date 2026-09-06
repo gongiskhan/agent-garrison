@@ -590,7 +590,7 @@ describe("ledger -> SessionEvent adapter", () => {
       stretchId: "s1",
       duty: "triage",
       chosenBy: "duty-default",
-      attribution: { runtime: "agent-sdk", model: "sonnet", effort: "medium", account: null },
+      attribution: { runtime: "agent-sdk", model: "sonnet", effort: "medium" },
     });
     expect(stretchEvents[1].blocks[0]).toMatchObject({ phase: "ended", outcome: "handoff", usedTokens: 900 });
   });
@@ -606,6 +606,35 @@ describe("ledger -> SessionEvent adapter", () => {
     expect(ended.revision).toBe(0);
     expect(ended.id).toBe(conversationEventId("c-window", 5));
     expect(sanitizeSessionEvent(ended)).not.toBeNull();
+  });
+
+  it.each([true, false])("settled runtime attribution survives separate SSE batches and sanitizer (effortApplied=%s)", (effortApplied) => {
+    const stretchStarts = new Map();
+    const record = (index: number, kind: string, payload: object) => ({ index, kind, stretch: "codex-proof", payload });
+    const opts = { conversationId: "c-attribution", stretchStarts };
+    const started = ledgerToSessionEvents([record(0, "stretch-started", {
+      target: { id: "requested", runtime: "codex", model: "requested-model", effort: "max" }
+    })], opts)[0];
+    expect(started.blocks[0].attribution).not.toHaveProperty("account");
+    expect(started.blocks[0].attribution).not.toHaveProperty("effortApplied");
+    ledgerToSessionEvents([record(1, "stretch-routing", {
+      runtime: "codex", model: "gpt-6-astra", provider: "chatgpt-subscription", account: "chatgpt", target: "astra-sub"
+    })], opts);
+    const [ended] = ledgerToSessionEvents([record(2, "stretch-ended", {
+      runtime: "codex", provider: "chatgpt-subscription", model: "gpt-6-astra", target: "astra-sub", effort: "high", effortApplied
+    })], opts);
+    expect(ended.id).toBe(started.id);
+    expect(ended.revision).toBe(1);
+    expect(sanitizeSessionEvent(ended)?.blocks[0].attribution).toEqual({
+      route: "astra-sub", runtime: "codex", provider: "chatgpt-subscription", model: "gpt-6-astra",
+      effort: "high", effortApplied, account: "chatgpt"
+    });
+    const [standalone] = ledgerToSessionEvents([record(2, "stretch-ended", {
+      runtime: "codex", model: "gpt-6-astra", effort: "high", effortApplied
+    })], { conversationId: "c-windowed" });
+    expect(sanitizeSessionEvent(standalone)?.blocks[0].attribution).toEqual({
+      runtime: "codex", model: "gpt-6-astra", effort: "high", effortApplied
+    });
   });
 
   it("maps the store's open vocabulary onto the renderer's closed one", () => {

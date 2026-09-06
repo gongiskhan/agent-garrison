@@ -195,6 +195,13 @@ function adaptRecord(record, cid, starts, slots = new Map(), bags = new Map()) {
     };
   }
 
+  if (record.kind === "stretch-routing") {
+    const stretchId = stretchIdOf(record, payload);
+    const started = stretchId ? starts.get(stretchId) : null;
+    if (started) started.attribution = { ...started.attribution, ...attributionFromEnded(payload) };
+    return null;
+  }
+
   if (record.kind === "stretch-ended") {
     const stretchId = stretchIdOf(record, payload);
     // A `started` we have seen makes this a REVISION of that event: same id,
@@ -203,7 +210,10 @@ function adaptRecord(record, cid, starts, slots = new Map(), bags = new Map()) {
     // emitted standalone rather than silently dropped.
     const started = stretchId ? starts.get(stretchId) : null;
     const duty = dutyOf(record, payload) ?? started?.duty ?? null;
-    const attribution = started?.attribution ?? attributionFromEnded(payload);
+    // Settlement is the runtime's measured result. It must override requested
+    // startup settings (including an explicit effortApplied=false), while
+    // retaining dimensions only reported in the earlier routing record.
+    const attribution = { ...started?.attribution, ...attributionFromEnded(payload) };
     // The handoff record that preceded this boundary: its summary and blocker
     // ride the ended block so the terminal banner can quote them.
     const bag = (stretchId ? bags.get(stretchId) : null) ?? {};
@@ -424,25 +434,21 @@ function normalizePayloadRef(ref) {
   return /^[A-Za-z0-9._-]{1,200}$/.test(bare) && bare !== "." && bare !== ".." ? bare : null;
 }
 
-/** A stretch's attribution is the SAME bag the Turn Rail renders for a normal
- *  turn (route attribution), so a stretch badge and a turn badge cannot drift
- *  into two spellings of the same fact. `account: null` is deliberate: the
- *  launcher does not resolve an account per stretch, and an explicit null reads
- *  as "not reported" rather than being mistaken for a value. */
+/** A missing account is unreported. Only an explicit null from the producer
+ *  means machine login; inventing null would mislabel a named-account turn. */
 function attributionFromTarget(target) {
   const t = target && typeof target === "object" ? target : {};
-  const out = { account: null };
+  const out = {};
   if (label(t.id)) out.route = label(t.id);
   if (label(t.runtime)) out.runtime = label(t.runtime);
   if (label(t.provider)) out.provider = label(t.provider);
   if (label(t.model)) out.model = label(t.model);
   if (label(t.effort)) out.effort = label(t.effort);
+  if (t.account === null || label(t.account)) out.account = t.account === null ? null : label(t.account);
+  if (typeof t.effortApplied === "boolean") out.effortApplied = t.effortApplied;
   return out;
 }
 
 function attributionFromEnded(payload) {
-  const out = { account: null };
-  if (label(payload?.model)) out.model = label(payload.model);
-  if (label(payload?.effortApplied)) out.effort = label(payload.effortApplied);
-  return out;
+  return attributionFromTarget({ ...payload, id: payload?.target });
 }

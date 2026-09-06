@@ -10,7 +10,7 @@ import type { RouteAttribution } from "./transport";
 // it (they pick a project, they blame a model). The two deliberate exceptions are
 // both cases where the ABSENCE is itself the fact:
 //   • `account: null` -> "machine login" (there is no named account; the turn ran on
-//     the machine's own Claude login);
+//     the machine's native runtime login);
 //   • `skill: null` with a known duty -> "skill: none" (no duty-* fitting is
 //     stationed in any live composition, so every live cell has a null skill -
 //     see the "Honest limits" section of the 2026-07-25 decision).
@@ -166,7 +166,7 @@ export function railBadges(route: RouteAttribution): RailBadge[] {
     badges.push({
       key: "account",
       label: "machine login",
-      title: title("no named account - the turn ran on this machine's own Claude login", accountSource),
+      title: title(`no named account - the turn used this machine's ${runtime ? `${runtime} ` : "native "}login`, accountSource),
       tone: "dim",
     });
   }

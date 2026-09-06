@@ -189,6 +189,12 @@ describe("claude-chat run context: account", () => {
   it("omits the badge when the lane never reported an account at all", () => {
     expect(byKey(railBadges({ runtime: "gemini" }), "account")).toBeUndefined();
   });
+
+  it("uses the observed runtime for machine-login attribution without inventing Claude", () => {
+    expect(byKey(railBadges({ account: null, runtime: "codex" }), "account")?.title).toContain("machine's codex login");
+    expect(byKey(railBadges({ account: null }), "account")?.title).toContain("machine's native login");
+    expect(byKey(railBadges({ account: null, runtime: "codex" }), "account")?.title).not.toContain("Claude");
+  });
 });
 
 describe("claude-chat run context: link and action badges", () => {
