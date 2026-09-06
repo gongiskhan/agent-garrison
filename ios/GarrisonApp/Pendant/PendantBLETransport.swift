@@ -217,6 +217,16 @@ final class PendantBLETransport: NSObject, DeviceTransport {
             armRetrievalTimeout()
         }
         if let peripheral {
+            // OS restoration can hand us an already connected peripheral
+            // without another didConnect callback. Rebuild its GATT session
+            // once, but never reconnect an established link.
+            if peripheral.state == .connected {
+                if connectedAt == nil {
+                    setState(.connecting)
+                    centralManager(central, didConnect: peripheral)
+                }
+                return
+            }
             guard peripheral.state == .disconnected else { return }
             setState(everConnected ? .reconnecting : .connecting)
             central.connect(peripheral, options: nil)
