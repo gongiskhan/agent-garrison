@@ -143,7 +143,7 @@ describe("applyFlowPolicy", () => {
   const answer = () => ({ completion: "answer", status: "complete", synthesized: false, blocker: null,
     nextSteps: { next: "done", why: "The requested prose evaluation is complete", items: [] } });
 
-  it.each(["plan", "review", "validate"])("allows an explicit cardless %s answer to finish without invented runnable evidence", (duty) => {
+  it.each(["plan", "review", "validate", "report"])("allows an explicit cardless %s answer to finish without invented runnable evidence", (duty) => {
     const store = openConversation(`answer-${duty}`, { role: "gateway", env });
     store.append({ kind: "stretch-started", duty, payload: {} });
     expect(applyFlowPolicy("done", { store, duty, handoff: answer(), selectedDuties: [duty, "test"] }))

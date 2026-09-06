@@ -176,6 +176,29 @@ continuity regressions remained green. Classification of user intent is an
 explicit model-authored handoff claim; the gateway checks its structural and
 recorded-work constraints, rather than claiming to prove arbitrary prose intent.
 
+A later Air report probe reproduced the same redundant-test behavior for a
+completed report grounded in an actual supplied deployment artifact. `report`
+now uses the same guarded informational completion policy; the implementation
+and parked-work guards remain unchanged, with a real HTTP one-stretch regression.
+
+The shared-memory live probe also exposed a native SDK startup race: the first
+Sonnet API request included `WaitForMcpServers` and no Basic Memory tools; its
+second request had all 23 tools. A startup-only probe independently observed
+Basic Memory move from pending to connected in about four seconds. The SDK
+wrapper now withholds input until every explicitly configured MCP server is
+connected, with a 15-second bound and a clear server/status failure. Tool-free
+classifiers retain their original path. Stop during startup releases the query
+without submitting the cancelled input, and a later fresh turn still works.
+The three focused local suites passed all 26 tests, including the pinned native
+SDK against a delayed MCP fixture and a local model stub: both one-shot and
+standing queries included the memory tool in their first API request; startup
+Stop produced no API request. No external inference or live memory access was
+used by these regressions. Live semantic parity remains a separate acceptance
+gate after deployment.
+The combined affected local gate passed six suites and 192 tests, including
+all 12 real HTTP ingress cases, 41 stretch-policy cases, the SDK readiness and
+native/standing tests, and 113 gateway run-context cases.
+
 Test logs are node-local session artifacts at
 `/tmp/garrison-conversations-baseline.log` and
 `/tmp/garrison-conversations-browser-baseline.log` on dev-madrid.

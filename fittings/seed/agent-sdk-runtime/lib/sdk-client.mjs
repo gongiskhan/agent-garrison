@@ -9,10 +9,11 @@
 // Pinned: @anthropic-ai/claude-agent-sdk is pinned in this fitting's package.json
 // (the bundled CLI is pinned transitively via the SDK's locked dependency).
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { createMcpReadyQuery } from "./mcp-readiness.mjs";
 
 // Thin wrapper so the adapter stays injectable/testable: returns the SDK's Query
 // (an AsyncGenerator of SDKMessage). The adapter consumes it directly — structured
 // request/response, no terminal scraping.
 export function createSdkClient({ prompt, options }) {
-  return query({ prompt, options });
+  return createMcpReadyQuery(query, { prompt, options });
 }

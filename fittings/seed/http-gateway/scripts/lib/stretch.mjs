@@ -338,7 +338,7 @@ export function tripwires(store, { duty, window = 12 } = {}) {
   return { noProgress, testFails, fires };
 }
 
-const ANSWER_DUTIES = new Set(["plan", "review", "adversarial-review", "validate", "discuss", "research"]);
+const ANSWER_DUTIES = new Set(["plan", "review", "adversarial-review", "validate", "discuss", "research", "report"]);
 const ANSWER_CYCLE_DUTIES = new Set([...ANSWER_DUTIES, "triage", "dispatch", "responder", "dialogue"]);
 
 // A prose deliverable has no runnable artifact to prove. It must be declared

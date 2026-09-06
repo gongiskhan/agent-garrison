@@ -77,7 +77,7 @@ describe("normal conversation ingress through a real gateway process", () => {
     fs.mkdirSync(path.join(home, "dev", "repo-a", ".git"), { recursive: true });
     fs.writeFileSync(path.join(home, "dev-root"), path.join(home, "dev"));
     const model: any = gatewayV4ExecutionModel(path.basename(home));
-    for (const duty of ["triage", "responder", "plan", "review", "validate", "implement", "test"]) {
+    for (const duty of ["triage", "responder", "plan", "review", "validate", "report", "implement", "test"]) {
       model.selectedDuties.push(duty);
       model.duties[duty] = { ...model.duties.other, id: duty };
       model.sequences[duty] = { "1": [duty] };
@@ -172,7 +172,7 @@ describe("normal conversation ingress through a real gateway process", () => {
     },
   );
 
-  it.each(["plan", "review", "validate"])("finishes a cardless %s answer in one stretch without creating a test task", async (duty) => {
+  it.each(["plan", "review", "validate", "report"])("finishes a cardless %s answer in one stretch without creating a test task", async (duty) => {
     const id = `http-answer-${duty}`;
     const before = calls().length;
     expect((await message(id, "answer", "ANSWER_ONLY_HTTP: Give a prose evaluation; do not modify files or run tests.", { routing: { ...pins, duty } })).status).toBe(202);

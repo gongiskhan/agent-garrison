@@ -170,3 +170,65 @@ it("keeps the pinned native Query usable beyond maxTurns streamed inputs without
     fs.rmSync(configDir, { recursive: true, force: true });
   }
 }, 30_000);
+
+it.each(["one-shot", "standing", "cancel"])("waits for delayed MCP tools before native provider admission (%s)", async (mode) => {
+  const requests: any[] = [];
+  const server = http.createServer(async (req, res) => {
+    if (req.method === "HEAD") { res.writeHead(200).end(); return; }
+    if (req.method !== "POST" || !req.url?.startsWith("/v1/messages")) { res.writeHead(404).end(); return; }
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    requests.push(JSON.parse(raw));
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    writeAnthropicText(res, requests.length);
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "garrison-native-mcp-"));
+  const input = new NativeInputQueue();
+  let client: any;
+  try {
+    client = createSdkClient({
+      prompt: mode === "standing" ? input : "Use only the local model fixture response.",
+      options: {
+        cwd: root, model: "claude-sonnet-4-6", systemPrompt: "Local test only.", tools: [], settingSources: [],
+        maxTurns: 1, permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true,
+        mcpServers: { "basic-memory": { command: process.execPath, args: [path.resolve("tests/fixtures/delayed-basic-memory-mcp.mjs")] } },
+        env: { ...process.env,
+          ANTHROPIC_BASE_URL: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+          ANTHROPIC_API_KEY: "local-fixture-only", ANTHROPIC_AUTH_TOKEN: "local-fixture-only",
+          CLAUDE_CONFIG_DIR: path.join(root, "config"), CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+        },
+      },
+    });
+    const pump = (async () => {
+      for await (const message of client) {
+        if (message.type === "result") { input.close(); client.close(); }
+      }
+    })();
+    // Attach before Stop: cancellation is an expected host boundary, not an
+    // unhandled rejection from a native child started by this test.
+    const outcome = pump.then(() => null, (error) => error);
+    input.push(user("standing input"));
+    if (mode === "cancel") {
+      const deadline = Date.now() + 10_000;
+      while (true) {
+        const status = await client.mcpServerStatus();
+        if (status.some((entry: any) => entry.name === "basic-memory" && entry.status === "pending")) break;
+        if (Date.now() > deadline) throw new Error("fixture never entered pending MCP startup");
+      }
+      await client.return();
+      expect(await outcome).toMatchObject({ name: "AbortError" });
+      expect(requests).toEqual([]);
+    } else {
+      expect(await outcome).toBeNull();
+      expect(requests).toHaveLength(1);
+      expect(requests[0].tools.map((tool: any) => tool.name)).toContain("mcp__basic-memory__read_note");
+      expect(requests[0].tools.map((tool: any) => tool.name)).not.toContain("WaitForMcpServers");
+    }
+  } finally {
+    input.close();
+    try { client?.close?.(); } catch {}
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}, 30_000);

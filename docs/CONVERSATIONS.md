@@ -49,7 +49,7 @@ The handoff packet is the **contract between stretches**: the successor reads it
 
 An optional `completion: "work" | "answer"` distinguishes an informational
 deliverable from delivery work; older handoffs default to `work`. A cardless
-plan, review, validation, discussion or research reply can use `answer` when
+plan, review, validation, discussion, research or report reply can use `answer` when
 the requested prose is complete and no requested action remains. It must be
 `complete`, point to `done`, and have no blocker or remaining items. It does not
 need fabricated runnable evidence or an extra test stretch. The gateway refuses
