@@ -28,6 +28,17 @@ restart_node_supervisor() {
   "$supervisor" restart
 }
 
+# The tether owner checks the Shells forward as well as the app. Leaving
+# Shells down while setup/verify runs makes it retire the whole SSH tunnel,
+# including the reverse state connection setup needs. Start the real fitting
+# through its recovery API first; up() adopts it through normal lifecycle code.
+start_tether_shells() {
+  local node_home="$1" base="$2"
+  node -e 'try { const n=JSON.parse(require("fs").readFileSync(process.argv[1]+"/node.json","utf8")); process.exit(n.tethered === true ? 0 : 1); } catch { process.exit(1); }' "$node_home" || return 0
+  curl -sf -X POST --max-time 45 -H 'content-type: application/json' -d '{}' \
+    "$base/api/fittings/remote-shell-runtime/start" >/dev/null
+}
+
 wait_for_exit() {
   local pid="$1" i
   for i in $(seq 1 10); do

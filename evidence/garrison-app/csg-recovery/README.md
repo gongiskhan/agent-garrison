@@ -13,6 +13,14 @@ Changes: direct Shells origin for legacy threads; enrolled origin for tethered
 fitting discovery; bounded connection handshake; installed supervisor restart;
 idempotent pendant Connect and persistent manual pause; bounded failure retry.
 
-Validation: pending remote Vitest/typecheck and CI XCTest. Deployment pending.
+Validation: 97 remote Vitest tests passed across 11 files; typecheck passed
+after installing the isolated checkout's separate Drill dependencies. csg's
+optimized production build passed. Native CI compiled and passed 110/111 tests;
+the sole failure was the ownership source invariant still expecting the old
+unconditional foreground connect call, now corrected for reconnectIfNeeded.
+Deployment initially hit a bootstrap cycle: missing Shells -> tether retirement
+-> state unavailable during setup/verify. Recovery starts the real Shells fitting
+first; that ordering is now included in both deployment scripts. Final live
+and native release results pending.
 Real phone: exact power warning, reconnect behaviour and pause acceptance
 remain unverified. No claim is made that a BLE change fixes USB power draw.

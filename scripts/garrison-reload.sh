@@ -103,6 +103,7 @@ if [ -z "$composition" ]; then
     catch { process.stdout.write("default"); }
   ' "$PROD_HOME")"
 fi
+start_tether_shells "$PROD_HOME" "$BASE"
 say "starting operative ($composition) — fast path when the composition is unchanged"
 if curl -sf -X POST --max-time 600 "$BASE/api/runner/$composition/up" -H 'content-type: application/json' -d '{}' >/dev/null; then
   say "done — app reloaded, operative running"

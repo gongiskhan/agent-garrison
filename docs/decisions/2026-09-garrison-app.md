@@ -2047,6 +2047,11 @@ On tethered nodes, fitting discovery uses the enrolled `shellOrigin`, never
 the node's stale local Tailscale configuration. csg publishes through
 dev-madrid on port 8998. Reload/redeploy also recognizes the installer-owned
 node supervisor when neither systemd-user nor launchd is available.
+The deployed restart exposed a boot dependency: Shells being down made the
+owner retire the entire tether during csg's setup, cutting off shared state.
+Tethered deployment now starts the real Shells fitting via its recovery API
+before composition setup/verify; normal up() adopts it. No placeholder health
+server, disabled verification or independent tunnel is introduced.
 
 App foregrounding formerly called Connect again even while connected or after
 a deliberate Disconnect. Connect is now idempotent; automatic reconnection

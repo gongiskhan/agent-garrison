@@ -126,6 +126,7 @@ curl -sf -X POST --max-time 15 -H 'content-type: application/json' -d '{}' \
   || echo "[redeploy] vault unlock failed - up may HOLD on account: auto"
 
 # --- 4. bring the operative + its fittings back on the new code -------------
+start_tether_shells "$PROD_HOME" "$BASE"
 say "starting operative + fittings ($composition)"
 curl -sf -X POST --max-time 600 "$BASE/api/runner/$composition/up" >/dev/null
 
