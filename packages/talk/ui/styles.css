@@ -2610,7 +2610,8 @@
 .wc-shell--compact .wc-sidebar,
 .wc-shell--compact.wc-shell--rail .wc-sidebar { position: absolute; inset: 0 auto 0 0; height: 100%; width: min(320px, calc(100% - 48px)); z-index: 60; transform: translateX(-110%); visibility: hidden; transition: transform .18s ease, visibility .18s; box-shadow: 12px 0 40px #18211c40; }
 .wc-shell--compact.wc-shell--open .wc-sidebar { transform: translateX(0); visibility: visible; }
-.wc-shell--compact .wc-sidebar-scrim { display: block; position: absolute; inset: 0; z-index: 59; }
+.wc-shell--compact .wc-sidebar-scrim { display: block; position: absolute; inset: 0; z-index: 59; background: #18211c52; opacity: 0; pointer-events: none; }
+.wc-shell--compact.wc-shell--open .wc-sidebar-scrim { opacity: 1; pointer-events: auto; }
 .wc-shell--compact .wc-sidebar-head { padding: 10px 12px; justify-content: flex-start; }
 .wc-shell--compact .wc-sidebar-collapse { display: none; }
 .wc-shell--compact .wc-sidebar-title,

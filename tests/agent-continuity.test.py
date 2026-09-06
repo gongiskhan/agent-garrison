@@ -26,7 +26,7 @@ class ContinuityTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.home = Path(self.tmp.name)
+        self.home = Path(self.tmp.name).resolve()
         self.repo = self.home / 'dev/garrison'
         self.repo.mkdir(parents=True)
         (self.repo / '.git').mkdir()

@@ -1473,7 +1473,7 @@ export async function runConversation(gateway, {
     const model = await gateway.executionModel();
     const selectedDuties = model?.selectedDuties ?? [];
     const card = await cardById(conversationId).catch(() => null);
-    const scope = stretchScopeForCard(card);
+    let scope = stretchScopeForCard(card);
     if (scope.degraded) {
       const failure = projectResolutionFailure(scope, {
         compositionDir: gateway.compositionDir ?? null,
@@ -1512,7 +1512,41 @@ export async function runConversation(gateway, {
         terminal = "cancelled";
         break;
       }
-      const duty = nextDutyFor(store, selectedDuties);
+      const pendingMessages = unconsumedUserMessages(store);
+      // Cards keep their own run configuration and flow. A plain Talk thread
+      // has no card, so its explicitly pinned message is its run context.
+      const messagePins = !card
+        ? Object.assign({}, ...pendingMessages.map((message) => message.routing ?? {}))
+        : {};
+      const rejectPins = (rejected) => {
+        const text = `The conversation did not start: ${rejected.map(({ field, reason }) => `${field}: ${reason}`).join("; ")}. Update the run settings and send again.`;
+        if (pendingMessages.length) store.append({ kind: "messages-consumed", payload: {
+          throughIndex: Math.max(...pendingMessages.map((message) => message.index ?? -1)), count: pendingMessages.length,
+        } });
+        store.append({ kind: "routing-rejected", payload: { rejected } });
+        // Notes are a rendered part of the conversation contract. A custom
+        // diagnostic event alone would leave a refused turn invisible.
+        store.append({ kind: "note", payload: { text, origin: "gateway" } });
+      };
+      const supportedPins = new Set(["target", "model", "effort", "duty", "level", "project", "account", "rung"]);
+      const invalidPins = Object.entries(messagePins)
+        .filter(([field, value]) => value != null && value !== "" && !supportedPins.has(field))
+        .map(([field]) => ({ field, reason: "unsupported for a conversation" }));
+      for (const [field, value] of Object.entries(messagePins)) {
+        if (field !== "level" && supportedPins.has(field) && value != null && typeof value !== "string") {
+          invalidPins.push({ field, reason: "must be text" });
+        }
+      }
+      if (messagePins.duty && !selectedDuties.includes(messagePins.duty)) invalidPins.push({ field: "duty", reason: "duty-not-selected" });
+      if (messagePins.level != null && (!Number.isInteger(messagePins.level) || messagePins.level < 1 || messagePins.level > 9)) {
+        invalidPins.push({ field: "level", reason: "level must be an integer from 1 to 9" });
+      }
+      if (invalidPins.length) {
+        rejectPins(invalidPins);
+        terminal = "needs-input";
+        break;
+      }
+      const duty = messagePins.duty || nextDutyFor(store, selectedDuties);
       if (CONVERSATION_FLOW.terminal.includes(duty)) {
         terminal = duty;
         break;
@@ -1560,7 +1594,7 @@ export async function runConversation(gateway, {
         }
       }
 
-      const level = Number(card?.level) >= 1 ? Number(card.level) : 1;
+      const level = messagePins.level ?? (Number(card?.level) >= 1 ? Number(card.level) : 1);
       const ladder = await ladderForDuty(gateway, duty, level);
       if (!ladder) {
         store.append({ kind: "stretch-ended", duty, payload: { outcome: "error", error: `no route for duty ${duty}` } });
@@ -1572,17 +1606,6 @@ export async function runConversation(gateway, {
       const lastHandoff = store.tail(1, { kinds: ["handoff"] })[0]?.payload ?? null;
       const forced = lastHandoff?.forceEscalation ?? false;
       const wire = tripwires(store, { duty });
-      const pendingMessages = unconsumedUserMessages(store);
-      // Stamp consumption NOW, at brief build - a message landing during the
-      // stretch stays unconsumed and wakes the responder after it, instead of
-      // being outranked by the stretch's own handoff.
-      if (pendingMessages.length) {
-        store.append({
-          kind: "messages-consumed",
-          duty,
-          payload: { throughIndex: Math.max(...pendingMessages.map((m) => m.index ?? -1)), count: pendingMessages.length },
-        });
-      }
       const rungPick = resolveRung({
         ladder,
         floorRungId,
@@ -1652,6 +1675,34 @@ export async function runConversation(gateway, {
           }
         }
       }
+
+      let pinDecision = null;
+      if (Object.keys(messagePins).length) {
+        // Reuse the gateway's existing target/account/project validators and
+        // route overlay. This is the same seam the chat lane uses; a target
+        // can be any configured target, not only a rung of the default ladder.
+        const overridePins = Object.fromEntries(Object.entries(messagePins).filter(([field]) =>
+          ["target", "model", "effort", "project", "account"].includes(field)));
+        pinDecision = !Object.keys(overridePins).length ? { applied: [], rejected: [] }
+          : typeof gateway._applyOverride === "function"
+            ? gateway._applyOverride(route, overridePins)
+            : { applied: [], rejected: [{ field: "routing", reason: "the gateway cannot apply conversation pins" }] };
+        if (pinDecision.rejected?.length) {
+          rejectPins(pinDecision.rejected);
+          terminal = "needs-input";
+          break;
+        }
+        if (Object.hasOwn(messagePins, "project")) {
+          scope = { label: pinDecision.project ?? null, cwd: pinDecision.projectPath ?? null, degraded: false };
+        }
+        route = applyDutyHarnessProfile(route, duty);
+      }
+      // Only a built brief consumes inputs. A message that lands after this
+      // snapshot stays pending and is picked up by the next stretch.
+      if (pendingMessages.length) store.append({
+        kind: "messages-consumed", duty,
+        payload: { throughIndex: Math.max(...pendingMessages.map((message) => message.index ?? -1)), count: pendingMessages.length },
+      });
 
       const stretchId = `st_${newConversationId()}`;
       const ordinal = store.nextHandoffOrdinal();
@@ -1735,7 +1786,8 @@ export async function runConversation(gateway, {
           // one: reason says WHY this route ("default", "brief-route",
           // "cooling until <ts>", "capability:<x>", "cross-family"), and
           // table carries what was skipped on the way down.
-          reason: tableDecision?.reason ?? "default",
+          reason: pinDecision?.applied?.length || messagePins.duty || messagePins.level ? "turn-override" : tableDecision?.reason ?? "default",
+          ...(pinDecision ? { overridesApplied: [...(messagePins.duty ? ["duty"] : []), ...(messagePins.level ? ["level"] : []), ...pinDecision.applied] } : {}),
           ...(tableDecision
             ? { table: { index: tableDecision.index, id: tableDecision.row?.id ?? null, skipped: tableDecision.skipped } }
             : {}),

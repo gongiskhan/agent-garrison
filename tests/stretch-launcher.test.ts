@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openConversation } from "../packages/claude-pty/src/conversation-store.mjs";
 // @ts-ignore — pure .mjs
 import { resolveRung, tripwires, applyFlowPolicy, buildStretchBrief, runConversation, recordUserMessage, makeStretchEventTee, shouldPauseForApproval, approvalState, TRIPWIRE_NO_PROGRESS, TRIPWIRE_TEST_FAILS } from "../fittings/seed/http-gateway/scripts/lib/stretch.mjs";
+// @ts-ignore — the same pure override validator used by the real gateway
+import { applyTurnOverride } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 
 let tmp: string;
 let env: Record<string, string>;
@@ -242,12 +244,12 @@ function fakeGateway(script: Record<string, (brief: string) => any>, opts: { evi
       };
     },
     async runAgentSdkTurn(route: any, brief: string, _onChunk: any, o: any = {}) {
-      calls.push({ lane: "agent-sdk", duty: route.duty, model: route.target.model, sessionKey: o.sessionKey });
+      calls.push({ lane: "agent-sdk", duty: route.duty, level: route.level, model: route.target.model, effort: route.target.effort, cwd: o.cwd, sessionKey: o.sessionKey });
       const reply = writeHandoffFromBrief(brief, route.duty);
       return { reply, session_id: `sid-${calls.length}`, usedTokens: 111, model: route.target.model };
     },
-    async runSecondaryTurn(route: any, brief: string) {
-      calls.push({ lane: "secondary", duty: route.duty, runtime: route.target.runtime, model: route.target.model });
+    async runSecondaryTurn(route: any, brief: string, o: any = {}) {
+      calls.push({ lane: "secondary", duty: route.duty, level: route.level, runtime: route.target.runtime, model: route.target.model, effort: route.target.effort, cwd: o.cwd });
       const reply = writeHandoffFromBrief(brief, route.duty);
       return { reply, session_id: null, model: route.target.model };
     },
@@ -258,6 +260,49 @@ function fakeGateway(script: Record<string, (brief: string) => any>, opts: { evi
   };
   return { gateway, calls, model };
 }
+
+describe("plain conversation run settings", () => {
+  const finish = () => ({
+    status: "complete", summary: "Answered using the requested run settings", evidenceRefs: [],
+    nextSteps: { next: "needs-input", why: "awaiting the next question", items: [] },
+    blocker: { what: "next question", needs: "user input", who: "user" }, activeConstraints: [],
+    failedApproaches: [], surprises: [], forceEscalation: null, synthesized: false,
+  });
+
+  it("executes a configured target outside the default ladder with the requested duty, effort and cwd", async () => {
+    const { gateway, calls } = fakeGateway({ responder: finish });
+    const project = path.join(tmp, "project");
+    mkdirSync(project);
+    (gateway as any)._applyOverride = (route: any, pins: any) => applyTurnOverride({ targets: [
+      { id: "astra", runtime: "codex", provider: "openai", model: "gpt-6-astra", type: "secondary" },
+    ] }, route, pins, { resolveProject: (name: string) => name === "garrison" ? project : null });
+    const store = openConversation("plain-pins", { role: "gateway", env });
+    recordUserMessage(store, { text: "inspect the project", routing: {
+      duty: "responder", level: 2, target: "astra", effort: "xhigh", project: "garrison",
+    } });
+    const result = await runConversation(gateway as any, { conversationId: "plain-pins", env });
+    expect(result.stretches).toBe(1);
+    expect(calls.find((call) => call.lane)).toMatchObject({
+      lane: "secondary", duty: "responder", level: 2, runtime: "codex", model: "gpt-6-astra", effort: "xhigh", cwd: project,
+    });
+    expect(store.tail(10, { kinds: ["stretch-routing"] })[0].payload).toMatchObject({
+      reason: "turn-override", target: "astra", model: "gpt-6-astra",
+    });
+  });
+
+  it.each([
+    { target: "missing" }, { project: "missing" }, { duty: "missing" }, { effort: "unbounded" }, { level: 0 },
+  ])("refuses invalid pins %j visibly without running a model", async (routing) => {
+    const { gateway, calls } = fakeGateway({ triage: finish });
+    (gateway as any)._applyOverride = (route: any, pins: any) => applyTurnOverride({ targets: [] }, route, pins, { resolveProject: () => null });
+    const store = openConversation("bad-pins", { role: "gateway", env });
+    recordUserMessage(store, { text: "use the requested settings", routing });
+    const result = await runConversation(gateway as any, { conversationId: "bad-pins", env });
+    expect(result).toMatchObject({ stretches: 0, terminal: "needs-input" });
+    expect(calls.filter((call) => call.lane)).toHaveLength(0);
+    expect(store.tail(1, { kinds: ["note"] })[0].payload.text).toContain("The conversation did not start:");
+  });
+});
 
 describe("terminal re-assert — the kick heals a wedged card", () => {
   it("a resumed conversation whose last handoff routed needs-input re-writes the park", async () => {
