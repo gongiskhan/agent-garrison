@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-ignore — pure .mjs
 import { openConversation } from "../packages/claude-pty/src/conversation-store.mjs";
 // @ts-ignore — pure .mjs
-import { resolveRung, tripwires, applyFlowPolicy, buildStretchBrief, runConversation, recordUserMessage, makeStretchEventTee, shouldPauseForApproval, approvalState, TRIPWIRE_NO_PROGRESS, TRIPWIRE_TEST_FAILS } from "../fittings/seed/http-gateway/scripts/lib/stretch.mjs";
+import { resolveRung, tripwires, applyFlowPolicy, buildStretchBrief, runConversation, runStretch, recordUserMessage, makeStretchEventTee, shouldPauseForApproval, approvalState, TRIPWIRE_NO_PROGRESS, TRIPWIRE_TEST_FAILS } from "../fittings/seed/http-gateway/scripts/lib/stretch.mjs";
 // @ts-ignore — the same pure override validator used by the real gateway
 import { applyTurnOverride } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 
@@ -32,6 +32,37 @@ const LADDER = {
   defaultIndex: 1,
   ceilingIndex: 2,
 };
+
+describe("Stop during runtime admission", () => {
+  const route = { targetId: "codex", target: { runtime: "codex", model: "gpt-6-astra" } };
+  it("does not admit a runtime when already stopped", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let admitted = false;
+    const result = await runStretch({ runSecondaryTurn() { admitted = true; } }, {
+      route, brief: "unused", stretchId: "already-stopped", signal: controller.signal,
+    });
+    expect(admitted).toBe(false);
+    expect(result).toMatchObject({ ok: false, stoppedReason: "cancelled" });
+  });
+  it("delivers a Stop that arrives before the adapter registers its control", async () => {
+    const controller = new AbortController();
+    let cancelled = 0;
+    let register!: () => void;
+    const run = runStretch({ runSecondaryTurn(_route: any, _brief: any, options: any) {
+      return new Promise((resolve) => {
+        register = () => options.registerStop(() => {
+          cancelled += 1;
+          resolve({ reply: "", stoppedReason: "cancelled" });
+        });
+      });
+    } }, { route, brief: "unused", stretchId: "starting", signal: controller.signal, timeoutMs: 1000 });
+    controller.abort();
+    register();
+    expect(await run).toMatchObject({ stoppedReason: "cancelled" });
+    expect(cancelled).toBe(1);
+  });
+});
 
 describe("resolveRung", () => {
   it("default → the duty default; sticky floor wins over default", () => {

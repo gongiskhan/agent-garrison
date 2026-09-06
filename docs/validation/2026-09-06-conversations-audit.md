@@ -113,9 +113,22 @@ it cannot safely identify two distinct browser submissions.
   HTTP doors with a hermetic Codex adapter: concurrent retry admission,
   persistence across gateway restart, cancellation and resumption, requested
   Astra/effort/project invocation, and visible invalid-pin refusals before any
-  runtime side effects. This new gate awaits its validation run.
+  runtime side effects. At `54150815`, all six real-process HTTP cases passed;
+  the selected cancellation, launcher and Basic Memory setup/verify regressions
+  also passed: four suites, 75 tests total. Twenty simultaneous retry POSTs
+  resulted in exactly one message, one stretch and one runtime call. A gateway
+  restart preserved that admission. Stop reached the adapter, a retry remained
+  stopped, and a subsequent new message completed.
+- The final affected regression run at `54150815` passed all 53 suites and
+  757 tests, including the responsive browser fixtures and the normal HTTP
+  gateway gate. Two additional focused Stop-admission tests passed locally:
+  an already-aborted stretch starts no runtime, and a Stop arriving before an
+  adapter registers its control is delivered at registration.
   This document does not claim a deployment or a live model quality result.
 
 Test logs are node-local session artifacts at
 `/tmp/garrison-conversations-baseline.log` and
 `/tmp/garrison-conversations-browser-baseline.log` on dev-madrid.
+The final gates are `/tmp/garrison-conversations-normal-gate.log`,
+`/tmp/garrison-conversations-final.log`, and
+`/tmp/garrison-conversations-browser-current.log` on that node.
