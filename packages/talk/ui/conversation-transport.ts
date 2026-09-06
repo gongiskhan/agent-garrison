@@ -157,7 +157,7 @@ export function createConversationTransport(
         : `conv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
       const effectiveRouting = { ...(routing ?? {}), ...(meta?.routing ?? {}) };
       if (meta?.effort) effectiveRouting.effort = meta.effort;
-      const { seq } = await postConversationMessage(conversationId, text, {
+      await postConversationMessage(conversationId, text, {
         base,
         clientRequestId,
         context: meta?.context === undefined ? context : meta.context,
@@ -165,10 +165,9 @@ export function createConversationTransport(
       });
       return {
         clientRequestId,
-        // A CLIENT coordinate, never dressed up as a ledger one: the router
-        // answers with a `seq` only when it wrote the record itself, and on the
-        // live path the gateway did.
-        inputId: seq === null ? `conv:${clientRequestId}` : `conv:${conversationId}#${seq}`,
+        // The ledger's seq is writer-local and may restart at zero on every
+        // request. Only this request id can identify this admission uniquely.
+        inputId: `conv:${clientRequestId}`,
         state: "settled",
         acceptedAt: new Date().toISOString(),
       };

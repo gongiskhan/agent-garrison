@@ -4820,6 +4820,7 @@ const server = http.createServer(async (request, response) => {
         const steerable = delivery === "steer" && stretchLib.steerableStretch(conversationId) !== null;
         const rec = stretchLib.recordUserMessage(store, {
           text: message,
+          clientRequestId: body.clientRequestId,
           origin: typeof body.origin === "string" ? body.origin : "web",
           threadId: typeof body.threadId === "string" ? body.threadId : null,
           context: typeof body.context === "string" ? body.context : null,
@@ -4827,6 +4828,14 @@ const server = http.createServer(async (request, response) => {
           delivery,
           steered: steerable,
         });
+        if (!rec.ok) {
+          return sendJson(response, rec.conflict ? 409 : 503, { error: rec.error ?? "the message could not be recorded" });
+        }
+        if (rec.duplicate) {
+          // The first admission owns the work, including a completed or
+          // stopped response. A retry must never start or steer a second one.
+          return sendJson(response, 202, { accepted: true, duplicate: true, seq: rec.seq, pickedUpBy: "existing-message" });
+        }
         if (steerable) {
           // Recorded FIRST, interrupted second: the loop's next brief reads the
           // ledger, so the message must be durable before the stretch it

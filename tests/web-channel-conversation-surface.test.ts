@@ -159,12 +159,12 @@ describe("web channel — the conversation send door", () => {
     expect(typeof (receipt as { acceptedAt?: string }).acceptedAt).toBe("string");
   });
 
-  it("never dresses a client coordinate up as a ledger one", async () => {
-    stubFetch((call) => json(202, call.body.message === "routed" ? { seq: 7, recordedBy: "router" } : { seq: null, recordedBy: "responder" }));
+  it("keeps admissions distinct when the gateway repeats a writer-local sequence", async () => {
+    stubFetch(() => json(202, { seq: 0, recordedBy: "responder" }));
     const transport = createConversationTransport(inner, { conversationId: "01CONV" });
     const routed = await transport.sendMessage("routed", { clientRequestId: "req-3" } as never);
     const forwarded = await transport.sendMessage("forwarded", { clientRequestId: "req-4" } as never);
-    expect((routed as { inputId: string }).inputId).toBe("conv:01CONV#7");
+    expect((routed as { inputId: string }).inputId).toBe("conv:req-3");
     expect((forwarded as { inputId: string }).inputId).toBe("conv:req-4");
   });
 

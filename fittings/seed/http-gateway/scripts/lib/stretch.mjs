@@ -2096,12 +2096,30 @@ export async function runConversation(gateway, {
 /** Record a user message in the store; a running stretch picks it up at its
  *  next brief, and when nothing is running the caller kicks an advance so a
  *  responder stretch answers from L1. */
-export function recordUserMessage(store, { text, origin = "web", threadId = null, context = null, routing = null, delivery = null, steered = false }) {
+export function recordUserMessage(store, { text, origin = "web", threadId = null, context = null, routing = null, delivery = null, steered = false, clientRequestId = null }) {
+  const requestId = typeof clientRequestId === "string" && clientRequestId.trim() ? clientRequestId.trim().slice(0, 200) : null;
+  const normalizedText = String(text ?? "").slice(0, 32_000);
+  if (requestId) {
+    // A browser may retry after the gateway recorded the message but its HTTP
+    // reply was lost. Read the durable ledger, not a process-local cache: this
+    // remains idempotent after a gateway restart and after a long conversation.
+    // The check and append are synchronous, so concurrent requests handled by
+    // this gateway cannot interleave them.
+    const previous = store.tail(Number.MAX_SAFE_INTEGER, { kinds: ["user-message"] })
+      .find((event) => event.payload?.clientRequestId === requestId);
+    if (previous) {
+      if (previous.payload.text !== normalizedText) {
+        return { ok: false, conflict: true, error: "clientRequestId was already used for a different message" };
+      }
+      return { ok: true, duplicate: true, ts: previous.ts, seq: previous.seq };
+    }
+  }
   const running = store.currentStretch();
   return store.append({
     kind: "user-message",
     payload: {
-      text: String(text ?? "").slice(0, 32_000),
+      text: normalizedText,
+      ...(requestId ? { clientRequestId: requestId } : {}),
       origin,
       threadId,
       arrivedDuringStretch: running,

@@ -52,6 +52,44 @@ function startBoard(): Promise<number> {
   return new Promise((resolve) => server!.listen(0, "127.0.0.1", () => resolve((server!.address() as { port: number }).port)));
 }
 
+describe("conversation message retry identity", () => {
+  it("deduplicates a retry from the durable ledger after reopening and later traffic", () => {
+    const first = openConversation(CARD, { role: "gateway", env });
+    first.init({});
+    const receipt = recordUserMessage(first, { text: "keep this once", clientRequestId: "request-once" });
+    expect(receipt.ok).toBe(true);
+    for (let index = 0; index < 550; index += 1) {
+      first.append({ kind: "user-message", payload: { text: `later ${index}`, clientRequestId: `later-${index}` } });
+    }
+    const reopened = openConversation(CARD, { role: "gateway", env });
+    const count = reopened.range({ limit: 0 }).total;
+    expect(recordUserMessage(reopened, { text: "keep this once", clientRequestId: "request-once" }))
+      .toMatchObject({ ok: true, duplicate: true, seq: receipt.seq });
+    expect(reopened.range({ limit: 0 }).total).toBe(count);
+    expect(reopened.tail(1000, { kinds: ["user-message"] })
+      .filter((event: any) => event.payload.clientRequestId === "request-once")).toHaveLength(1);
+  });
+
+  it("refuses reuse for different text while allowing distinct requests and conversations", () => {
+    const store = openConversation(CARD, { role: "gateway", env });
+    expect(recordUserMessage(store, { text: "first", clientRequestId: "request" }).ok).toBe(true);
+    expect(recordUserMessage(store, { text: "different", clientRequestId: "request" }))
+      .toMatchObject({ ok: false, conflict: true });
+    expect(recordUserMessage(store, { text: "first", clientRequestId: "another" }).ok).toBe(true);
+    expect(recordUserMessage(openConversation("other-conversation", { role: "gateway", env }), {
+      text: "first", clientRequestId: "request",
+    }).ok).toBe(true);
+    expect(store.tail(10, { kinds: ["user-message"] })).toHaveLength(2);
+  });
+
+  it("preserves repeated messages from callers without request ids", () => {
+    const store = openConversation(CARD, { role: "gateway", env });
+    recordUserMessage(store, { text: "again" });
+    recordUserMessage(store, { text: "again" });
+    expect(store.tail(10, { kinds: ["user-message"] })).toHaveLength(2);
+  });
+});
+
 describe("a message landing mid-stretch is not eaten by that stretch's handoff", () => {
   it("wakes the responder after the stretch instead of settling deaf", async () => {
     const port = await startBoard();

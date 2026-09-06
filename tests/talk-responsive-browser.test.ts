@@ -14,7 +14,7 @@ let bundle: string;
 
 beforeAll(async () => {
   const output = await build({
-    stdin: { resolveDir: root, sourcefile: "talk-responsive-fixture.tsx", contents: `
+    stdin: { resolveDir: root, sourcefile: "talk-responsive-fixture.tsx", loader: "tsx", contents: `
       import React from 'react';
       import { createRoot } from 'react-dom/client';
       import { SessionsRail } from './packages/talk/ui/sessions-rail';

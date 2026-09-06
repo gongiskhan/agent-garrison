@@ -39,11 +39,30 @@ Unit coverage verifies defaults, overrides, explicit clearing, native effort,
 Discuss kickoff and an unchanged unpinned message body. The host also supplies
 its saved thread context and pins when creating this wrapper.
 
+Normal conversations also have a same-origin Stop door, forwarded to the
+gateway's conversation AbortController. The client uses that door for stretch
+work; it does not fabricate a chat generation. Failure stays visible and can
+be retried; an explicit already-settled response is harmless.
+
 The full-stack parity fixtures intentionally exercise the older chat/FIFO lane
 with underscore-prefixed thread ids. Their permission and Stop results prove
 that lane; they do not establish controls for the ordinary conversation stretch
 lane. Normal-lane model quality and control verification must use the
 `/api/conversation/:id/message` door and inspect the resulting ledger.
+
+## Retried messages are one admission
+
+The normal gateway message route discarded `clientRequestId`, so retrying after
+a lost HTTP acknowledgement could append and execute the same ask twice. The
+gateway now retains the id in the durable user-message record and returns the
+original admission on retry without starting or steering another stretch.
+Reusing an id for different text returns a conflict. Tests reopen the store
+after 550 later messages to verify deduplication survives process-local state
+and a short recent-history window. Callers without ids retain their behavior.
+
+Admission receipts now always use the client request id. A store's diagnostic
+`seq` is local to its writer and can restart at zero on the next HTTP request;
+it cannot safely identify two distinct browser submissions.
 
 ## Validation status
 
@@ -66,7 +85,10 @@ lane. Normal-lane model quality and control verification must use the
   its standing Zeca thread in addition to the requested new conversation.
   The fresh-conversation test now initializes Zeca before measuring the action,
   preserving the exact-one-new-thread and no-duplicate-on-reload assertions.
-- Validation of the new regression cases awaits the git transport commit.
+- At `d9694559`, both new backlog regression cases failed against the old
+  implementation and passed with the fix. All 48 selected suites and 671
+  tests then passed. The subsequent transport/control/idempotency changes
+  await the next git transport and validation run.
   This document does not claim a deployment or a live model quality result.
 
 Test logs are node-local session artifacts at
