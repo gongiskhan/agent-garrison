@@ -886,6 +886,9 @@ export async function runStretch(gateway, {
   let stop = null;
   const registerStop = (fn) => {
     stop = fn;
+    // Stop can arrive while the runtime is spawning or waiting for its lock.
+    // Deliver it as soon as the adapter exposes its cancellation primitive.
+    if (signal?.aborted) { try { stop?.(); } catch { /* cancellation is best-effort */ } }
   };
   const abort = () => {
     try {
@@ -903,6 +906,7 @@ export async function runStretch(gateway, {
     }, timeoutMs);
   });
   try {
+    if (signal?.aborted) throw new Error("stretch cancelled before runtime admission");
     const isAgentSdk = route.target.runtime === "agent-sdk";
     const turnPromise = isAgentSdk
       ? gateway.runAgentSdkTurn(route, brief, onChunk, {
@@ -1748,10 +1752,10 @@ export async function runConversation(gateway, {
           runtime: route.target.runtime,
           provider: route.target.provider ?? null,
           model: route.target.model,
-          effort,
+          effort: route.target.effort ?? null,
         },
-        chosenBy: rungPick.chosenBy,
-        chosenWhy: rungPick.chosenWhy,
+        chosenBy: pinDecision?.applied?.length || messagePins.duty || messagePins.level ? "pin" : rungPick.chosenBy,
+        chosenWhy: pinDecision?.applied?.length || messagePins.duty || messagePins.level ? "requested conversation run settings" : rungPick.chosenWhy,
         floorBefore: floorRungId,
         floorAfter: floorUpdate?.rung ?? floorRungId,
         notify: rungPick.notify,
@@ -1905,40 +1909,51 @@ export async function runConversation(gateway, {
       }
       tee.flush();
 
-      if (steer && !signal?.aborted) {
+      if (signal?.aborted || steer) {
         // A steered stretch is not a failed one: no exit gate, no repair call,
         // no needs-input. Its handoff routes straight back to the same duty,
         // and the brief that duty boots from carries the steering message (it
         // landed after this stretch's messages-consumed stamp, so it is still
         // unconsumed). The partial reply is kept as evidence of what was cut.
-        const handoff = steeredHandoff({ stretchId, duty, steer, reply: result.reply });
+        const cancelled = signal?.aborted === true;
+        // A human Stop must never start the exit gate's re-ask/repair model.
+        // Preserve partial output and a resumable summary locally instead.
+        const handoff = cancelled ? {
+          v: 1, stretchId, duty, status: "partial", summary: "Stopped by the user before the stretch finished.",
+          evidenceRefs: [], nextSteps: { next: "needs-input", why: "The user stopped this conversation.", items: [] },
+          blocker: { what: "Conversation stopped", needs: "a new user message to continue", who: "user" },
+          activeConstraints: [], failedApproaches: [], surprises: [], forceEscalation: null,
+          synthesized: true, cancelled: true,
+        } : steeredHandoff({ stretchId, duty, steer, reply: result.reply });
         store.writeHandoff(ordinal, handoff);
         const replyRef = store.writeNamedPayload(`stretch-${String(ordinal).padStart(4, "0")}-reply.md`, result.reply ?? "");
         store.append({
           kind: "handoff",
           duty,
           stretch: stretchId,
-          payload: { ...handoff, ordinal, _gate: { valid: true, repairs: 0, synthesized: true, source: "steer", resolved: [] } },
+          payload: { ...handoff, ordinal, _gate: { valid: true, repairs: 0, synthesized: true, source: cancelled ? "cancel" : "steer", resolved: [] } },
         });
-        onFrame("handoff", { ordinal, duty, status: handoff.status, next: duty, synthesized: true });
+        onFrame("handoff", { ordinal, duty, status: handoff.status, next: handoff.nextSteps.next, synthesized: true });
         const updated = applyHandoffToSummary(store.parseSummary() ?? {}, handoff, { floorUpdate });
         let write = store.writeSummary(updated, { stretchId: store.currentStretch() });
         if (!write.ok && write.reason === "over-cap") {
           write = store.trimSummary(updated, { stretchId: store.currentStretch() });
         }
-        // The card stays on Running: the same duty starts again in a moment.
+        if (cancelled) await writeCardTransition(gateway, { cardId: card?.id, conversationId, stretchId, phase: "ended", handoff, duty });
+        // A steer keeps the card Running: the same duty starts again shortly.
         const endedPayload = stretchEndedPayload({
           stretchId, ordinal, duty, route, result, usageRows,
-          outcome: "steered",
-          stoppedReason: "steered",
+          outcome: cancelled ? "cancelled" : "steered",
+          stoppedReason: cancelled ? "cancelled" : "steered",
           replyRef: replyRef.ref,
           summaryWrite: write.ok ? "ok" : write.reason,
-          next: duty,
+          next: handoff.nextSteps.next,
         });
         store.append({ kind: "stretch-ended", duty, stretch: stretchId, runId, payload: endedPayload });
         onFrame("stretch-ended", endedPayload);
         store.releaseStretch(stretchId);
         stretches += 1;
+        if (cancelled) { terminal = "cancelled"; break; }
         continue;
       }
 

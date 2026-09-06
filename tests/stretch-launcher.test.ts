@@ -288,6 +288,9 @@ describe("plain conversation run settings", () => {
     expect(store.tail(10, { kinds: ["stretch-routing"] })[0].payload).toMatchObject({
       reason: "turn-override", target: "astra", model: "gpt-6-astra",
     });
+    expect(store.tail(1, { kinds: ["stretch-started"] })[0].payload).toMatchObject({
+      chosenBy: "pin", target: { id: "astra", model: "gpt-6-astra", effort: "xhigh" }, cwd: project,
+    });
   });
 
   it.each([

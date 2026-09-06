@@ -39,10 +39,26 @@ Unit coverage verifies defaults, overrides, explicit clearing, native effort,
 Discuss kickoff and an unchanged unpinned message body. The host also supplies
 its saved thread context and pins when creating this wrapper.
 
+The audit then traced those fields through actual stretch selection. Cardless
+Talk conversations previously ignored the project, duty, level and effort;
+target/model pins only worked when they named a rung of the current duty's
+ladder. They now use the gateway's existing override resolver for configured
+targets, models, accounts, effort and project paths, with duty/level validation.
+The resolved cwd is passed to the runtime. Unknown settings write a visible
+refusal note and start no model. Cards retain their own run configuration and
+flow. Tests inspect the runtime invocation, not only routing badges.
+
 Normal conversations also have a same-origin Stop door, forwarded to the
 gateway's conversation AbortController. The client uses that door for stretch
 work; it does not fabricate a chat generation. Failure stays visible and can
 be retried; an explicit already-settled response is harmless.
+
+The deeper Stop gate also found that the launcher performed exit-gate model
+repair after a cancellation. It now records a local cancelled handoff and
+preserves partial output without launching another model call. Stop received
+during runtime startup is delivered when the cancellation primitive becomes
+available. The regression requires exactly one runtime call, including all
+repair paths, and a durable cancelled ending.
 
 The full-stack parity fixtures intentionally exercise the older chat/FIFO lane
 with underscore-prefixed thread ids. Their permission and Stop results prove
@@ -87,8 +103,17 @@ it cannot safely identify two distinct browser submissions.
   preserving the exact-one-new-thread and no-duplicate-on-reload assertions.
 - At `d9694559`, both new backlog regression cases failed against the old
   implementation and passed with the fix. All 48 selected suites and 671
-  tests then passed. The subsequent transport/control/idempotency changes
-  await the next git transport and validation run.
+  tests then passed.
+- At `a6d7fd27`, all 51 selected suites and 721 tests passed, including all six
+  responsive Conversations browser fixtures. The full-stack browser gate also
+  passed all 24 desktop/mobile tests, covering streaming, tool results,
+  permissions across reload, Stop, queue delivery, restart replay and composer
+  reachability. These parity tests use the legacy lane as described above.
+- A separate real gateway process gate exercises the normal `/conversation`
+  HTTP doors with a hermetic Codex adapter: concurrent retry admission,
+  persistence across gateway restart, cancellation and resumption, requested
+  Astra/effort/project invocation, and visible invalid-pin refusals before any
+  runtime side effects. This new gate awaits its validation run.
   This document does not claim a deployment or a live model quality result.
 
 Test logs are node-local session artifacts at

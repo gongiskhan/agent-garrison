@@ -218,13 +218,13 @@ describe("steering a stretch in flight", () => {
     controller.abort();
     const result = await run;
     expect(result.terminal).toBe("cancelled");
-    // One STRETCH brief. (The exit gate's re-ask and repair prompts also go
-    // through runAgentSdkTurn on a cancelled stretch - pre-existing, and not
-    // what this test is about.)
-    expect(briefs.filter((b) => b.includes("# Stretch brief"))).toHaveLength(1);
+    // Stop ends model work, including the exit gate's re-ask/repair calls.
+    expect(briefs).toHaveLength(1);
     expect(steerableStretch(CARD)).toBeNull();
     const store = openConversation(CARD, { role: "test", env });
     expect(store.tail(10, { kinds: ["stretch-steered"] })).toHaveLength(0);
+    expect(store.tail(1, { kinds: ["stretch-ended"] })[0].payload).toMatchObject({ outcome: "cancelled", stoppedReason: "cancelled" });
+    expect(store.tail(1, { kinds: ["handoff"] })[0].payload._gate).toMatchObject({ source: "cancel", repairs: 0 });
   }, 15000);
 });
 
