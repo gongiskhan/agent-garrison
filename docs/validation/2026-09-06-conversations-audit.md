@@ -199,6 +199,20 @@ The combined affected local gate passed six suites and 192 tests, including
 all 12 real HTTP ingress cases, 41 stretch-policy cases, the SDK readiness and
 native/standing tests, and 113 gateway run-context cases.
 
+The combined private release `16d4dd8c` subsequently passed typecheck and ten
+focused suites with 206 tests in the disposable dev-madrid checkout. It was
+deployed through an independent systemd one-shot, which exited zero. All 43
+fitting probes and 17 view-health checks passed; the HTTPS tailnet `/talk`
+route returned 200. The installed SDK client/readiness, stretch policy and
+Improver source hashes matched the tested checkpoint, and the stable continuity
+tooling clone was fast-forwarded to the same revision. The previous generated
+composition files and Git ref were preserved privately. Deployment evidence is
+`~/.garrison/backups/final-conversations-20260906T154008Z/garrison-final-16d4dd8c-deployment-evidence.json`
+on dev-madrid. That private directory retains the typecheck, clean combined test
+gate, initial dependency failure, native SDK rerun and supervised build/restart
+logs alongside a checksum manifest. The `/tmp` originals remain intact. Live semantic
+memory and report quality are recorded by their separate acceptance probes.
+
 Test logs are node-local session artifacts at
 `/tmp/garrison-conversations-baseline.log` and
 `/tmp/garrison-conversations-browser-baseline.log` on dev-madrid.
