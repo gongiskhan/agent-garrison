@@ -136,11 +136,12 @@ def bm(cfg, action, *args, content=None):
 def memory_cli(cfg, args):
     """Pass explicit CLI arguments through the same authority as native MCPs.
 
-    Keep stdin/stdout/stderr and the leaf's exit status. This is an operator
-    command, not automatic capture; no prompt or authored notes are inspected.
+    Replace the wrapper so caller cancellation and exit status still belong to
+    the real command. This is not automatic capture; no prompt or authored notes
+    are inspected and stdin/stdout/stderr remain inherited.
     """
-    result = subprocess.run(bm_command(cfg, *args), env=bm_environment(cfg), check=False)
-    return result.returncode if result.returncode >= 0 else 128 - result.returncode
+    command = bm_command(cfg, *args)
+    os.execvpe(command[0], command, bm_environment(cfg))
 
 
 def note_content(output):
