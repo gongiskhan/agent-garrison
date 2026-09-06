@@ -77,7 +77,7 @@ describe("normal conversation ingress through a real gateway process", () => {
     fs.mkdirSync(path.join(home, "dev", "repo-a", ".git"), { recursive: true });
     fs.writeFileSync(path.join(home, "dev-root"), path.join(home, "dev"));
     const model: any = gatewayV4ExecutionModel(path.basename(home));
-    for (const duty of ["triage", "responder"]) {
+    for (const duty of ["triage", "responder", "plan", "review", "validate", "implement", "test"]) {
       model.selectedDuties.push(duty);
       model.duties[duty] = { ...model.duties.other, id: duty };
       model.sequences[duty] = { "1": [duty] };
@@ -171,4 +171,24 @@ describe("normal conversation ingress through a real gateway process", () => {
       expect(calls().length).toBe(before);
     },
   );
+
+  it.each(["plan", "review", "validate"])("finishes a cardless %s answer in one stretch without creating a test task", async (duty) => {
+    const id = `http-answer-${duty}`;
+    const before = calls().length;
+    expect((await message(id, "answer", "ANSWER_ONLY_HTTP: Give a prose evaluation; do not modify files or run tests.", { routing: { ...pins, duty } })).status).toBe(202);
+    await until(() => ledger(id).some((row) => row.kind === "stretch-ended"));
+    expect(ledger(id).filter((row) => row.kind === "stretch-started")).toHaveLength(1);
+    expect(ledger(id).find((row) => row.kind === "handoff").payload).toMatchObject({ completion: "answer", nextSteps: { next: "done" } });
+    expect(ledger(id).some((row) => row.kind === "policy-rewrite" && row.payload.reason === "done-without-evidence")).toBe(false);
+    expect(calls().slice(before).filter((row) => row.kind === "turn")).toHaveLength(1);
+  });
+
+  it("keeps requested implementation gated even if its handoff mislabels the work as an answer", async () => {
+    const id = "http-answer-work-guard";
+    expect((await message(id, "work", "MISLABEL_WORK_HTTP: Implement the requested change and verify it.", { routing: { ...pins, duty: "implement" } })).status).toBe(202);
+    await until(() => ledger(id).filter((row) => row.kind === "stretch-ended").length === 2);
+    expect(ledger(id).filter((row) => row.kind === "stretch-started").map((row) => row.duty)).toEqual(["implement", "review"]);
+    expect(ledger(id).some((row) => row.kind === "policy-rewrite" && row.payload.reason.startsWith("review-before-done:"))).toBe(true);
+    expect(ledger(id).find((row) => row.kind === "handoff").payload.completion).toBe("work");
+  });
 });

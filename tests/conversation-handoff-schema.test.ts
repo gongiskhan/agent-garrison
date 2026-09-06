@@ -40,6 +40,15 @@ describe("validateHandoff", () => {
     expect(res.ok).toBe(true);
   });
 
+  it("keeps legacy handoffs compatible and validates explicit answer completion without remaining work", () => {
+    const answer = { ...valid(), completion: "answer", nextSteps: { next: "done", why: "The requested explanation was delivered", items: [] } };
+    expect(validateHandoff(answer, { selectedDuties: DUTIES }).ok).toBe(true);
+    expect(validateHandoff({ ...answer, completion: "skip-tests" }, { selectedDuties: DUTIES }).ok).toBe(false);
+    expect(validateHandoff({ ...answer, nextSteps: { ...answer.nextSteps, next: "implement" } }, { selectedDuties: DUTIES }).ok).toBe(false);
+    expect(validateHandoff({ ...answer, nextSteps: { ...answer.nextSteps, items: ["Implement requested changes"] } }, { selectedDuties: DUTIES }).ok).toBe(false);
+    expect(validateHandoff({ ...answer, blocker: { what: "Missing verification", needs: "Run tests" } }, { selectedDuties: DUTIES }).ok).toBe(false);
+  });
+
   it("every mandatory KEY missing makes it invalid; [] stays valid", () => {
     for (const key of ["status", "summary", "evidenceRefs", "nextSteps", "blocker", "activeConstraints", "failedApproaches", "surprises"]) {
       const h = valid();

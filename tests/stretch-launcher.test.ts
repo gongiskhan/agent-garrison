@@ -140,6 +140,40 @@ describe("tripwires", () => {
 });
 
 describe("applyFlowPolicy", () => {
+  const answer = () => ({ completion: "answer", status: "complete", synthesized: false, blocker: null,
+    nextSteps: { next: "done", why: "The requested prose evaluation is complete", items: [] } });
+
+  it.each(["plan", "review", "validate"])("allows an explicit cardless %s answer to finish without invented runnable evidence", (duty) => {
+    const store = openConversation(`answer-${duty}`, { role: "gateway", env });
+    store.append({ kind: "stretch-started", duty, payload: {} });
+    expect(applyFlowPolicy("done", { store, duty, handoff: answer(), selectedDuties: [duty, "test"] }))
+      .toMatchObject({ next: "done", rewritten: false });
+  });
+
+  it("retains evidence requirements for cards, declared work, implementation and recorded changes", () => {
+    for (const variant of ["card", "work", "implement", "prior-implement", "edit", "change-finding", "synthesized"]) {
+      const store = openConversation(`answer-guard-${variant}`, { role: "gateway", env });
+      if (variant === "prior-implement") store.append({ kind: "stretch-started", duty: "implement", payload: {} });
+      if (variant === "edit") store.append({ kind: "session-event", payload: { blocks: [{ type: "tool_use", name: "Edit", input: { file_path: "/project/source.ts" } }] } });
+      if (variant === "change-finding") store.append({ kind: "finding", payload: { kind: "change", claim: "Changed the handler" } });
+      const packet = { ...answer(), ...(variant === "work" ? { completion: "work" } : {}), ...(variant === "synthesized" ? { synthesized: true } : {}) };
+      expect(applyFlowPolicy("done", { store, duty: variant === "implement" ? "implement" : "review", handoff: packet,
+        card: variant === "card" ? { id: "card" } : null, selectedDuties: ["review", "test"] }).next, variant).toBe(variant === "implement" ? "review" : "test");
+    }
+  });
+
+  it("permits read-only support and its mandatory handoff, and scopes old work to its settled response", () => {
+    const store = openConversation("answer-read-only", { role: "gateway", env });
+    store.append({ kind: "stretch-started", duty: "implement", payload: {} });
+    store.append({ kind: "handoff", duty: "implement", payload: { nextSteps: { next: "done" } } });
+    store.append({ kind: "stretch-started", duty: "review", payload: {} });
+    store.append({ kind: "session-event", payload: { blocks: [
+      { type: "tool_use", name: "Read", input: { file_path: "/project/source.ts" } },
+      { type: "tool_use", name: "Write", input: JSON.stringify({ file_path: path.join(store.dir, "handoffs/0002.json") }) },
+    ] } });
+    expect(applyFlowPolicy("done", { store, duty: "review", handoff: answer(), selectedDuties: ["review", "test"] }).next).toBe("done");
+  });
+
   it("implement → done is rewritten to review-before-done", () => {
     const store = openConversation("f1", { role: "gateway", env });
     const res = applyFlowPolicy("done", { store, duty: "implement", selectedDuties: ["implement", "adversarial-review", "test"] });
@@ -187,6 +221,8 @@ describe("buildStretchBrief", () => {
     });
     expect(brief).toContain("## Objective");
     expect(brief).toContain("Exit contract (MANDATORY)");
+    expect(brief).toContain('"completion": "work" | "answer"');
+    expect(brief).toContain('A request to\nimplement, fix, deploy or actually run checks is "work"');
     expect(brief).toContain("handoffPath: /x/conversations/c1/handoffs/0003.json");
     expect(brief).toContain("Your duty: implement (level 2");
     expect(brief).toContain("please also fix the header");

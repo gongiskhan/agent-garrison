@@ -159,6 +159,16 @@ then sent a fresh message: exactly one new runtime call occurred, with cancelled
 input absent from its brief. No backend release blocker remains in these gates;
 live deployment and model quality are separate evidence.
 
+The later live synthetic quality probe exposed an additional completion-policy
+bug: cardless plan/review/validate replies had completed the requested prose,
+but `done-without-evidence` launched unnecessary test stretches. The handoff
+now supports an explicit `completion: "answer"` for complete informational
+responses, guarded by analytical duty, card absence and the current response
+cycle's recorded work. Existing handoffs, card work, implementation and observed
+changes retain evidence/review requirements. The brief says requested actions
+remain work and prohibits inventing tests or evidence files for a prose answer.
+Local policy/schema/review tests pass; the expanded real HTTP gate is pending.
+
 Test logs are node-local session artifacts at
 `/tmp/garrison-conversations-baseline.log` and
 `/tmp/garrison-conversations-browser-baseline.log` on dev-madrid.

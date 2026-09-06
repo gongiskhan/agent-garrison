@@ -338,6 +338,42 @@ export function tripwires(store, { duty, window = 12 } = {}) {
   return { noProgress, testFails, fires };
 }
 
+const ANSWER_DUTIES = new Set(["plan", "review", "adversarial-review", "validate", "discuss", "research"]);
+const ANSWER_CYCLE_DUTIES = new Set([...ANSWER_DUTIES, "triage", "dispatch", "responder", "dialogue"]);
+
+// A prose deliverable has no runnable artifact to prove. It must be declared
+// explicitly, and only an analytical, cardless response cycle can use it.
+// Missing/old contracts stay on the work rail; neither an implement stretch nor
+// its later review can rename changed work into an evidence-free answer.
+function isAnswerCompletion({ store, duty, handoff, card }) {
+  if (card || !ANSWER_DUTIES.has(duty) || handoff?.completion !== "answer"
+    || handoff.status !== "complete" || handoff.synthesized !== false
+    || handoff.nextSteps?.next !== "done" || handoff.nextSteps.items?.length !== 0 || handoff.blocker !== null) return false;
+  const events = store?.tail?.(4000, { kinds: ["handoff", "stretch-started", "session-event", "finding"] }) ?? [];
+  let boundary = -1;
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i].kind === "handoff" && CONVERSATION_FLOW.terminal.includes(events[i].payload?.nextSteps?.next)) { boundary = i; break; }
+  }
+  if (boundary < 0 && events.length >= 4000) return false; // unknown earlier work
+  for (const event of events.slice(boundary + 1)) {
+    if (["handoff", "stretch-started"].includes(event.kind)
+      && !ANSWER_CYCLE_DUTIES.has(event.duty ?? event.payload?.duty)) return false;
+    if (event.kind === "finding" && event.payload?.kind === "change") return false;
+    for (const block of event.payload?.blocks ?? []) {
+      if (block?.type !== "tool_use" || !["Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch", "file_change"].includes(block.name)) continue;
+      let input = block.input;
+      try { if (typeof input === "string") input = JSON.parse(input); } catch { return false; }
+      const file = input?.file_path;
+      // Writing the mandatory handoff is session bookkeeping, not a project
+      // mutation. Every other observed file edit retains the evidence gate.
+      if (block.name === "Write" && typeof file === "string" && store?.dir
+        && path.dirname(path.resolve(file)) === path.join(path.resolve(store.dir), "handoffs") && file.endsWith(".json")) continue;
+      return false;
+    }
+  }
+  return true;
+}
+
 /** The two flow invariants plus the review budget. Returns {next, rewritten, reason}. */
 export function applyFlowPolicy(next, { store, duty, selectedDuties = [], cwd = null, stretchId = null, handoff = null, card = null, env = process.env } = {}) {
   // The responder answers a person on a settled conversation. Where it points
@@ -354,6 +390,7 @@ export function applyFlowPolicy(next, { store, duty, selectedDuties = [], cwd = 
   // into a `test` stretch by the evidence invariant below - two minutes of
   // stretches and a closing line spoken instead of the answer.
   if (duty === "dialogue") return { next, rewritten: false, reason: null };
+  if (next === "done" && isAnswerCompletion({ store, duty, handoff, card })) return { next, rewritten: false, reason: null };
   const budget = reviewBudgetDecision(store, { card, env });
   let reviewBudget = null;
   if (REVIEW_DUTIES.has(next)) {
@@ -605,6 +642,7 @@ keys are not:
   "stretchId": "<given below>",
   "duty": "<your duty>",
   "status": "complete" | "partial" | "blocked" | "failed",
+  "completion": "work" | "answer",
   "summary": "<what happened - concise, plain language, <=4000 chars>",
   "evidenceRefs": [{"kind":"file|commit|run|gate|artifact|url|log","ref":"<ABSOLUTE path or id>","note":"..."}],
   "nextSteps": {"next":"<a selected duty, or done, or needs-input>","why":"...","items":["..."]},
@@ -619,6 +657,19 @@ Rules: blocked requires a blocker; partial/failed require at least one
 failedApproaches entry; next "done" requires status "complete"; a gate/run/file
 evidence ref must point at a real non-empty file. Update nothing else — the
 exit gate applies your handoff to the conversation summary.
+
+completion defaults to "work" for older handoffs. Use "answer" ONLY when the
+user requested an informational reply (for example a prose plan, explanation,
+review or evaluation), your reply fully delivers it, and no requested change,
+artifact creation, command/test execution or other action remains. A request to
+implement, fix, deploy or actually run checks is "work", even when its current
+duty is plan/review/validate: keep working or hand off the remaining duty.
+An answer has next "done", no blocker and no nextSteps.items. Do not invent or
+run tests, create evidence files or expand scope to prove a prose-only answer.
+The gateway permits this evidence exception only for cardless analytical
+responses without implementation work or recorded project edits in the current
+response cycle. All card deliverables remain "work". Citations and read-only
+inspection can support an answer without fabricating gate/run evidence.
 
 forceEscalation is the model lever: it runs the NEXT stretch one rung above
 the conversation's floor and raises the sticky floor. Set it to a one-line
@@ -2081,6 +2132,9 @@ export async function runConversation(gateway, {
       if (policy.rewritten) {
         store.append({ kind: "policy-rewrite", duty, stretch: stretchId, payload: { from: gate.handoff.nextSteps.next, to: policy.next, reason: policy.reason } });
         gate.handoff.nextSteps = { ...gate.handoff.nextSteps, next: policy.next, why: `${gate.handoff.nextSteps.why} [policy: ${policy.reason}]` };
+        // A refused answer classification resumes the work rail. Persist a
+        // valid contract rather than answer + a nonterminal next duty.
+        if (gate.handoff.completion === "answer") gate.handoff.completion = "work";
         store.writeHandoff(ordinal, gate.handoff);
       }
       store.append({

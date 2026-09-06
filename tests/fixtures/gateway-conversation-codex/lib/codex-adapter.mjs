@@ -18,13 +18,15 @@ export class CodexAdapter {
     const duty = /## Your duty: ([^ ]+)/.exec(brief)?.[1];
     const handoffPath = /handoffPath: (.+)/.exec(brief)?.[1].trim();
     session.hold = brief.includes("HOLD_HTTP_TEST");
+    const answer = brief.includes("ANSWER_ONLY_HTTP") || (duty === "implement" && brief.includes("MISLABEL_WORK_HTTP"));
     record(session, "turn", { duty, brief });
     if (!session.hold) {
       fs.writeFileSync(handoffPath, JSON.stringify({
         v: 1, stretchId: session.stretchId, duty,
         status: "complete", summary: "The isolated gateway test answered.", evidenceRefs: [],
-        nextSteps: { next: "needs-input", why: "waiting for another message", items: [] },
-        blocker: { what: "next question", needs: "user input", who: "user" },
+        ...(answer ? { completion: "answer" } : {}),
+        nextSteps: { next: answer ? "done" : "needs-input", why: answer ? "The prose evaluation is complete" : "waiting for another message", items: [] },
+        blocker: answer ? null : { what: "next question", needs: "user input", who: "user" },
         activeConstraints: [], failedApproaches: [], surprises: [], forceEscalation: null, synthesized: false,
       }));
     }

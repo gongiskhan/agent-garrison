@@ -47,6 +47,18 @@ One file per completed stretch. Schema:
 
 The handoff packet is the **contract between stretches**: the successor reads it to understand what was attempted, what worked, what failed, and what evidence exists. It is immutable once written — stretch N cannot rewrite stretch N-1's handoff.
 
+An optional `completion: "work" | "answer"` distinguishes an informational
+deliverable from delivery work; older handoffs default to `work`. A cardless
+plan, review, validation, discussion or research reply can use `answer` when
+the requested prose is complete and no requested action remains. It must be
+`complete`, point to `done`, and have no blocker or remaining items. It does not
+need fabricated runnable evidence or an extra test stretch. The gateway refuses
+this exception for cards, implementation duties, synthesized handoffs, and a
+response cycle with implementation work or recorded project edits. Requested
+changes and actual test execution remain `work`, including while being planned
+or reviewed. If policy resumes work, it records the rewrite and resets the
+completion classification to `work`.
+
 ### L3 — Ledger (Observation-Only)
 **File**: `log.jsonl` (append-only, multi-process safe via O_APPEND)
 
