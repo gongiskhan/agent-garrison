@@ -60,8 +60,11 @@ separate. It reads only top-level `.md` files in that explicit project's native
 `memory` directory, at most 64 KiB each. It excludes symlinks, session/transcript
 filenames and all sibling JSONL files, redacts credential patterns, hashes
 successful source imports, and never deletes a shared copy when the source is
-removed. Subsequent worker runs check for new authored notes every 15 minutes,
-with a bounded batch; explicit import can process up to 100 changed notes.
+removed. Native-note export requires explicit authorization for the existing note
+contents. Automatic import is off by default; only enable `native_import_enabled`
+after that approval. When enabled, worker runs check for authored notes every
+15 minutes with a bounded batch. Explicit import can process up to 100 changed
+notes. A rejected export must not be retried through automatic hooks.
 Source copies are evidence for targeted search, not additional instructions.
 
 Existing Claude-native Garrison notes remain available through the generated
@@ -118,7 +121,10 @@ git. The installer preserves unrelated hooks, settings and global instructions,
 including Garrison's native shell-event and coordination hooks. It replaces
 only its own hooks and the known old `garrison-memory-hook.py` /
 `.claude/basic-memory/capture-session.py` entries. Every changed existing file
-receives a private backup, and repeated installation is idempotent.
+receives a private backup, and repeated installation is idempotent. Basic Memory
+fitting setup and verification recognize the six shared hooks, preserve them
+across APM/up reruns, and retire only the historical transcript-capture entries.
+An incomplete shared bridge fails setup instead of restoring transcript capture.
 
 For a Mac (substitute its permanent mesh name):
 

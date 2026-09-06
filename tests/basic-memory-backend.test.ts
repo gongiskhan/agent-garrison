@@ -306,6 +306,37 @@ describe("basic-memory backend switch", () => {
     });
   });
 
+  describe("shared agent continuity", () => {
+    it("survives repeated setup and retires only legacy transcript hooks", () => {
+      const events = ["SessionStart", "UserPromptSubmit", "PostToolUse", "PreCompact", "Stop", "SessionEnd"];
+      const hooks = Object.fromEntries(events.map((event) => [event, [{ hooks: [
+        { type: "command", command: "/usr/bin/python3 /repo/scripts/agent-continuity.py hook --source Claude" },
+        { type: "command", command: "native-session-controller" },
+        ...(event === "SessionEnd" ? [{ type: "command", command: "python3 /home/user/.claude/basic-memory/capture-session.py" }] : [])
+      ] }]]));
+      fs.mkdirSync(claudeHome, { recursive: true });
+      fs.writeFileSync(path.join(claudeHome, "settings.json"), JSON.stringify({ hooks }));
+      expect(runSetup().status).toBe(0);
+      const first = settings();
+      expect(JSON.stringify(first)).not.toContain("capture-session.py");
+      expect(JSON.stringify(first)).toContain("native-session-controller");
+      expect(runVerify().status).toBe(0);
+      expect(runSetup().status).toBe(0);
+      expect(settings()).toEqual(first);
+    });
+
+    it("refuses to restore transcript capture when the shared bridge is incomplete", () => {
+      fs.mkdirSync(claudeHome, { recursive: true });
+      fs.writeFileSync(path.join(claudeHome, "settings.json"), JSON.stringify({ hooks: {
+        SessionEnd: [{ hooks: [{ command: "/repo/scripts/agent-continuity.py hook --source Claude" }] }]
+      } }));
+      const result = runSetup();
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("Incomplete shared continuity hooks");
+      expect(JSON.stringify(settings())).not.toContain("capture-session.py");
+    });
+  });
+
   describe("personal Kanban completion capture wiring", () => {
     it("registers a guarded exact-outbox job, executes it, and verify catches missing staged pieces", () => {
       const kanbanFitting = path.join(comp, "apm_modules", "_local", "kanban-loop");

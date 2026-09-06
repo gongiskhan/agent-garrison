@@ -367,7 +367,7 @@ def worker(cfg):
             if not last.exists() or time.time() - last.stat().st_mtime > 60:
                 refresh(cfg, project)
             native_last = state / 'native' / (project['key'] + '.last-import')
-            if not native_last.exists() or time.time() - native_last.stat().st_mtime > 900:
+            if cfg.get('native_import_enabled', False) and (not native_last.exists() or time.time() - native_last.stat().st_mtime > 900):
                 try:
                     native_import(cfg, project, max_notes=10)
                 except (OSError, RuntimeError, subprocess.TimeoutExpired):

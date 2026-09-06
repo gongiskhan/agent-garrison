@@ -172,6 +172,15 @@ class ContinuityTests(unittest.TestCase):
             self.assertNotIn(prohibited, rendered)
         self.assertIn('/Native/Claude/mac-pro', str(calls[0][0]))
 
+    def test_workers_never_export_native_notes_without_explicit_enablement(self):
+        self.event()
+        with patch.object(bridge, 'git_snapshot', return_value={'branch': 'main', 'head': 'abc123', 'paths': []}), \
+             patch.object(bridge, 'bm', return_value='{}'), patch.object(bridge, 'refresh'), \
+             patch.object(bridge, 'native_import', side_effect=AssertionError('unapproved export')) as native:
+            bridge.worker(self.cfg)
+            native.assert_not_called()
+        self.assertEqual(self.records('pending'), [])
+
     def test_native_failed_write_remains_retryable(self):
         self.cfg['claude_home'] = str(self.home / '.claude')
         source = self.home / '.claude/projects' / str(self.repo).replace('/', '-').replace('.', '-') / 'memory'
