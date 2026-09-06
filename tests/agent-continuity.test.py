@@ -86,6 +86,21 @@ class ContinuityTests(unittest.TestCase):
         self.event('UserPromptSubmit')
         self.assertEqual(self.records()[0]['status'], 'active')
 
+    def test_garrison_runtime_metadata_and_structural_events(self):
+        with patch.dict(os.environ, {'GARRISON_COMPOSITION_ID': 'private-composition'}):
+            self.event(source='Garrison', runtime='agent-sdk', duty='implement', prompt='DO NOT STORE')
+            self.event('Checkpoint', source='Garrison', runtime='agent-sdk', duty='implement')
+            self.event('Heartbeat', source='Garrison', runtime='agent-sdk', duty='implement')
+        record = self.records()[0]
+        self.assertEqual(record['source'], 'Garrison/agent-sdk')
+        self.assertEqual(record['duty'], 'implement')
+        self.assertEqual(record['status'], 'active')
+        self.assertNotIn('DO NOT STORE', json.dumps(record))
+        self.assertNotIn('private-composition', json.dumps(record))
+        self.event('SessionEnd', source='Garrison', runtime='agent-sdk', duty='implement')
+        self.assertEqual(self.records()[0]['status'], 'ended')
+        self.assertIsNone(self.event('Heartbeat', sid='native', source='Claude'))
+
     def test_lost_end_expires_without_asserting_session_finished(self):
         self.event()
         sessions = bridge.recent_sessions(self.cfg, self.project, time.time() + 601)

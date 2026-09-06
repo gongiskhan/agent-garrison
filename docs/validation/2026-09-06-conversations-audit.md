@@ -134,6 +134,26 @@ it cannot safely identify two distinct browser submissions.
   released the lock and observed zero runtime calls.
   This document does not claim a deployment or a live model quality result.
 
+Working stretches now share the same continuity bridge regardless of runtime.
+The gateway reads only the local cached startup/peer context on the turn path
+(500 ms cap), and queues metadata-only start, checkpoint, heartbeat and end
+events after actual runtime admission. A Stop before Codex lock admission
+creates no shared session. Stateless routing classifiers retain their explicit
+tool-free prompt. Working SDK duties receive the configured Basic Memory
+transport through their explicit MCP assembly, so they can read and write the
+same authority even when native settings and hooks are disabled.
+
+Enrolled-project instructions are read from the canonical checkout, with local
+override precedence, canonical-file deduplication and a disclosed 65,536-byte
+aggregate cap. Checkout symlinks are resolved before enrollment checks; file
+symlinks must remain inside that project and resolve to an instruction filename.
+Instructions and prompts are never sent to the metadata bridge or shared roster.
+The new runtime-neutral gate passed seven tests against the actual Python
+bridge and detached worker with an isolated authority leaf; its Python metadata
+suite passed all 16 tests. A final combined remote regression run is pending.
+The real HTTP lock-Stop case also now follows the cancelled request with a fresh
+message and checks that cancelled input is absent from its runtime brief.
+
 Test logs are node-local session artifacts at
 `/tmp/garrison-conversations-baseline.log` and
 `/tmp/garrison-conversations-browser-baseline.log` on dev-madrid.

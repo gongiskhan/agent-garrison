@@ -151,6 +151,13 @@ describe("normal conversation ingress through a real gateway process", () => {
     await until(() => ledger(id).some((row) => row.kind === "stretch-ended"));
     expect(ledger(id).find((row) => row.kind === "stretch-ended").payload).toMatchObject({ stoppedReason: "cancelled" });
     expect(calls().length).toBe(before);
+    expect(await message(id, "locked", "This request must never reach Codex")).toMatchObject({ status: 202, body: { duplicate: true } });
+    expect((await message(id, "after-lock-stop", "Fresh question after stopping lock admission")).status).toBe(202);
+    await until(() => ledger(id).filter((row) => row.kind === "stretch-ended").length === 2);
+    const laterCalls = calls().slice(before).filter((row) => row.kind === "turn");
+    expect(laterCalls).toHaveLength(1);
+    expect(laterCalls[0].brief).toContain("Fresh question after stopping lock admission");
+    expect(laterCalls[0].brief).not.toContain("This request must never reach Codex");
   });
 
   it.each([{ project: "../../etc" }, { target: "missing" }, { effort: "unbounded" }, { duty: "missing" }])(

@@ -207,7 +207,7 @@ def session_lock(cfg, key):
 
 def hook(payload, source, cfg, config_path, detach=True):
     event = payload.get('hook_event_name')
-    if event not in EVENTS:
+    if event not in EVENTS and not (source == 'Garrison' and event in {'Checkpoint', 'Heartbeat'}):
         return None
     project = project_for(payload.get('cwd'), cfg)
     session_id = payload.get('session_id')
@@ -225,7 +225,12 @@ def hook(payload, source, cfg, config_path, detach=True):
                   'updated_epoch': now, 'updated_at': datetime.fromtimestamp(now, timezone.utc).isoformat(),
                   'status': {'SessionEnd': 'ended', 'Stop': 'idle', 'SessionStart': 'ready'}.get(event, 'active')}
         # Presence of a known marker classifies orchestration; no env value is persisted.
-        if os.environ.get('GARRISON_COMPOSITION_ID') or os.environ.get('GARRISON_JOB_ID'):
+        if source == 'Garrison':
+            runtime = re.sub(r'[^a-zA-Z0-9._-]', '', str(payload.get('runtime', 'unknown')))[:80] or 'unknown'
+            record['source'] = 'Garrison/' + runtime
+            record['runtime'] = runtime
+            record['duty'] = re.sub(r'[^a-zA-Z0-9._-]', '', str(payload.get('duty', 'unknown')))[:80] or 'unknown'
+        elif os.environ.get('GARRISON_COMPOSITION_ID') or os.environ.get('GARRISON_JOB_ID'):
             record['source'] = 'Garrison/' + source
         atomic_write(path, json.dumps(record, ensure_ascii=False) + '\n')
         atomic_write(state_dir(cfg) / 'pending' / f'{key}.json', json.dumps(record, ensure_ascii=False) + '\n')
@@ -343,6 +348,7 @@ def worker(cfg, config_path=None):
                 content = redact(f"## Structural checkpoint\n\n- Node: {record['node']}\n- Source: {record['source']}\n"
                                  f"- Session key: {record['session_key']}\n- Status: {record['status']}\n- Event: {record['event']}\n"
                                  f"- Observed: {record['updated_at']}\n- Model: {record['model']}\n- Branch: {record['branch']}\n- HEAD: {record['head']}\n\n"
+                                 + (f"- Runtime: {record['runtime']}\n- Duty: {record['duty']}\n\n" if record.get('runtime') else '') +
                                  '## Tracked working-tree paths\n\n' + '\n'.join(record['paths']) +
                                  '\n\nMetadata only. Semantic decisions and handoffs belong in stable shared topic notes. No transcript, tool input, response, diff or environment values were read.\n')
                 bm(cfg, 'write-note', '--overwrite', '--type', 'report', '--folder', folder(project) + '/Sessions/Checkpoints',
@@ -387,7 +393,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--config', type=Path, default=DEFAULT_CONFIG)
     parser.add_argument('action', choices=['hook', 'worker', 'status', 'refresh', 'import-native'])
-    parser.add_argument('--source', choices=['Claude', 'Codex', 'ChatGPT'], default='Codex')
+    parser.add_argument('--source', choices=['Claude', 'Codex', 'ChatGPT', 'Garrison'], default='Codex')
     parser.add_argument('--cwd', default=os.getcwd())
     args = parser.parse_args()
     cfg = load_config(args.config)

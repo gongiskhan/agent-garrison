@@ -42,6 +42,7 @@ import {
 import { boardBase, cardById } from "./autonomous-cards.mjs";
 import { resolveRunScope, listProjectNames, readDevRoot, PERSONAL_SCOPE_TOKEN } from "./project-source.mjs";
 import { applyDutyHarnessProfile, runtimeCodexEnabled } from "./harness-profiles.mjs";
+import { prepareStretchContinuity } from "./stretch-continuity.mjs";
 import {
   routingTableEnabled,
   readRoutingTable,
@@ -881,8 +882,10 @@ export async function runStretch(gateway, {
   onUsage = null,
   signal = null,
   timeoutMs = STRETCH_TIMEOUT_MS,
+  env = process.env,
 }) {
   const started = Date.now();
+  let continuity = null;
   let stop = null;
   const registerStop = (fn) => {
     stop = fn;
@@ -899,17 +902,29 @@ export async function runStretch(gateway, {
   };
   if (signal) signal.addEventListener("abort", abort, { once: true });
   let timer = null;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => {
-      abort();
-      reject(new Error(`stretch timeout after ${timeoutMs}ms`));
-    }, timeoutMs);
-  });
   try {
     if (signal?.aborted) throw new Error("stretch cancelled before runtime admission");
+    const prepared = prepareStretchContinuity({ cwd: cwd ?? gateway.compositionDir, conversationId, stretchId,
+      model: route.target.model, runtime: route.target.runtime, duty: route.duty, env, signal });
+    continuity = prepared?.then ? await prepared : prepared;
+    if (signal?.aborted) throw new Error("stretch cancelled before runtime admission");
+    const groundedBrief = [
+      continuity.instructions ? `## Enrolled project instructions (local files; preserve override precedence)\n${continuity.instructions}` : "",
+      brief,
+      continuity.context ? `## Shared project context and peer sessions (cached; verify current evidence)\n${continuity.context}` : "",
+    ].filter(Boolean).join("\n\n");
+    const onRuntimeAdmission = () => continuity.admit();
+    // The separately bounded local cache read precedes the runtime deadline;
+    // no timeout promise can reject while its consumer is still preparing.
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        abort();
+        reject(new Error(`stretch timeout after ${timeoutMs}ms`));
+      }, timeoutMs);
+    });
     const isAgentSdk = route.target.runtime === "agent-sdk";
     const turnPromise = isAgentSdk
-      ? gateway.runAgentSdkTurn(route, brief, onChunk, {
+      ? gateway.runAgentSdkTurn(route, groundedBrief, onChunk, {
           sessionKey: `stretch:${stretchId}`,
           turnId: turnId ?? `stretch:${stretchId}`,
           // The stretch's own conversation, so the layer-3 tools default to it
@@ -919,11 +934,13 @@ export async function runStretch(gateway, {
           onEvent,
           onUsage,
           registerStop,
+          onRuntimeAdmission,
         })
-      : gateway.runSecondaryTurn(route, brief, {
+      : gateway.runSecondaryTurn(route, groundedBrief, {
           onChunk,
           registerStop,
           signal,
+          onRuntimeAdmission,
           ...(cwd ? { cwd } : {}),
           // Stretch identity: the exec lane uses it to mount the Garrison MCP
           // server scoped to this conversation (provider-two step 3). A
@@ -975,6 +992,9 @@ export async function runStretch(gateway, {
       error: err?.message ?? String(err),
     };
   } finally {
+    // Queued local lifecycle events finish independently of model cancellation
+    // and never await a Basic Memory or network operation on the turn path.
+    void continuity?.finish();
     if (timer) clearTimeout(timer);
     if (signal) signal.removeEventListener("abort", abort);
     // A stretch dies with its session: the warm pool must never leak prior
@@ -1903,6 +1923,7 @@ export async function runConversation(gateway, {
           },
           onUsage,
           signal: stretchAbort.signal,
+          env,
         });
       } finally {
         if (steerRegistry().get(conversationId)?.stretchId === stretchId) steerRegistry().delete(conversationId);
