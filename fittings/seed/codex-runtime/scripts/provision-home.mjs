@@ -29,6 +29,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { ensureCodexContinuityHome } from "../lib/continuity-home.mjs";
 
 const notes = [];
 const warn = (message) => notes.push(`WARN ${message}`);
@@ -129,6 +130,9 @@ function main() {
       settings = "none to seed";
     }
   }
+
+  const continuity = ensureCodexContinuityHome({ targetHome: home });
+  if (continuity.enrolled) console.log("codex-runtime shared continuity enrolled");
 
   for (const note of notes) console.log(note);
   console.log(`codex-runtime-ready (auth: ${credential}; config.toml: ${settings})`);

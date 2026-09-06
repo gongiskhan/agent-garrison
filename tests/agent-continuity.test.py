@@ -111,6 +111,19 @@ class ContinuityTests(unittest.TestCase):
         self.assertEqual(self.records()[0]['status'], 'ended')
         self.assertTrue(any('Agent Sessions garrison mac-pro' in str(c) for c in calls))
 
+    def test_worker_relaunches_after_a_newer_event_loses_the_worker_lock(self):
+        self.event()
+        def write(*args, **kwargs):
+            if 'Checkpoints' in str(args):
+                self.event('SessionEnd')
+            return '{}'
+        with patch.object(bridge, 'git_snapshot', return_value={'branch': 'main', 'head': 'abc123', 'paths': []}), \
+             patch.object(bridge, 'bm', side_effect=write), patch.object(bridge, 'refresh'), \
+             patch.object(bridge, 'spawn_worker') as spawn:
+            bridge.worker(self.cfg, self.home / 'config.json')
+        spawn.assert_called_once_with(self.home / 'config.json')
+        self.assertEqual(self.records('pending')[0]['status'], 'ended')
+
     def test_roster_failure_is_queued_separately_after_checkpoint_succeeds(self):
         self.event()
         def write(*args, **kwargs):

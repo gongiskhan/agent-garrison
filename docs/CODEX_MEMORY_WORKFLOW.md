@@ -159,13 +159,25 @@ Garrison runtimes may set `CODEX_HOME` or `CLAUDE_CONFIG_DIR` to an isolated
 home. Pass each confirmed `--codex-home /absolute/runtime/home` or
 `--claude-home /absolute/runtime/home` to install the same owned hooks and
 managed instructions there as well; preserve its authentication and unrelated
-settings. Point each isolated home's Basic Memory MCP to the same authority
+settings. The Codex fitting also projects only these owned hooks and the
+managed instruction section at provisioning and before a real CLI launch, so
+new named account homes participate. It preserves authentication, all unrelated
+settings and MCPs, and existing unowned memory MCP entries. Missing memory MCPs
+are initialized from the operator's bridge transport config. An unowned inline
+`mcp_servers` table is preserved intact; the helper does not claim to add Basic
+Memory inside that closed TOML table. Point each isolated home's Basic Memory MCP to the same authority
 through the supported client CLI with that client-home environment selected.
 
 The user-level Claude and Codex instruction files receive the same managed
 continuity section; other existing instructions remain intact. Garrison sessions
 must load that user configuration (or receive the same owned entries in their
 isolated client home) to participate.
+
+Automatic lifecycle publishing covers Claude Code and Codex CLI hooks. Runtime
+adapters that invoke a provider SDK or API directly, and other clients such as
+Gemini or Cursor, do not acquire these hooks. They can read the same project
+instructions and shared topics through their configured context and memory
+connection; their lifecycle awareness needs their own adapter integration.
 
 ## Activation and verification
 
@@ -181,7 +193,6 @@ Check the local bridge and its queue:
 ```bash
 python3 scripts/agent-continuity.py status --cwd "$HOME/dev/garrison"
 python3 scripts/agent-continuity.py worker
-python3 scripts/agent-continuity.py import-native --cwd "$HOME/dev/garrison"
 python3 scripts/agent-continuity.py refresh --cwd "$HOME/dev/garrison"
 ```
 
@@ -192,6 +203,12 @@ with a disposable session and verify its metadata-only checkpoint and roster
 in Basic Memory. Confirm failed writes remain private and queued, and that
 unrelated hooks are still present. Offline hosts remain unverified until they
 reconnect; installed configuration is not proof a real client executed it.
+
+Only after the operator explicitly approves exporting the existing authored
+note contents, run `python3 scripts/agent-continuity.py import-native --cwd
+"$HOME/dev/garrison"`. Until then, do not run that command or set
+`native_import_enabled`; shared topic access and metadata-only hooks work without
+exporting the native notes.
 
 The bridge's regression suite uses only the Python standard library:
 

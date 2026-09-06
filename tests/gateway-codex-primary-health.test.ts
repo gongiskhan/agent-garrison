@@ -48,6 +48,7 @@ describe("gateway with a Codex primary", () => {
     // Use the production CodexAdapter session shape ({alive, config}, no Claude
     // session methods), but replace only its warm-time CLI probe with a free stub.
     fs.copyFileSync(CODEX_ADAPTER, path.join(runtimeDir, "lib", "codex-adapter.mjs"));
+    fs.copyFileSync(path.join(path.dirname(CODEX_ADAPTER), "continuity-home.mjs"), path.join(runtimeDir, "lib", "continuity-home.mjs"));
     fs.writeFileSync(path.join(runtimeDir, "scripts", "bridge.mjs"), 'process.stdout.write("ok\\n");\n');
 
     const port = await freePort();

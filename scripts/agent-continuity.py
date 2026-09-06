@@ -318,7 +318,8 @@ def native_import(cfg, project, max_notes=100):
         return {'imported': imported, 'skipped': skipped, 'source_present': True}
 
 
-def worker(cfg):
+def worker(cfg, config_path=None):
+    delivered = 0
     state = state_dir(cfg)
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (state / 'worker.lock').open('a+') as lock:
@@ -346,6 +347,7 @@ def worker(cfg):
                                  '\n\nMetadata only. Semantic decisions and handoffs belong in stable shared topic notes. No transcript, tool input, response, diff or environment values were read.\n')
                 bm(cfg, 'write-note', '--overwrite', '--type', 'report', '--folder', folder(project) + '/Sessions/Checkpoints',
                    '--title', 'Agent Session ' + record['session_key'], content=content)
+                delivered += 1
                 atomic_write(state / 'roster-pending' / (project['key'] + '.json'), json.dumps(project))
                 with session_lock(cfg, record['session_key']):
                     current = read_json(path, {})
@@ -373,6 +375,13 @@ def worker(cfg):
                 except (OSError, RuntimeError, subprocess.TimeoutExpired):
                     pass
 
+    # Events arriving during a remote write may have lost the nonblocking worker
+    # lock. Schedule their retained checkpoint after releasing it, including a
+    # final SessionEnd when no future lifecycle event is guaranteed. No progress
+    # means offline: retain the queue instead of starting a retry storm.
+    if config_path and delivered and (any((state / 'pending').glob('*.json')) or any((state / 'roster-pending').glob('*.json'))):
+        spawn_worker(config_path)
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -383,7 +392,7 @@ def main():
     args = parser.parse_args()
     cfg = load_config(args.config)
     if args.action == 'worker':
-        worker(cfg)
+        worker(cfg, args.config)
     elif args.action in {'status', 'refresh', 'import-native'}:
         project = project_for(args.cwd, cfg)
         if not project:
