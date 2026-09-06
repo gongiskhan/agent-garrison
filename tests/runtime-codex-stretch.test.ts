@@ -13,13 +13,43 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-ignore — pure .mjs (single-line on purpose: @ts-ignore only covers the next line)
-import { buildExecArgs, mcpServerArgs } from "../fittings/seed/codex-runtime/lib/codex-adapter.mjs";
+import { buildExecArgs, mcpServerArgs, CodexAdapter } from "../fittings/seed/codex-runtime/lib/codex-adapter.mjs";
 // @ts-ignore — pure .mjs
 import { runtimeCodexEnabled } from "../fittings/seed/http-gateway/scripts/lib/harness-profiles.mjs";
 // @ts-ignore — pure .mjs
 import { runConversation, runStretch } from "../fittings/seed/http-gateway/scripts/lib/stretch.mjs";
 
 const ROOT = path.resolve(__dirname, "..");
+
+describe("real Codex adapter cancellation before exec", () => {
+  it("does not sendTurn after Stop during asynchronous admission even though pre-child cancel is a no-op", async () => {
+    const { RoutedGateway } = await import(pathToFileURL(path.join(ROOT, "fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs")).href);
+    let execs = 0;
+    let release!: () => void;
+    let ready!: () => void;
+    const entered = new Promise<void>((resolve) => { ready = resolve; });
+    const adapter = new CodexAdapter({ runExec() { execs += 1; return Promise.resolve({ code: 0, stdout: "unexpected", stderr: "" }); } });
+    adapter.awaitReady = async () => { ready(); await new Promise<void>((resolve) => { release = resolve; }); };
+    const cancellations: boolean[] = [];
+    const realCancel = adapter.cancel.bind(adapter);
+    adapter.cancel = async (session: any) => { const result = await realCancel(session); cancellations.push(result); return result; };
+    const gateway: any = Object.create(RoutedGateway.prototype);
+    gateway.logFn = () => {};
+    gateway._stretchMcpConfig = () => null;
+    gateway.runSecondaryTurn = (route: any, message: string, options: any) => gateway._runSecondaryExec(route, message, options, {
+      adapter, rt: "codex", provider: "openai", model: "gpt-6-astra", effort: "high",
+    });
+    const controller = new AbortController();
+    const run = runStretch(gateway, { route: { targetId: "astra", target: { runtime: "codex", model: "gpt-6-astra" } },
+      brief: "must never execute", stretchId: "pre-exec-stop", cwd: os.tmpdir(), signal: controller.signal });
+    await entered;
+    controller.abort();
+    release();
+    expect(await run).toMatchObject({ ok: false, stoppedReason: "cancelled" });
+    expect(cancellations).toEqual([false]);
+    expect(execs).toBe(0);
+  });
+});
 
 describe("runtimeCodexEnabled", () => {
   it("is on unless the revert flag explicitly turns it off", () => {

@@ -923,6 +923,7 @@ export async function runStretch(gateway, {
       : gateway.runSecondaryTurn(route, brief, {
           onChunk,
           registerStop,
+          signal,
           ...(cwd ? { cwd } : {}),
           // Stretch identity: the exec lane uses it to mount the Garrison MCP
           // server scoped to this conversation (provider-two step 3). A

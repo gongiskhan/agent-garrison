@@ -51,6 +51,7 @@ describe("normal conversation ingress through a real gateway process", () => {
         GARRISON_AGENT_SDK_DIR: path.join(ROOT, "tests/fixtures/gateway-agent-sdk-runtime"),
         GARRISON_CODEX_DIR: path.join(ROOT, "tests/fixtures/gateway-conversation-codex"),
         CODEX_RUNTIME_DATA: path.join(home, "codex-lock"),
+        CODEX_LOCK_POLL_MS: "10",
       }, stdio: ["ignore", "pipe", "pipe"],
     });
     child.stdout?.on("data", (chunk) => { logs += chunk; });
@@ -135,6 +136,22 @@ describe("normal conversation ingress through a real gateway process", () => {
     await until(() => ledger(id).filter((row) => row.kind === "stretch-ended").length === 2);
     expect(ledger(id).filter((row) => row.kind === "user-message")).toHaveLength(2);
   }, 15000);
+
+  it("does not admit work after Stop while waiting for the machine-wide Codex lock", async () => {
+    const id = "http-lock-stop";
+    const lock = path.join(home, "codex-lock", "codex.lock");
+    fs.mkdirSync(path.dirname(lock), { recursive: true });
+    fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, at: new Date().toISOString() }), { flag: "wx" });
+    const before = calls().length;
+    try {
+      expect((await message(id, "locked", "This request must never reach Codex")).status).toBe(202);
+      await until(() => ledger(id).some((row) => row.kind === "stretch-started"));
+      expect(await post("cancel", { conversationId: id })).toMatchObject({ status: 202, body: { cancelled: true } });
+    } finally { fs.rmSync(lock, { force: true }); }
+    await until(() => ledger(id).some((row) => row.kind === "stretch-ended"));
+    expect(ledger(id).find((row) => row.kind === "stretch-ended").payload).toMatchObject({ stoppedReason: "cancelled" });
+    expect(calls().length).toBe(before);
+  });
 
   it.each([{ project: "../../etc" }, { target: "missing" }, { effort: "unbounded" }, { duty: "missing" }])(
     "refuses unsupported pins %j visibly before any runtime side effect", async (invalid) => {
