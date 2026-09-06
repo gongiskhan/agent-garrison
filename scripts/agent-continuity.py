@@ -368,6 +368,7 @@ def worker(cfg, config_path=None):
             try:
                 bm(cfg, 'write-note', '--overwrite', '--type', 'report', '--folder', folder(project) + '/Sessions',
                    '--title', roster_title(project, cfg['node']), content=redact(render_roster(cfg, project)))
+                delivered += 1
                 roster_path.unlink()
             except (OSError, RuntimeError, subprocess.TimeoutExpired):
                 continue

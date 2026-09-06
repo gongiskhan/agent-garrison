@@ -153,6 +153,21 @@ class ContinuityTests(unittest.TestCase):
             bridge.worker(self.cfg)
         self.assertEqual(self.records('roster-pending'), [])
 
+    def test_roster_only_retry_reschedules_a_final_event_arriving_during_delivery(self):
+        roster = self.home / 'state/roster-pending/garrison.json'
+        bridge.atomic_write(roster, json.dumps(self.project))
+        self.assertEqual(self.records('pending'), [])
+        def write(*args, **kwargs):
+            if 'Agent Sessions' in str(args):
+                self.event('SessionEnd')
+            return '{}'
+        with patch.object(bridge, 'bm', side_effect=write), patch.object(bridge, 'refresh'), \
+             patch.object(bridge, 'spawn_worker') as spawn:
+            bridge.worker(self.cfg, self.home / 'config.json')
+        self.assertEqual(self.records('roster-pending'), [])
+        self.assertEqual(self.records('pending')[0]['status'], 'ended')
+        spawn.assert_called_once_with(self.home / 'config.json')
+
     def test_ssh_command_quotes_arguments_without_shell_injection(self):
         self.cfg['ssh_host'] = 'dev-madrid'
         argv = bridge.bm_command(self.cfg, 'tool', 'read-note', "project's note; $(private)")
