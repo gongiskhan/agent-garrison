@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-09-06T02:27:00.000Z",
+  "updatedAt": "2026-09-06T09:14:31.555Z",
   "categories": [
     {
       "id": "c1",
@@ -775,6 +775,11 @@
     }
   ],
   "notes": [
+    {
+      "id": "n-agent-continuity-conversations-20260906",
+      "title": "Shared agent context and Conversations audit (6 September 2026)",
+      "body": "Claude Code, Codex and Garrison runtimes share one project-scoped Basic Memory authority on dev-madrid, common instructions and metadata-only session awareness. Garrison AGENTS.md is a relative symlink to CLAUDE.md. Existing authored native memory import requires explicit opt-in; no transcripts are imported. Selected default planning/review duties use Astra and validation/test/report duties use Sol, with existing Claude fallbacks. Conversations audit fixes history replay, burst draining, durable input retry deduplication, normal routing controls and cancellation, and improves search, pinned Zeca, compact navigation and composer usability. Evidence and remaining live rollout gates are in docs/validation/2026-09-06-conversations-audit.md, docs/validation/2026-09-06-conversations-ui.md, docs/validation/2026-09-06-codex-duty-quality.md and docs/CODEX_MEMORY_WORKFLOW.md. The broader conversation, mesh and native-phone roadmap items remain open until their own acceptance gates pass."
+    },
     {
       "id": "n-csg-ios-recovery",
       "title": "csg shell recovery and pendant pause (2026-09-06)",

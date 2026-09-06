@@ -18,9 +18,18 @@ shell consumes part of a tablet or laptop viewport.
 
 ## Verification
 
-Pending execution against the committed candidate on dev-madrid:
-`tests/talk-responsive-browser.test.ts` covers desktop navigation, filtering,
-tablet drawer focus, long drafts and composer bounds at 320, 390 and 768px.
-Existing Conversations runtime, input, voice and mesh suites must also pass.
-Final live checks use the HTTPS tailnet origin, including phone and tablet layouts.
-Real iPhone microphone, APNs and keyboard gates still require the device.
+The detached dev-madrid candidate at `a6d7fd27` passes all 6 browser checks in
+`tests/talk-responsive-browser.test.ts`: desktop navigation, filtering with draft
+preservation, tablet drawer focus and Escape, and long-draft composer bounds at
+320, 390 and 768px. All 7 existing rail-collapse checks also pass. The tablet
+test caught an invisible scrim intercepting navigation at a 1024px viewport with
+a 764px conversation pane; the candidate fixes that interception.
+
+The combined Conversations audit at `54150815` passes 757 tests in 53 suites, plus 24 legacy
+full-stack desktop/mobile parity checks. The latter do not establish normal
+conversation routing or cancellation; those have a separate real-gateway gate.
+Typecheck and the optimized production build passed at `818dadcf`; a final build
+and live HTTPS checks remain pending the final backend candidate.
+
+Real iPhone microphone, APNs and keyboard gates still require the device. Browser
+viewport checks are evidence for responsive web layout, not those native gates.
