@@ -164,6 +164,7 @@ def main():
     config = {**previous, 'version': 1, 'node': bridge.slug(args.node), 'memory_project': 'main',
               'projects': list(projects.values()), 'project_parents': sorted(set(previous.get('project_parents', []) + [str(Path(v).expanduser().resolve()) for v in args.project_parent])),
               'peer_nodes': sorted(set(previous.get('peer_nodes', []) + args.peer_node)),
+              'bridge_command': [sys.executable, str(HERE / 'agent-continuity.py')],
               'basic_memory_command': [args.basic_memory], 'state_dir': str(state), 'ssh_host': args.ssh_host}
     # Never synthesize MCP JSON/TOML: the host setup uses each client's supported CLI.
     save(config_path, json.dumps(config, indent=2) + '\n', backup_dir)
