@@ -352,7 +352,9 @@ function isAnswerCompletion({ store, duty, handoff, card }) {
   const events = store?.tail?.(4000, { kinds: ["handoff", "stretch-started", "session-event", "finding"] }) ?? [];
   let boundary = -1;
   for (let i = events.length - 1; i >= 0; i--) {
-    if (events[i].kind === "handoff" && CONVERSATION_FLOW.terminal.includes(events[i].payload?.nextSteps?.next)) { boundary = i; break; }
+    // needs-input can park unfinished implementation; it cannot erase that
+    // work from the evidence obligation when an analytical follow-up resumes.
+    if (events[i].kind === "handoff" && events[i].payload?.nextSteps?.next === "done") { boundary = i; break; }
   }
   if (boundary < 0 && events.length >= 4000) return false; // unknown earlier work
   for (const event of events.slice(boundary + 1)) {

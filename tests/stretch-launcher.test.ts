@@ -151,9 +151,13 @@ describe("applyFlowPolicy", () => {
   });
 
   it("retains evidence requirements for cards, declared work, implementation and recorded changes", () => {
-    for (const variant of ["card", "work", "implement", "prior-implement", "edit", "change-finding", "synthesized"]) {
+    for (const variant of ["card", "work", "implement", "prior-implement", "parked-implement", "edit", "change-finding", "synthesized"]) {
       const store = openConversation(`answer-guard-${variant}`, { role: "gateway", env });
       if (variant === "prior-implement") store.append({ kind: "stretch-started", duty: "implement", payload: {} });
+      if (variant === "parked-implement") {
+        store.append({ kind: "stretch-started", duty: "implement", payload: {} });
+        store.append({ kind: "handoff", duty: "implement", payload: { nextSteps: { next: "needs-input" } } });
+      }
       if (variant === "edit") store.append({ kind: "session-event", payload: { blocks: [{ type: "tool_use", name: "Edit", input: { file_path: "/project/source.ts" } }] } });
       if (variant === "change-finding") store.append({ kind: "finding", payload: { kind: "change", claim: "Changed the handler" } });
       const packet = { ...answer(), ...(variant === "work" ? { completion: "work" } : {}), ...(variant === "synthesized" ? { synthesized: true } : {}) };
