@@ -124,6 +124,14 @@ it cannot safely identify two distinct browser submissions.
   gateway gate. Two additional focused Stop-admission tests passed locally:
   an already-aborted stretch starts no runtime, and a Stop arriving before an
   adapter registers its control is delivered at registration.
+- At `96ff22b5`, the production Codex adapter's pre-child cancellation semantics
+  received an additional gate. A Stop while waiting for the machine-wide Codex
+  lock is checked after acquisition and before input admission; no `sendTurn`
+  occurs after that Stop. The real adapter's early `cancel()` returns false
+  because no exec child exists, and the gateway now handles that case explicitly.
+  All five affected suites and 75 tests passed, including seven real gateway
+  HTTP cases. The lock test held a real lock, cancelled the waiting request,
+  released the lock and observed zero runtime calls.
   This document does not claim a deployment or a live model quality result.
 
 Test logs are node-local session artifacts at
