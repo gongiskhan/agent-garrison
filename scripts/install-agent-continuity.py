@@ -143,6 +143,8 @@ def main():
     p.add_argument('--ssh-host', help='Omit on the Basic Memory authority node')
     p.add_argument('--basic-memory', default='/home/ggomes/.local/bin/basic-memory')
     p.add_argument('--home', type=Path, default=Path.home(), help='Override for isolated installer validation')
+    p.add_argument('--codex-home', type=Path, action='append', default=[], help='Additional Garrison runtime client homes to enroll')
+    p.add_argument('--claude-home', type=Path, action='append', default=[], help='Additional Garrison runtime client homes to enroll')
     p.add_argument('--unify-instructions', action='store_true', help='Unify explicitly enrolled project roots, preserving both texts')
     args = p.parse_args()
     home = args.home.expanduser().resolve()
@@ -165,20 +167,24 @@ def main():
               'basic_memory_command': [args.basic_memory], 'state_dir': str(state), 'ssh_host': args.ssh_host}
     # Never synthesize MCP JSON/TOML: the host setup uses each client's supported CLI.
     save(config_path, json.dumps(config, indent=2) + '\n', backup_dir)
-    for client, path in [('Claude', home / '.claude/settings.json'), ('Codex', home / '.codex/hooks.json')]:
+    claude_homes = list(dict.fromkeys([home / '.claude', *[v.expanduser().resolve() for v in args.claude_home]]))
+    codex_homes = list(dict.fromkeys([home / '.codex', *[v.expanduser().resolve() for v in args.codex_home]]))
+    client_configs = [('Claude', v / 'settings.json') for v in claude_homes] + [('Codex', v / 'hooks.json') for v in codex_homes]
+    for client, path in client_configs:
         data = bridge.read_json(path)
         if path.exists() and not isinstance(data, dict):
             raise ValueError(f'Refusing invalid JSON configuration: {path}')
         command = ' '.join(shlex.quote(v) for v in [sys.executable, str(HERE / 'agent-continuity.py'), '--config', str(config_path), 'hook', '--source', client])
         merged = merge_hooks(data or {}, command, codex=client == 'Codex')
         save(path, json.dumps(merged, indent=2) + '\n', backup_dir)
-    for path in [home / '.claude/CLAUDE.md', home / '.codex/AGENTS.md']:
+    for path in [*[v / 'CLAUDE.md' for v in claude_homes], *[v / 'AGENTS.md' for v in codex_homes]]:
         save(path, managed_policy(path.read_text() if path.exists() else ''), backup_dir)
     if args.unify_instructions:
         for value in args.project:
             unify_instructions(Path(value.partition('=')[2]).expanduser(), backup_dir)
     print(json.dumps({'node': config['node'], 'config': str(config_path), 'projects': len(config['projects']),
                       'project_parents': config['project_parents'], 'backup_dir': str(backup_dir),
+                      'client_homes': [str(path.parent) for _, path in client_configs],
                       'hooks_per_client': len(bridge.EVENTS), 'requires_new_session_hook_review': True}, indent=2))
 
 

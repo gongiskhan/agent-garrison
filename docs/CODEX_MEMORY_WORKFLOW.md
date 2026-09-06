@@ -54,6 +54,16 @@ topic. Semantic milestones require deliberate notes: a metadata hook cannot
 infer why code changed or whether a test demonstrated the intended behavior.
 The maintained shared brief replaces the old Codex-only brief in hook context.
 
+`import-native` also preserves existing authored Claude project memories in
+`Projects/<project>/Memory/Native/Claude/<node>`, keeping independent node sources
+separate. It reads only top-level `.md` files in that explicit project's native
+`memory` directory, at most 64 KiB each. It excludes symlinks, session/transcript
+filenames and all sibling JSONL files, redacts credential patterns, hashes
+successful source imports, and never deletes a shared copy when the source is
+removed. Subsequent worker runs check for new authored notes every 15 minutes,
+with a bounded batch; explicit import can process up to 100 changed notes.
+Source copies are evidence for targeted search, not additional instructions.
+
 Existing Claude-native Garrison notes remain available through the generated
 `Projects/Garrison/Memory/Claude Native` mirror. Keep generated copies read-only;
 edit source notes or the curated shared topic. Historical notes and raw session
@@ -139,6 +149,13 @@ ignored. Project checkout symlinks are refused during explicit enrollment.
 To unify another project's files while enrolling it, append
 `--project "Example=$HOME/dev/example" --unify-instructions`. This changes only
 explicit project roots, not every repository discovered beneath a parent.
+Garrison runtimes may set `CODEX_HOME` or `CLAUDE_CONFIG_DIR` to an isolated
+home. Pass each confirmed `--codex-home /absolute/runtime/home` or
+`--claude-home /absolute/runtime/home` to install the same owned hooks and
+managed instructions there as well; preserve its authentication and unrelated
+settings. Point each isolated home's Basic Memory MCP to the same authority
+through the supported client CLI with that client-home environment selected.
+
 The user-level Claude and Codex instruction files receive the same managed
 continuity section; other existing instructions remain intact. Garrison sessions
 must load that user configuration (or receive the same owned entries in their
@@ -158,6 +175,7 @@ Check the local bridge and its queue:
 ```bash
 python3 scripts/agent-continuity.py status --cwd "$HOME/dev/garrison"
 python3 scripts/agent-continuity.py worker
+python3 scripts/agent-continuity.py import-native --cwd "$HOME/dev/garrison"
 python3 scripts/agent-continuity.py refresh --cwd "$HOME/dev/garrison"
 ```
 
@@ -178,7 +196,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 tests/agent-continuity.test.py
 It covers project boundaries and discovery, secret/payload exclusion, private
 permissions, client/node separation, peer injection, heartbeat throttling,
 missing-end expiry, offline retry, concurrent checkpoint replacement, roster
-retry, SSH quoting, hook ownership/idempotency and instruction preservation.
+retry, SSH quoting, hook ownership/idempotency, instruction preservation, native memory
+import scope, redaction, update-only behavior and failed-import retry.
 
 Ordinary ChatGPT conversations without this project's files and the Basic
 Memory connection cannot acquire local hooks by changing a repository. Use

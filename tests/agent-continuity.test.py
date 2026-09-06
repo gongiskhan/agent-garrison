@@ -145,6 +145,44 @@ class ContinuityTests(unittest.TestCase):
         self.assertEqual(installer.merge_hooks(merged, command, codex=True), merged)
         self.assertEqual(len(merged['hooks']['SessionStart']), 2)
 
+    def test_native_import_only_reads_authored_markdown_and_is_update_only(self):
+        self.cfg['claude_home'] = str(self.home / '.claude')
+        source = self.home / '.claude/projects' / str(self.repo).replace('/', '-').replace('.', '-') / 'memory'
+        source.mkdir(parents=True)
+        (source / 'MEMORY.md').write_text('A durable choice. api_key=private-test-value')
+        (source.parent / 'session.jsonl').write_text('RAW TRANSCRIPT MUST NEVER APPEAR')
+        (source / 'session-old.md').write_text('RAW SESSION EXCERPT')
+        (source / 'too-large.md').write_text('x' * 65537)
+        secret = self.home / 'unrelated.md'; secret.write_text('UNRELATED SECRET')
+        (source / 'linked.md').symlink_to(secret)
+        calls = []
+        with patch.object(bridge, 'bm', side_effect=lambda *args, **kw: calls.append((args, kw)) or '{}'):
+            result = bridge.native_import(self.cfg, self.project)
+            again = bridge.native_import(self.cfg, self.project)
+            (source / 'MEMORY.md').unlink()
+            deleted = bridge.native_import(self.cfg, self.project)
+        self.assertEqual(result['imported'], 1)
+        self.assertEqual(result['skipped'], 3)
+        self.assertEqual(again['imported'], 0)
+        self.assertEqual(deleted['imported'], 0)
+        self.assertEqual(len(calls), 1)
+        rendered = calls[0][1]['content']
+        self.assertIn('durable choice', rendered)
+        for prohibited in ['private-test-value', 'RAW TRANSCRIPT', 'RAW SESSION', 'UNRELATED SECRET']:
+            self.assertNotIn(prohibited, rendered)
+        self.assertIn('/Native/Claude/mac-pro', str(calls[0][0]))
+
+    def test_native_failed_write_remains_retryable(self):
+        self.cfg['claude_home'] = str(self.home / '.claude')
+        source = self.home / '.claude/projects' / str(self.repo).replace('/', '-').replace('.', '-') / 'memory'
+        source.mkdir(parents=True)
+        (source / 'MEMORY.md').write_text('Decision')
+        with patch.object(bridge, 'bm', side_effect=RuntimeError('offline')):
+            with self.assertRaises(RuntimeError):
+                bridge.native_import(self.cfg, self.project)
+        with patch.object(bridge, 'bm', return_value='{}'):
+            self.assertEqual(bridge.native_import(self.cfg, self.project)['imported'], 1)
+
     def test_instruction_unification_preserves_both_files(self):
         (self.repo / 'AGENTS.md').write_text('Unique Codex instructions\n')
         (self.repo / 'CLAUDE.md').write_text('Unique Claude instructions\n')
