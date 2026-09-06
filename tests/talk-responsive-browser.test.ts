@@ -68,7 +68,10 @@ beforeEach(async () => {
   await page.route("http://talk.test/**", async (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === "/") return route.fulfill({contentType:"text/html",body:'<div id="root"></div>'});
-    if (url.pathname.endsWith("/stream")) return route.fulfill({contentType:"text/event-stream",body:'event: snapshot\ndata: {"events":[]}\n\n'});
+    if (url.pathname.endsWith("/stream")) {
+      const events = [{id:'long-path-prompt',role:'user',ts:null,blocks:[{type:'text',text:'Inspect /Users/ggomes/dev/garrison/'+'long-project-directory'.repeat(18)+' and describe the result.'}]}];
+      return route.fulfill({contentType:"text/event-stream",body:'event: snapshot\ndata: '+JSON.stringify({events})+'\n\n'});
+    }
     return route.fulfill({contentType:"application/json",body:JSON.stringify(url.pathname === '/api/sidebar' ? {groups:[],archived:[],membership:{},order:{},read:{}} : {hits:[]})});
   });
   await page.goto("http://talk.test/");
@@ -125,6 +128,9 @@ describe("Conversations navigation and responsive composer", () => {
     expect(box!.x+box!.width).toBeLessThanOrEqual(width);
     expect(box!.y+box!.height).toBeLessThan(844);
     expect(await page.evaluate(()=>document.documentElement.scrollWidth)).toBe(width);
+    const longPrompt = page.locator('.cc-session-longtext');
+    await longPrompt.waitFor();
+    expect(await longPrompt.evaluate(el=>el.scrollWidth)).toBeLessThanOrEqual(await longPrompt.evaluate(el=>el.clientWidth));
     const send = await page.getByRole('button',{name:'Send',exact:true}).boundingBox();
     expect(send!.height).toBeGreaterThanOrEqual(44);
     expect(send!.y+send!.height).toBeLessThanOrEqual(844);

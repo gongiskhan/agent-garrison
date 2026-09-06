@@ -884,7 +884,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-session-md { font-size: 14px; line-height: 1.55; }
 .cc-session-md > :first-child { margin-top: 0; }
 .cc-session-md > :last-child { margin-bottom: 0; }
-.cc-session-longtext > summary { cursor: pointer; color: var(--cc-fg-dim); }
+.cc-session-longtext > summary { cursor: pointer; color: var(--cc-fg-dim); overflow-wrap: anywhere; }
 :is(
   .cc-session-longtext,
   .cc-session-interim,
