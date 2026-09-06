@@ -173,11 +173,16 @@ continuity section; other existing instructions remain intact. Garrison sessions
 must load that user configuration (or receive the same owned entries in their
 isolated client home) to participate.
 
-Automatic lifecycle publishing covers Claude Code and Codex CLI hooks. Runtime
-adapters that invoke a provider SDK or API directly, and other clients such as
-Gemini or Cursor, do not acquire these hooks. They can read the same project
-instructions and shared topics through their configured context and memory
-connection; their lifecycle awareness needs their own adapter integration.
+Native lifecycle publishing covers Claude Code and Codex CLI hooks. Working
+Garrison stretches also use a runtime-neutral gateway bridge, because the SDK's
+explicit `settingSources=[]` cannot guarantee native hooks. The gateway reads
+cached context with a 500 ms bound, records actual admission, heartbeat and end
+metadata, and leaves Basic Memory delivery to the detached worker. Working SDK
+duties receive the configured shared Basic Memory MCP in their explicit server
+map. In the default composition, only `dispatch-fast` selects the tool-free
+`lean` mode; triage and responder use the full SDK mode and retain memory access.
+An explicitly configured lean target stays tool-free. Other standalone clients such
+as Gemini or Cursor need their own lifecycle integration.
 
 ## Activation and verification
 

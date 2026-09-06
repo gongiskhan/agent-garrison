@@ -59,6 +59,7 @@ import {
   normalizeFailureInfo
 } from "./lib/gateway-routing.mjs";
 import { listProjectNames, resolvePersonalScope } from "./lib/project-source.mjs";
+import { continuityMemoryServer } from "./lib/stretch-continuity.mjs";
 import { SessionLog, runLog } from "@garrison/claude-pty";
 import { createCompactController, resolveCompactConfig, COMPACT_TIMEOUT_MS } from "./lib/compact-controller.mjs";
 import {
@@ -956,25 +957,26 @@ async function loadStubSpawnFn() {
 // routed gateway's shared MCP config: same file, same contract).
 // Returns the exact PTY argv plus the same process-local SDK server map. SDK
 // Queries use strictMcpConfig, so there is no hidden user/project MCP drift.
-async function writeRoutedMcpConfig() {
+export async function writeRoutedMcpConfig({ memoryServer = continuityMemoryServer() } = {}) {
   const gatewayScriptPath = path.join(COMPOSITION_DIR, "apm_modules", "_local", "mcp-gateway", "scripts", "gateway.mjs");
+  const mcpServers = memoryServer ? { "basic-memory": memoryServer } : {};
   try {
     await fs.access(gatewayScriptPath);
-  } catch {
-    logEvent("stdout", { kind: "mcp-config-skipped", reason: "mcp-gateway fitting not installed" });
-    return { extraArgs: [], mcpServers: {} };
-  }
-  const filePath = path.join(COMPOSITION_DIR, ".garrison", "mcp.json");
-  const mcpServers = {
-    garrison: {
+    mcpServers.garrison = {
       command: "node",
       args: [gatewayScriptPath, "stdio"],
       env: {
         GARRISON_COMPOSITION_DIR: COMPOSITION_DIR,
         GARRISON_HTTP_GATEWAY_BASE_URL: `http://${HOST}:${PORT}`,
       },
-    },
-  };
+    };
+  } catch {
+    logEvent("stdout", { kind: "mcp-config-skipped", reason: "mcp-gateway fitting not installed" });
+  }
+  if (!Object.keys(mcpServers).length) {
+    return { extraArgs: [], mcpServers: {} };
+  }
+  const filePath = path.join(COMPOSITION_DIR, ".garrison", "mcp.json");
   const cfg = { mcpServers };
   try {
     await fs.writeFile(filePath, JSON.stringify(cfg, null, 2), "utf8");

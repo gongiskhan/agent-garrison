@@ -1451,7 +1451,7 @@ export class RoutedGateway {
       // A duty harness profile sets `mcpServers: null` to mean "this stretch
       // carries no MCP server", which is different from leaving it unspecified.
       // Nine unused schemas are ~2.3k tokens of boot prefix on every stretch.
-      mcpServers: target.mcpServers === null
+      mcpServers: target.mcpServers === null || target.promptMode === "lean"
         ? {}
         : narrowMcpTools(cloneAssemblyValue(this._agentSdkMcpServers), target.mcpTools, opts.conversationId, opts.cwd),
       strictMcpConfig: true,
