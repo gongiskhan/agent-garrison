@@ -29,7 +29,7 @@ beforeAll(async () => {
         {id:'old',title:'Old shell',project:'website',node:'dev-madrid',runtime:'claude',status:'idle'},
         {id:'working',title:'Current review',project:'garrison',node:'dev-madrid',runtime:'codex',status:'working'},
       ];
-      const transport = {connect(fn){fn({type:'connection',state:'open'});return()=>{};},async sendMessage(){},async sendKey(){},async sendCommand(){}};
+      const transport = {connect(fn){fn({type:'connection',state:'open'});return()=>{};},async sendMessage(){},async sendKey(){},async sendCommand(){},async fetchCommands(){return [];},async setMode(mode){return {mode,reached:true};},async interrupt(){}};
       function App() {
         const [open,setOpen] = React.useState(false);
         const [active,setActive] = React.useState('zeca');
