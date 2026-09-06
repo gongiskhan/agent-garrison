@@ -1,5 +1,14 @@
 # Handoff - the Garrison app run (September 2026)
 
+Recovery 2026-09-06 (D65): csg has been updated and its existing shell thread
+verified end-to-end, including returning to Conversations at phone width.
+Pendant Connect is idempotent and a manual Disconnect persists across app
+foregrounding/relaunch. TestFlight build 35 uploaded after 111/111 XCTest passed.
+Native release and the remaining real-phone checks
+are tracked in `evidence/garrison-app/csg-recovery/README.md`. The reported
+"too much power" warning has not yet been identified from its exact wording;
+do not treat a Bluetooth fix as proof of a USB accessory power fix.
+
 What this run did: the September 2026 plan "one app, the web channel home, one
 voice layer, screencast inside conversations" ran as gates G0-G8 on
 `node/goncalos-macbook-pro`, each gate committed and deployed to this node's

@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-09-06T02:15:00.000Z",
+  "updatedAt": "2026-09-06T02:27:00.000Z",
   "categories": [
     {
       "id": "c1",
@@ -775,6 +775,11 @@
     }
   ],
   "notes": [
+    {
+      "id": "n-csg-ios-recovery",
+      "title": "csg shell recovery and pendant pause (2026-09-06)",
+      "body": "D65: csg updated, existing pnmui-monorepo shell verified with real input/output, and the conversation switcher checked at phone width. Legacy threads use the direct Shells origin; tethered deployment starts Shells before composition verification and waits for shared state. Pendant Connect is idempotent and deliberate Disconnect persists; TestFlight build 35 uploaded after 111/111 XCTest passed. The exact reported energy warning and real-phone acceptance remain unverified. Results: evidence/garrison-app/csg-recovery/README.md. This is a reliability repair for c6.6, c7.1 and c7.3, not completion of their broader scope."
+    },
     {
       "id": "n-c1",
       "title": "Why item one is talking to Zeca",
