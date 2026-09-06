@@ -70,7 +70,7 @@ beforeEach(async () => {
     if (url.pathname === "/") return route.fulfill({contentType:"text/html",body:'<div id="root"></div>'});
     if (url.pathname.endsWith("/stream")) {
       const events = [{id:'long-path-prompt',role:'user',ts:null,blocks:[{type:'text',text:'Inspect /Users/ggomes/dev/garrison/'+'long-project-directory'.repeat(18)+' and describe the result.'}]}];
-      return route.fulfill({contentType:"text/event-stream",body:'event: snapshot\ndata: '+JSON.stringify({events})+'\n\n'});
+      return route.fulfill({contentType:"text/event-stream",body:'data: '+JSON.stringify({type:'init',available:true,live:false,events})+'\n\n'});
     }
     return route.fulfill({contentType:"application/json",body:JSON.stringify(url.pathname === '/api/sidebar' ? {groups:[],archived:[],membership:{},order:{},read:{}} : {hits:[]})});
   });
