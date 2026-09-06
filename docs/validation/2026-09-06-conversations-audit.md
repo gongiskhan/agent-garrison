@@ -167,7 +167,14 @@ responses, guarded by analytical duty, card absence and the current response
 cycle's recorded work. Existing handoffs, card work, implementation and observed
 changes retain evidence/review requirements. The brief says requested actions
 remain work and prohibits inventing tests or evidence files for a prose answer.
-Local policy/schema/review tests pass; the expanded real HTTP gate is pending.
+At `992b71a0`, all eight affected remote suites and 102 tests passed. The real
+HTTP gate now has 11 cases: each informational plan/review/validate completed in
+exactly one stretch, while an implementation mislabeled as an answer still
+entered review and persisted a corrected `work` handoff. Legacy handoffs and
+work evidence requirements, review budgets, Stop/retry and runtime-neutral
+continuity regressions remained green. Classification of user intent is an
+explicit model-authored handoff claim; the gateway checks its structural and
+recorded-work constraints, rather than claiming to prove arbitrary prose intent.
 
 Test logs are node-local session artifacts at
 `/tmp/garrison-conversations-baseline.log` and
@@ -176,3 +183,4 @@ The final gates are `/tmp/garrison-conversations-normal-gate.log`,
 `/tmp/garrison-conversations-final.log`, and
 `/tmp/garrison-conversations-browser-current.log` on that node. The final
 runtime-neutral gate is `/tmp/garrison-conversations-continuity-gate.log`.
+The informational-completion gate is `/tmp/garrison-conversations-answer-gate.log`.
