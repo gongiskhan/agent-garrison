@@ -2032,6 +2032,38 @@ Debt: `#if DEBUG` never fires in this project's app target
 makes `seedFromEnvironmentIfRequested` and `FixtureStreamer.autostartIfRequested`
 dead code in every build. Not touched here.
 
+### D65. Existing shell conversations and pendant pause must survive the app lifecycle (2026-09-06)
+
+The csg tunnel answered, but the running web bundle was `54911b6e` while
+its checkout was `7025b9f0`. The existing pnmui-monorepo conversation stayed
+LINKING: legacy remote-shell threads still opened `/remote-shell/io`, a
+WebSocket relay belonging to the retired own-port host, not the Next shell.
+They now resolve the local Shells fitting and connect directly, like newer
+shell threads. Discovery and the socket handshake are bounded; an unreachable
+shell gets an error and Reattach, not an indefinite linking state. The thread,
+tmux session and dispatch ledger are preserved.
+
+On tethered nodes, fitting discovery uses the enrolled `shellOrigin`, never
+the node's stale local Tailscale configuration. csg publishes through
+dev-madrid on port 8998. Reload/redeploy also recognizes the installer-owned
+node supervisor when neither systemd-user nor launchd is available.
+
+App foregrounding formerly called Connect again even while connected or after
+a deliberate Disconnect. Connect is now idempotent; automatic reconnection
+respects a persisted pause, including OS restoration. A failed cached device
+falls back to scanning; actual connect failures back off 1-30 seconds, while
+an ordinary dropped connection keeps the 200ms chipset reconnect. Stale
+callbacks and pre-disconnect queued retries cannot revive the old attempt.
+Pairing loss is terminal even before the first successful connection.
+
+Bluetooth-unavailable is reported through the existing non-modal app state;
+the CoreBluetooth power alert is disabled. This is not a claim to fix Apple's
+wired-accessory "uses too much power" warning: its exact text and a phone
+reproduction remain outstanding. XCTest now gates the existing TestFlight
+lane before signing/uploading, allowing verification when the mini is offline.
+
+Validation and deployment results: `evidence/garrison-app/csg-recovery/README.md`.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |

@@ -116,6 +116,35 @@ final class PendantPluginMockTests: XCTestCase {
 
     // MARK: - Tests
 
+    func testManualDisconnectSurvivesForegroundAndControllerRecreation() async {
+        let plugin = makePlugin()
+        AppGroup.pendantIdentifier = UUID()
+        XCTAssertTrue(AppGroup.pendantAutoConnect)
+        _ = await invoke(plugin.disconnect, named: "disconnect")
+        XCTAssertFalse(AppGroup.pendantAutoConnect)
+
+        let restoredPlugin = makePlugin()
+        let unexpected = expectation(description: "foreground must not reconnect a paused pendant")
+        unexpected.isInverted = true
+        listen(restoredPlugin, "pendantState") { payload in
+            if let state = payload["connectionState"] as? String, state != "disconnected" {
+                unexpected.fulfill()
+            }
+        }
+        GarrisonPendantPlugin.controllerOverride?.reconnectIfNeeded()
+        await fulfillment(of: [unexpected], timeout: 0.3)
+        XCTAssertFalse(AppGroup.pendantAutoConnect)
+
+        let connected = expectation(description: "explicit Connect resumes")
+        connected.assertForOverFulfill = false
+        listen(restoredPlugin, "pendantState") { payload in
+            if payload["connectionState"] as? String == "connected" { connected.fulfill() }
+        }
+        _ = await invoke(restoredPlugin.connect, named: "connect")
+        await fulfillment(of: [connected], timeout: 5)
+        XCTAssertTrue(AppGroup.pendantAutoConnect)
+    }
+
     func testStatusBeforeAnyConnectIsDisconnectedUnpairedAndIdle() async {
         let plugin = makePlugin()
         let status = await invoke(plugin.status, named: "status")

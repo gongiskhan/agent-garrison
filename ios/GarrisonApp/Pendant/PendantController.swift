@@ -90,11 +90,19 @@ final class PendantController: ObservableObject {
     var isActive: Bool { connectionState != .disconnected }
 
     func connect() {
+        AppGroup.pendantAutoConnect = true
+        refreshServiceState()
+        transport.connect()
+    }
+
+    func reconnectIfNeeded() {
+        guard AppGroup.pendantIdentifier != nil, AppGroup.pendantAutoConnect else { return }
         refreshServiceState()
         transport.connect()
     }
 
     func disconnect() {
+        AppGroup.pendantAutoConnect = false
         transport.disconnect()
         endSession(reason: "user")
     }
@@ -147,7 +155,10 @@ final class PendantController: ObservableObject {
                     self?.startSessionIfNeeded()
                 }
             }
-        case .pairingLost, .bluetoothOff:
+        case .pairingLost:
+            AppGroup.pendantAutoConnect = false
+            endSession(reason: "error")
+        case .bluetoothOff:
             endSession(reason: "error")
         case .disconnected:
             break // manual disconnect already ended the session
@@ -159,6 +170,7 @@ final class PendantController: ObservableObject {
     // MARK: - Session
 
     private func startSessionIfNeeded() {
+        guard AppGroup.pendantAutoConnect, connectionState == .connected else { return }
         guard uploader == nil else { return } // reconnect epoch: same session resumes
         guard let baseURL = AppGroup.baseURL, let token = AppGroup.token else { return }
         let id = SessionId.generate()

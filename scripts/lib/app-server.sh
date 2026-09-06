@@ -20,6 +20,14 @@ app_server_pid_on_port() {
   lsof -nP -iTCP:"$1" -sTCP:LISTEN -t 2>/dev/null | head -n 1 || true
 }
 
+# Tethered Linux nodes without a user systemd bus use the installer-owned
+# process-group supervisor. Never start an untracked second app process.
+restart_node_supervisor() {
+  local supervisor="$1/node-supervisor.sh"
+  [ -x "$supervisor" ] || return 1
+  "$supervisor" restart
+}
+
 wait_for_exit() {
   local pid="$1" i
   for i in $(seq 1 10); do

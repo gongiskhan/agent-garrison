@@ -1,7 +1,7 @@
 // shell-origin.ts: local-node origin resolution (parity with resolveViewUrl),
 // peer-node passthrough, and error classification.
 
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import {
   errorCopy,
   resolveOriginForPage,
@@ -9,7 +9,30 @@ import {
   ShellOriginError,
   shellFetch,
   shellSocketUrl,
+  resolveLocalShellOrigin,
+  _resetShellOriginCacheForTests,
 } from "../packages/talk/ui/shell-origin";
+
+beforeEach(_resetShellOriginCacheForTests);
+
+describe("legacy local shell origin", () => {
+  it("uses the tether owner's published port for csg, not the Next relay", async () => {
+    const fetchImpl = (async () => ({ ok: true, json: async () => ({ views: [
+      { fittingId: "remote-shell-runtime", url: "http://127.0.0.1:8098", tailnetUrl: "https://dev-madrid.tail31efa.ts.net:8998" }
+    ] }) })) as unknown as typeof fetch;
+    const origin = await resolveLocalShellOrigin({ fetchImpl, loc: { hostname: "dev-madrid.tail31efa.ts.net", protocol: "https:" } });
+    expect(shellSocketUrl(origin)).toBe("wss://dev-madrid.tail31efa.ts.net:8998/io");
+  });
+
+  it("does not cache an HTTP error as a successful empty discovery", async () => {
+    const failed = (async () => ({ ok: false, status: 503 })) as unknown as typeof fetch;
+    expect(await resolveLocalShellOrigin({ fetchImpl: failed })).toBe("");
+    const recovered = (async () => ({ ok: true, json: async () => ({ views: [
+      { fittingId: "remote-shell-runtime", url: "http://127.0.0.1:8098" }
+    ] }) })) as unknown as typeof fetch;
+    expect(await resolveLocalShellOrigin({ fetchImpl: recovered })).toBe("http://127.0.0.1:8098");
+  });
+});
 
 describe("resolveOriginForPage", () => {
   const view = { url: "http://127.0.0.1:8098", tailnetUrl: "https://dev-madrid.tail31efa.ts.net:8498" };

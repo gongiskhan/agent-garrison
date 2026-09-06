@@ -36,6 +36,7 @@ cd "$REPO_ROOT"
 . "$SCRIPT_DIR/lib/app-server.sh"
 
 PROD_PORT="$(bash scripts/garrison-instance.sh prod env | sed -n 's/^GARRISON_APP_PORT=//p')"
+PROD_HOME="$(bash scripts/garrison-instance.sh prod env | sed -n 's/^GARRISON_HOME=//p')"
 BASE="http://127.0.0.1:${PROD_PORT}"
 UNIT="garrison-prod.service"
 LAUNCHD_LABEL="io.garrison.node"
@@ -64,7 +65,7 @@ restart_supervised() {
     launchctl kickstart -k "gui/$(id -u)/$LAUNCHD_LABEL"
     return 0
   fi
-  return 1
+  restart_node_supervisor "$PROD_HOME"
 }
 # Track the server being replaced and make sure it is gone after the restart
 # (scripts/lib/app-server.sh says why a SIGTERMed next-server may never exit).

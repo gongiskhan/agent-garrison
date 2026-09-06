@@ -78,7 +78,7 @@ restart_supervised() {
     launchctl kickstart -k "gui/$(id -u)/$LAUNCHD_LABEL"
     return 0
   fi
-  return 1
+  restart_node_supervisor "$PROD_HOME"
 }
 # The pid serving the app port right now is the server we are replacing; the
 # supervisor only signals its parent (`concurrently`), so we track it ourselves

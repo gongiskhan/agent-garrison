@@ -46,11 +46,12 @@ export function resolveOriginForPage(
 let viewsCache: { at: number; views: Array<{ fittingId: string; url?: string | null; tailnetUrl?: string | null }> } | null = null;
 const VIEWS_CACHE_MS = 60_000;
 
-async function fetchLocalViews(fetchImpl: typeof fetch = fetch): Promise<Array<{ fittingId: string; url?: string | null; tailnetUrl?: string | null }>> {
+async function fetchLocalViews(fetchImpl: typeof fetch = fetch, refresh = false): Promise<Array<{ fittingId: string; url?: string | null; tailnetUrl?: string | null }>> {
   const now = Date.now();
-  if (viewsCache && now - viewsCache.at < VIEWS_CACHE_MS) return viewsCache.views;
+  if (!refresh && viewsCache && now - viewsCache.at < VIEWS_CACHE_MS) return viewsCache.views;
   try {
-    const r = await fetchImpl("/api/fittings/views", { cache: "no-store" });
+    const r = await fetchImpl("/api/fittings/views", { cache: "no-store", signal: AbortSignal.timeout(8000) });
+    if (!r.ok) throw new Error(`Fitting discovery failed: HTTP ${r.status}`);
     const d = await r.json();
     const views = Array.isArray(d?.views) ? d.views : [];
     viewsCache = { at: now, views };
@@ -58,6 +59,16 @@ async function fetchLocalViews(fetchImpl: typeof fetch = fetch): Promise<Array<{
   } catch {
     return viewsCache?.views ?? [];
   }
+}
+
+/** Legacy remote-shell threads also belong to the local Shells fitting.
+ * Next serves their REST proxy, but cannot serve the old WebSocket relay. */
+export async function resolveLocalShellOrigin(
+  opts: { fetchImpl?: typeof fetch; loc?: { hostname: string; protocol: string }; refresh?: boolean } = {}
+): Promise<string> {
+  const views = await fetchLocalViews(opts.fetchImpl, opts.refresh);
+  const view = views.find((v) => v.fittingId === "remote-shell-runtime");
+  return view ? resolveOriginForPage(view, opts.loc) : "";
 }
 
 /** The origin to reach `row`'s owning node's Shells fitting from THIS page.
@@ -71,10 +82,7 @@ export async function resolveShellOrigin(
   opts: { fetchImpl?: typeof fetch; loc?: { hostname: string; protocol: string } } = {}
 ): Promise<string> {
   if (self && row.node === self) {
-    const views = await fetchLocalViews(opts.fetchImpl);
-    const view = views.find((v) => v.fittingId === "remote-shell-runtime");
-    if (!view) return "";
-    return resolveOriginForPage(view, opts.loc);
+    return resolveLocalShellOrigin(opts);
   }
   return row.shellOrigin ?? "";
 }

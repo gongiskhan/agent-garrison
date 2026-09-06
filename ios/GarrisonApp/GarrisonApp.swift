@@ -72,7 +72,7 @@ struct GarrisonApp: App {
                         // - a first pairing is still a deliberate act, from the
                         // page.
                         if AppGroup.pendantIdentifier != nil {
-                            PendantController.shared.connect()
+                            PendantController.shared.reconnectIfNeeded()
                         }
                         // Silent re-registration only: never a permission
                         // prompt at launch. The first prompt is
@@ -104,7 +104,7 @@ struct GarrisonApp: App {
             // the link while suspended, and the wearable is worn all day. A
             // connect on an already-connected transport is a no-op.
             if AppGroup.pendantIdentifier != nil {
-                PendantController.shared.connect()
+                PendantController.shared.reconnectIfNeeded()
             }
             // A node can die while the app is in someone's pocket, and on a
             // flapping tunnel it does. Same rules as the launch probe: a

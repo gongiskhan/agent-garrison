@@ -82,6 +82,14 @@ afterEach(async () => {
 });
 
 describe.skipIf(!hasSetsid())("node-supervisor.sh", () => {
+  it("redeploy delegates to the installed fallback supervisor", () => {
+    const wrapper = path.join(TEST_HOME, "node-supervisor.sh");
+    writeFileSync(wrapper, '#!/bin/sh\nprintf "%s" "$1" > "$GARRISON_HOME/restart-verb"\n', { mode: 0o700 });
+    const library = path.resolve(__dirname, "../scripts/lib/app-server.sh");
+    execFileSync("bash", ["-c", 'source "$1"; restart_node_supervisor "$2"', "test", library, TEST_HOME], { env: baseEnv });
+    expect(readFileSync(path.join(TEST_HOME, "restart-verb"), "utf8")).toBe("restart");
+  });
+
   it("reports stopped (exit 1) when nothing has ever been started", () => {
     const result = run(["status"]);
     expect(result.status).toBe(1);

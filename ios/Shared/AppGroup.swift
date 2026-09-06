@@ -27,6 +27,7 @@ enum AppGroup {
         static let speakCues = "speak.cues" // the wake/window cues ("Sim?", "Ok.")
         // Pendant Direct.
         static let pendantIdentifier = "pendant.identifier" // CBPeripheral UUID string
+        static let pendantAutoConnect = "pendant.autoConnect"
         static let pendantAmbientConsent = "pendant.ambientConsent" // stronger one-time notice acknowledged
         static let broadcastHeartbeat = "broadcast.heartbeat" // epoch seconds, written by the extension
         static let broadcastLastError = "broadcast.lastError" // why the extension refused to start
@@ -51,6 +52,13 @@ enum AppGroup {
     static var pendantAmbientConsent: Bool {
         get { defaults?.bool(forKey: Key.pendantAmbientConsent) ?? false }
         set { defaults?.set(newValue, forKey: Key.pendantAmbientConsent) }
+    }
+
+    /// A deliberate Disconnect survives foregrounding and process restoration.
+    /// Existing paired installs keep auto-connect until the wearer pauses it.
+    static var pendantAutoConnect: Bool {
+        get { defaults?.object(forKey: Key.pendantAutoConnect) as? Bool ?? true }
+        set { defaults?.set(newValue, forKey: Key.pendantAutoConnect) }
     }
 
     static var baseURL: URL? {

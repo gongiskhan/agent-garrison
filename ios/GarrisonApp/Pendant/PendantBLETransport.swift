@@ -52,8 +52,9 @@ import Foundation
 /// - Connect by retrieval when a stored identifier exists; scan (filtered on
 ///   the advertised audio service - a nil filter cannot run in background)
 ///   only when there is none.
-/// - No reconnect backoff: on an unexpected drop, re-issue connect() after a
-///   fixed 200 ms and let the chipset wait for free. Never chase peripherals
+/// - On an unexpected drop, re-issue connect() after a fixed 200 ms and let
+///   the chipset wait for free. Actual connection failures back off 1-30 s.
+///   Never chase cached peripherals
 ///   that were never connected; treat peerRemovedPairingInformation as
 ///   terminal.
 /// - Ready only when every discovered service has its characteristics; then
@@ -104,6 +105,8 @@ final class PendantBLETransport: NSObject, DeviceTransport {
     private var livenessTimer: DispatchSourceTimer?
     private var livenessResubscribes = 0
     private var sawAudioSinceArm = false
+    private var connectionGeneration = 0
+    private var consecutiveFailures = 0
 
     private static let restoreIdentifier = "com.gomes.garrison.pendant.restore"
     private static let reconnectDelayMs = 200
@@ -129,7 +132,9 @@ final class PendantBLETransport: NSObject, DeviceTransport {
         #if os(iOS) && !PENDANT_MOCK_BLE
         let options: [String: Any] = [
             CBCentralManagerOptionRestoreIdentifierKey: Self.restoreIdentifier,
-            CBCentralManagerOptionShowPowerAlertKey: true
+            // Bluetooth-off is already a non-modal state in the app. This
+            // option is NOT the wired-accessory "uses too much power" alert.
+            CBCentralManagerOptionShowPowerAlertKey: false
         ]
         #else
         let options: [String: Any] = [:]
@@ -141,6 +146,7 @@ final class PendantBLETransport: NSObject, DeviceTransport {
 
     func connect() {
         queue.async { [self] in
+            guard !wantsConnection else { return }
             wantsConnection = true
             manualDisconnect = false
             startConnecting()
@@ -150,6 +156,8 @@ final class PendantBLETransport: NSObject, DeviceTransport {
     func disconnect() {
         queue.async { [self] in
             wantsConnection = false
+            connectionGeneration += 1
+            consecutiveFailures = 0
             manualDisconnect = true
             central.stopScan()
             if let peripheral {
@@ -202,12 +210,14 @@ final class PendantBLETransport: NSObject, DeviceTransport {
             if central.state == .poweredOff { setState(.bluetoothOff) }
             return // centralManagerDidUpdateState fires the pending connect
         }
+        guard !central.isScanning else { return }
         if peripheral == nil, !preferScan, let storedIdentifier,
            let known = central.retrievePeripherals(withIdentifiers: [storedIdentifier]).first {
             adopt(known)
             armRetrievalTimeout()
         }
         if let peripheral {
+            guard peripheral.state == .disconnected else { return }
             setState(everConnected ? .reconnecting : .connecting)
             central.connect(peripheral, options: nil)
             return
@@ -224,9 +234,11 @@ final class PendantBLETransport: NSObject, DeviceTransport {
         found.delegate = self
     }
 
-    private func scheduleReconnect() {
-        queue.asyncAfter(deadline: .now() + .milliseconds(Self.reconnectDelayMs)) { [weak self] in
-            guard let self, self.wantsConnection, !self.manualDisconnect else { return }
+    private func scheduleReconnect(after milliseconds: Int = PendantBLETransport.reconnectDelayMs) {
+        let generation = connectionGeneration
+        queue.asyncAfter(deadline: .now() + .milliseconds(milliseconds)) { [weak self] in
+            guard let self, self.wantsConnection, !self.manualDisconnect,
+                  self.connectionGeneration == generation else { return }
             self.startConnecting()
         }
     }
@@ -361,6 +373,7 @@ extension PendantBLETransport: CBCentralManagerDelegate {
         advertisementData: [String: Any],
         rssi RSSI: NSNumber
     ) {
+        guard wantsConnection, !manualDisconnect, self.peripheral == nil, central.isScanning else { return }
         // The scan filter already guarantees the audio service; adopt the
         // strongest first hit.
         central.stopScan()
@@ -372,7 +385,12 @@ extension PendantBLETransport: CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        guard self.peripheral === peripheral, wantsConnection, !manualDisconnect else {
+            central.cancelPeripheralConnection(peripheral)
+            return
+        }
         cancelRetrievalTimeout()
+        consecutiveFailures = 0
         preferScan = false
         everConnected = true
         connectedAt = Date()
@@ -382,23 +400,28 @@ extension PendantBLETransport: CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
-        guard !manualDisconnect else { return }
-        // Never chase strangers: only retry peripherals that were connected.
-        guard everConnected else {
-            self.peripheral = nil
-            if wantsConnection { startConnecting() }
-            return
-        }
+        guard self.peripheral === peripheral, wantsConnection, !manualDisconnect else { return }
+        teardownSession()
         if isPairingLost(error) {
             setState(.pairingLost)
             wantsConnection = false
             return
         }
+        // A failed cached identifier must fall back to scanning, not retrieve
+        // the same peripheral in an immediate connect/fail loop.
+        if !everConnected {
+            self.peripheral = nil
+            preferScan = true
+        }
+        consecutiveFailures = min(consecutiveFailures + 1, 6)
         setState(.reconnecting)
-        scheduleReconnect()
+        scheduleReconnect(after: min(30_000, 1000 * (1 << (consecutiveFailures - 1))))
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+        // Retrieval timeout cancels the old peripheral before scanning. Its
+        // late callback must not tear down a newly discovered connection.
+        guard self.peripheral === peripheral else { return }
         // Finalize in-flight audio: no further packet will trigger a gap
         // close, so flush the pending frame now.
         if let tail = reassembler.flush(), let connectedAt {
@@ -423,6 +446,11 @@ extension PendantBLETransport: CBCentralManagerDelegate {
         // Re-adopt restored peripherals and mark them ever-connected, or the
         // reconnect pass will ignore them.
         let restored = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] ?? []
+        guard AppGroup.pendantAutoConnect else {
+            central.stopScan()
+            for peripheral in restored { central.cancelPeripheralConnection(peripheral) }
+            return
+        }
         if let first = restored.first {
             adopt(first)
             storedIdentifier = first.identifier
@@ -442,6 +470,7 @@ extension PendantBLETransport: CBCentralManagerDelegate {
 
 extension PendantBLETransport: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        guard self.peripheral === peripheral, wantsConnection, !manualDisconnect else { return }
         guard error == nil, let services = peripheral.services else { return }
         pendingCharacteristicDiscovery = Set(services.map(ObjectIdentifier.init))
         for service in services {
@@ -450,6 +479,7 @@ extension PendantBLETransport: CBPeripheralDelegate {
     }
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        guard self.peripheral === peripheral, wantsConnection, !manualDisconnect else { return }
         // A FAILED discovery still retires the service. No further callback is
         // coming for it and there is no discovery timeout, so leaving it
         // pending would wedge the transport in .connecting forever. Continue

@@ -55,6 +55,7 @@ export function RemoteShellPane({
     let cancelled = false;
     tmuxModeRef.current = false;
     setStatus(null);
+    setAgentState(null);
     const term = new Terminal({
       cursorBlink: true,
       cursorStyle: "block",
@@ -105,18 +106,26 @@ export function RemoteShellPane({
     const socket = new WebSocket(ioUrl ?? `${proto}//${window.location.host}/remote-shell/io`);
     socket.binaryType = "arraybuffer";
     socketRef.current = socket;
+    const handshakeTimer = setTimeout(() => {
+      if (cancelled) return;
+      setStatus("Shell connection timed out. Reattach to retry.");
+      socket.close();
+    }, 8000);
 
     socket.addEventListener("open", () => {
+      if (cancelled) return;
       setStatus(null);
       socket.send(JSON.stringify({ type: "init", sessionId, cols: term.cols, rows: term.rows }));
     });
     socket.addEventListener("message", (ev) => {
+      if (cancelled) return;
       if (typeof ev.data === "string") {
         if (ev.data.startsWith("{")) {
           try {
             const msg = JSON.parse(ev.data);
             if (msg && typeof msg.type === "string") {
               if (msg.type === "init_ack") {
+                clearTimeout(handshakeTimer);
                 tmuxModeRef.current = msg.tmux === true;
                 if (msg.state === "running" || msg.state === "idle") setAgentState(msg.state);
                 return;
@@ -137,8 +146,8 @@ export function RemoteShellPane({
       const buf = ev.data instanceof ArrayBuffer ? new Uint8Array(ev.data) : (ev.data as Uint8Array);
       term.write(buf);
     });
-    socket.addEventListener("close", () => { if (!cancelled) setStatus((s) => s ?? "connection closed"); });
-    socket.addEventListener("error", () => { if (!cancelled) setStatus((s) => s ?? "connection error"); });
+    socket.addEventListener("close", () => { clearTimeout(handshakeTimer); if (!cancelled) setStatus((s) => s ?? "connection closed"); });
+    socket.addEventListener("error", () => { clearTimeout(handshakeTimer); if (!cancelled) setStatus((s) => s ?? "connection error"); });
 
     term.onData((d) => {
       if (socket.readyState === WebSocket.OPEN) socket.send(new TextEncoder().encode(d));
@@ -168,6 +177,7 @@ export function RemoteShellPane({
 
     return () => {
       cancelled = true;
+      clearTimeout(handshakeTimer);
       if (refitTimer) clearTimeout(refitTimer);
       detachScrolling();
       window.removeEventListener("resize", refit);

@@ -15,6 +15,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RemoteShellPane, type RemoteShellMeta } from "./remote-shell-pane";
 import type { RemoteShellTransport } from "./app";
+import { resolveLocalShellOrigin, shellSocketUrl } from "./shell-origin";
 
 const DELEGATE_MIN = 280;
 const DELEGATE_MAX = 520;
@@ -68,6 +69,8 @@ export function RemoteShellWorkbench({
 }) {
   const [meta, setMeta] = useState<RemoteShellMeta>({ agentState: null, status: null });
   const [nonce, setNonce] = useState(0);
+  const [origin, setOrigin] = useState<string | null>(null);
+  const [originError, setOriginError] = useState<string | null>(null);
   const [runningSince, setRunningSince] = useState<number | null>(null);
   const [elapsed, setElapsed] = useState("");
   const [narrow, setNarrow] = useState(
@@ -85,7 +88,20 @@ export function RemoteShellWorkbench({
   });
   const bodyRef = useRef<HTMLDivElement | null>(null);
 
-  const state = deckState(meta);
+  const state = deckState(originError ? { agentState: null, status: originError } : meta);
+
+  useEffect(() => {
+    let alive = true;
+    setOrigin(null);
+    setOriginError(null);
+    setMeta({ agentState: null, status: null });
+    void resolveLocalShellOrigin({ refresh: true }).then((resolved) => {
+      if (!alive) return;
+      if (resolved) setOrigin(resolved);
+      else setOriginError("No reachable Shells address is published for this node.");
+    }).catch((err) => { if (alive) setOriginError(String(err)); });
+    return () => { alive = false; };
+  }, [sessionId, nonce]);
 
   // Elapsed clock while running.
   useEffect(() => {
@@ -128,6 +144,7 @@ export function RemoteShellWorkbench({
     if (!t) return bump();
     void fetch("/api/remote-shell/sessions", {
       method: "POST",
+      signal: AbortSignal.timeout(8000),
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         transport: t,
@@ -218,7 +235,7 @@ export function RemoteShellWorkbench({
       </div>
       <div className={`wc-wb-body${dragging ? " wc-wb-body--dragging" : ""}`} ref={bodyRef}>
         <div className="wc-wb-terminal">
-          <RemoteShellPane sessionId={sessionId} hideBar reconnectNonce={nonce} onMetaChange={setMeta} />
+          {origin && <RemoteShellPane sessionId={sessionId} hideBar reconnectNonce={nonce} onMetaChange={setMeta} ioUrl={shellSocketUrl(origin)} />}
           {troubled && (
             <div className="wc-wb-veil">
               <div className="wc-wb-plaque">
@@ -226,7 +243,7 @@ export function RemoteShellWorkbench({
                 <div className="wc-wb-plaque-sub">
                   {state === "detached"
                     ? "The tmux session is still running on the remote host."
-                    : "The relay closed. Reattach to resume."}
+                    : originError ?? meta.status ?? "The shell connection closed. Reattach to resume."}
                 </div>
                 <button type="button" className="wc-wb-reattach wc-wb-reattach--loud" onClick={reattach}>
                   REATTACH
