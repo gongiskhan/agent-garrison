@@ -94,7 +94,7 @@ const DETAIL_CAP = 4000;
  *   is per-batch, which is what a one-shot read wants.
  * @returns {Array<object>} SessionEvents, in record order.
  */
-export function ledgerToSessionEvents(events, { conversationId, stretchStarts = null, eventSlots = null, handoffBags = null } = {}) {
+export function ledgerToSessionEvents(events, { conversationId, stretchStarts = null, eventSlots = null, handoffBags = null, replyTexts = null, readReply = null } = {}) {
   const cid = String(conversationId ?? "");
   const starts = stretchStarts ?? new Map();
   // Same continuity contract as stretchStarts, for teed session-events: a
@@ -106,13 +106,53 @@ export function ledgerToSessionEvents(events, { conversationId, stretchStarts = 
   // the renderer can say "needs your input" without parsing ledger prose. A
   // batch boundary between the two must not lose that pairing.
   const bags = handoffBags ?? new Map();
+  // Latest prose per teed event, retained across SSE pages. A progress message
+  // is not proof that the final answer was delivered. Compare complete prose,
+  // including revisions, before deciding a saved reply would be a duplicate.
+  const texts = replyTexts ?? new Map();
   const out = [];
   for (const record of events ?? []) {
     if (!record || typeof record !== "object") continue;
     const adapted = adaptRecord(record, cid, starts, slots, bags);
     if (adapted) out.push(adapted);
+    const stretchId = stretchIdOf(record, record.payload);
+    if (record.kind === "session-event" && adapted?.role === "assistant" && stretchId) {
+      const byId = texts.get(stretchId) ?? new Map();
+      const terminal = adapted.blocks.findLast((block) => block.type === "turn_end" && typeof block.result === "string" && block.result.trim());
+      const prose = terminal?.result ?? adapted.blocks.filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n\n");
+      byId.set(adapted.id, replyProse(prose));
+      texts.set(stretchId, byId);
+    }
+    if (record.kind === "stretch-ended" && adapted && typeof readReply === "function") {
+      const saved = readReply(record.payload?.replyRef);
+      const prose = replyProse(saved);
+      const delivered = [...(texts.get(stretchId)?.values() ?? [])].filter(Boolean);
+      // The settled renderer selects the last textual envelope. Finding the
+      // answer only in an earlier interim, or split across envelopes, is not
+      // sufficient: the complete reply must occupy the final text position.
+      if (prose && delivered.at(-1) !== prose) {
+        out.push({
+          id: `${cid}#reply:${stretchId || record.index}`,
+          ts: recordTs(record),
+          order: record.index,
+          revision: 0,
+          role: "assistant",
+          ...(stretchId ? { turnId: stretchId } : {}),
+          blocks: [{ type: "text", text: saved }],
+        });
+      }
+      texts.delete(stretchId);
+    }
   }
   return out;
+}
+
+function replyProse(value) {
+  if (typeof value !== "string") return "";
+  // Same protocol-tail rule as the renderer's stripHandoffFence. Preserve the
+  // actual saved bytes in the event; normalization is only for deduplication.
+  const fence = value.indexOf("```handoff");
+  return (fence < 0 ? value : value.slice(0, fence)).trim();
 }
 
 function adaptRecord(record, cid, starts, slots = new Map(), bags = new Map()) {

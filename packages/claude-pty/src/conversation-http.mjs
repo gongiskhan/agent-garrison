@@ -23,7 +23,7 @@
 // event, debounced per (conversation, target, ref), so "which records did a
 // human actually open" is a measurable fact rather than a guess.
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readFileSync, readSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { conversationDir, listConversations, openConversation } from "./conversation-store.mjs";
 import { conversationMetrics } from "./conversation-metrics.mjs";
@@ -44,6 +44,7 @@ export const DELIVERY_MODES = new Set(["steer", "queue"]);
 const STREAM_POLL_MS = 350;
 const KEEPALIVE_MS = 15_000;
 const BODY_CAP_BYTES = 1024 * 1024;
+const REPLY_CAP_BYTES = 1024 * 1024;
 const DIG_DEBOUNCE_MS = 60_000;
 const SEARCH_PER_FILE = 50;
 const SEARCH_GLOBAL_CAP = 200;
@@ -272,22 +273,8 @@ function handlePayload(res, store, refRaw) {
     sendJson(res, 400, { error: "invalid payload ref" });
     return;
   }
-  const dir = path.join(store.dir, "payloads");
-  const file = path.join(dir, ref);
-  let real = null;
-  try {
-    if (statSync(file).isFile()) real = realpathSync(file);
-  } catch {
-    real = null;
-  }
-  if (!real || !confinedTo(real, dir)) {
-    sendJson(res, 404, { error: "no such payload" });
-    return;
-  }
-  let body;
-  try {
-    body = readFileSync(real);
-  } catch {
+  const body = readConfinedPayload(store, ref);
+  if (body === null) {
     sendJson(res, 404, { error: "no such payload" });
     return;
   }
@@ -297,6 +284,43 @@ function handlePayload(res, store, refRaw) {
   res.setHeader("x-content-type-options", "nosniff");
   res.setHeader("content-security-policy", "default-src 'none'; sandbox");
   res.end(body);
+}
+
+/** Shared owner-local payload getter for the raw endpoint and answer replay.
+ * Refuse symlinks and non-files, and read the descriptor we size-checked so a
+ * replacement cannot turn a bounded reply read into an unbounded allocation. */
+function readConfinedPayload(store, refRaw, maxBytes = Infinity) {
+  if (typeof refRaw !== "string") return null;
+  const ref = refRaw.startsWith("payloads/") ? refRaw.slice("payloads/".length) : refRaw;
+  if (!PAYLOAD_REF_RE.test(ref) || ref === "." || ref === "..") return null;
+  const dir = path.join(store.dir, "payloads");
+  const file = path.join(dir, ref);
+  let fd;
+  try {
+    if (!lstatSync(dir).isDirectory() || !lstatSync(file).isFile()) return null;
+    const real = realpathSync(file);
+    if (!confinedTo(real, dir)) return null;
+    fd = openSync(real, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.size > maxBytes) return null;
+    // A file may grow after fstat: a bounded descriptor read cannot follow it.
+    if (Number.isFinite(maxBytes)) {
+      const buffer = Buffer.alloc(stat.size + 1);
+      // readFileSync(fd) would read to EOF and invalidate the allocation bound.
+      let count = 0;
+      while (count < buffer.length) {
+        const bytes = readSync(fd, buffer, count, buffer.length - count, count);
+        if (bytes === 0) break;
+        count += bytes;
+      }
+      return count > stat.size ? null : buffer.subarray(0, count);
+    }
+    return readFileSync(fd);
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
 }
 
 /**
@@ -330,6 +354,9 @@ function handleStream(req, res, { store, conversationId, from, pollMs }) {
   const stretchStarts = new Map();
   const eventSlots = new Map();
   const handoffBags = new Map();
+  const replyTexts = new Map();
+  const readReply = (ref) => readConfinedPayload(store, ref, REPLY_CAP_BYTES)?.toString("utf8") ?? null;
+  const adapt = (events) => ledgerToSessionEvents(events, { conversationId, stretchStarts, eventSlots, handoffBags, replyTexts, readReply });
   // Observe the size BEFORE reading: a writer can append while range() runs,
   // and that write must still be visible to the next change check.
   let size = logBytes(store);
@@ -343,7 +370,7 @@ function handleStream(req, res, { store, conversationId, from, pollMs }) {
     type: "init",
     available: true,
     live: true,
-    events: ledgerToSessionEvents(first.events, { conversationId, stretchStarts, eventSlots, handoffBags }),
+    events: adapt(first.events),
   });
 
   let closed = false;
@@ -381,7 +408,7 @@ function handleStream(req, res, { store, conversationId, from, pollMs }) {
       hasBacklog = page.nextIndex < page.total;
       if (!page.events.length) return;
       cursor = page.nextIndex;
-      emit({ type: "events", events: ledgerToSessionEvents(page.events, { conversationId, stretchStarts, eventSlots, handoffBags }) });
+      emit({ type: "events", events: adapt(page.events) });
     } catch {
       // A transient read miss is retried on the next tick; it must never turn a
       // live conversation into a dead pane.

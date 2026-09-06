@@ -7,7 +7,7 @@
 //   - `conversationEventId` must be spelled identically in the .mjs producer and
 //     the .tsx consumer, or a search hit lands on an id nothing carries.
 import http from "node:http";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,6 +20,7 @@ import { conversationEventId, ledgerToSessionEvents } from "../packages/claude-p
 // @ts-ignore — pure .mjs (the SERVER half of the block-type whitelist)
 import { sanitizeSessionEvent } from "../packages/talk/src/threads.mjs";
 import { conversationEventId as conversationEventIdTsx } from "../packages/claude-chat/src/ConversationView";
+import { groupSessionTurns, mergeSessionEvents, presentSessionTurn, stripHandoffFence } from "../packages/claude-chat/src/journal";
 
 let tmp: string;
 let env: Record<string, string>;
@@ -228,6 +229,107 @@ describe("conversation router - reads", () => {
 });
 
 describe("conversation router - stream", () => {
+  const answer = "1. Concurrent requests both pass the check. Use atomic unique admission.\n\n2. A crash after model execution can cause replay; provider cooperation is required.";
+  const savedReply = `${answer}\n\n\`\`\`handoff\n{"summary":"Bookkeeping only"}\n\`\`\``;
+
+  async function firstFrame(base: string, id: string, from = 0) {
+    const response = await fetch(`${base}/${id}/stream?from=${from}`, { signal: AbortSignal.timeout(3000) });
+    const reader = response.body!.getReader();
+    let text = "";
+    try {
+      while (!text.includes("\n\n")) text += new TextDecoder().decode((await reader.read()).value);
+      return JSON.parse(text.slice(6, text.indexOf("\n\n")));
+    } finally {
+      await reader.cancel();
+    }
+  }
+
+  function replyStore(id: string, replyRef = "payloads/stretch-0001-reply.md") {
+    const store = openConversation(id, { role: "gateway", env });
+    store.append({ kind: "user-message", payload: { text: "Review the synthetic code" } });
+    store.append({ kind: "stretch-started", stretch: "reply-s1", payload: { target: TARGET } });
+    store.writeNamedPayload("stretch-0001-reply.md", savedReply);
+    const finish = () => {
+      store.append({ kind: "handoff", stretch: "reply-s1", payload: { summary: "Bookkeeping only", nextSteps: { next: "done" } } });
+      store.append({ kind: "stretch-ended", stretch: "reply-s1", payload: { replyRef, next: "done", model: "gpt-6-astra" } });
+    };
+    return { store, finish };
+  }
+
+  it.each([0, 3])("replays the complete saved answer through the real stream and renderer (from=%s)", async (from) => {
+    const { finish } = replyStore("c-answer-history");
+    finish();
+    const { base } = await mount();
+    const frame = await firstFrame(base, "c-answer-history", from);
+    const events = mergeSessionEvents([], frame.events.map(sanitizeSessionEvent));
+    const turns = groupSessionTurns(events);
+    const turn = turns.find((item) => item.assistantEvents.some((event) => event.turnId === "reply-s1"))!;
+    expect(stripHandoffFence(presentSessionTurn(turn, false).primaryText)).toBe(answer);
+    expect(frame.events.filter((event: any) => event.blocks.some((block: any) => block.text === savedReply))).toHaveLength(1);
+    // A reconnect recreates the same identities, rather than appending a second answer.
+    expect(mergeSessionEvents(events, (await firstFrame(base, "c-answer-history", from)).events)).toEqual(events);
+  });
+
+  it.each([false, true])("delivers a live answer after progress and avoids a complete streamed duplicate (%s)", async (alreadyStreamed) => {
+    const { store, finish } = replyStore(`c-answer-live-${alreadyStreamed}`);
+    store.append({ kind: "session-event", stretch: "reply-s1", payload: { id: "text-1", role: "assistant", blocks: [{ type: "text", text: "I am checking the two schedules." }] } });
+    const { base } = await mount();
+    const response = await fetch(`${base}/c-answer-live-${alreadyStreamed}/stream`, { signal: AbortSignal.timeout(3000) });
+    const reader = response.body!.getReader();
+    let buffered = "";
+    let events: any[] = [];
+    let stage = 0;
+    try {
+      while (!events.some((event) => event.blocks.some((block: any) => block.phase === "ended"))) {
+        buffered += new TextDecoder().decode((await reader.read()).value);
+        let at: number;
+        while ((at = buffered.indexOf("\n\n")) !== -1) {
+          const raw = buffered.slice(0, at); buffered = buffered.slice(at + 2);
+          if (!raw.startsWith("data: ")) continue;
+          const frame = JSON.parse(raw.slice(6));
+          events = mergeSessionEvents(events, frame.events ?? []);
+          if (stage === 0) {
+            stage = 1;
+            if (alreadyStreamed) store.append({ kind: "session-event", stretch: "reply-s1", payload: { id: "text-1", role: "assistant", blocks: [{ type: "text", text: savedReply }] } });
+            else finish();
+          } else if (stage === 1 && alreadyStreamed) {
+            // Final tee and settlement arrive in separate SSE batches.
+            stage = 2; finish();
+          }
+        }
+      }
+      const turn = groupSessionTurns(events).find((item) => item.assistantEvents.some((event) => event.turnId === "reply-s1"))!;
+      expect(stripHandoffFence(presentSessionTurn(turn, false).primaryText)).toBe(answer);
+      expect(events.filter((event) => event.blocks.some((block: any) => block.text === savedReply))).toHaveLength(1);
+      for (const event of events) expect(sanitizeSessionEvent(event)).not.toBeNull();
+    } finally {
+      await reader.cancel();
+    }
+  });
+
+  it.each(["../outside.md", "/etc/passwd", "payloads/../outside.md", "payloads/%2e%2e/outside.md", "payloads/missing.md", "symlink", "directory-symlink", "oversize"])("does not hydrate unsafe or unavailable reply %s", async (mode) => {
+    const validRef = "payloads/stretch-0001-reply.md";
+    const id = `c-answer-unsafe-${mode.replace(/[^a-z]+/g, "-")}`;
+    const special = ["symlink", "directory-symlink", "oversize"].includes(mode);
+    const { store, finish } = replyStore(id, special ? validRef : mode);
+    const file = path.join(store.dir, validRef);
+    const outside = path.join(tmp, "outside.md");
+    writeFileSync(outside, "PRIVATE_OUTSIDE_SENTINEL");
+    if (mode === "symlink") { rmSync(file); symlinkSync(outside, file); }
+    if (mode === "directory-symlink") {
+      const elsewhere = path.join(tmp, "elsewhere"); mkdirSync(elsewhere);
+      writeFileSync(path.join(elsewhere, "stretch-0001-reply.md"), "PRIVATE_OUTSIDE_SENTINEL");
+      rmSync(path.dirname(file), { recursive: true }); symlinkSync(elsewhere, path.dirname(file));
+    }
+    if (mode === "oversize") writeFileSync(file, "X".repeat(1024 * 1024 + 1));
+    finish();
+    const { base } = await mount();
+    const frame = await firstFrame(base, id);
+    expect(frame.events.some((event: any) => event.id.includes("#reply:"))).toBe(false);
+    expect(JSON.stringify(frame)).not.toContain("PRIVATE_OUTSIDE_SENTINEL");
+    expect(frame.events.some((event: any) => event.blocks.some((block: any) => block.phase === "ended"))).toBe(true);
+  });
+
   it.each([
     { name: "an existing history beyond the initial page", initial: 2105, burst: 0 },
     { name: "a live burst beyond two delta pages", initial: 1, burst: 1205 },
@@ -678,6 +780,22 @@ describe("ledger -> SessionEvent adapter", () => {
 });
 
 describe("ledger -> SessionEvent adapter: teed session events", () => {
+  it.each(["split", "later-progress", "terminal"])("keeps complete reply as final prose after %s tee envelopes", (mode) => {
+    const answer = "First finding.\n\nSecond finding.";
+    const replyTexts = new Map();
+    const eventSlots = new Map();
+    const opts = { conversationId: "c-final-position", replyTexts, eventSlots, readReply: () => answer };
+    const texts = mode === "split" ? ["First finding.", "Second finding."] : mode === "later-progress" ? [answer, "Saving results."] : [answer];
+    const records = texts.map((text, index) => ({
+      index, kind: "session-event", stretch: "s1", payload: { id: `message-${index}`, role: "assistant", blocks: [mode === "terminal" ? { type: "turn_end", result: text } : { type: "text", text }] }
+    }));
+    const initial = ledgerToSessionEvents(records, opts);
+    const settled = ledgerToSessionEvents([{ index: texts.length, kind: "stretch-ended", stretch: "s1", payload: { replyRef: "payloads/reply.md", next: "done" } }], opts);
+    const turn = groupSessionTurns(mergeSessionEvents(initial, settled))[0];
+    expect(presentSessionTurn(turn, false).primaryText).toBe(answer);
+    expect(settled.filter((event: any) => event.id.includes("#reply:"))).toHaveLength(mode === "terminal" ? 0 : 1);
+  });
+
   it("passes the stretch transcript through verbatim, stamped with the stretch turnId", () => {
     const store = openConversation("c-tee", { role: "gateway", env });
     store.init({ title: "tee" });
