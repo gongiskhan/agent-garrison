@@ -179,7 +179,11 @@ explicit `settingSources=[]` cannot guarantee native hooks. The gateway reads
 cached context with a 500 ms bound, records actual admission, heartbeat and end
 metadata, and leaves Basic Memory delivery to the detached worker. Working SDK
 duties receive the configured shared Basic Memory MCP in their explicit server
-map. In the default composition, only `dispatch-fast` selects the tool-free
+map. The same bridge loads the enrolled project's canonical instruction files
+and available planning files into the working stretch. It respects a local
+`AGENTS.override.md`, deduplicates symlink targets, rejects paths outside enrolled
+roots, and bounds this file context to 65,536 bytes with an explicit truncation
+notice. In the default composition, only `dispatch-fast` selects the tool-free
 `lean` mode; triage and responder use the full SDK mode and retain memory access.
 An explicitly configured lean target stays tool-free. Other standalone clients such
 as Gemini or Cursor need their own lifecycle integration.

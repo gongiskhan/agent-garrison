@@ -150,13 +150,19 @@ symlinks must remain inside that project and resolve to an instruction filename.
 Instructions and prompts are never sent to the metadata bridge or shared roster.
 The new runtime-neutral gate passed seven tests against the actual Python
 bridge and detached worker with an isolated authority leaf; its Python metadata
-suite passed all 16 tests. A final combined remote regression run is pending.
-The real HTTP lock-Stop case also now follows the cancelled request with a fresh
-message and checks that cancelled input is absent from its runtime brief.
+suite passed all 17 tests, including a reproduced and repaired final-event drain
+race during a roster-only retry. At `c32416fb`, the combined dev-madrid gate
+passed all 10 suites and 238 tests. The installed Codex-home projection also
+passed all five Node tests, and the Python bridge passed all 17 tests remotely.
+The real HTTP lock-Stop case retried the cancelled request as a duplicate and
+then sent a fresh message: exactly one new runtime call occurred, with cancelled
+input absent from its brief. No backend release blocker remains in these gates;
+live deployment and model quality are separate evidence.
 
 Test logs are node-local session artifacts at
 `/tmp/garrison-conversations-baseline.log` and
 `/tmp/garrison-conversations-browser-baseline.log` on dev-madrid.
 The final gates are `/tmp/garrison-conversations-normal-gate.log`,
 `/tmp/garrison-conversations-final.log`, and
-`/tmp/garrison-conversations-browser-current.log` on that node.
+`/tmp/garrison-conversations-browser-current.log` on that node. The final
+runtime-neutral gate is `/tmp/garrison-conversations-continuity-gate.log`.
