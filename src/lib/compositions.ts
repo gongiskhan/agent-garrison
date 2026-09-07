@@ -8,6 +8,7 @@ import { validateSelection } from "./metadata";
 import { resolveCapabilities, serializeCapabilityGraph } from "./capabilities";
 import { facultyIds, dutyEfforts, type CapabilityIssue, type FittingSelectionMap, type Composition, type GlobalConfig, type LibraryEntry, type FacultyId, type SelectedFitting, type SerializedCapabilityGraph, type DutySpec } from "./types";
 import { readYamlFile, writeYamlFile } from "./yaml";
+import { persistManifest } from "./manifest-write";
 import { z } from "zod";
 import { resolvePrimaryFromPolicy } from "./routing-primary";
 
@@ -526,6 +527,7 @@ export async function writeComposition(
   await ensureComposition(id);
   const manifestPath = getCompositionManifestPath(id);
   const manifest = (await readYamlFile<CompositionManifest>(manifestPath)) ?? createManifest(id, id);
+  const before = structuredClone(manifest);
   const current = manifestToComposition(id, manifest);
   const nextName = update.name ?? current.name;
   const nextSelections = normalizeSelections(update.selections ?? current.selections);
@@ -575,7 +577,9 @@ export async function writeComposition(
       }
     }
   };
-  await writeYamlFile(manifestPath, manifest);
+  // Selection/config repairs use the same comment-preserving, atomic writer
+  // and authority CAS as Muster. A local-only save must not report success.
+  await persistManifest(id, manifestPath, before, manifest);
   return readCompositionWithDerivedTasks(id);
 }
 
