@@ -1,15 +1,14 @@
 #!/usr/bin/env node
 // Install (and merge, never replace) the agent lifecycle hook into every CLI
-// this node can see: Cursor (~/.cursor/hooks.json), Codex (~/.codex/hooks.json)
+// this node can see: Claude (~/.claude/settings.json), Cursor (~/.cursor/hooks.json), Codex (~/.codex/hooks.json)
 // and Gemini (~/.gemini/settings.json). Same idea as csg-bootstrap.sh already
 // used for Cursor on the remote transport - here for the LOCAL transport, so
 // hook-driven status works for sessions started directly in a terminal too.
 //
 // Idempotent (matched by exact command string), preserves every unrelated
 // entry byte-for-byte in meaning, and snapshots each file ONCE before its
-// first edit. Never touches Claude Code's own hooks - dev-env already owns
-// those, and the Claude live registry already gives honest status with no
-// hook needed.
+// first edit. Claude's process registry proves existence, but older clients
+// omit busy/idle state; these additive hooks report native turn lifecycle.
 //
 // GARRISON_REMOTESHELLRUNTIME_INSTALL_HOOKS=false (or win32) skips entirely.
 //
@@ -41,6 +40,10 @@ function cursorHome(env) {
 
 function codexHome(env) {
   return env.GARRISON_SHELLS_CODEX_HOME?.trim() || path.join(homeDir(env), ".codex");
+}
+
+function claudeHome(env) {
+  return env.GARRISON_SHELLS_CLAUDE_HOME?.trim() || path.join(homeDir(env), ".claude");
 }
 
 function geminiHome(env) {
@@ -138,6 +141,22 @@ function installCursorHooks(env, garrisonHomeDir, hookPath, log) {
   }
 }
 
+function installClaudeHooks(env, garrisonHomeDir, hookPath, log) {
+  const home = claudeHome(env);
+  if (!fs.existsSync(home)) return;
+  const file = path.join(home, "settings.json");
+  snapshotOnce(garrisonHomeDir, "claude", file);
+  const cfg = readJson(file) ?? {};
+  cfg.hooks ??= {};
+  let changed = false;
+  for (const event of ["UserPromptSubmit", "PreToolUse", "PostToolUse"]) {
+    changed = ensureClaudeShapedHook(cfg.hooks, event, `${hookPath} agent-start claude`) || changed;
+  }
+  changed = ensureClaudeShapedHook(cfg.hooks, "Stop", `${hookPath} agent-stop claude`) || changed;
+  changed = ensureClaudeShapedHook(cfg.hooks, "SessionEnd", `${hookPath} session-end claude`) || changed;
+  if (changed) { writeJson(file, cfg); log(`shells hooks installed (${file})`); }
+}
+
 function installCodexHooks(env, garrisonHomeDir, hookPath, log) {
   const home = codexHome(env);
   if (!fs.existsSync(home)) return;
@@ -200,6 +219,7 @@ export function installHooks(env = process.env, log = console.log) {
     log(`shells hook script written (${hookPath})`);
   }
 
+  installClaudeHooks(env, garrisonHomeDir, hookPath, log);
   installCursorHooks(env, garrisonHomeDir, hookPath, log);
   installCodexHooks(env, garrisonHomeDir, hookPath, log);
   installGeminiHooks(env, garrisonHomeDir, hookPath, log);

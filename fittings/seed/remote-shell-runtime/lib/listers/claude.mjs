@@ -4,9 +4,10 @@
 // this module only shapes their output into Row partials.
 
 import path from "node:path";
+import fs from "node:fs";
 import { isInternalCwd, listBackgroundAgents, listHistory, readLiveRegistry } from "@garrison/claude-pty/claude-sessions.mjs";
 import { claudeProjectDirForCwd } from "@garrison/claude-pty/paths.mjs";
-import { projectName } from "./common.mjs";
+import { projectName, claudeTranscriptStatus } from "./common.mjs";
 
 function transcriptPath(cwd, sessionId) {
   if (!cwd || !sessionId) return null;
@@ -26,6 +27,13 @@ export function list({ windowDays = 5, backgroundAgents } = {}) {
   const liveIds = new Set(live.map((r) => r.sessionId));
 
   for (const r of live) {
+    const file = transcriptPath(r.cwd, r.sessionId);
+    let modified = null;
+    try { modified = fs.statSync(file).mtimeMs; } catch { /* first journal write may still be pending */ }
+    const journal = file ? claudeTranscriptStatus(file, modified) : null;
+    const registryNewer = ["busy", "idle"].includes(r.status)
+      && Number.isFinite(r.updatedAt) && r.updatedAt > Date.parse(journal?.statusAt);
+    const activity = Math.max(r.updatedAt || 0, modified || 0, r.startedAt || 0);
     rows.push({
       id: r.sessionId,
       runtime: "claude",
@@ -33,16 +41,17 @@ export function list({ windowDays = 5, backgroundAgents } = {}) {
       cwd: r.cwd,
       project: projectName(r.cwd),
       title: null,
-      status: r.status === "busy" ? "working" : "idle",
-      statusSource: "registry",
+      ...(journal && !registryNewer ? journal : {
+        status: r.status === "busy" ? "working" : r.status === "idle" ? "idle" : "unknown",
+        statusSource: "registry",
+        statusAt: Number.isFinite(r.updatedAt) ? new Date(r.updatedAt).toISOString() : null
+      }),
       startedAt: Number.isFinite(r.startedAt) ? new Date(r.startedAt).toISOString() : null,
-      lastActivityAt: Number.isFinite(r.updatedAt)
-        ? new Date(r.updatedAt).toISOString()
-        : Number.isFinite(r.startedAt) ? new Date(r.startedAt).toISOString() : null,
+      lastActivityAt: activity ? new Date(activity).toISOString() : null,
       resumable: true,
       attachable: false,
       resumeRef: r.sessionId,
-      transcript: { format: "claude-jsonl", path: transcriptPath(r.cwd, r.sessionId) }
+      transcript: { format: "claude-jsonl", path: file }
     });
   }
 

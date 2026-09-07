@@ -26,6 +26,7 @@ beforeEach(() => {
     HOME: sandbox,
     GARRISON_HOME: path.join(sandbox, "garrison"),
     GARRISON_CURSOR_HOME: path.join(sandbox, "cursor-home"),
+    GARRISON_SHELLS_CLAUDE_HOME: path.join(sandbox, "claude-home"),
     GARRISON_SHELLS_CODEX_HOME: path.join(sandbox, "codex-home"),
     GARRISON_SHELLS_GEMINI_HOME: path.join(sandbox, "gemini-home")
   } as NodeJS.ProcessEnv;
@@ -36,6 +37,35 @@ afterEach(() => {
 });
 
 describe("install-hooks.mjs", () => {
+  it("uninstall preserves unrelated commands inside a shared matcher group", () => {
+    const home = env.GARRISON_SHELLS_CLAUDE_HOME!;
+    mkdirSync(home, { recursive: true });
+    const file = path.join(home, "settings.json");
+    const unrelated = { type: "command", command: "echo existing" };
+    writeFileSync(file, JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "/tmp/agent-event-hook.sh agent-start claude" }, unrelated] }] } }));
+    uninstallHooks(env, () => {});
+    expect(readJson(file)).toEqual({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [unrelated] }] } });
+  });
+
+  it("claude: adds native turn/tool/end observations without replacing existing hooks or settings, and uninstalls only its entries", () => {
+    const home = env.GARRISON_SHELLS_CLAUDE_HOME!;
+    mkdirSync(home, { recursive: true });
+    const file = path.join(home, "settings.json");
+    const original = { permissions: { allow: ["Read"] }, hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "echo existing" }] }] } };
+    writeFileSync(file, JSON.stringify(original));
+    installHooks(env, () => {});
+    installHooks(env, () => {});
+    const cfg = readJson(file) as { permissions: unknown; hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>> };
+    expect(cfg.permissions).toEqual(original.permissions);
+    expect(cfg.hooks.PreToolUse).toHaveLength(2);
+    for (const event of ["UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "SessionEnd"]) {
+      expect(cfg.hooks[event].filter((entry) => entry.hooks.some((hook) => hook.command.includes("agent-event-hook.sh")))).toHaveLength(1);
+    }
+    expect(readJson(path.join(env.GARRISON_HOME!, "snapshots", "shells-claude.before.json"))).toEqual(original);
+    uninstallHooks(env, () => {});
+    expect(readJson(file)).toEqual(original);
+  });
+
   it("skips a home that does not exist on this box", () => {
     // None of the three homes exist yet - installer must not create them.
     const result = installHooks(env, () => {});

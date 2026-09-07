@@ -54,6 +54,22 @@ export function readJsonlSlice(file, { tail = false, maxBytes = 512 * 1024 } = {
 // Explicit completion clears it immediately; the age ceiling prevents an
 // interrupted client with no terminal event from spinning forever.
 export const ACTIVE_TURN_MAX_AGE_MS = 6 * 60 * 60_000;
+export function claudeTranscriptStatus(file, mtimeMs, now = Date.now()) {
+  let state = null;
+  let statusAt = null;
+  for (const rec of readJsonlSlice(file, { tail: true })) {
+    if (rec.type === "user") state = "working";
+    else if (rec.type === "assistant") {
+      state = ["end_turn", "stop_sequence"].includes(rec.message?.stop_reason) ? "idle" : "working";
+    } else if (rec.type === "system" && rec.subtype === "turn_duration") state = "idle";
+    else continue;
+    statusAt = rec.timestamp ?? null;
+  }
+  if (!state) return null;
+  return { status: state === "working" && now - mtimeMs > ACTIVE_TURN_MAX_AGE_MS ? "unknown" : state,
+    statusSource: "transcript-events", statusAt };
+}
+
 export function codexTranscriptStatus(file, mtimeMs, now = Date.now()) {
   let state = null;
   let statusAt = null;

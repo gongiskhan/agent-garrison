@@ -46,7 +46,13 @@ function removeByCommandSubstring(hooks, marker) {
     hooks[event] = list.filter((g) => {
       // Cursor shape: {command}. Claude/Codex/Gemini shape: {hooks:[{command}]}.
       if (typeof g?.command === "string") return !g.command.includes(marker);
-      if (Array.isArray(g?.hooks)) return !g.hooks.some((h) => String(h?.command ?? "").includes(marker));
+      if (Array.isArray(g?.hooks)) {
+        const kept = g.hooks.filter((h) => !String(h?.command ?? "").includes(marker));
+        if (kept.length === g.hooks.length) return true;
+        changed = true;
+        g.hooks = kept;
+        return kept.length > 0;
+      }
       return true;
     });
     if (hooks[event].length !== before) changed = true;
@@ -59,6 +65,7 @@ export function uninstallHooks(env = process.env, log = console.log) {
   const marker = "agent-event-hook.sh";
   let removed = 0;
   for (const [name, home, key] of [
+    ["claude", env.GARRISON_SHELLS_CLAUDE_HOME?.trim() || path.join(homeDir(env), ".claude"), "settings.json"],
     ["cursor", cursorHome(env), "hooks.json"],
     ["codex", codexHome(env), "hooks.json"],
     ["gemini", geminiHome(env), "settings.json"]

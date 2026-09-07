@@ -42,6 +42,36 @@ afterEach(() => {
 });
 
 describe("claude lister", () => {
+  it("uses journal lifecycle when a live Claude registry omits busy state, retaining quiet tools and clearing completion", () => {
+    const home = path.join(sandbox, "claude-quiet");
+    process.env.GARRISON_CLAUDE_HOME = home;
+    mkdirSync(path.join(home, "sessions"), { recursive: true });
+    const dir = path.join(home, "projects", "-tmp-quiet-claude");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(home, "sessions", `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: "quiet-claude", cwd: "/tmp/quiet-claude", updatedAt: Date.now() }));
+    const file = path.join(dir, "quiet-claude.jsonl");
+    const quietAt = new Date(Date.now() - 45_000);
+    writeFileSync(file, JSON.stringify({ type: "assistant", timestamp: quietAt.toISOString(), message: { stop_reason: "tool_use", content: [{ type: "tool_use", name: "Bash" }] } }) + "\n");
+    utimesSync(file, quietAt, quietAt);
+    let row = listClaude({ backgroundAgents: [] }).find((r: { id: string }) => r.id === "quiet-claude");
+    expect(row).toMatchObject({ status: "working", statusSource: "transcript-events" });
+    expect(Date.parse(row.lastActivityAt)).toBeGreaterThan(quietAt.getTime());
+    appendFileSync(file, JSON.stringify({ type: "assistant", timestamp: new Date().toISOString(), message: { stop_reason: "end_turn", content: [{ type: "text", text: "Complete" }] } }) + "\n");
+    row = listClaude({ backgroundAgents: [] }).find((r: { id: string }) => r.id === "quiet-claude");
+    expect(row).toMatchObject({ status: "idle", statusSource: "transcript-events" });
+  });
+
+  it.each([["idle", "agent-start", "idle"], ["busy", "agent-stop", "working"]])("keeps newer %s registry status ahead of older hooks", (registryStatus, hookEvent, expected) => {
+    const home = path.join(sandbox, "claude-registry");
+    process.env.GARRISON_CLAUDE_HOME = home;
+    mkdirSync(path.join(home, "sessions"), { recursive: true });
+    writeFileSync(path.join(home, "sessions", `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: "registry-order", cwd: "/tmp/registry-order", status: registryStatus, updatedAt: NOW }));
+    const row = listClaude({ backgroundAgents: [] }).find((r: { id: string }) => r.id === "registry-order");
+    expect(row.statusAt).toBe(new Date(NOW).toISOString());
+    const events = [{ event: hookEvent, runtime: "claude", session_id: row.id, ts: new Date(NOW - 1000).toISOString() }];
+    expect(applyHookStatus(row, events, NOW).status).toBe(expected);
+  });
+
   it("live registry row, ended-history row, background-agent row; internal cwds dropped", () => {
     const claudeHome = path.join(sandbox, "claude-home");
     process.env.GARRISON_CLAUDE_HOME = claudeHome;
