@@ -621,6 +621,16 @@
     }
   },
   {
+    "id": "preflight",
+    "name": "Preflight",
+    "repo": "local:fittings/seed/preflight",
+    "localPath": "fittings/seed/preflight",
+    "summary": "Composition doctor: verify results, registration, ports, view coverage, process ledger and drift checks. Passive reports plus explicit repairs with fresh finding checks, authority-backed composition writes, guarded node publication and reviewed file-scoped registry commits. Verify sweeps require a stopped composition.",
+    "platforms": [
+      "claude-code"
+    ]
+  },
+  {
     "id": "morning-briefing",
     "name": "Morning Briefing",
     "repo": "local:fittings/seed/morning-briefing",
