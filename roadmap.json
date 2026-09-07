@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-09-07T07:10:50.916Z",
+  "updatedAt": "2026-09-07T18:21:00.824Z",
   "categories": [
     {
       "id": "c1",
@@ -486,7 +486,7 @@
         },
         {
           "id": "c6.5",
-          "text": "E2E Project Viewer as designed on 31 July (flows from the drillbook and the e2e tests, code half and description half, navigable states, changes view tied to git, file-to-flows view, cleanup only on request, manifests as truth, a pilot of six flows first). Found: absent, nothing matching this design exists; walkthrough and drill are related but distinct fittings.",
+          "text": "E2E Project Viewer: optional fitting restored and repaired from the preserved feature branch. Implemented manifest-backed flows, code and explanation panes, navigable states, Git-backed changes, file-to-flow mapping and explicitly requested guarded cleanup. Six synthetic temporary-Git flows and HTTPS desktop/mobile navigation passed; these fixtures are distinct from the intended authored production-flow pilot, which remains open. Evidence: docs/validation/2026-09-07-preserved-feature-integration.md.",
           "done": false,
           "sentToKanban": null,
           "noteRef": null
