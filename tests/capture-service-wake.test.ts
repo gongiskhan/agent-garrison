@@ -39,8 +39,10 @@ function dgResults(text: string, isFinal = true, start = 0, duration = 2) {
 
 // A scriptable mock Deepgram: emits the given finals after the given number
 // of binary frames.
-function startMockDeepgram(script: Array<{ afterFrames: number; message: string }>) {
-  const wss = new WebSocketServer({ port: 0 });
+async function startMockDeepgram(script: Array<{ afterFrames: number; message: string }>) {
+  // Match the client's IPv4 address. On macOS a wildcard IPv6 listener can
+  // share its port with another fixture's IPv4 listener, sending us its 404.
+  const wss = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   wss.on("connection", (ws) => {
     let frames = 0;
     const fired = new Set<number>();
@@ -58,6 +60,10 @@ function startMockDeepgram(script: Array<{ afterFrames: number; message: string 
       const msg = JSON.parse(data.toString());
       if (msg.type === "CloseStream") ws.close(1000);
     });
+  });
+  await new Promise<void>((resolve, reject) => {
+    wss.once("listening", resolve);
+    wss.once("error", reject);
   });
   return { wss, url: `ws://127.0.0.1:${(wss.address() as { port: number }).port}` };
 }
@@ -147,7 +153,7 @@ describe("capture-service wake gate", () => {
     stub: { classify?: unknown; delegate?: { reply: string; session_id: string } } = {}
   ) {
     const home = mkdtempSync(path.join(os.tmpdir(), "capture-wake-"));
-    const mock = startMockDeepgram(dgScript);
+    const mock = await startMockDeepgram(dgScript);
     const gateway = await startStubGateway(
       stub.classify ?? { intent: "create_task", title: "hello companion", description: "A test task from the companion." },
       stub.delegate ?? null
@@ -173,6 +179,10 @@ describe("capture-service wake gate", () => {
     });
     cleanups.push(() => {
       handle.ingress.close();
+      const transcriber = handle.transcriber;
+      if (transcriber && typeof transcriber === "object" && "close" in transcriber && typeof transcriber.close === "function") {
+        transcriber.close();
+      }
       handle.server.close();
       mock.wss.close();
       gateway.close();

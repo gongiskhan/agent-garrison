@@ -14,7 +14,7 @@
 //      itself terminates on a missing engine (no automations in a hermetic
 //      sandbox), which is exactly the "could not finish" path that MUST still
 //      notify — the layer-1 tests cover the passed/failed verdicts.
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, chmodSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -337,6 +337,55 @@ describe("broadcastOutcome — every means, independently", () => {
     expect(by["web-channel"].error).toContain("connection refused");
     expect(by["kanban-card"].ok).toBe(true); // the dead channel cost nobody else
   });
+
+  it.each(["request", "response body"])("bounds a stalled Slack %s without delaying other means", async (stallAt) => {
+    const savedInternalPath = process.env.GARRISON_INTERNAL_TOKEN_PATH;
+    process.env.GARRISON_DRILL_NOTIFY_SLACK_CHANNEL = "test-channel";
+    process.env.GARRISON_BASE_URL = "http://shell.test";
+    process.env.GARRISON_INTERNAL_TOKEN_PATH = join(home, "timeout-test-token");
+    writeFileSync(process.env.GARRISON_INTERNAL_TOKEN_PATH, "synthetic-internal-token");
+    let stalledSignal: AbortSignal | undefined;
+    let markStalled!: () => void;
+    let markWebDelivered!: () => void;
+    let markBoardDelivered!: () => void;
+    const stalled = new Promise<void>((r) => { markStalled = r; });
+    const webDelivered = new Promise<void>((r) => { markWebDelivered = r; });
+    const boardDelivered = new Promise<void>((r) => { markBoardDelivered = r; });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const fetchImpl = async (u: string, init: RequestInit = {}) => {
+        if (u.includes("/api/connectors/slack/auth-env")) {
+          stalledSignal = init.signal ?? undefined;
+          if (stallAt === "request") {
+            markStalled();
+            return new Promise(() => {}); // Deliberately ignores abort.
+          }
+          return { ok: true, status: 200, json: () => {
+            markStalled();
+            return new Promise(() => {});
+          } };
+        }
+        if (u.includes("/messages")) markWebDelivered();
+        if (u.includes("/drill-result")) markBoardDelivered();
+        return { ok: true, status: 200, json: async () => ({ ok: true }) };
+      };
+      const pending = broadcastOutcome({ card: { id: "01TIMEOUT", title: "t" }, outcome: { state: "passed" }, fetchImpl, deliveryTimeoutMs: 100 });
+      await Promise.all([stalled, webDelivered, boardDelivered]);
+      expect(stalledSignal?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(100);
+      const receipts = await pending;
+      expect(receipts.find((r: { means: string }) => r.means === "slack")).toMatchObject({ ok: false, error: "notification timed out after 100ms" });
+      expect(receipts.find((r: { means: string }) => r.means === "web-channel")).toMatchObject({ ok: true });
+      expect(receipts.find((r: { means: string }) => r.means === "kanban-card")).toMatchObject({ ok: true });
+      expect(stalledSignal?.aborted).toBe(true);
+    } finally {
+      vi.useRealTimers();
+      delete process.env.GARRISON_DRILL_NOTIFY_SLACK_CHANNEL;
+      delete process.env.GARRISON_BASE_URL;
+      if (savedInternalPath === undefined) delete process.env.GARRISON_INTERNAL_TOKEN_PATH;
+      else process.env.GARRISON_INTERNAL_TOKEN_PATH = savedInternalPath;
+    }
+  });
 });
 
 describe("reapOrphanCardDrills — a restart must not wedge a card at 'planning'", () => {
@@ -376,6 +425,29 @@ describe("reapOrphanCardDrills — a restart must not wedge a card at 'planning'
     // The card hears about it — otherwise the board sits at "planning" forever.
     expect(posts.some((p) => p.url.includes("/cards/01CARDO/drill-result") && p.body.state === "error")).toBe(true);
   });
+
+  it("does not take a job already owned by this process during another recovery pass", async () => {
+    const dir = join(home, "drill", "card-drills");
+    writeFileSync(join(dir, "01OWNED.json"), JSON.stringify({ id: "01OWNED", state: "running", card: { id: "01CARDA" } }));
+    let release!: () => void;
+    let markDelivering!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const delivering = new Promise<void>((r) => { markDelivering = r; });
+    const first = reapOrphanCardDrills({ fetchImpl: async () => {
+      markDelivering();
+      await gate;
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    } });
+    try {
+      await delivering;
+      const duplicateFetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ ok: true }) }));
+      expect(await reapOrphanCardDrills({ fetchImpl: duplicateFetch })).toEqual([]);
+      expect(duplicateFetch).not.toHaveBeenCalled();
+    } finally {
+      release();
+      await first;
+    }
+  });
 });
 
 // ── 3. the live chain ────────────────────────────────────────────────────────
@@ -390,6 +462,8 @@ describe("POST /api/card-drill — plan, scope, run, notify", () => {
   let drillBase = "";
   const drillResults: any[] = [];
   const webMessages: any[] = [];
+  let webNotificationGate: Promise<void> | null = null;
+  let finishWebNotification: (() => void) | null = null;
 
   async function listen(s: http.Server): Promise<number> {
     await new Promise<void>((r) => s.listen(0, "127.0.0.1", r));
@@ -456,6 +530,7 @@ describe("POST /api/card-drill — plan, scope, run, notify", () => {
     fakeWeb = http.createServer(async (req, res) => {
       if (req.url?.includes("/messages") && req.method === "POST") {
         webMessages.push({ url: req.url, body: await collect(req) });
+        await webNotificationGate;
       } else {
         await collect(req);
       }
@@ -499,6 +574,7 @@ describe("POST /api/card-drill — plan, scope, run, notify", () => {
   }, 30000);
 
   afterAll(async () => {
+    finishWebNotification?.();
     if (drillSrv && !drillSrv.killed) drillSrv.kill("SIGKILL");
     await new Promise((r) => fakeKanban?.close(() => r(undefined)));
     await new Promise((r) => fakeWeb?.close(() => r(undefined)));
@@ -525,6 +601,7 @@ describe("POST /api/card-drill — plan, scope, run, notify", () => {
   });
 
   it("plans the change, scopes the run to the pages the plan touched, and notifies when it ends", async () => {
+    webNotificationGate = new Promise<void>((resolve) => { finishWebNotification = resolve; });
     const res = await fetch(`${drillBase}/api/card-drill`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -542,6 +619,26 @@ describe("POST /api/card-drill — plan, scope, run, notify", () => {
     // The brief is a prompt, not payload — it never rides the wire back.
     expect(job.brief).toBeUndefined();
     expect(job.briefChars).toBeGreaterThan(0);
+
+    // Hold one real notification response so terminal publication cannot win
+    // a race against its receipts, even on an otherwise idle test machine.
+    try {
+      await expect.poll(() => webMessages.length, { timeout: 20000 }).toBe(1);
+      const { job: notifyingJob } = await (await fetch(`${drillBase}/api/card-drill/${job.id}`)).json();
+      expect(["planning", "running"]).toContain(notifyingJob.state);
+      expect(notifyingJob.notified).toBeNull();
+      const duplicate = await fetch(`${drillBase}/api/card-drill`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ card: { id: "01CARDX", project: target }, brief: "The same change.", project: target })
+      });
+      expect(duplicate.status).toBe(200);
+      expect(await duplicate.json()).toMatchObject({ started: false, job: { id: job.id } });
+      expect(webMessages).toHaveLength(1);
+    } finally {
+      finishWebNotification?.();
+      webNotificationGate = null;
+    }
 
     // Poll to terminal.
     const end = Date.now() + 60000;
@@ -574,6 +671,7 @@ describe("POST /api/card-drill — plan, scope, run, notify", () => {
     const durable = JSON.parse(await readFile(join(ghome, "drill", "card-drills", `${job.id}.json`), "utf8"));
     expect(durable.state).toBe("error");
     expect(durable.card.id).toBe("01CARDX");
+    expect(durable.notified).toEqual(finalJob.notified);
   }, 90000);
 
   it("lists a card's jobs", async () => {

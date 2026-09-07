@@ -35,6 +35,7 @@ import os from "node:os";
 import path from "node:path";
 
 const REPORTS_THREAD = "drill-reports";
+const DELIVERY_TIMEOUT_MS = 10000;
 
 function garrisonHome() {
   return process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
@@ -246,15 +247,46 @@ async function deliverWebhook({ card, outcome, links, text, fetchImpl }) {
  *
  * Returns [{ means, ok, target?, skipped?, error? }, ...].
  */
-export async function broadcastOutcome({ card, outcome, links = {}, jobId = null, fetchImpl = fetch }) {
+export async function broadcastOutcome({ card, outcome, links = {}, jobId = null, fetchImpl = fetch, deliveryTimeoutMs = DELIVERY_TIMEOUT_MS }) {
   const text = outcomeText({ card, outcome, links });
+  const timeoutMs = Number.isFinite(deliveryTimeoutMs) && deliveryTimeoutMs > 0 ? deliveryTimeoutMs : DELIVERY_TIMEOUT_MS;
   const results = await Promise.all([
-    deliverWebChannel({ card, text, fetchImpl }),
-    deliverKanbanCard({ card, outcome, links, jobId, fetchImpl }),
-    deliverSlack({ text, fetchImpl }),
-    deliverWebhook({ card, outcome, links, text, fetchImpl })
+    deliverBounded("web-channel", deliverWebChannel, { card, text }, fetchImpl, timeoutMs),
+    deliverBounded("kanban-card", deliverKanbanCard, { card, outcome, links, jobId }, fetchImpl, timeoutMs),
+    deliverBounded("slack", deliverSlack, { text }, fetchImpl, timeoutMs),
+    deliverBounded("webhook", deliverWebhook, { card, outcome, links, text }, fetchImpl, timeoutMs)
   ]);
   return results;
+}
+
+// Bound the complete delivery, including multi-request flows and response
+// bodies. A stalled channel must leave a failed receipt, not a forever-active
+// card job. Abort real I/O; the race also bounds injected clients that ignore it.
+async function deliverBounded(means, deliver, args, fetchImpl, timeoutMs) {
+  const controller = new AbortController();
+  let timer;
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      const error = `notification timed out after ${timeoutMs}ms`;
+      resolve({ means, ok: false, error });
+      controller.abort(new Error(error));
+    }, timeoutMs);
+  });
+  const boundedFetch = (url, init = {}) => {
+    // A timed-out earlier request may settle later. It must not start the next
+    // request after this means has already returned its failed receipt.
+    controller.signal.throwIfAborted();
+    return fetchImpl(url, { ...init, signal: controller.signal });
+  };
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() => deliver({ ...args, fetchImpl: boundedFetch }))
+        .catch((err) => ({ means, ok: false, error: err?.message || String(err) })),
+      deadline
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** One-line summary of a receipts array, for the job record + server log. */
