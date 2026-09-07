@@ -35,14 +35,13 @@ process.env.GARRISON_ASSUME_INSTALLED = "1";
 // `GARRISON_HOME || ~/.garrison`, found the live capture-service through the
 // prod home's ui-fittings/*.json, and ~30 real push notifications landed on
 // the user's phone. Any module reading GARRISON_HOME with a home-directory
-// fallback has that same reach, so the default is pinned here, once, for
-// every test: an empty per-run directory that contains no live fitting.
+// fallback has that same reach. A card or Dev Env session also inherits the
+// node's explicit GARRISON_HOME, so preserving an existing value lets lifecycle
+// tests stop real fittings. Always replace the inherited home before loading a
+// suite with an empty temporary directory containing no live fitting.
 // Tests that need their own home still set GARRISON_HOME themselves (they
-// pass it explicitly to loadConfig or set process.env before importing) —
-// this only replaces the dangerous DEFAULT.
-if (!process.env.GARRISON_HOME) {
-  process.env.GARRISON_HOME = mkdtempSync(join(tmpdir(), "garrison-test-home-"));
-}
+// pass it explicitly to loadConfig or set process.env after this setup runs).
+process.env.GARRISON_HOME = mkdtempSync(join(tmpdir(), "garrison-test-home-"));
 
 // A test must never reach the REAL state service either.
 //
