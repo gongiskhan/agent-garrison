@@ -12,7 +12,7 @@
 // Usage:
 //   node scripts/survey-docs.mjs --repo <path> [--dry]
 
-import { readFileSync } from "node:fs";
+import { confinedPath, readRepoText, pathId } from "../lib/paths.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -60,7 +60,7 @@ async function main() {
 
   const read = (file) => {
     try {
-      return readFileSync(path.join(repo, file), "utf8");
+      return readRepoText(repo, file);
     } catch {
       return "";
     }

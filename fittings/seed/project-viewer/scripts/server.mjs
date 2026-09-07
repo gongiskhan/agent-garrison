@@ -9,6 +9,7 @@
 // manifest plus git bytes, so it is cheap enough to do per request.
 
 import { createServer } from "node:http";
+import { isIP } from "node:net";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -17,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import * as git from "../lib/git.mjs";
 import * as store from "../lib/store.mjs";
 import * as render from "../lib/render.mjs";
+import { canonicalRoot, confinedPath } from "../lib/paths.mjs";
 import { verifyStepSample } from "../lib/samples.mjs";
 import { splitByFile } from "../lib/diff.mjs";
 import { addFindingSpans, buildFileIndex, uncommittedView } from "../lib/file-index.mjs";
@@ -51,7 +53,7 @@ export function readConfig(argv = process.argv.slice(2), env = process.env) {
   // project-viewer -> GARRISON_PROJECTVIEWER_<KEY>. No port is ever hardcoded;
   // it comes from the composition config, already shifted by the profile offset.
   const port = Number(args.get("port") ?? env.GARRISON_PROJECTVIEWER_PORT ?? env.PORT ?? 0);
-  const host = args.get("host") ?? env.GARRISON_PROJECTVIEWER_HOST ?? "127.0.0.1";
+  const host = args.get("host") ?? env.GARRISON_PROJECTVIEWER_BIND_HOST ?? env.GARRISON_PROJECTVIEWER_HOST ?? "127.0.0.1";
   const repo = path.resolve(
     expandHome(args.get("repo") ?? env.GARRISON_PROJECTVIEWER_TARGET_REPO ?? process.cwd())
   );
@@ -193,7 +195,8 @@ const MIME = {
 
 /** Serve a static file, confined to `dir` — no traversal out of the asset roots. */
 async function serveStatic(res, dir, relPath) {
-  const target = path.resolve(dir, "." + path.posix.normalize("/" + relPath));
+  let target;
+  try { target = confinedPath(dir, relPath); } catch { return send(res, 403, "forbidden", "text/plain"); }
   if (!target.startsWith(path.resolve(dir) + path.sep) && target !== path.resolve(dir)) {
     return send(res, 403, "forbidden", "text/plain; charset=utf-8");
   }
@@ -227,13 +230,15 @@ async function writeStatusFile(port, env = process.env) {
     route: "/",
     views: [{ id: FITTING_ID, title: "Project Viewer", route: "/" }],
   };
-  await writeFile(file, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  await store.writeReport(file, payload);
   return file;
 }
 
 async function removeStatusFile(env = process.env) {
   const { unlink } = await import("node:fs/promises");
-  await unlink(statusFilePath(env)).catch(() => {});
+  const file = statusFilePath(env);
+  const current = await store.readJson(file).catch(() => null);
+  if (current?.pid === process.pid) await unlink(file).catch(() => {});
 }
 
 // ------------------------------------------------------------------ rendering
@@ -248,7 +253,7 @@ async function resolveState(repo, flow, state) {
   for (const step of state?.steps ?? []) {
     if (!step.sample && !step.diffSample) continue;
     try {
-      samples.set(step.id, await verifyStepSample(repo, step, { sha: flow.anchoredAt?.sha }));
+      samples.set(step.id, await verifyStepSample(repo, step, { sha: flow.anchoredAt?.sha, dirty: flow.anchoredAt?.dirty === true }));
     } catch (err) {
       samples.set(step.id, { ok: false, error: err.message, expected: null, actual: null, text: null });
     }
@@ -282,7 +287,37 @@ async function describeProjects(cfg, current) {
 
 // ------------------------------------------------------------------ routes
 
+export function createRequestHandler(cfg) {
+  return (req, res) => handle(req, res, cfg).catch(err => {
+    if (!res.headersSent) sendJson(res, 500, { error: "viewer request failed" });
+    else res.destroy();
+  });
+}
+
+function trustedBrowserHost(hostname) {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host === "::1" || host.endsWith(".ts.net")) return true;
+  if (isIP(host) === 4) {
+    const [a, b] = host.split(".").map(Number);
+    return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+  }
+  return isIP(host) === 6 && /^(?:f[cd]|fe[89ab])/i.test(host);
+}
+
+function sameOrigin(req) {
+  if (req.headers["sec-fetch-site"] === "cross-site") return false;
+  if (req.headers.origin === undefined) return true;
+  try {
+    const source = new URL(req.headers.origin);
+    const target = new URL(`http://${req.headers.host || ""}`);
+    return /^https?:$/.test(source.protocol) && source.origin === req.headers.origin &&
+      source.host.toLowerCase() === target.host.toLowerCase() && trustedBrowserHost(target.hostname);
+  } catch { return false; }
+}
+
 async function handle(req, res, cfg) {
+  if (!["GET", "HEAD"].includes(req.method) && !sameOrigin(req)) return sendJson(res, 403, { error: "cross-origin request refused" });
   const url = new URL(req.url, `http://${req.headers.host ?? "127.0.0.1"}`);
   const p = decodeURIComponent(url.pathname);
   const repo = await resolveRepo(req, cfg);
@@ -466,14 +501,7 @@ async function handle(req, res, cfg) {
     const manifest = await store.getDocsManifest(repo).catch(() => ({ docs: [] }));
     const entry = (manifest.docs ?? []).find((d) => d.docId === doc[1]);
     if (!entry) return send(res, 404, render.renderError(404, "No such document.", { project, lang }));
-    // storedAt is repo-relative (store.consolidateDoc writes it that way) so the
-    // copy travels with the repo; absolute paths keep working for older entries.
-    const storedAt = entry.storedAt
-      ? path.isAbsolute(entry.storedAt)
-        ? entry.storedAt
-        : path.join(repo, entry.storedAt)
-      : null;
-    const body = entry.body ?? (storedAt ? await readFile(storedAt, "utf8").catch(() => null) : null);
+    const body = await store.readConsolidatedDoc(repo, entry).catch(() => null);
     return send(res, 200, render.renderDoc(entry, body ?? t(lang, "docs.missing"), { project, lang }));
   }
 
@@ -529,7 +557,7 @@ async function handleMutation(req, res, cfg, p, repo) {
   // message on the page the reader is already looking at, with no JavaScript in the
   // path), `/api/projects` answers an agent with JSON.
   if ((p === "/projects/add" || p === "/api/projects") && req.method === "POST") {
-    const result = await projects.addProject(body.path, { isRepo: (dir) => git.isGitRepo(dir) });
+    const result = await projects.addProject(body.path, { isRepo: (dir) => git.isGitRepo(dir), resolveRoot: async dir => canonicalRoot(await git.repoRoot(dir)) });
     if (p === "/api/projects") {
       return sendJson(res, result.ok ? 200 : 400, result);
     }
@@ -715,7 +743,7 @@ export async function main(argv = process.argv.slice(2)) {
   }
 
   const cfg = readConfig(argv);
-  if (!cfg.port) {
+  if (!Number.isInteger(cfg.port) || cfg.port < 1 || cfg.port > 65535) {
     process.stderr.write(
       "project-viewer: no port configured. Pass --port or set GARRISON_PROJECTVIEWER_PORT " +
         "(the composition supplies it, already shifted for the instance profile).\n"
@@ -730,13 +758,15 @@ export async function main(argv = process.argv.slice(2)) {
     process.exit(1);
   }
 
-  const server = createServer((req, res) => {
-    handle(req, res, cfg).catch((err) => {
-      process.stderr.write(`project-viewer: ${err.stack ?? err.message}\n`);
-      if (!res.headersSent) sendJson(res, 500, { error: err.message });
-      else res.end();
-    });
-  });
+  cfg.repo = canonicalRoot(await git.repoRoot(cfg.repo));
+  const previous = await store.readJson(statusFilePath()).catch(() => null);
+  if (Number.isInteger(previous?.pid) && previous.pid !== process.pid) {
+    try { process.kill(previous.pid, 0); throw new Error("a live Project Viewer already owns this status file"); }
+    catch (err) { if (err.code !== "ESRCH") throw err; }
+  }
+  const server = createServer(createRequestHandler(cfg));
+  server.requestTimeout = 15_000;
+  server.headersTimeout = 10_000;
 
   server.on("error", (err) => {
     if (err.code === "EADDRINUSE") {

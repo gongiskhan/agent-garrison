@@ -18,7 +18,7 @@
 // no --scope the whole repo is scanned and the report groups the candidates by area,
 // so the noise is visible rather than quietly removed.
 
-import { readFileSync } from "node:fs";
+import { confinedPath, readRepoText, pathId } from "../lib/paths.mjs";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -70,7 +70,7 @@ export async function listSourceFiles(repo) {
   // Fallback for a repo `git ls-files` could not read. Same filter, slower path.
   const out = [];
   async function walk(dir) {
-    const entries = await readdir(path.join(repo, dir || "."), { withFileTypes: true }).catch(() => []);
+    const entries = await readdir(confinedPath(repo, dir || "."), { withFileTypes: true }).catch(() => []);
     for (const entry of entries) {
       if (PRUNE.has(entry.name)) continue;
       const rel = dir ? `${dir}/${entry.name}` : entry.name;
@@ -141,7 +141,7 @@ async function main() {
     if (cache.has(file)) return cache.get(file);
     let text = null;
     try {
-      text = readFileSync(path.join(repo, file), "utf8");
+      text = readRepoText(repo, file);
     } catch {
       text = null;
     }

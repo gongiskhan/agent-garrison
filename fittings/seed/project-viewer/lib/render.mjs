@@ -369,7 +369,7 @@ function renderCodePane(step, resolved, L) {
   }
 
   if (step.diffSample) {
-    if (resolved && resolved.ok === false) return integrityPanel(step.diffSample, resolved, L);
+    if (!resolved || resolved.ok !== true) return integrityPanel(step.diffSample, resolved, L);
     return (
       `<div class="pane code-pane" aria-label="${escapeHtml(t(L, "code.landmark"))}">` +
       renderFilePatch(step.diffSample.patch, {
@@ -1075,7 +1075,7 @@ export function renderFindings(findings, { project = null, flows = [], proseLang
     .map((f) => {
       const span = f.span?.file
         ? `<a href="/files/${encodeURI(f.span.file)}"><code>${escapeHtml(f.span.file)}${
-            f.span.startLine ? `:${f.span.startLine}` : ""
+            f.span.startLine ? `:${escapeHtml(f.span.startLine)}` : ""
           }</code></a>`
         : "";
       return (
@@ -1403,7 +1403,7 @@ export function renderCompare(report, { project = null, lang = DEFAULT_LANG } = 
       items
         .map(
           (i) =>
-            `<li><code>${escapeHtml(i.file ?? "")}${i.line ? `:${i.line}` : ""}</code> ` +
+            `<li><code>${escapeHtml(i.file ?? "")}${i.line ? `:${escapeHtml(i.line)}` : ""}</code> ` +
             `${escapeHtml(i.symbol ?? "")} <span class="why">${escapeHtml(i.note ?? "")}</span></li>`
         )
         .join("") +

@@ -14,7 +14,7 @@
 // Usage:
 //   node scripts/capture-drillbook.mjs --repo <path> [--page <id>] [--run-id <id>] [--dry]
 
-import { readFileSync } from "node:fs";
+import { confinedPath, readRepoText, pathId } from "../lib/paths.mjs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -109,14 +109,7 @@ async function main() {
   const repo = path.resolve(args.repo ?? process.cwd());
   if (!(await git.isGitRepo(repo))) throw new Error(`${repo} is not a git repository`);
 
-  const read = async (file) => {
-    try {
-      return await readFile(file, "utf8");
-    } catch (err) {
-      if (err.code === "ENOENT") return null;
-      throw err;
-    }
-  };
+  const read = async (file) => readRepoText(repo, path.relative(repo, file));
 
   const book = await readDrillbook(repo, { readFile: read });
   if (!book) throw new Error(`no drillbook at ${path.join(repo, "drills/drillbook.yml")}`);
@@ -142,7 +135,7 @@ async function main() {
       if (cache.has(file)) return cache.get(file);
       let text = null;
       try {
-        text = readFileSync(path.join(repo, file), "utf8");
+        text = readRepoText(repo, file);
       } catch {
         text = null;
       }

@@ -162,10 +162,14 @@ export async function workingTreeDiffSamples(root) {
  * decision: `ok` renders code, anything else renders an integrity error block.
  * The renderer must never fall back to showing unverified text.
  */
-export async function verifyStepSample(root, step, { sha } = {}) {
+export async function verifyStepSample(root, step, { sha, dirty = false } = {}) {
   if (step.diffSample) {
     const res = verifyDiffSample(step.diffSample);
-    return { kind: "diff", ...res, text: step.diffSample.patch };
+    if (!res.ok) return { kind: "diff", ...res, text: null };
+    const sample = step.diffSample;
+    const candidates = dirty ? await workingTreeDiffSamples(root) : await commitDiffSamples(root, sample.sha);
+    const match = candidates.some(candidate => candidate.sha === sample.sha && candidate.file === sample.file && candidate.patch === sample.patch);
+    return { kind: "diff", ...res, ok: match, error: match ? null : "diff does not match the repository at its anchor", text: match ? sample.patch : null };
   }
   if (!step.sample) return { kind: "none", ok: true, text: null };
   const at = step.sample.sha ?? sha;

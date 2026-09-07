@@ -830,7 +830,7 @@ describe("badges only speak when they have something to say", () => {
     // A wall of green trains the eye to ignore badges — the opposite of the point.
     expect(html).not.toContain('class="badge b-fresh"');
     expect(html).toContain("b-verified");
-    expect(html).toContain("all 2 steps verified");
+    expect(html).toContain("all 2 steps marked fresh");
   });
 
   it("shows the per-step badge the moment a step goes stale", () => {
@@ -2275,13 +2275,12 @@ describe("the same expensive job is not queued twice", () => {
     }
   });
 
-  it("queues the work when the board cannot be listed, rather than losing it", async () => {
+  it("refuses to guess that there is no duplicate when the board cannot be listed", async () => {
     const { openCardWithOrigin } = await import("../fittings/seed/project-viewer/lib/dispatch.mjs");
     const restore = withBoard(CARDS, false);
     try {
-      // A duplicate card is a nuisance; dropping real work because a GET failed
-      // would be worse. So an unreadable board means "no duplicate".
-      expect(await openCardWithOrigin("http://k", "project-viewer:abc:full-run:all")).toBeNull();
+      // An unreadable board cannot prove that this expensive job is absent.
+      await expect(openCardWithOrigin("http://k", "project-viewer:abc:full-run:all")).rejects.toThrow();
     } finally {
       restore();
     }

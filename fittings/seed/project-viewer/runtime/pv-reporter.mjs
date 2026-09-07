@@ -143,20 +143,26 @@ export default class ProjectViewerReporter {
 
     const action = actionOf(step.title);
     if (!action) {
-      const title = String(step.title ?? "").slice(0, 120);
+      const title = String(step.title ?? "").match(/^[A-Za-z][A-Za-z. ]{0,60}/)?.[0]?.trim() ?? "unknown operation";
       // "Launch browser" and friends are infrastructure, not user actions; keeping
       // them out of `unmatched` stops the diagnostic from being all noise.
       if (!/^(?:Launch browser|Create context|Create page|Close context)/i.test(title)) {
-        if (!record.unmatched.includes(title)) record.unmatched.push(title);
+        if (record.unmatched.length < 40 && !record.unmatched.includes(title)) record.unmatched.push(title);
       }
       return;
     }
 
-    const arg = argOf(step.title);
+    const rawArg = argOf(step.title);
+    // Form values, keys and file names can contain credentials. Route paths and
+    // source locations are enough to reconstruct the ordered action spine.
+    let arg = null;
+    if (isNavigation(action) && rawArg) {
+      try { arg = new URL(rawArg, "http://fixture.invalid").pathname; } catch {}
+    }
     record.actions.push({
       action,
-      selector: isNavigation(action) ? null : arg,
-      title: step.title,
+      selector: null,
+      title: action,
       // Relative to test start, so a reader sees the shape of the run without
       // caring what wall clock it happened at.
       atMs: Math.max(0, step.startTime.getTime() - record.startedAt),
@@ -177,7 +183,7 @@ export default class ProjectViewerReporter {
     if (!record) return;
     record.status = result.status;
     record.durationMs = result.duration;
-    record.errors = (result.errors ?? []).map((e) => String(e.message ?? e).slice(0, 400));
+    record.errors = (result.errors ?? []).slice(0, 10).map(() => "test failed; inspect the owner-local Playwright report");
 
     const key = [record.file, record.title, record.project]
       .map((s) =>

@@ -46,7 +46,7 @@ x-garrison:
       description: The repository to analyse and serve. Read from GARRISON_PROJECTVIEWER_TARGET_REPO at runtime; must be a git repo, since every sample is anchored to a commit.
     - key: store
       type: string
-      default: ~/.garrison/project-viewer
+      default: ""
       description: Machine-local store for runtime captures and derived caches. Flow manifests do NOT live here — they live in the target repo's viewer/ directory so they travel with the code they describe.
     - key: language
       type: string

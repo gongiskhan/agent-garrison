@@ -133,7 +133,8 @@ export function specFromCapture(capture, { captureRef = null, flowId = null, tit
 
   const states = [];
   const spine = [];
-  const byUrl = new Map();
+  let previousKey = null;
+  let currentState = null;
 
   for (const action of actions) {
     const url = action.url ?? null;
@@ -141,7 +142,7 @@ export function specFromCapture(capture, { captureRef = null, flowId = null, tit
     // empty and the same page full are two things worth reading about, not one — so
     // the grouping key is the declared state where there is one, the URL otherwise.
     const key = action.state?.key ?? url ?? NO_PAGE;
-    let state = byUrl.get(key);
+    let state = key === previousKey ? currentState : null;
     if (!state) {
       state = {
         id: `s${states.length + 1}`,
@@ -149,7 +150,8 @@ export function specFromCapture(capture, { captureRef = null, flowId = null, tit
         description: "",
         steps: [],
       };
-      byUrl.set(key, state);
+      previousKey = key;
+      currentState = state;
       states.push(state);
     }
 

@@ -23,12 +23,13 @@ import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { projectKey, storeRoot } from "./store.mjs";
+import { confinedPath, readRegularText } from "./paths.mjs";
+import { projectKey, storeRoot, writeReport, serializeUpdate } from "./store.mjs";
 
 export const REGISTRY_VERSION = 1;
 
 export function registryPath(env = process.env) {
-  return path.join(storeRoot(env), "projects.json");
+  return confinedPath(storeRoot(env), "projects.json");
 }
 
 export function expandHome(p) {
@@ -52,7 +53,7 @@ export function normalisePath(p) {
  */
 export async function readRegistry(env = process.env) {
   try {
-    const raw = await readFile(registryPath(env), "utf8");
+    const raw = readRegularText(registryPath(env));
     const parsed = JSON.parse(raw);
     const list = Array.isArray(parsed?.projects) ? parsed.projects : [];
     const seen = new Set();
@@ -72,10 +73,7 @@ export async function readRegistry(env = process.env) {
 async function writeRegistry(projects, env = process.env) {
   const file = registryPath(env);
   await mkdir(path.dirname(file), { recursive: true });
-  const tmp = `${file}.tmp`;
-  const payload = `${JSON.stringify({ version: REGISTRY_VERSION, projects }, null, 2)}\n`;
-  await writeFile(tmp, payload, "utf8");
-  await rename(tmp, file);
+  await writeReport(file, { version: REGISTRY_VERSION, projects });
   return file;
 }
 
@@ -144,8 +142,8 @@ export async function resolveKey(key, { configured = null, env = process.env } =
  * all: samples are extracted at a SHA, so without a commit there is nothing to
  * anchor to and every page would be an error.
  */
-export async function addProject(input, { isRepo, env = process.env } = {}) {
-  const target = normalisePath(input);
+export async function addProject(input, { isRepo, resolveRoot = null, env = process.env } = {}) {
+  let target = normalisePath(input);
   if (!target) return { ok: false, code: "empty", error: "no path given" };
   if (!path.isAbsolute(target)) {
     return { ok: false, code: "notAbsolute", error: `${target} is not an absolute path` };
@@ -162,12 +160,15 @@ export async function addProject(input, { isRepo, env = process.env } = {}) {
   if (typeof isRepo === "function" && !(await isRepo(target))) {
     return { ok: false, code: "notRepo", error: `${target} is not a git repository` };
   }
+  if (resolveRoot) target = await resolveRoot(target);
+  return serializeUpdate(registryPath(env), async () => {
   const { projects } = await readRegistry(env);
   if (!projects.includes(target)) {
     projects.push(target);
     await writeRegistry(projects, env);
   }
   return { ok: true, path: target, key: projectKey(target) };
+  });
 }
 
 /**
@@ -180,8 +181,10 @@ export async function removeProject(key, { configured = null, env = process.env 
   if (configured && target === normalisePath(configured)) {
     return { ok: false, code: "isDefault", error: "the configured project cannot be removed" };
   }
+  return serializeUpdate(registryPath(env), async () => {
   const { projects } = await readRegistry(env);
   const next = projects.filter((p) => p !== target);
   if (next.length !== projects.length) await writeRegistry(next, env);
   return { ok: true, path: target };
+  });
 }
