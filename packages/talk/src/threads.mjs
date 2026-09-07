@@ -37,6 +37,7 @@ import os from "node:os";
 import path from "node:path";
 import { LiveEventStreamRegistry } from "./live-event-stream.mjs";
 import { noteThread, forgetThread } from "./thread-registry.mjs";
+import { conversationListMeta } from "./conversation-list-meta.mjs";
 
 function garrisonDir() {
   const override = process.env.GARRISON_HOME?.trim();
@@ -44,6 +45,7 @@ function garrisonDir() {
 }
 
 const THREADS_DIR = path.join(garrisonDir(), "web-channel", "threads");
+const THREAD_TOMBSTONES_DIR = path.join(garrisonDir(), "web-channel", "thread-tombstones");
 
 // Map any opaque key to a SAFE, stable filename stem. A key with only filesystem-
 // unfriendly chars (or an over-long one) still gets a deterministic id via a hash
@@ -70,6 +72,10 @@ export function newThreadId() {
 
 function threadPath(id) {
   return path.join(THREADS_DIR, `${id}.json`);
+}
+
+function threadTombstonePath(id) {
+  return path.join(THREAD_TOMBSTONES_DIR, `${id}.json`);
 }
 
 // The conversation-id vocabulary the conversation store and its HTTP router
@@ -1309,16 +1315,21 @@ function toMeta(thread) {
   const pendingInputs = normalizedPendingInputs(thread.pendingInputs);
   const remoteShell = remoteShellBinding(thread);
   const shell = shellBinding(thread);
+  const conversationId = conversationIdFor(thread);
+  const conversation = conversationId && !remoteShell && !shell
+    ? conversationListMeta(path.join(garrisonDir(), "conversations", conversationId)) : null;
+  const threadUpdatedAt = thread.updatedAt ?? thread.createdAt ?? null;
   return {
     ...(remoteShell ? { remoteShell } : {}),
     ...(shell ? { shell } : {}),
     id: thread.id,
-    conversationId: conversationIdFor(thread),
+    conversationId,
     title: deriveTitle(thread),
     source: thread.source ?? "chat",
     createdAt: thread.createdAt ?? null,
-    updatedAt: thread.updatedAt ?? thread.createdAt ?? null,
-    messageCount: Array.isArray(thread.messages) ? thread.messages.length : 0,
+    updatedAt: conversation?.updatedAt && (!threadUpdatedAt || conversation.updatedAt > threadUpdatedAt)
+      ? conversation.updatedAt : threadUpdatedAt,
+    messageCount: Math.max(Array.isArray(thread.messages) ? thread.messages.length : 0, conversation?.messageCount ?? 0),
     pendingInputCount: pendingInputs.length,
     inputRevision: cleanInt(thread.inputRevision, 0, Number.MAX_SAFE_INTEGER) ?? 0,
     // The pinned run context travels with the meta so the thread list / rail can
@@ -1326,6 +1337,23 @@ function toMeta(thread) {
     routing: thread.routing ?? null,
     routeSession: thread.routeSession ?? null,
     claudeSessionId: typeof thread.claudeSessionId === "string" ? thread.claudeSessionId : null,
+  };
+}
+
+function canonicalThread(id) {
+  if (!CONVERSATION_ID_RE.test(id) || existsSync(threadTombstonePath(id))) return null;
+  const conversation = conversationListMeta(path.join(garrisonDir(), "conversations", id));
+  if (!conversation) return null;
+  // A card/channel can start a conversation before /talk was ever opened.
+  // Project its existing store without manufacturing an empty legacy file.
+  return {
+    id, conversationId: id,
+    title: conversation.title && !/^(?:new )?conversation$|^untitled$/i.test(conversation.title) ? conversation.title : "",
+    source: conversation.cardId ? "kanban" : "chat",
+    mode: null, context: conversation.cardId ? { cardId: conversation.cardId } : undefined,
+    routing: null, routeSession: null, createdAt: conversation.createdAt,
+    updatedAt: conversation.updatedAt, messages: [], sessionEvents: [], sessionIds: [],
+    pendingInputs: [], inputReceipts: [], inputRecoveryBlocks: [], inputRevision: 0,
   };
 }
 
@@ -1358,8 +1386,8 @@ async function readThreadFile(id) {
     obj.routing = sanitizeRouting(obj.routing);
     obj.routeSession = sanitizeRouteSession(obj.routeSession);
     return obj;
-  } catch {
-    return null;
+  } catch (err) {
+    return err?.code === "ENOENT" ? canonicalThread(id) : null;
   }
 }
 
@@ -1368,12 +1396,21 @@ export async function listThreads() {
   let names = [];
   try {
     names = (await readdir(THREADS_DIR)).filter((n) => n.endsWith(".json"));
-  } catch {
-    return [];
-  }
+  } catch { /* a canonical-only node need not have a legacy threads directory */ }
+  const ids = new Set(names.map((name) => name.slice(0, -".json".length)));
+  const conversations = path.join(garrisonDir(), "conversations");
+  try {
+    const cutoff = Date.now() - 5 * 86_400_000;
+    for (const entry of fsSync.readdirSync(conversations, { withFileTypes: true })) {
+      if (!entry.isDirectory() || !CONVERSATION_ID_RE.test(entry.name) || existsSync(threadTombstonePath(entry.name))) continue;
+      try {
+        const dir = path.join(conversations, entry.name);
+        if (fsSync.statSync(path.join(dir, "log.jsonl")).mtimeMs >= cutoff || existsSync(path.join(dir, ".current-stretch"))) ids.add(entry.name);
+      } catch { /* an uninitialized conversation has no activity to list */ }
+    }
+  } catch { /* no canonical conversations yet */ }
   const metas = [];
-  for (const name of names) {
-    const id = name.slice(0, -".json".length);
+  for (const id of ids) {
     const thread = await readThreadFile(id);
     if (thread) metas.push(toMeta(thread));
   }
@@ -1412,6 +1449,7 @@ export async function getThreadSnapshot(id) {
 export async function ensureThread({ id, title, source, mode, context, nowIso }) {
   const safe = id ? safeThreadId(id) : newThreadId();
   return serializeThreadMutation(safe, async () => {
+    try { await unlink(threadTombstonePath(safe)); } catch (err) { if (err?.code !== "ENOENT") throw err; }
     const existing = await readThreadFile(safe);
     const now = nowIso ?? new Date().toISOString();
     if (existing) {
@@ -2126,12 +2164,16 @@ export async function deleteThread(id) {
   if (!safe) return false;
   return serializeThreadMutation(safe, async () => {
     const thread = await readThreadFile(safe);
+    if (!thread) return false;
     if (thread && (
       normalizedPendingInputs(thread.pendingInputs).length ||
       normalizedInputRecoveryBlocks(thread.inputRecoveryBlocks).length
     )) return false;
     try {
-      await unlink(threadPath(safe));
+      // Deleting an organizer row must not rediscover its retained canonical
+      // ledger on the next poll. Explicit ensure/open can restore it later.
+      await atomicWriteJson(threadTombstonePath(safe), { deletedAt: new Date().toISOString() });
+      try { await unlink(threadPath(safe)); } catch (err) { if (err?.code !== "ENOENT") throw err; }
       void forgetThread(safe);
       return true;
     } catch {
@@ -2143,7 +2185,7 @@ export async function deleteThread(id) {
 // Synchronous existence probe (used only in tests / quick checks).
 export function threadExistsSync(id) {
   const safe = safeThreadId(id);
-  return safe ? existsSync(threadPath(safe)) : false;
+  return safe ? existsSync(threadPath(safe)) || Boolean(canonicalThread(safe)) : false;
 }
 
 export function _threadsDirForTest() {
@@ -2271,19 +2313,10 @@ export function runningThreadIds() {
 // between-stretch window (exit gate, routing, a queued user message).
 
 const CONVERSATIONS_DIR = path.join(garrisonDir(), "conversations");
-/** Ledger kinds that decide liveness; everything else in the tail is content. */
-const CONV_TAIL_DECIDERS = new Set([
-  "user-message",
-  "stretch-started",
-  "stretch-ended",
-  "approval-requested",
-  "conversation-opened",
-]);
-
 /**
  * ISO time since when the conversation has been actively driven, or null when it
- * is waiting on a human (or on nothing). Sync and bounded on purpose: one stat
- * plus at most one 16KB tail read per conversation thread, on a poll route.
+ * is waiting on a human (or on nothing). The cached ledger projection preserves
+ * the latest lifecycle event even when long tool output follows it.
  */
 export function conversationRunningSince(conversationId) {
   if (!conversationId) return null;
@@ -2292,40 +2325,12 @@ export function conversationRunningSince(conversationId) {
     const marker = fsSync.statSync(path.join(dir, ".current-stretch"));
     return marker.mtime.toISOString();
   } catch { /* no stretch holds the store - consult the tail */ }
-  let tail;
-  try {
-    const logPath = path.join(dir, "log.jsonl");
-    const size = fsSync.statSync(logPath).size;
-    const span = Math.min(size, 16_384);
-    const fd = fsSync.openSync(logPath, "r");
-    try {
-      const buf = Buffer.alloc(span);
-      fsSync.readSync(fd, buf, 0, span, size - span);
-      tail = buf.toString("utf8");
-    } finally {
-      fsSync.closeSync(fd);
-    }
-  } catch {
-    return null;
+  const record = conversationListMeta(dir)?.decider;
+  const since = typeof record?.ts === "string" ? record.ts : null;
+  if (record?.kind === "user-message" || record?.kind === "stretch-started") return since;
+  if (record?.kind === "stretch-ended") {
+    const next = record.next;
+    return typeof next === "string" && next && next !== "done" && next !== "needs-input" ? since : null;
   }
-  const lines = tail.split("\n").filter((line) => line.trim());
-  // The first line of a mid-file window is almost always a partial record;
-  // walking backward, JSON.parse failures are simply skipped.
-  for (let i = lines.length - 1; i >= 0; i -= 1) {
-    let record;
-    try { record = JSON.parse(lines[i]); } catch { continue; }
-    const kind = record?.kind;
-    if (!CONV_TAIL_DECIDERS.has(kind)) continue;
-    const since = typeof record.ts === "string" ? record.ts : new Date().toISOString();
-    if (kind === "user-message" || kind === "stretch-started") return since;
-    if (kind === "stretch-ended") {
-      const next = record?.payload?.next;
-      // A named duty means the launcher owes the next stretch; done and
-      // needs-input are terminal, and an old record without `next` must not
-      // claim liveness it cannot prove.
-      return typeof next === "string" && next && next !== "done" && next !== "needs-input" ? since : null;
-    }
-    return null; // approval-requested and conversation-opened wait on a human
-  }
-  return null;
+  return null; // approval-requested and conversation-opened wait on a human
 }

@@ -1654,7 +1654,7 @@ function ThreadedApp({
       pending = true;
       try { await refreshList(); } finally { pending = false; }
     };
-    const timer = window.setInterval(() => { void refresh(); }, 10_000);
+    const timer = window.setInterval(() => { void refresh(); }, 5000);
     const onVisible = () => { void refresh(); };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
@@ -1872,10 +1872,14 @@ function ThreadedApp({
     [transport, conversationId, activeThread?.context, pins]
   );
   const onConversationActivity = useCallback((activity: { mode: string }) => {
-    if (conversationId) setConversationActivity({
-      id: conversationId,
-      working: ["starting", "working", "handoff"].includes(activity.mode),
-    });
+    if (!conversationId) return;
+    const working = ["starting", "working", "handoff"].includes(activity.mode);
+    setConversationActivity({ id: conversationId, working });
+    // The canonical conversation stream knows immediately; the legacy FIFO
+    // transport is not involved in these turns. Other clients refresh by poll.
+    setThreads((current) => current.map((thread) => thread.id === conversationId
+      ? { ...thread, runningSince: working ? thread.runningSince ?? new Date().toISOString() : null }
+      : thread));
   }, [conversationId]);
   const stopConversation = useCallback(async () => {
     if (!conversationId) return;

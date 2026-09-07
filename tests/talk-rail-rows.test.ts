@@ -7,7 +7,7 @@
 // trusting every call site to reimplement it identically.
 
 import { describe, expect, it } from "vitest";
-import { visibleSessionRows, type RailSession } from "../packages/talk/ui/sessions-rail";
+import { groupSessionRows, visibleSessionRows, type RailSession } from "../packages/talk/ui/sessions-rail";
 
 function session(overrides: Partial<RailSession> = {}): RailSession {
   return {
@@ -39,6 +39,19 @@ function session(overrides: Partial<RailSession> = {}): RailSession {
 }
 
 describe("visibleSessionRows", () => {
+  it("puts nodes with running work before idle nodes, favoring self within each group", () => {
+    const rows = [
+      ...Array.from({ length: 33 }, (_, i) => session({ id: `idle-${i}`, node: "a-idle", status: "idle" })),
+      session({ id: "remote-working", node: "z-working" }),
+      session({ id: "self-idle", node: "self", status: "idle" })
+    ];
+    expect(groupSessionRows(rows, "self").map(([node]) => node)).toEqual(["z-working", "self", "a-idle"]);
+    rows.push(session({ id: "self-working", node: "self" }));
+    const grouped = groupSessionRows(rows, "self");
+    expect(grouped.map(([node]) => node)).toEqual(["self", "z-working", "a-idle"]);
+    expect(grouped[0][1].map((row) => row.id)).toEqual(["self-working", "self-idle"]);
+  });
+
   it("keeps a plain unbound, unclaimed session", () => {
     const rows = [session()];
     expect(visibleSessionRows(rows)).toEqual(rows);

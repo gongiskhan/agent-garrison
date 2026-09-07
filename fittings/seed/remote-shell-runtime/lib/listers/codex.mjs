@@ -8,6 +8,7 @@
 // it when they exist.
 
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { projectName, codexTranscriptStatus, readJsonlSlice } from "./common.mjs";
@@ -77,6 +78,35 @@ function readSessionIndex(home) {
   return map;
 }
 
+const titleCaches = new Map();
+function readStateTitles(home) {
+  const cached = titleCaches.get(home);
+  if (cached && Date.now() - cached.at < 5000) return cached.titles;
+  const titles = new Map();
+  titleCaches.set(home, { at: Date.now(), titles });
+  let files;
+  try { files = fs.readdirSync(home).filter((name) => /^state_\d+\.sqlite$/.test(name)).sort((a, b) => Number(b.match(/\d+/)[0]) - Number(a.match(/\d+/)[0])); }
+  catch { return titles; }
+  for (const name of files) {
+    try {
+      const file = path.join(home, name);
+      const query = (sql) => JSON.parse(execFileSync("sqlite3", ["-readonly", "-json", file, sql],
+        { encoding: "utf8", timeout: 3000, maxBuffer: 4 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] }) || "[]");
+      const columns = new Set(query("pragma table_info(threads)").map((column) => column.name));
+      if (!columns.has("id") || !columns.has("title")) continue;
+      // Newer clients store a user's explicit rename in name. Read metadata
+      // only, never first_user_message, preview, or the whole thread record.
+      const title = columns.has("name") ? "coalesce(nullif(name, ''), title)" : "title";
+      const order = columns.has("updated_at") ? "order by updated_at desc" : "";
+      for (const row of query(`select id, substr(${title}, 1, 200) as title from threads ${order} limit 10000`)) {
+        if (typeof row.id === "string" && typeof row.title === "string" && row.title.trim()) titles.set(row.id, row.title.trim());
+      }
+      break;
+    } catch { /* absent sqlite3, migrations, or locks leave journal discovery usable */ }
+  }
+  return titles;
+}
+
 export function list({ windowDays = 5, now = Date.now(), env = process.env } = {}) {
   const rows = [];
   const seen = new Set();
@@ -84,6 +114,7 @@ export function list({ windowDays = 5, now = Date.now(), env = process.env } = {
 
   for (const home of codexHomes(env)) {
     const index = readSessionIndex(home);
+    const titles = readStateTitles(home);
     const root = path.join(home, "sessions");
     for (const dir of sessionDayDirs(root)) {
       let entries;
@@ -122,7 +153,8 @@ export function list({ windowDays = 5, now = Date.now(), env = process.env } = {
           kind: "cli",
           cwd: typeof meta.cwd === "string" ? meta.cwd : null,
           project: projectName(meta.cwd),
-          title: indexed?.thread_name ?? null,
+          title: [titles.get(meta.id), indexed?.thread_name, meta.title, meta.thread_name]
+            .find((value) => typeof value === "string" && value.trim()) ?? null,
           ...base,
           startedAt: typeof meta.timestamp === "string" ? meta.timestamp : null,
           lastActivityAt: new Date(stat.mtimeMs).toISOString(),

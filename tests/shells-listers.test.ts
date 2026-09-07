@@ -5,6 +5,7 @@
 
 import { appendFileSync, readFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import os from "node:os";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-ignore — pure .mjs
@@ -85,6 +86,29 @@ function writeCodexRollout(root: string, uuid: string, payload: Record<string, u
 }
 
 describe("codex lister", () => {
+  it("uses the native state database's saved names and titles by id, with journal metadata fallback", () => {
+    const home = path.join(sandbox, "codex-state");
+    for (const id of ["renamed", "titled", "metadata"]) {
+      writeCodexRollout(path.join(home, "sessions"), id, { cwd: "/tmp/shared", title: `Journal ${id}` }, new Date(NOW));
+    }
+    execFileSync("sqlite3", [path.join(home, "state_5.sqlite"), `
+      create table threads (id text, title text, name text, updated_at integer, first_user_message text);
+      insert into threads values ('renamed', 'Original title', 'Saved task name', 2, 'Private prompt');
+      insert into threads values ('titled', 'Distinct task title', null, 1, 'Private prompt');
+    `]);
+    const rows = listCodex({ now: NOW, env: { HOME: sandbox, GARRISON_HOME: sandbox, CODEX_HOME: home } });
+    expect(Object.fromEntries(rows.map((row: { id: string; title: string }) => [row.id, row.title])))
+      .toEqual({ renamed: "Saved task name", titled: "Distinct task title", metadata: "Journal metadata" });
+    expect(JSON.stringify(rows)).not.toContain("Private prompt");
+  });
+
+  it("reads an older native state schema without the optional name column", () => {
+    const home = path.join(sandbox, "codex-state-old");
+    writeCodexRollout(path.join(home, "sessions"), "older", { cwd: "/tmp/shared" }, new Date(NOW));
+    execFileSync("sqlite3", [path.join(home, "state_4.sqlite"), "create table threads (id text, title text); insert into threads values ('older', 'Older task title');"]);
+    expect(listCodex({ now: NOW, env: { HOME: sandbox, GARRISON_HOME: sandbox, CODEX_HOME: home } })[0].title).toBe("Older task title");
+  });
+
   it("reads session_index titles, skips subagent threads, dedupes across homes", () => {
     const home = path.join(sandbox, "codex-home");
     const sessionsRoot = path.join(home, "sessions");

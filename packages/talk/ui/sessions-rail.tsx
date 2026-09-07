@@ -106,6 +106,25 @@ export function visibleSessionRows(sessions: RailSession[]): RailSession[] {
   return sessions.filter((s) => !s.threadId && !s.boundTo && !s.claimedBy);
 }
 
+/** Keep running work visible even when another node has many idle shells. */
+export function groupSessionRows(sessions: RailSession[], selfNode: string | null): [string, RailSession[]][] {
+  const rank = (s: RailSession["status"]) => (s === "working" ? 0 : s === "idle" ? 1 : s === "unknown" ? 2 : 3);
+  const byNode = new Map<string, RailSession[]>();
+  for (const session of visibleSessionRows(sessions)) {
+    const list = byNode.get(session.node) ?? [];
+    list.push(session);
+    byNode.set(session.node, list);
+  }
+  for (const list of byNode.values()) {
+    list.sort((a, b) => rank(a.status) - rank(b.status)
+      || Date.parse(b.lastActivityAt ?? "0") - Date.parse(a.lastActivityAt ?? "0"));
+  }
+  return [...byNode.entries()].sort(([a, rowsA], [b, rowsB]) => {
+    const working = Number(rowsB[0]?.status === "working") - Number(rowsA[0]?.status === "working");
+    return working || Number(b === selfNode) - Number(a === selfNode) || a.localeCompare(b);
+  });
+}
+
 interface SidebarState {
   groups: { id: string; name: string; collapsed: boolean }[];
   membership: Record<string, string>;
@@ -801,27 +820,8 @@ export function SessionsRail(props: {
   const hasGroups = sidebar.groups.length > 0;
   const peersWithBase = meshNodes.filter((n) => n.openBase);
 
-  // ── Sessions section: node sub-groups, working > idle > unknown, ended
-  // hidden behind a toggle. Never touches the organizer document - this is a
-  // derived, transient list rebuilt every poll.
-  const sessionsByNode = useMemo(() => {
-    const rank = (s: RailSession["status"]) => (s === "working" ? 0 : s === "idle" ? 1 : s === "unknown" ? 2 : 3);
-    const visible = visibleSessionRows(sessions);
-    const byNode = new Map<string, RailSession[]>();
-    for (const s of visible) {
-      const list = byNode.get(s.node) ?? [];
-      list.push(s);
-      byNode.set(s.node, list);
-    }
-    for (const list of byNode.values()) {
-      list.sort((a, b) => {
-        const d = rank(a.status) - rank(b.status);
-        if (d !== 0) return d;
-        return Date.parse(b.lastActivityAt ?? "0") - Date.parse(a.lastActivityAt ?? "0");
-      });
-    }
-    return [...byNode.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [sessions]);
+  // Derived node groups put active work first, then favor the current node.
+  const sessionsByNode = useMemo(() => groupSessionRows(sessions, self.node), [sessions, self.node]);
 
   const renderSessionRow = (s: RailSession) => {
     const isActive = s.id === activeSessionId;
@@ -957,41 +957,6 @@ export function SessionsRail(props: {
         {searching && filterRows(rows).length === 0 && !sessions.some((s) => matches(s.title, s.project, s.cwd, s.node, s.runtime)) && (
           <div className="wc-empty-list" role="status">No matches. Try a name, project, or machine.</div>
         )}
-        {sessionsByNode.length > 0 && (
-          <div className="wc-group wc-group--sessions" data-testid="rail-section-sessions">
-            <button
-              type="button"
-              className="wc-group-head"
-              data-testid="rail-sessions-toggle"
-              onClick={toggleSessionsCollapsed}
-              aria-expanded={!sessionsCollapsed}
-            >
-              <svg className={`wc-group-chev${sessionsCollapsed ? " wc-group-chev--closed" : ""}`} width="9" height="9" viewBox="0 0 10 10" aria-hidden="true">
-                <path d="M2.5 3.5 5 6l2.5-2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-              </svg>
-              <span className="wc-group-name" title="Shell sessions active in the last 5 days">Shell sessions · 5 days</span>
-              <span className="wc-group-count">{sessionsByNode.reduce((n, [, l]) => n + l.length, 0)}</span>
-            </button>
-            {sessionsByNode.map(([node, list]) => {
-              const shown = list.filter((s) => searching
-                ? matches(s.title, s.project, s.cwd, s.node, s.runtime)
-                : !sessionsCollapsed || s.status === "working" || s.id === activeSessionId);
-              if (shown.length === 0) return null;
-              return (
-                <div key={node}>
-                  <div className="wc-sessions-node" data-testid={`rail-node-${node}`}>
-                    <span className="wc-row-dot" style={{ background: list[0]?.nodeAccent || "#6a746b" }} aria-hidden />
-                    {shortNode(node) || node}
-                    <span className="wc-group-count">{shown.length}</span>
-                  </div>
-                  {shown.map(renderSessionRow)}
-                </div>
-              );
-            })}
-
-          </div>
-        )}
-
         {rows.length === 0 && sessionsByNode.length === 0 && <div className="wc-empty-list">No conversations yet</div>}
 
         {sidebar.groups.map((g) => {
@@ -1040,6 +1005,42 @@ export function SessionsRail(props: {
             : peeking(ungroupedRows)
           ).map(renderRow)}
         </div>
+
+        {sessionsByNode.length > 0 && (
+          <div className="wc-group wc-group--sessions" data-testid="rail-section-sessions">
+            <button
+              type="button"
+              className="wc-group-head"
+              data-testid="rail-sessions-toggle"
+              onClick={toggleSessionsCollapsed}
+              aria-expanded={!sessionsCollapsed}
+            >
+              <svg className={`wc-group-chev${sessionsCollapsed ? " wc-group-chev--closed" : ""}`} width="9" height="9" viewBox="0 0 10 10" aria-hidden="true">
+                <path d="M2.5 3.5 5 6l2.5-2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+              </svg>
+              <span className="wc-group-name" title="Shell sessions active in the last 5 days">Shell sessions · 5 days</span>
+              <span className="wc-group-count">{sessionsByNode.reduce((n, [, l]) => n + l.length, 0)}</span>
+            </button>
+            {sessionsByNode.map(([node, list]) => {
+              const shown = list.filter((s) => searching
+                ? matches(s.title, s.project, s.cwd, s.node, s.runtime)
+                : !sessionsCollapsed || s.status === "working" || s.id === activeSessionId);
+              if (shown.length === 0) return null;
+              return (
+                <div key={node}>
+                  <div className="wc-sessions-node" data-testid={`rail-node-${node}`}>
+                    <span className="wc-row-dot" style={{ background: list[0]?.nodeAccent || "#6a746b" }} aria-hidden />
+                    {shortNode(node) || node}
+                    <span className="wc-group-count">{shown.length}</span>
+                  </div>
+                  {shown.map(renderSessionRow)}
+                </div>
+              );
+            })}
+
+          </div>
+        )}
+
 
         {archivedRows.length > 0 && (
           <div className="wc-group" onDragOver={onSectionDragOver(ARCHIVED)} onDrop={onSectionDrop(ARCHIVED)}>
