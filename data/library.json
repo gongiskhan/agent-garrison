@@ -1050,5 +1050,20 @@
       "security": 5,
       "activity": 5
     }
+  },
+  {
+    "id": "jarvis-os",
+    "name": "Jarvis Agentic OS",
+    "repo": "local:fittings/seed/jarvis-os",
+    "localPath": "fittings/seed/jarvis-os",
+    "summary": "Optional voice-first Jarvis HUD with an audio-reactive core, hold-to-talk, streamed replies and read-aloud through the composition-selected voice provider. A dedicated fitting surface alongside Conversations.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-jarvis-os",
+      "global": 4.6,
+      "claude_code": 4.6
+    }
   }
 ]

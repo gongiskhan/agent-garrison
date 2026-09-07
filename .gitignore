@@ -7,6 +7,9 @@ dist/
 # (source), not build output — keep them tracked despite the global dist/ ignore.
 !fittings/seed/*/dist/
 !fittings/seed/*/dist/**
+# Jarvis builds its bundle and voice model/WASM assets during fitting setup.
+fittings/seed/jarvis-os/dist/*
+!fittings/seed/jarvis-os/dist/index.html
 *.log
 *.tsbuildinfo
 .env
