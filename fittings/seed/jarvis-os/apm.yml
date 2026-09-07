@@ -12,7 +12,7 @@ x-garrison:
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Voice-first Jarvis HUD on its own port (default 8082). Hold-to-talk → STT → Orchestrator (via the gateway) → reply read aloud, with a central core that pulses to the live audio. Consumes the composition-selected kind:voice Fitting; never spawns Claude itself.
+  summary: Voice-first Jarvis HUD on its own port (default 8082). Tap or Space to start hands-free voice → STT → Orchestrator (via the gateway) → reply read aloud, with a central core that pulses to the live audio. Consumes the composition-selected kind:voice Fitting; never spawns Claude itself.
   config_schema:
     - key: port
       type: integer
@@ -100,7 +100,7 @@ x-garrison:
       GET  /health            → liveness
       GET  /api/stream        → SSE proxy of gateway /channels/jarvis/stream
       POST /api/chat          → SSE proxy of gateway /chat/stream (body: {message})
-      GET  /api/voice         → { available, capabilities } — selected voice provider readiness
+      GET  /api/voice         → { available, fittingId, stt, tts, maxTextChars, ttsFormat, wakeEvents, stream } — selected voice provider readiness
       POST /api/voice/stt     → binary proxy to the voice Fitting's /stt
       POST /api/voice/tts     → binary proxy to the voice Fitting's /tts
       GET  /api/project       → read-only repo state for the Workspace panel

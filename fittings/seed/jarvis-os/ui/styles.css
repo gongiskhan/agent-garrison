@@ -1114,7 +1114,7 @@ a.jarvis-task-row:hover .jarvis-task-title { color: var(--white-hot); }
   /* the left rail is transcript-only on a phone — the NOW / operative dev panels
      it also holds now live in the drawer, so hide them here unconditionally */
   .jarvis-activity,
-  .jarvis-operative { display: none; }
+  .jarvis-runtime { display: none; }
 
   /* the ☰ / ✕ toggle — a floating round button, top-LEFT (the drawer slides
      from the left, so its opener lives on that edge), clear of the notch. Sits
@@ -2809,4 +2809,51 @@ a.yt-btn { text-decoration: none; }
   .jarvis-whatsapp-avatar,
   .jarvis-whatsapp-mini { animation-duration: 0.01ms; animation-iteration-count: 1; }
   .jarvis-whatsapp-check-path { animation: none; stroke-dashoffset: 0; }
+}
+
+/* Mesh sessions retain the canonical working state, including quiet tool work. */
+.jarvis-op-dot.is-working {
+  border: 1px solid currentColor;
+  border-right-color: transparent;
+  background: transparent;
+  animation: jarvis-session-spin 1s linear infinite;
+}
+@keyframes jarvis-session-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .jarvis-op-dot.is-working { animation: none; border-right-color: currentColor; }
+}
+
+/* Keep spoken replies readable beside the visualization and on phones. */
+.jarvis-turn { font-size: 13px; line-height: 1.55; }
+.jarvis-turn.assistant .jarvis-turn-text,
+.jarvis-turn-text.md { color: #c7ccd2; }
+.jarvis-turn-role { font-size: 10px; color: #8e98a5; }
+.jarvis-core:focus-visible { outline: 2px solid var(--cobalt); outline-offset: -4px; }
+@media (max-width: 640px) {
+  .jarvis-core { top: 54px; bottom: auto; height: 35vh; mask-image: linear-gradient(transparent, #000 12%, #000 88%, transparent); }
+  .jarvis-rail-left {
+    top: 41vh;
+    bottom: calc(108px + env(safe-area-inset-bottom));
+    max-height: none;
+    padding: 14px 10px;
+    background: rgba(4, 8, 12, 0.96);
+    border: 1px solid rgba(180, 210, 225, 0.12);
+    border-radius: 12px;
+  }
+  .jarvis-transcript { gap: 14px; }
+  .jarvis-turn { font-size: 14px; gap: 6px; }
+  .jarvis-turn-role { width: 48px; }
+  .jarvis-status {
+    width: calc(100% - 40px);
+    max-width: 440px;
+    bottom: calc(62px + env(safe-area-inset-bottom));
+    font-size: 11px;
+    line-height: 1.5;
+    letter-spacing: 0.06em;
+    text-transform: none;
+    color: #b9c3ce;
+  }
+  .jarvis-panels-toggle,
+  .jarvis-settings-btn { width: 44px; height: 44px; }
+  .jarvis-mute { min-height: 44px; }
 }

@@ -217,7 +217,7 @@
     "name": "Voice (Local)",
     "repo": "local:fittings/seed/local-voice",
     "localPath": "fittings/seed/local-voice",
-    "summary": "Fully local, multilingual speech I/O on port 8100. No cloud, no API key: a Node wrapper supervises a faster-whisper STT + Kokoro/Piper TTS voice-server and exposes the same kind:voice contract as deepgram-voice. STT auto-detects the spoken language (PT/FR/EN/ES/IT) and TTS replies in that language's own voice — Portuguese via Piper's native European pt_PT voice, the rest via Kokoro — so channels consume it unchanged for push-to-talk and read-aloud.",
+    "summary": "Optional local speech provider: a supervised faster-whisper engine for transcription and Kokoro/Piper for WAV speech, with explicit readiness and request limits. Models stay in an external cache; host microphone wake detection is off by default.",
     "platforms": [
       "claude-code"
     ],
@@ -1056,7 +1056,7 @@
     "name": "Jarvis Agentic OS",
     "repo": "local:fittings/seed/jarvis-os",
     "localPath": "fittings/seed/jarvis-os",
-    "summary": "Optional voice-first Jarvis HUD with an audio-reactive core, hold-to-talk, streamed replies and read-aloud through the composition-selected voice provider. A dedicated fitting surface alongside Conversations.",
+    "summary": "Optional voice HUD with an audio-reactive core, hands-free speech, streamed replies and read-aloud through the composition-selected voice provider. A dedicated fitting surface alongside Conversations.",
     "platforms": [
       "claude-code"
     ],

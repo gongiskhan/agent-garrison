@@ -1,3 +1,4 @@
+import type { VoiceInfo } from "./voice-provider";
 "use client";
 
 // ---------------------------------------------------------------------------
@@ -38,10 +39,9 @@ export type AmbientData = {
   board?: { columns: Array<{ name: string; cards: string[] }> } | null;
 };
 
-export type AmbientOperative = {
+export type AmbientRuntime = {
   gateway: { ok: boolean; mode?: string | null; uptimeMs?: number | null; sessions?: number | null; channels?: number | null };
-  voice: { ok: boolean; ready?: boolean };
-  souls: string[];
+  voice: VoiceInfo;
 } | null;
 
 function WeatherIcon({ code, size = 16 }: { code: number | null; size?: number }) {
@@ -93,7 +93,7 @@ function fmtTrackMs(ms?: number | null): string {
 export default function AmbientMode({
   data,
   music,
-  operative,
+  runtime,
   idleSince,
   nextTickAt,
   onMusicCmd,
@@ -101,7 +101,7 @@ export default function AmbientMode({
 }: {
   data: AmbientData | null;
   music: MusicState | null;
-  operative: AmbientOperative;
+  runtime: AmbientRuntime;
   idleSince: number;
   nextTickAt: number;
   onMusicCmd: (action: "pause" | "resume" | "next" | "previous") => void;
@@ -117,7 +117,7 @@ export default function AmbientMode({
   const mm = String(now.getMinutes()).padStart(2, "0");
   const dateLine = new Intl.DateTimeFormat("pt-PT", { weekday: "long", day: "numeric", month: "long" }).format(now);
   const w = data?.weather;
-  const gw = operative?.gateway;
+  const gw = runtime?.gateway;
 
   let delay = 0;
   const enter = () => ({ animationDelay: `${(delay += 60) / 1000}s` });
@@ -216,7 +216,7 @@ export default function AmbientMode({
             <header className="am3-head"><Activity size={14} strokeWidth={1.6} /><h3>jarvis</h3></header>
             <div className="am3-rows">
               <div className="am3-row">
-                <span>operative</span>
+                <span>runtime</span>
                 <b>{gw ? (gw.ok ? "online" : "offline") : "—"}{gw?.uptimeMs != null ? ` · ${fmtDur(gw.uptimeMs)}` : ""}</b>
               </div>
               <div className="am3-row">
@@ -224,12 +224,8 @@ export default function AmbientMode({
                 <b>{gw?.sessions ?? "—"} · {gw?.channels ?? "—"}</b>
               </div>
               <div className="am3-row">
-                <span>souls</span>
-                <b>{operative?.souls?.length ?? "—"}</b>
-              </div>
-              <div className="am3-row">
                 <span>voz</span>
-                <b>{operative ? (operative.voice.ready ? "pronta" : operative.voice.ok ? "a aquecer" : "offline") : "—"}</b>
+                <b>{runtime ? ((runtime.voice.stt && runtime.voice.tts) ? "pronta" : runtime.voice.available ? "a aquecer" : "offline") : "—"}</b>
               </div>
               {/* TODO: última ação / lastSummary — sem fonte pronta no gateway;
                   fica neutro em vez de decorar com dados fabricados. */}
