@@ -1,0 +1,1276 @@
+/* Project Viewer — the whole look, in one stylesheet with no build step.
+ *
+ * The layout has one job: make a code sample and its explanation readable side
+ * by side, and make the reading order obvious without drawing a diagram.
+ *
+ * Two readers, one document. A person needs hierarchy, rhythm and a highlight
+ * band their eye lands on. An agent needs stable class names, real landmarks and
+ * data attributes it can jump from. Neither is served by decoration, so there is
+ * none: every rule here is either hierarchy, legibility, or state.
+ *
+ * Design decisions worth knowing before editing:
+ *  - The palette IS Garrison's, value for value: warm paper, sage, brass, sharp
+ *    corners, display serif for headings. This is not a preference. A fitting with
+ *    its own neutrals reads as a different product embedded in the application,
+ *    and this file used to prove it — cool grey, blue accent, 7px rounding, and a
+ *    dark variant that flipped to near-black inside a warm-paper shell.
+ *  - Diff green/red stay conventional but warmed onto paper, because a diff that
+ *    invents its own colours is a diff nobody trusts.
+ *  - The brass highlight band is the loudest thing on the page. Syntax colour is
+ *    kept deliberately quiet so it cannot compete with it — the band is the
+ *    model's one editorial act, and it has to win.
+ *  - One type scale, one spacing scale. Both are listed as tokens; nothing in
+ *    this file uses an off-scale value. Two tokens govern width: --measure for
+ *    prose, --page for the document, so a wide monitor does not pull a paragraph
+ *    away from the panel under it.
+ */
+
+:root {
+  /* ---- Garrison's palette, verbatim from src/app/globals.css ----
+   *
+   * Warm paper, sage, brass, sharp corners. The token NAMES here are local (--bg,
+   * --fg, --accent) so the rules below did not have to be rewritten, but every
+   * VALUE is the shell's. A fitting that invents its own neutrals reads as a
+   * different product embedded in Garrison, which is exactly how this looked
+   * before: a cool-grey document with a blue accent, sitting inside a warm sage
+   * application.
+   */
+  --bg: #efe8d9;           /* --canvas */
+  --bg-sunken: #e7decd;    /* --surface-sunken */
+  --bg-raised: #f7f2e8;    /* --surface */
+  --bg-inset: #d8cdb8;     /* --paper-3 */
+  --border: #cec3ae;       /* --rule */
+  --border-muted: #ddd3c0;
+  --border-strong: #b9ac94; /* --rule-2 */
+
+  --fg: #18211b;           /* --ink */
+  --fg-muted: #3f4841;     /* --ink-mute */
+  --fg-faint: #5f645d;     /* --mute */
+
+  /* Sage is the accent, not blue. Brass is reserved for eyebrow labels and focus,
+   * the same division the shell keeps. */
+  --accent: #31563f;       /* --sage */
+  --accent-hover: #5d8668; /* --sage-2 */
+  --accent-soft: #e3ece1;  /* --sage-soft */
+  --accent-line: #b6c9b8;
+
+  --brass: #80601e;
+  --brass-2: #c7a95a;
+  --brass-soft: #eee1bd;
+
+  /* The shell's dark chrome, for the topbar. */
+  --shell: #172019;
+  --shell-2: #1e2a22;
+  --shell-ink: #f2ead9;
+  --shell-mute: #aab2a8;
+  --shell-rule: rgba(238, 226, 202, 0.14);
+
+  /* ---- the highlight band: the loudest thing on the page ----
+   * Brass rather than the old amber, so the one editorial act on a sample is in
+   * the shell's own accent instead of a colour from nowhere. */
+  --hl: #f6e9c4;
+  --hl-edge: #80601e;
+
+  /* ---- diff, conventional on purpose, warmed to sit on paper ---- */
+  --add-bg: #dfeadb;
+  --add-fg: #2f5c3c;
+  --add-edge: #8fae92;
+  --del-bg: #f3e2dd;
+  --del-fg: #963b32;
+  --del-edge: #d0a49c;
+
+  /* ---- state, from the shell ---- */
+  --ok: #31563f;
+  --ok-bg: #e3ece1;
+  --warn: #8e5e19;
+  --warn-bg: #f2e6c7;
+  --warn-edge: #c7a95a;
+  --danger: #963b32;
+  --danger-bg: #f3e2dd;
+
+  /* ---- type ---- */
+  /* The shell's three families, NAMED — not `var(--font-sans)`.
+   *
+   * Those variables are injected by Next's font loader inside the Garrison app and
+   * do not exist on a page this fitting serves itself. An undefined var makes the
+   * whole font-family declaration invalid, so the browser fell back to its default
+   * serif and rendered the entire page — body, navigation and all — in Times. That
+   * is what "everything is in serif" was.
+   *
+   * The families are Barlow / Source Serif 4 / JetBrains Mono, matching
+   * src/app/layout.tsx. They are Google fonts and this page loads nothing from the
+   * network, so they apply when the reader's machine has them and fall back
+   * gracefully when it does not. A local-first page does not fetch a typeface. */
+  --sans: "Barlow", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --display: "Source Serif 4", "Source Serif Pro", Georgia, "Times New Roman", serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --t-display: 27px;
+  --t-h2: 19px;
+  --t-h3: 15px;
+  --t-body: 14.5px;
+  --t-small: 13px;
+  --t-micro: 11px;
+  --t-code: 12.5px;
+
+  /* ---- space ---- */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+
+  /* Sharp corners. Garrison's whole visual language is square, and the shell's own
+   * drillbook states it as a rule; 7px rounding was the single loudest tell that
+   * this page came from somewhere else. Kept as tokens rather than deleted from
+   * twenty rules, so a future decision to round something is one line. */
+  --radius: 0;
+  --radius-sm: 0;
+  --rail: 2px;
+
+  --shadow-sm: 0 1px 2px rgba(23, 32, 25, 0.08), 0 6px 18px rgba(23, 32, 25, 0.045);
+  --measure: 68ch;   /* reading width for prose */
+  --page: 1180px;    /* the page's own max width, so nothing stretches to a 4K panel */
+}
+
+/* No dark variant, deliberately.
+ *
+ * There was one, and it is why this page rendered near-black inside a warm-paper
+ * application: the browser was in dark mode and this stylesheet obeyed while the
+ * shell around it did not. Garrison is warm paper in every browser, so a fitting
+ * that follows the OS preference is not "respecting the user" — it is disagreeing
+ * with the product it lives inside. */
+
+/* An eyebrow label, exactly as the shell writes them: brass, mono, wide, small. */
+.eyebrow,
+.summary dt,
+.flow-group h2 .count {
+  color: var(--brass);
+  font: 600 10px/1 var(--mono);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+/* Provenance is a SENTENCE — the test name, the title, the commit. It used to
+ * share the eyebrow rule, so a long line of it ran across the page in tracked-out
+ * uppercase and became the loudest thing under the title. Quiet mono instead. */
+.provenance {
+  color: var(--fg-faint);
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  letter-spacing: 0.01em;
+  text-transform: none;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: var(--t-body);
+  line-height: 1.62;
+  -webkit-text-size-adjust: 100%;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { color: var(--accent-hover); text-decoration: underline; text-underline-offset: 2px; }
+code, kbd, samp { font-family: var(--mono); font-size: 0.9em; }
+
+/* Display serif for headings, like every title in the shell. The sans-serif
+ * headings were the second-loudest tell that this page was foreign. */
+h1, h2, h3, h4, h5 { margin: 0; text-wrap: balance; font-weight: 600; }
+h1 {
+  font-family: var(--display);
+  font-size: var(--t-display);
+  line-height: 1.2;
+  letter-spacing: 0.005em;
+  font-weight: 500;
+}
+h2 { font-family: var(--display); font-size: var(--t-h2); line-height: 1.3; font-weight: 500; }
+h3 { font-size: var(--t-h3); line-height: 1.4; letter-spacing: -0.01em; }
+p { margin: 0; }
+
+/* Prose gets a measure. Full-width paragraphs on a wide monitor are the reason the
+ * lede and the panel below it read as two unrelated columns. */
+.lede, .blurb, .hint, .first-run > p, .first-run-steps { max-width: var(--measure); }
+
+.muted { color: var(--fg-muted); }
+.empty {
+  color: var(--fg-muted);
+  padding: var(--s5);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+  font-size: var(--t-small);
+}
+
+/* An agent parsing the page should not trip over this; a person should not see it. */
+.skip {
+  position: absolute; left: -9999px; top: 0;
+  background: var(--accent); color: #fff; padding: var(--s2) var(--s3);
+  border-radius: 0 0 var(--radius) 0; z-index: 100;
+}
+.skip:focus { left: 0; }
+
+/* ================================================================= chrome */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--s5);
+  padding: 0 var(--s5);
+  min-height: 54px;
+  /* The shell's dark chrome, not a tinted version of the page. Garrison's header
+   * and sidebar are near-black sage against warm paper, and that contrast is what
+   * makes a Garrison surface recognisable at a glance. A pale bar blurred over the
+   * canvas read as a generic document header. */
+  background: var(--shell);
+  color: var(--shell-ink);
+  border-bottom: 1px solid var(--shell-rule);
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  flex-wrap: wrap;
+}
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  font-family: var(--display);
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: 0.005em;
+}
+.brand a { color: var(--shell-ink); }
+.brand a:hover { text-decoration: none; color: var(--brass-2); }
+/* Everything inside the topbar reads against the dark shell, so it takes shell
+ * tokens. Page tokens here would be paper-on-paper: invisible. */
+.brand .project {
+  font-weight: 400;
+  font-size: var(--t-micro);
+  color: var(--shell-mute);
+  font-family: var(--mono);
+  letter-spacing: 0.04em;
+  padding: 3px var(--s2);
+  background: var(--shell-2);
+  border: 1px solid var(--shell-rule);
+}
+
+.mainnav { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.mainnav::-webkit-scrollbar { display: none; }
+.mainnav a {
+  padding: 6px var(--s3);
+  color: var(--shell-mute);
+  font-size: var(--t-small);
+  white-space: nowrap;
+  position: relative;
+}
+.mainnav a:hover { background: var(--shell-2); text-decoration: none; color: var(--shell-ink); }
+/* Brass marks the active tab, the same way the shell marks a selected station. */
+.mainnav a.is-active { color: var(--shell-ink); font-weight: 600; }
+.mainnav a.is-active::after {
+  content: ""; position: absolute; left: var(--s3); right: var(--s3); bottom: -1px;
+  height: var(--rail); background: var(--brass-2);
+}
+
+/* A plain link to /lang/<code>: sets a cookie and returns the reader where they
+   were, so it works with JavaScript off and no other link carries a ?lang=. */
+/* Two segments, the active one filled. A reader can see which language they are
+ * reading AND which one the other button gives them, without pressing anything. */
+.langswitch {
+  margin-left: auto;
+  display: inline-flex;
+  border: 1px solid var(--shell-rule);
+  overflow: hidden;
+}
+.langopt {
+  padding: 5px 11px;
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--shell-mute);
+  background: transparent;
+}
+.langopt + .langopt { border-left: 1px solid var(--shell-rule); }
+a.langopt:hover { color: var(--shell-ink); background: var(--shell-2); text-decoration: none; }
+.langopt.is-active { background: var(--brass-2); color: var(--shell); }
+
+main { max-width: var(--page); margin: 0 auto; padding: var(--s6) var(--s5) var(--s7); }
+.lede { color: var(--fg-muted); max-width: var(--measure); font-size: 15px; }
+
+/* A badge keeps its pill shape — the shell rounds its status pills too, and a square
+ * one reads as a button you could press. Everything structural stays square. */
+
+/* ================================================================= badges */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: 2px var(--s2);
+  border-radius: 999px;
+  font-size: var(--t-micro);
+  font-weight: 550;
+  line-height: 1.7;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+/* `fresh` is deliberately absent from the step header. When nothing is stale,
+   a badge on every step is noise that trains the eye to ignore badges — which is
+   exactly the eye you do not want when one finally turns amber. Freshness is
+   reported once, on the flow header. */
+.b-stale { background: var(--warn-bg); color: var(--warn); border-color: var(--warn-edge); }
+.b-invalidated { background: var(--danger-bg); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+.b-dirty { background: var(--warn-bg); color: var(--warn); border-color: var(--warn-edge); }
+.b-find { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-line); }
+.b-verified { background: var(--ok-bg); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
+.b-src {
+  background: var(--bg-inset); color: var(--fg-muted);
+  border-color: var(--border); font-family: var(--mono); font-weight: 500;
+}
+.b-src-drillbook { background: var(--accent-soft); color: var(--accent); border-color: var(--accent-line); }
+
+/* ================================================================= index */
+
+.page-head { display: flex; flex-direction: column; gap: var(--s3); margin-bottom: var(--s6); }
+
+.summary { margin-bottom: var(--s6); }
+.summary dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 1px;
+  background: var(--border-muted);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin: 0;
+}
+.summary dl > div { background: var(--bg-sunken); padding: var(--s3) var(--s4); display: flex; flex-direction: column; gap: 2px; }
+.summary dt {
+  font-family: var(--mono); font-size: 10.5px; text-transform: uppercase;
+  letter-spacing: 0.07em; color: var(--fg-muted);
+}
+.summary dd {
+  margin: 0; font-size: 21px; font-weight: 650;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+}
+.summary dd code { font-size: 15px; font-weight: 500; }
+
+.flow-group { margin-bottom: var(--s6); }
+.flow-group > h2 { display: flex; align-items: center; gap: var(--s3); }
+.flow-group > h2 .count {
+  font-family: var(--mono); font-size: var(--t-micro); font-weight: 500;
+  color: var(--fg-muted); background: var(--bg-inset);
+  padding: 2px var(--s2); border-radius: 999px;
+}
+.blurb { color: var(--fg-muted); font-size: var(--t-small); margin: var(--s1) 0 var(--s4); max-width: 74ch; }
+
+.flow-list { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--s2); }
+.flow-card {
+  position: relative;
+  padding: var(--s3) var(--s4) var(--s3) var(--s5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+/* A rail rather than a hover shadow: it marks the card as a target without
+   animating anything, and it survives print and reduced-motion. */
+.flow-card::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: var(--rail);
+  background: var(--border-strong); border-radius: var(--radius) 0 0 var(--radius);
+}
+.flow-card:hover { border-color: var(--accent-line); }
+.flow-card:hover::before { background: var(--accent); }
+.flow-card .ft { font-weight: 600; font-size: 15px; letter-spacing: -0.012em; }
+.flow-card .meta { font-size: var(--t-micro); color: var(--fg-muted); font-family: var(--mono); }
+.flow-card .fs { flex-basis: 100%; margin: 0; font-size: var(--t-small); color: var(--fg-muted); max-width: 92ch; }
+.flow-card.is-broken { border-color: var(--danger); }
+.flow-card.is-broken::before { background: var(--danger); }
+
+/* ================================================================= flow page */
+
+.flow-head { display: flex; flex-direction: column; gap: var(--s2); margin-bottom: var(--s5); }
+.flow-title { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+.flow-summary { color: var(--fg-muted); max-width: 82ch; font-size: 15px; }
+.provenance {
+  font-size: var(--t-micro);
+  color: var(--fg-faint);
+  font-family: var(--mono);
+  display: flex;
+  gap: var(--s2);
+  flex-wrap: wrap;
+  align-items: center;
+}
+.provenance .sep { color: var(--border-strong); }
+
+/* Orientation strip. Sticky, because a tall state otherwise loses you. */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  flex-wrap: wrap;
+  padding: var(--s2) var(--s3);
+  margin-bottom: var(--s5);
+  background: color-mix(in srgb, var(--bg-sunken) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius);
+  position: sticky;
+  top: 55px;
+  z-index: 20;
+}
+.crumb {
+  display: inline-flex; align-items: center; gap: var(--s2);
+  padding: var(--s1) var(--s2);
+  border-radius: var(--radius-sm);
+  font-size: var(--t-small);
+  color: var(--fg-muted);
+}
+.crumb .n {
+  display: inline-grid; place-items: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--bg-inset); color: var(--fg-muted);
+  font-family: var(--mono); font-size: 10px; font-weight: 700;
+  flex: none;
+}
+.crumb:hover { background: var(--bg-raised); text-decoration: none; color: var(--fg); }
+.crumb.is-current { background: var(--accent); color: #fff; font-weight: 600; }
+.crumb.is-current .n { background: rgba(255,255,255,0.24); color: #fff; }
+.crumb-sep { color: var(--border-strong); font-size: var(--t-small); }
+
+.state { display: flex; flex-direction: column; gap: 0; }
+.state-title { display: flex; align-items: baseline; gap: var(--s3); margin-bottom: var(--s2); }
+.state-title .n {
+  font-family: var(--mono); font-size: var(--t-micro); font-weight: 600;
+  color: var(--accent); background: var(--accent-soft);
+  padding: 2px var(--s2); border-radius: 999px;
+  border: 1px solid var(--accent-line);
+}
+.state-desc { color: var(--fg-muted); max-width: 82ch; margin-bottom: var(--s4); }
+
+/* ---- the step: the half-and-half unit ---- */
+
+.step {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  overflow: hidden;
+}
+.step.k-glue { background: var(--bg-sunken); }
+
+.step-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  padding: var(--s2) var(--s4);
+  border-bottom: 1px solid var(--border-muted);
+  background: var(--bg-sunken);
+}
+.step-head .stepn {
+  font-family: var(--mono); font-size: 10.5px; font-weight: 700;
+  color: var(--fg-faint); font-variant-numeric: tabular-nums;
+  flex: none;
+}
+.step-head .step-title { font-weight: 600; font-size: 14px; letter-spacing: -0.008em; }
+.step-head .anchor { font-size: 11.5px; color: var(--fg-muted); font-family: var(--mono); margin-left: auto; }
+.step-head .anchor:hover { color: var(--accent); }
+.kind {
+  font-family: var(--mono); font-size: 9.5px; text-transform: uppercase;
+  letter-spacing: 0.07em; padding: 2px var(--s2); border-radius: var(--radius-sm);
+  background: var(--bg-inset); color: var(--fg-muted); font-weight: 600; flex: none;
+}
+.k-db .kind, .k-filewrite .kind { background: var(--accent-soft); color: var(--accent); }
+.k-dep .kind { background: var(--warn-bg); color: var(--warn); }
+.k-glue .kind { background: transparent; border: 1px dashed var(--border-strong); }
+
+.split { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); align-items: stretch; }
+@media (max-width: 1180px) { .split { grid-template-columns: minmax(0, 1fr); } }
+
+.pane { padding: 0; min-width: 0; }
+.pane.desc {
+  padding: var(--s4) var(--s5);
+  border-left: 1px solid var(--border-muted);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+@media (max-width: 1180px) { .pane.desc { border-left: 0; border-top: 1px solid var(--border-muted); } }
+/* Prose gets a measure. A description running the full width of a wide screen is
+   the fastest way to make a good explanation unreadable. */
+.pane.desc p { max-width: 66ch; }
+.pane.desc p + p { margin-top: var(--s3); }
+.pane.desc code {
+  background: var(--bg-inset); padding: 1px 4px;
+  border-radius: var(--radius-sm); font-size: 0.88em;
+}
+
+.pane-label {
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s2) var(--s3);
+  border-bottom: 1px solid var(--border-muted);
+  font-size: 11.5px; color: var(--fg-muted);
+  background: var(--bg-sunken);
+  font-family: var(--mono);
+}
+.pane-label .lines, .pane-label .at-sha { color: var(--fg-faint); }
+.code-pane { overflow-x: auto; }
+
+/* A step generated mechanically but not yet narrated says so, rather than
+   presenting an empty half as though the explanation were simply short. */
+.not-narrated {
+  display: flex; align-items: flex-start; gap: var(--s2);
+  font-size: var(--t-small); color: var(--warn);
+  background: var(--warn-bg); border: 1px dashed var(--warn-edge);
+  border-radius: var(--radius); padding: var(--s3);
+}
+.not-narrated b { font-weight: 650; }
+
+.dep-note {
+  border-left: var(--rail) solid var(--warn-edge);
+  padding-left: var(--s3); color: var(--fg-muted); font-size: var(--t-small);
+}
+
+/* ---- collapse, never omit ---- */
+/* The expand/collapse word is markup, not CSS `content`: generated content cannot
+   be translated, and this interface is bilingual. */
+.step-fold summary { cursor: pointer; list-style: none; }
+.step-fold summary::-webkit-details-marker { display: none; }
+.step-fold summary .step-head { border-bottom: 0; }
+.step-fold summary:hover .step-head { background: var(--bg-inset); }
+.step-fold[open] summary .step-head { border-bottom: 1px solid var(--border-muted); }
+.fold-hint {
+  font-size: 10px; color: var(--fg-faint);
+  font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.06em;
+  white-space: nowrap; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 1px var(--s2); flex: none;
+}
+.step-fold summary:hover .fold-hint { color: var(--accent); border-color: var(--accent-line); }
+.fold-hint .when-open { display: none; }
+.step-fold[open] .fold-hint .when-closed { display: none; }
+.step-fold[open] .fold-hint .when-open { display: inline; }
+
+/* ---- connectors: direction only, never a diagram ---- */
+/* A bare arrow between two folded rows read as spacing rather than as direction,
+   so the arrow now sits on a rail that visibly continues the spine. */
+.connector {
+  display: flex; align-items: center; justify-content: flex-start;
+  gap: var(--s3);
+  padding: 0;
+  margin-left: var(--s5);
+  min-height: 30px;
+  position: relative;
+  color: var(--fg-faint);
+}
+.connector::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0;
+  width: var(--rail); background: var(--border-strong);
+}
+.connector .arrow {
+  font-size: 11px; line-height: 1;
+  background: var(--bg); border: 1px solid var(--border-strong);
+  border-radius: 999px; width: 18px; height: 18px;
+  display: grid; place-items: center;
+  margin-left: calc(var(--rail) / 2 - 9px);
+  position: relative; z-index: 1;
+}
+.connector .edge-label {
+  font-size: var(--t-micro); font-family: var(--mono);
+  color: var(--fg-muted); background: var(--bg-sunken);
+  padding: 1px var(--s2); border-radius: var(--radius-sm);
+}
+.state > .connector:last-child { display: none; }
+
+/* Pinned to the bottom of the viewport, not the bottom of the document.
+ *
+ * A flow state is taller than a screen, so the only control that moves the reader
+ * forward used to sit below the fold: you arrived at a wall of code with no visible
+ * exit. This is the one piece of chrome that must never scroll away. */
+.statenav {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--s4);
+  margin: var(--s6) calc(var(--s5) * -1) calc(var(--s7) * -1);
+  padding: var(--s3) var(--s5);
+  background: var(--bg-raised);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -6px 18px rgba(23, 32, 25, 0.06);
+  z-index: 20;
+}
+.statenav a {
+  font-weight: 600;
+  font-size: var(--t-small);
+  padding: 7px var(--s3);
+  border: 1px solid var(--fg);
+  color: var(--fg);
+}
+.statenav a:hover { background: var(--fg); color: var(--bg-raised); text-decoration: none; }
+.statenav a.next { background: var(--accent); border-color: var(--accent); color: #f7f2e8; }
+.statenav a.next:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.statenav a { font-weight: 550; }
+
+/* ================================================================= outline */
+
+/* The landing view. Its whole job is answering "how big is this and what is in
+   it?" before the reader commits to walking through it — so it is dense on
+   purpose, and every row is one line tall. */
+
+.o-bar {
+  display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap;
+  padding: var(--s3) var(--s4);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: var(--s4);
+}
+.o-total { font-family: var(--mono); font-size: var(--t-small); color: var(--fg-muted); }
+.pv-link { margin-left: auto; font-weight: 600; font-size: var(--t-small); }
+
+.o-state { margin-bottom: var(--s5); }
+.o-state-head {
+  display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap;
+  padding-bottom: var(--s2); margin-bottom: var(--s2);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--t-h3);
+}
+.o-state-head .n {
+  font-family: var(--mono); font-size: var(--t-micro); font-weight: 700;
+  color: var(--accent); background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  padding: 1px var(--s2); border-radius: 999px; flex: none;
+}
+.o-state-head a { color: var(--fg); }
+.o-state-head a:hover { color: var(--accent); }
+.o-state-head .o-count { margin-left: auto; font-family: var(--mono); font-size: var(--t-micro); color: var(--fg-faint); }
+.o-state-desc { font-size: var(--t-small); color: var(--fg-muted); margin-bottom: var(--s2); max-width: 84ch; }
+
+.o-steps { list-style: none; padding: 0; margin: 0; }
+.o-step {
+  display: grid;
+  grid-template-columns: 26px auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s2) var(--s2);
+  border-bottom: 1px solid var(--border-muted);
+  font-size: var(--t-small);
+}
+@media (max-width: 760px) {
+  .o-step { grid-template-columns: 26px auto minmax(0, 1fr); }
+  .o-step .o-file, .o-step .o-flags { grid-column: 2 / -1; }
+}
+.o-step:last-child { border-bottom: 0; }
+.o-step:hover { background: var(--bg-sunken); }
+.o-step.k-glue { color: var(--fg-muted); }
+.o-n {
+  font-family: var(--mono); font-size: var(--t-micro); font-weight: 700;
+  color: var(--fg-faint); text-align: right; font-variant-numeric: tabular-nums;
+}
+.o-title { font-weight: 550; color: var(--fg); }
+.o-title:hover { color: var(--accent); }
+.o-file { font-size: 11.5px; color: var(--fg-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.o-file.o-none { font-family: var(--mono); }
+.o-flags { display: flex; gap: var(--s1); align-items: center; }
+.o-flag {
+  font-family: var(--mono); font-size: 9.5px; text-transform: uppercase;
+  letter-spacing: 0.06em; padding: 1px var(--s2); border-radius: var(--radius-sm);
+  font-weight: 700; white-space: nowrap;
+}
+.o-flag.is-folded { background: var(--bg-inset); color: var(--fg-muted); border: 1px dashed var(--border-strong); }
+.o-flag.is-unnarrated { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn-edge); }
+
+/* A step linked to from the outline should announce itself on arrival. */
+.step:target, .step-fold:target {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.step { scroll-margin-top: 110px; }
+
+/* ================================================================= code */
+
+table.code {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: var(--mono);
+  font-size: var(--t-code);
+  line-height: 1.58;
+  background: var(--bg-raised);
+  tab-size: 2;
+}
+table.code td { padding: 0; vertical-align: top; border: 0; }
+table.code td.ln {
+  width: 1%; min-width: 46px;
+  padding: 0 var(--s3) 0 var(--s4);
+  text-align: right; color: var(--fg-faint);
+  user-select: none; white-space: nowrap;
+  background: var(--bg-sunken);
+  border-right: 1px solid var(--border-muted);
+  font-variant-numeric: tabular-nums;
+  vertical-align: top;
+}
+table.code td.sign { width: 15px; text-align: center; color: var(--fg-faint); user-select: none; }
+/* Wrap rather than clip: a line whose end is behind a scrollbar cannot be read,
+   and an unreadable sample defeats the point of showing real code. */
+table.code td.lc {
+  padding: 0 var(--s4);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  width: 100%;
+}
+table.code td.lc code { font-size: inherit; background: none; padding: 0; }
+
+/* The band. Loudest thing on the page, on purpose. */
+.code-line.is-highlight td.lc { background: var(--hl); }
+.code-line.is-highlight td.ln {
+  background: var(--hl); color: var(--warn); font-weight: 700;
+  box-shadow: inset 3px 0 0 var(--hl-edge);
+}
+
+table.diff caption.hunk-header {
+  text-align: left; padding: var(--s2) var(--s3);
+  font-size: 11.5px; color: var(--fg-muted);
+  background: var(--bg-sunken);
+  border-bottom: 1px solid var(--border-muted);
+  font-family: var(--mono);
+}
+.hunk-ctx { color: var(--fg-faint); }
+.d-add td.lc { background: var(--add-bg); }
+.d-add td.sign { background: var(--add-bg); color: var(--add-fg); box-shadow: inset 2px 0 0 var(--add-edge); }
+.d-del td.lc { background: var(--del-bg); }
+.d-del td.sign { background: var(--del-bg); color: var(--del-fg); box-shadow: inset 2px 0 0 var(--del-edge); }
+
+pre.ascii, pre.doc-body, pre.copyme {
+  margin: 0; padding: var(--s4); overflow-x: auto;
+  font-family: var(--mono); font-size: var(--t-code); line-height: 1.58;
+  background: var(--bg-raised); white-space: pre;
+}
+pre.doc-body { white-space: pre-wrap; }
+.external pre.ascii { background: var(--bg-inset); }
+
+/* Syntax colour, kept quiet so it cannot compete with the highlight band, and
+ * pulled onto the shell's palette: deep sage, brass, and the shell's alarm red.
+ * The old set was a bright cool rainbow — a blue string and a magenta keyword on
+ * warm paper looked like a screenshot from another editor pasted into the page.
+ *
+ * The dark-mode override that used to sit here has gone with the rest: it would
+ * now paint bright dark-theme hues onto a cream background, which is the worst of
+ * both. */
+.tok-comment { color: var(--fg-faint); font-style: italic; }
+.tok-string { color: #2f5c3c; }
+.tok-keyword { color: #963b32; }
+.tok-number { color: #6a4a12; }
+.tok-type { color: #80601e; }
+.tok-fn { color: #2c4a63; }
+.tok-property { color: #4a5a3a; }
+.tok-variable { color: #6a4a12; }
+.tok-punct { color: var(--fg-muted); }
+
+/* ================================================================= integrity */
+
+.integrity-fail { background: var(--danger-bg); }
+.integrity { padding: var(--s4) var(--s5); font-size: var(--t-small); display: flex; flex-direction: column; gap: var(--s2); }
+.integrity strong { color: var(--danger); font-size: 14px; font-weight: 650; }
+.integrity .why { color: var(--fg-muted); font-style: italic; }
+.integrity dl.hashes {
+  display: grid; grid-template-columns: auto 1fr; gap: 2px var(--s3);
+  margin: var(--s2) 0 0; font-size: var(--t-micro);
+}
+.integrity dt { color: var(--fg-muted); font-family: var(--mono); }
+.integrity dd { margin: 0; font-family: var(--mono); }
+
+/* ================================================================= findings */
+
+.step-findings { border-top: 1px solid var(--border-muted); padding-top: var(--s3); }
+.step-findings h4 {
+  font-family: var(--mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--fg-muted); margin-bottom: var(--s2); font-weight: 600;
+}
+.step-findings ul, .cmp-list { list-style: none; padding: 0; margin: 0; }
+.step-findings li { font-size: var(--t-small); padding: var(--s2) 0; border-top: 1px solid var(--border-muted); }
+.step-findings li:first-child { border-top: 0; }
+.sev {
+  display: inline-block; font-size: 9.5px; text-transform: uppercase;
+  letter-spacing: 0.06em; padding: 1px var(--s2); border-radius: var(--radius-sm);
+  margin-right: var(--s2); font-family: var(--mono); font-weight: 700;
+  background: var(--bg-inset); color: var(--fg-muted);
+}
+.sev-high .sev { background: var(--danger-bg); color: var(--danger); }
+.sev-medium .sev { background: var(--warn-bg); color: var(--warn); }
+.sev-low .sev { background: var(--accent-soft); color: var(--accent); }
+
+/* ================================================================= tables */
+
+table.findings, table.files, table.uncommitted, table.commits {
+  width: 100%; border-collapse: collapse; font-size: var(--t-small);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  overflow: hidden;
+}
+table.findings th, table.files th, table.uncommitted th, table.commits th {
+  text-align: left; padding: var(--s2) var(--s3);
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--fg-muted); background: var(--bg-sunken);
+  border-bottom: 1px solid var(--border); font-weight: 600;
+  font-family: var(--mono);
+}
+table.findings td, table.files td, table.uncommitted td, table.commits td {
+  padding: var(--s3); border-bottom: 1px solid var(--border-muted); vertical-align: top;
+}
+table.findings tr:last-child td, table.files tr:last-child td,
+table.uncommitted tr:last-child td, table.commits tr:last-child td { border-bottom: 0; }
+table.findings tbody tr:hover, table.files tbody tr:hover,
+table.uncommitted tbody tr:hover, table.commits tbody tr:hover { background: var(--bg-sunken); }
+.table-wrap { overflow-x: auto; }
+
+tr.st-dismissed { opacity: 0.45; }
+tr.st-fixed .st { color: var(--ok); }
+.f-text { max-width: 52ch; }
+.f-sug { color: var(--fg-muted); font-size: 12.5px; margin-top: var(--s1); }
+.f-act { white-space: nowrap; }
+.f-status .st { font-family: var(--mono); font-size: 11.5px; }
+.ev { font-family: var(--mono); font-size: 10.5px; color: var(--fg-muted); }
+tr.unmapped { background: var(--warn-bg); }
+tr.unmapped:hover { background: var(--warn-bg); }
+.gs {
+  font-family: var(--mono); font-size: 10.5px; padding: 1px var(--s2);
+  border-radius: var(--radius-sm); background: var(--bg-inset); color: var(--fg-muted);
+  font-weight: 600; text-transform: uppercase;
+}
+.gs-added { background: var(--add-bg); color: var(--add-fg); }
+.gs-deleted { background: var(--del-bg); color: var(--del-fg); }
+.gs-untracked { background: var(--warn-bg); color: var(--warn); }
+.flow-links a { display: inline-block; margin-right: var(--s2); }
+.flow-links .stepn { font-size: 10.5px; color: var(--fg-faint); font-family: var(--mono); margin-right: var(--s3); }
+
+/* ================================================================= diffs */
+
+.diff-file {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  margin-bottom: var(--s3); overflow: hidden;
+}
+.diff-file-head {
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: var(--s2) var(--s3); background: var(--bg-sunken);
+  border-bottom: 1px solid var(--border-muted); font-size: 12.5px;
+  font-family: var(--mono);
+}
+.diff-path { font-weight: 600; }
+.diff-status {
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 1px var(--s2); border-radius: var(--radius-sm);
+  background: var(--bg-inset); color: var(--fg-muted); font-weight: 700;
+}
+.diff-stats { margin-left: auto; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.diff-stats .plus { color: var(--add-fg); font-weight: 600; }
+.diff-stats .minus { color: var(--del-fg); font-weight: 600; }
+.commit-subject { font-size: 17px; font-weight: 600; letter-spacing: -0.015em; }
+.commit-body { color: var(--fg-muted); max-width: 82ch; }
+.diffs { margin-top: var(--s5); display: flex; flex-direction: column; gap: 0; }
+
+/* ================================================================= actions */
+
+.actions {
+  margin-top: var(--s6);
+  padding: var(--s4) var(--s5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-sunken);
+  display: flex; flex-direction: column; gap: var(--s3);
+}
+.actions h2, .actions h3 { font-size: var(--t-h3); }
+.actions .buttons { display: flex; gap: var(--s2); flex-wrap: wrap; }
+/* The shell's button, to its measurements: 38px tall, 12px semibold, a full ink
+ * border. The old 6px-tall pale button was the smallest thing on a page whose whole
+ * purpose, when empty, is to be pressed. */
+.pv-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  font: inherit; font-size: 12px; font-weight: 600; letter-spacing: 0.015em;
+  min-height: 38px; padding: 8px 15px;
+  border: 1px solid var(--fg); background: var(--bg-raised); color: var(--fg);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.pv-btn:hover { background: var(--fg); color: var(--bg-raised); }
+.pv-btn:disabled { opacity: 0.5; cursor: default; }
+.pv-btn:disabled:hover { background: var(--bg-raised); color: var(--fg); }
+/* The primary action on the empty page is filled, so there is no doubt which
+ * control starts the work. */
+.first-run .pv-btn { background: var(--accent); border-color: var(--accent); color: #f7f2e8; }
+.first-run .pv-btn:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+:focus-visible { outline: 2px solid var(--brass-2); outline-offset: 2px; }
+.pv-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.pv-btn:disabled { opacity: 0.55; cursor: progress; }
+.actions .hint { font-size: 12.5px; color: var(--fg-muted); max-width: 78ch; }
+/* A result is a panel, not loose coloured text. Green sentences floating under a
+ * paragraph read as a console log that leaked into the page. */
+.dispatch-result { font-size: var(--t-small); }
+.dispatch-result:not(:empty) {
+  margin-top: var(--s4);
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  background: var(--bg-raised);
+}
+.dispatch-result.is-ok { color: var(--ok); border-left-color: var(--accent); background: var(--ok-bg); }
+.dispatch-result.is-err { color: var(--danger); border-left-color: var(--danger); background: var(--danger-bg); }
+.dispatch-result pre {
+  white-space: pre-wrap; background: var(--bg-raised);
+  border: 1px solid var(--border-muted); border-radius: var(--radius);
+  padding: var(--s3); font-size: 12.5px; margin: var(--s2) 0 0;
+  font-family: var(--mono); max-height: 40vh; overflow: auto;
+}
+
+.f-set {
+  font: inherit; font-size: 11.5px; padding: 2px var(--s2); margin-right: var(--s1);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-raised); color: var(--fg-muted); cursor: pointer;
+}
+.f-set:hover { color: var(--accent); border-color: var(--accent-line); }
+
+/* ================================================================= compare + docs */
+
+.cmp-group { margin-bottom: var(--s5); }
+.cmp-group > h2 { display: flex; align-items: center; gap: var(--s3); }
+.cmp-group .n {
+  font-family: var(--mono); font-size: var(--t-micro); color: var(--fg-muted);
+  background: var(--bg-inset); padding: 2px var(--s2); border-radius: 999px;
+}
+.cmp-list li {
+  padding: var(--s2) 0; border-bottom: 1px solid var(--border-muted); font-size: var(--t-small);
+}
+.cmp-list .why { color: var(--fg-muted); }
+.copy-block { margin-top: var(--s5); display: flex; flex-direction: column; gap: var(--s3); align-items: flex-start; }
+.copy-block pre {
+  border: 1px solid var(--border); border-radius: var(--radius); width: 100%;
+  background: var(--bg-sunken);
+}
+.docs-list { list-style: none; padding: 0; margin: 0; }
+.docs-list li { padding: var(--s3) 0; border-bottom: 1px solid var(--border-muted); }
+.docs-list .orig { font-size: 11.5px; color: var(--fg-faint); margin-left: var(--s3); }
+
+/* ================================================================= a11y */
+
+:where(a, button, input, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+@media print {
+  .topbar, .actions, .breadcrumb, .statenav, .langswitch, .viewbar { display: none; }
+  .step, .diff-file { break-inside: avoid; }
+  .step-fold[open] { display: block; }
+}
+
+/* The first screen a reader ever sees. It carries more weight than a normal panel
+   because it is the only thing on the page, and it has to read as an invitation
+   rather than as an error. */
+.first-run {
+  /* Aligned with the stats row above it, not floated in a narrow column: the two
+   * are the whole page when there is nothing to read, so they share an edge. */
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  background: var(--bg-raised);
+  padding: var(--s5);
+  box-shadow: var(--shadow-sm);
+}
+.first-run h2 { margin-bottom: var(--s2); }
+.first-run > p { color: var(--fg-muted); margin-bottom: var(--s4); }
+.first-run-steps {
+  margin: 0 0 var(--s5);
+  padding-left: 0;
+  list-style: none;
+  counter-reset: step;
+  display: grid;
+  gap: var(--s3);
+}
+.first-run-steps li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: var(--s3);
+  align-items: baseline;
+  color: var(--fg-muted);
+}
+/* The number is a brass marker in its own column, so wrapped lines align under the
+   text instead of under the digit. */
+.first-run-steps li::before {
+  content: counter(step);
+  color: var(--brass);
+  font: 600 10px/1.7 var(--mono);
+  letter-spacing: 0.18em;
+  border-bottom: 1px solid var(--brass-soft);
+  text-align: center;
+}
+.first-run .hint {
+  margin: var(--s4) 0 0;
+  padding-top: var(--s3);
+  border-top: 1px solid var(--border-muted);
+  color: var(--fg-faint);
+  font-size: var(--t-small);
+}
+
+/* The prose-language note. Quiet and once per page: it states a limit, it is not a
+   warning, and it must not compete with the title it sits above. */
+.prose-lang-note {
+  max-width: var(--measure);
+  margin: 0 0 var(--s5);
+  padding: var(--s2) var(--s3);
+  border-left: 2px solid var(--brass-2);
+  background: var(--brass-soft);
+  color: var(--fg-muted);
+  font-size: var(--t-small);
+}
+
+/* ---- the project switcher -------------------------------------------------
+ *
+ * The project name in the topbar was a label; it is now the control that changes
+ * it. That is deliberate: the thing a reader wants to click when the viewer is
+ * showing the wrong repository is the name of the repository. It keeps the mono,
+ * micro, shell-toned treatment it already had — a control that shouted would be
+ * the loudest thing in a bar whose job is to be quiet — and earns an affordance
+ * only on hover and focus. */
+.brand a.project { text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }
+.brand a.project:hover {
+  color: var(--brass-2);
+  border-color: var(--brass-2);
+  background: var(--shell-2);
+}
+.project-caret { font-size: 9px; opacity: 0.75; }
+
+.page-projects .proj-notice {
+  max-width: var(--measure);
+  margin: 0 0 var(--s5);
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--danger);
+  border-left-width: 3px;
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: var(--t-small);
+}
+
+.proj-list { list-style: none; margin: 0 0 var(--s7); padding: 0; border-top: 1px solid var(--border); }
+
+/* One row, three columns: what it is, what state it is in, what you can do. The
+ * grid is fixed rather than flexed so the state column lines up down the page —
+ * "not analysed" and "12 flows" are meant to be scanned vertically, and ragged
+ * state text is the difference between a list you can skim and one you must read. */
+.proj-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 14rem auto;
+  align-items: center;
+  gap: var(--s4);
+  padding: var(--s3) var(--s3);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+.proj-row.is-current {
+  /* The row you are reading gets the rail, not a fill: a filled row in a list of
+   * rows reads as "selected for an action", which is the wrong promise here. */
+  box-shadow: inset var(--rail) 0 0 var(--accent);
+}
+.proj-id { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2); min-width: 0; }
+.proj-name { font-family: var(--display); font-size: var(--t-h3); font-weight: 600; }
+.proj-path {
+  flex-basis: 100%;
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  color: var(--fg-faint);
+  overflow-wrap: anywhere;
+}
+.proj-tag {
+  font-family: var(--sans);
+  font-size: var(--t-micro);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-faint);
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+}
+.proj-tag.is-current { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+
+.proj-state { font-size: var(--t-small); color: var(--fg-muted); }
+.proj-state.is-empty { color: var(--warn); }
+.proj-state.is-bad { color: var(--danger); }
+
+.proj-actions { display: flex; align-items: center; gap: var(--s2); justify-self: end; }
+.proj-actions .pv-btn { text-decoration: none; }
+/* Forgetting is reversible and rarely wanted, so it is the quiet control next to
+ * the one people came for. */
+.pv-btn.is-quiet { border-color: var(--border-strong); color: var(--fg-faint); background: transparent; }
+.pv-btn.is-quiet:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); background: var(--danger-bg); }
+.proj-forget { margin: 0; }
+
+.proj-add { max-width: var(--measure); }
+.proj-add h2 { font-family: var(--display); font-size: var(--t-h2); margin: 0 0 var(--s2); }
+.proj-add p { margin: 0 0 var(--s4); color: var(--fg-muted); font-size: var(--t-body); }
+.proj-add-label {
+  display: block;
+  font-size: var(--t-micro);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brass);
+  margin-bottom: var(--s1);
+}
+.proj-add-row { display: flex; gap: var(--s2); }
+.proj-add-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: var(--t-small);
+  padding: 8px var(--s3);
+  min-height: 38px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-raised);
+  color: var(--fg);
+}
+.proj-add-row input:focus-visible { border-color: var(--accent); }
+.proj-add .hint { margin: var(--s3) 0 0; font-size: var(--t-small); color: var(--fg-faint); }
+
+@media (max-width: 720px) {
+  .proj-row { grid-template-columns: minmax(0, 1fr); gap: var(--s2); }
+  .proj-actions { justify-self: start; }
+}
+
+/* ---- the logic/code view toggle -------------------------------------------
+ *
+ * Same two-segment grammar as the language switch, but drawn with PAGE tokens:
+ * this control sits in the document, not the dark topbar, and shell colours here
+ * would be ink-on-ink. The active segment is filled with the accent because it is
+ * a mode you are IN, not a link you may follow. */
+.viewbar { display: flex; margin: 0 0 var(--s4); }
+.viewswitch {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  overflow: hidden;
+  background: var(--bg-raised);
+}
+.viewopt {
+  padding: 6px 14px;
+  font-family: var(--sans);
+  font-size: var(--t-micro);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.viewopt + .viewopt { border-left: 1px solid var(--border-strong); }
+a.viewopt:hover { color: var(--accent); background: var(--accent-soft); text-decoration: none; }
+.viewopt.is-active { background: var(--accent); color: var(--bg-raised); }
+
+/* ---- the logic view ---------------------------------------------------------
+ *
+ * One column, top to bottom, arrows meaning only "then" — the flowchart the brief
+ * allows: flows, not graphs. Stages reuse the outline's paper panels; nodes reuse
+ * the kind chips; edges reuse the connector rail. Nothing here introduces a new
+ * colour or a new shape, because this page must read as another VIEW of the same
+ * document, not another document. */
+.page-logic .lede { max-width: var(--measure); }
+
+.lg-stage {
+  max-width: var(--measure);
+  padding: var(--s4) var(--s5);
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+.lg-stage-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  margin: 0 0 var(--s3);
+  font-family: var(--display);
+  font-size: var(--t-h2);
+  font-weight: 600;
+}
+.lg-stage-head .n {
+  flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px;
+  font-family: var(--mono); font-size: var(--t-micro); font-weight: 600;
+  background: var(--accent); color: var(--bg-raised);
+}
+.lg-stage-head a { color: inherit; }
+.lg-stage-head a:hover { color: var(--accent); text-decoration: none; }
+
+/* The stage's narration is the point of the page, so it reads as body prose, not
+ * as a caption. The missing-narration note reuses the not-narrated voice from the
+ * code view: quiet, honest, and visually distinct from real content. */
+.lg-logic { max-width: var(--measure); font-size: var(--t-body); }
+.lg-logic p { margin: 0 0 var(--s3); }
+.lg-not-narrated {
+  margin: 0 0 var(--s3);
+  padding: var(--s2) var(--s3);
+  border-left: 2px solid var(--warn-edge);
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: var(--t-small);
+}
+.lg-not-narrated .why { color: var(--fg-muted); }
+
+.lg-nodes { list-style: none; margin: var(--s4) 0 0; padding: 0; }
+.lg-node {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--border-muted);
+  background: var(--bg);
+}
+.lg-node .lg-title { font-size: var(--t-small); color: var(--fg); }
+.lg-node .lg-title:hover { color: var(--accent); }
+/* Glue and folded steps stay present — collapse, never omit — but quieter, so the
+ * eye walks the meaningful nodes first. */
+.lg-node.is-quiet { background: transparent; }
+.lg-node.is-quiet .lg-title { color: var(--fg-faint); }
+
+.lg-jump {
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  color: var(--brass);
+  border: 1px solid var(--brass-2);
+  padding: 1px 7px;
+  background: var(--brass-soft);
+}
+.lg-jump:hover { text-decoration: none; color: var(--fg); }
+
+/* Edges: the connector rail's arrow pip, one per hand-off, inside the list so the
+ * reading order is node, arrow, node — never two columns. */
+.lg-edge {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 2px 0 2px var(--s3);
+  color: var(--fg-faint);
+}
+.lg-edge .arrow { font-size: 13px; }
+.lg-edge .edge-label {
+  font-family: var(--mono);
+  font-size: var(--t-micro);
+  color: var(--fg-muted);
+  background: var(--bg-sunken);
+  padding: 1px 7px;
+}
+
+/* Between stages the same arrow, on the page rather than on paper, so stages read
+ * as beads on one string. */
+.lg-stage-link {
+  display: flex;
+  justify-content: center;
+  max-width: var(--measure);
+  padding: var(--s2) 0;
+  color: var(--fg-faint);
+  font-size: 15px;
+}

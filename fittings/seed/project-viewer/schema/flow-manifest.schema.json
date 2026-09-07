@@ -1,0 +1,244 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://garrison.local/schemas/project-viewer/flow-manifest-1.json",
+  "title": "Project Viewer flow manifest",
+  "description": "One end-to-end flow. The unit of analysis AND the unit of regeneration: the renderer is a pure function of this file, so re-rendering never costs tokens. Every code sample is extracted mechanically at an anchored commit SHA and carries the sha256 of the exact extracted bytes; the renderer refuses to render a sample whose hash does not match, which is the trust guarantee that the brief makes non-negotiable.",
+  "type": "object",
+  "required": ["schemaVersion", "flowId", "title", "source", "anchoredAt", "states"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": {
+      "const": 1,
+      "description": "Locked first, per the brief: regeneration risk lives here. Bump only for breaking shape changes; the renderer refuses unknown versions rather than guessing."
+    },
+    "flowId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "Stable slug. Used as the filename, the URL fragment, and the join key for the derived file index. Never renamed once published, or every inbound link rots."
+    },
+    "title": { "type": "string", "minLength": 1 },
+    "summary": {
+      "type": "string",
+      "description": "Model-authored. One or two sentences shown on the flow landing view before any state is opened."
+    },
+    "source": {
+      "enum": ["ui", "e2e", "drillbook", "commit"],
+      "description": "Which of the brief's four entry points produced this flow. Drives the badge on the landing view and the drillbook-wins-on-duplication rule."
+    },
+    "provenance": {
+      "type": "object",
+      "description": "How to get back to the origin of this flow. Kept separate from `source` so a flow discovered by vision and later covered by a test can gain a testFile without changing identity.",
+      "additionalProperties": false,
+      "properties": {
+        "testFile": { "type": "string", "description": "Repo-relative Playwright spec, e.g. tests/e2e/quarters.spec.ts" },
+        "testTitle": { "type": "string", "description": "Exact test title, so the runtime capture can be correlated per test." },
+        "drillbookPage": { "type": "string", "description": "Page id in drills/pages/<id>.yml" },
+        "drillbookStep": { "type": "string", "description": "Step id inside that page." },
+        "commitSha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+        "uiPath": { "type": "string", "description": "Route the vision fallback observed, e.g. /quarters" },
+        "coverageRun": { "type": "string", "description": "Run id under ~/.garrison/project-viewer/runtime/<project>/<runId> whose ordered execution events produced this spine." }
+      }
+    },
+    "anchoredAt": {
+      "type": "object",
+      "description": "The commit every sample in this manifest was extracted at. Without this, line numbers are meaningless.",
+      "required": ["sha"],
+      "additionalProperties": false,
+      "properties": {
+        "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "shortSha": { "type": "string", "pattern": "^[0-9a-f]{7,12}$" },
+        "committedAt": { "type": "string", "description": "ISO date of the anchor commit, for the staleness badge tooltip." },
+        "dirty": {
+          "type": "boolean",
+          "default": false,
+          "description": "True when samples were taken from the working tree rather than a clean commit. Renders a warning badge: the samples are real but not reproducible from git alone."
+        }
+      }
+    },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "states": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The navigable states of the flow. From the landing view you jump to any state or step through them in order; the breadcrumb is navigation, never a diagram.",
+      "items": { "$ref": "#/definitions/state" }
+    },
+    "captureRef": {
+      "type": "string",
+      "description": "Opaque pointer into ~/.garrison/project-viewer/captures/<projectKey>/<runId>/<testKey>.json — the runtime capture whose ordered events produced this spine. A debug breadcrumb only: the renderer never reads it, because a manifest must be self-sufficient. Keeps run-scoped evidence outside the repo (D19) without losing the audit trail. Findings are NOT stored here — they live in the single viewer/findings.json collection so a dismissed finding does not reappear on every re-analysis.",
+      "pattern": "^[^\\s]+$"
+    },
+    "generatedAt": { "type": "string", "description": "ISO timestamp of the analysis run that wrote this manifest." },
+    "detailLevel": {
+      "enum": ["overview", "standard", "deep"],
+      "description": "Which intake detail level produced this flow. Never means 'every file top to bottom' — at `deep` it means everything worth knowing for developers and agents, minus the trivial."
+    }
+  },
+  "definitions": {
+    "state": {
+      "type": "object",
+      "required": ["id", "label", "steps"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "label": { "type": "string", "minLength": 1, "description": "Breadcrumb text. Short enough to sit in a linear strip." },
+        "description": { "type": "string", "description": "Model-authored. What this state of the system is." },
+        "logic": { "type": "string", "description": "Model-authored. The FUNCTIONAL narration for the logic view: what this stage achieves and why, in the domain's terms — no file names, no function names, no code talk. Optional; a state without it renders mechanically in the logic view and says so." },
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/step" }
+        }
+      }
+    },
+    "step": {
+      "type": "object",
+      "description": "One unit of content: a sample on one half of the screen, a plain-language description on the other.",
+      "required": ["id", "title", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "title": { "type": "string", "minLength": 1 },
+        "description": {
+          "type": "string",
+          "description": "Model-authored prose: what is happening here, in plain language. The only field where the model writes freely. Escaped on render — never trusted as HTML."
+        },
+        "kind": {
+          "enum": ["code", "db", "filewrite", "dep", "glue"],
+          "description": "code = a real source sample. db/filewrite/dep = the brief's external-system representations. glue = trivial plumbing, collapsed by default so it is never omitted and an agent never hits a dead end."
+        },
+        "collapsed": {
+          "type": "boolean",
+          "default": false,
+          "description": "Render folded to a one-line summary that expands on click. Collapse, do not omit."
+        },
+        "sample": { "$ref": "#/definitions/sample" },
+        "diffSample": { "$ref": "#/definitions/diffSample" },
+        "asciiSample": {
+          "type": "string",
+          "description": "For kind db/filewrite: a pre-formatted ASCII block (a table with real or plausible rows; a JSON shape). Rendered monospace verbatim, escaped. Authored by the model because there is no file to extract from."
+        },
+        "note": {
+          "type": "string",
+          "description": "For kind dep: the brief explanation of why a dependency matters here. Dependencies are not explored in depth."
+        },
+        "next": {
+          "type": "array",
+          "description": "Where execution goes next. Renders as a directional connector — direction only, never a graph. ABSENT means an implicit connector to the next step in array order, which keeps manifests small and makes branching the explicit exception.",
+          "items": {
+            "type": "object",
+            "required": ["to"],
+            "additionalProperties": false,
+            "properties": {
+              "to": { "type": "string", "description": "A step id, or `state:<stateId>` for a cross-state jump." },
+              "label": { "type": "string", "description": "Short edge caption, e.g. \"returns merged book\"." }
+            }
+          }
+        },
+        "staleness": { "$ref": "#/definitions/staleness" }
+      }
+    },
+    "sample": {
+      "type": "object",
+      "description": "A mechanically extracted slice of a real file. The model chooses file/lines/highlights; the extractor produces the text and the hash. The model never types the code.",
+      "required": ["file", "startLine", "endLine", "extractedSha256"],
+      "additionalProperties": false,
+      "properties": {
+        "file": { "type": "string", "description": "Repo-relative path, forward slashes." },
+        "startLine": { "type": "integer", "minimum": 1, "description": "1-indexed, inclusive." },
+        "endLine": { "type": "integer", "minimum": 1, "description": "1-indexed, inclusive." },
+        "lang": {
+          "type": "string",
+          "description": "Highlighter hint (ts, tsx, js, mjs, json, yaml, sh, md). Inferred from the extension when absent."
+        },
+        "highlights": {
+          "type": "array",
+          "description": "Absolute line ranges to emphasise, [start, end] inclusive, in file coordinates (not offsets into the slice) so they survive a widened window.",
+          "items": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "extractedSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "sha256 of the exact extracted text. The renderer recomputes this from the repo at render time and refuses to render the sample on mismatch. This is the trust guarantee, enforced in code rather than asserted in prose."
+        },
+        "sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$",
+          "description": "Overrides the manifest anchor for this sample only. Needed by commit walkthroughs, where a step legitimately shows a different commit."
+        }
+      }
+    },
+    "diffSample": {
+      "type": "object",
+      "description": "A commit-walkthrough step. The spine of such a flow is the diff hunks, so the sample is a patch rather than a file window.",
+      "required": ["file", "sha", "patch", "extractedSha256"],
+      "additionalProperties": false,
+      "properties": {
+        "file": { "type": "string" },
+        "sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "hunkHeader": { "type": "string", "description": "The @@ -a,b +c,d @@ line this step covers." },
+        "patch": { "type": "string", "description": "Unified diff text, extracted mechanically via git diff." },
+        "lang": { "type": "string" },
+        "extractedSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "status": { "enum": ["added", "modified", "deleted", "renamed"] }
+      }
+    },
+    "staleness": {
+      "type": "object",
+      "description": "Per-step trust badge. Kept per step, not per flow, so one commit does not invalidate a whole document.",
+      "required": ["status"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": ["fresh", "stale", "invalidated"],
+          "description": "fresh = the anchor was re-extracted at checkedAtSha and its hash matched (this covers spans that merely shifted: the rebase is applied, then verified, then re-stamped fresh with no model call). stale = a commit touched the span, so the narration may no longer match and re-narration is queued. invalidated = the anchor is unresolvable (file deleted or renamed, or a rebase produced a hash mismatch). A rebase bug therefore degrades to a badge, never to wrong code rendered as fresh."
+        },
+        "checkedAtSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "checkedAt": { "type": "string" },
+        "reason": { "type": "string", "description": "Human-readable cause, shown in the badge tooltip." }
+      }
+    },
+    "finding": {
+      "type": "object",
+      "description": "Lives in the viewer/findings.json collection, not inside a flow manifest: a finding outlives the step it was found in, and its status must survive re-analysis.",
+      "required": ["id", "flowId", "severity", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "flowId": { "type": "string", "description": "The flow this finding was found in." },
+        "severity": { "enum": ["info", "low", "medium", "high"] },
+        "category": {
+          "type": "string",
+          "description": "Free slug: dead-code, inconsistency, missing-test, stale-doc, correctness. Groups the findings area."
+        },
+        "text": { "type": "string", "description": "What is wrong, in one or two sentences." },
+        "suggestion": { "type": "string", "description": "What to do about it. Feeds the Fix prompt button." },
+        "stepId": { "type": "string", "description": "The step this concerns, when it is step-local." },
+        "span": {
+          "type": "object",
+          "description": "Where the problem lives. Separate from the step sample because a finding can point outside any rendered window.",
+          "required": ["file"],
+          "additionalProperties": false,
+          "properties": {
+            "file": { "type": "string" },
+            "startLine": { "type": "integer", "minimum": 1 },
+            "endLine": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "status": {
+          "enum": ["open", "accepted", "dismissed", "fixed"],
+          "default": "open",
+          "description": "Survives re-analysis: a dismissed finding must not come back every run."
+        },
+        "evidence": {
+          "enum": ["static", "runtime", "both"],
+          "description": "Set by the analysis-vs-runtime comparison. `static` with no runtime evidence is how dead code is identified."
+        }
+      }
+    }
+  }
+}

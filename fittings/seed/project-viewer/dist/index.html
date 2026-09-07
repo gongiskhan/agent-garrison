@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project Viewer</title>
+<!--
+  The declared `entry` for this fitting's view. Every real page is rendered by
+  scripts/server.mjs on request, because staleness badges and sample integrity
+  depend on the live state of the repository — a page baked ahead of time would
+  start lying the moment HEAD moved.
+
+  This file exists so the manifest's `entry` resolves and so opening dist/
+  directly still lands somewhere useful. It is a redirect, not a shell: there is
+  no client-side app to boot.
+-->
+<meta http-equiv="refresh" content="0; url=/">
+<link rel="stylesheet" href="/assets/viewer.css">
+</head>
+<body>
+<main>
+  <h1>Project Viewer</h1>
+  <p class="lede">Loading the flow index…</p>
+  <p><a href="/">Continue to the flows</a></p>
+</main>
+</body>
+</html>

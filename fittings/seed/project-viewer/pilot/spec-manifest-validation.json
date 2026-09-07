@@ -1,0 +1,115 @@
+{
+  "flowId": "fitting-manifest-validated",
+  "title": "A fitting's manifest is read and validated",
+  "source": "e2e",
+  "detailLevel": "standard",
+  "tags": ["registry", "fittings", "validation"],
+  "summary": "Every Fitting enters Garrison through one narrow gate: the registry lists it, the parser reads its `x-garrison` block, and a compatibility check decides whether the shape it declares is allowed in the faculty it asked for. This flow follows a single fitting from a line in `data/library.json` to either a parsed manifest or the thrown error that takes the Compositions API down with it.",
+  "provenance": {
+    "testFile": "tests/seed.test.ts",
+    "testTitle": "each survivor manifest parses with its declared provides/consumes"
+  },
+  "states": [
+    {
+      "id": "listed",
+      "label": "Listed in the registry",
+      "description": "Nothing is discovered by scanning the filesystem. A Fitting exists because `data/library.json` says it does.",
+      "steps": [
+        {
+          "id": "read-library",
+          "title": "The registry is read and each entry resolved",
+          "kind": "code",
+          "file": "src/lib/library.ts",
+          "startLine": 71,
+          "endLine": 76,
+          "highlights": [[73, 74]],
+          "description": "Each raw entry is resolved against its manifest on disk. An entry that resolves to `null` is collected into `skipped` rather than throwing — a missing manifest is survivable. The interesting part is what happens to an entry whose manifest is present but wrong: that path does not end in `skipped`, it ends in an exception.",
+          "next": [{ "to": "library-shape", "label": "for each entry" }]
+        },
+        {
+          "id": "library-shape",
+          "title": "What an entry looks like on disk",
+          "kind": "filewrite",
+          "asciiSample": "data/library.json  (array of entries, 2-space indent)\n\n[\n  ...\n  {\n    \"id\":        \"project-viewer\",\n    \"name\":      \"Project Viewer\",\n    \"repo\":      \"local:fittings/seed/project-viewer\",\n    \"localPath\": \"fittings/seed/project-viewer\",\n    \"summary\":   \"...\",\n    \"platforms\": [ \"claude-code\" ]\n  }\n]\n\nNote: there is no `kind` field here. Capability kinds live in the\nfitting's own apm.yml, which is why a retired kind fails at PARSE\ntime rather than at registry-read time.",
+          "description": "The registry entry is deliberately thin: identity and location, nothing behavioural. Everything that can be wrong in an interesting way lives in the fitting's own `apm.yml`, one indirection away.",
+          "next": [{ "to": "parse-metadata", "label": "resolve reads apm.yml" }]
+        }
+      ]
+    },
+    {
+      "id": "parsed",
+      "label": "Parsed",
+      "description": "The `x-garrison` block is normalised, then parsed by a strict schema.",
+      "steps": [
+        {
+          "id": "parse-metadata",
+          "title": "Normalise deprecations, then parse strictly",
+          "kind": "code",
+          "file": "src/lib/metadata.ts",
+          "startLine": 478,
+          "endLine": 484,
+          "highlights": [[480, 482]],
+          "description": "Three steps in four lines. Deprecated spellings are rewritten first, so an old manifest still parses with a warning instead of failing. Then the zod schema parses — and because most of its sub-objects are strict, an unknown key is an error rather than something quietly ignored. Only then does the faculty check run.",
+          "next": [{ "to": "normalise-glue" }]
+        },
+        {
+          "id": "normalise-glue",
+          "title": "The deprecation shim",
+          "kind": "glue",
+          "collapsed": true,
+          "file": "src/lib/metadata.ts",
+          "startLine": 485,
+          "endLine": 486,
+          "highlights": [[485, 485]],
+          "description": "Mechanical aliasing of old field spellings onto current ones. Folded because it explains nothing about the flow, and kept because an agent tracing why an old manifest still works needs to find it.",
+          "next": [{ "to": "zod-strict", "label": "then the schema" }]
+        },
+        {
+          "id": "zod-strict",
+          "title": "Why a strict schema is the load-bearing choice",
+          "kind": "dep",
+          "note": "The schema is built with `zod`. What matters here is not zod itself but that the sub-objects are declared `.strict()`: an unrecognised key fails the parse instead of being dropped. That converts a typo in a hand-edited `apm.yml` from a silent behavioural change into a loud startup failure.",
+          "description": "A dependency only matters when it changes what the code can promise. This one does: strictness is what makes a malformed manifest impossible to ignore.",
+          "next": [{ "to": "state:compatible", "label": "schema passed" }]
+        }
+      ]
+    },
+    {
+      "id": "compatible",
+      "label": "Shape allowed in the faculty",
+      "description": "The last gate, and the one that is easy to get wrong because it is a cross-field rule rather than a field-level one.",
+      "steps": [
+        {
+          "id": "faculty-shapes",
+          "title": "The shape must be one the faculty accepts",
+          "kind": "code",
+          "file": "src/lib/metadata.ts",
+          "startLine": 558,
+          "endLine": 562,
+          "highlights": [[558, 561]],
+          "description": "A manifest can be perfectly well-formed and still be rejected here. Every faculty publishes a list of component shapes it accepts, and declaring a shape outside that list throws. This is why a fitting cannot simply pick the faculty whose description reads best: an own-port plugin has to land in a faculty that accepts `plugin`.",
+          "next": [{ "to": "shapes-table", "label": "reads the table" }]
+        },
+        {
+          "id": "shapes-table",
+          "title": "Where the accepted shapes are declared",
+          "kind": "code",
+          "file": "src/lib/faculties.ts",
+          "startLine": 126,
+          "endLine": 134,
+          "highlights": [[130, 130]],
+          "description": "The `knowledge` faculty accepts `plugin`, which is what lets a fitting that serves its own UI live here. `code-intelligence`, one entry further down, accepts only `mcp`, `skill` and `cli-skill` — so a plugin that describes a codebase belongs in `knowledge` even though the other name sounds closer.",
+          "next": [{ "to": "the-500" }]
+        },
+        {
+          "id": "the-500",
+          "title": "What failure costs",
+          "kind": "db",
+          "asciiSample": "GET /api/compositions\n\n  entry            manifest      outcome\n  ---------------- ------------- ------------------------------------------\n  file-browser     present, ok   parsed\n  monitor-default  present, ok   parsed\n  <yours>          ABSENT        skipped, warning logged  -> survivable\n  <yours>          PRESENT, BAD  THROWS -> 500 -> whole Muster UI is down\n\n  (illustrative rows: the two right-hand outcomes are the two real\n   branches in readLibrary, not sampled request data)",
+          "description": "The asymmetry is the thing worth remembering. A fitting missing from the registry is invisible and everything else keeps working. A fitting present in the registry with a manifest that will not parse takes down every route that reads the library — so the cheap failure and the expensive failure look almost identical from the outside.",
+          "next": []
+        }
+      ]
+    }
+  ]
+}
