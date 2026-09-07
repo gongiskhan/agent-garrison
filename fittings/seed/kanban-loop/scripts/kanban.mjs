@@ -158,13 +158,45 @@ async function legacyMorningBriefJob(root) {
   }
 }
 
+// The occurrence's content instructions. Multi-channel delivery (Web, Omi,
+// Slack, Email) and per-channel availability notices are entirely code-driven
+// (lib/morning-briefing.mjs) — this description only has to steer what the
+// briefing SAYS, not where it goes.
+// Recognize the shipped predecessor exactly; an edited card belongs to its operator.
+const LEGACY_MORNING_BRIEF_DESCRIPTION = "Prepare today's morning briefing. Read today's Google Calendar events when the connector is available; summarise active and due Kanban work, blocked cards, and Needs attention; then recommend a concise focus for the day. After the actual Google connector call, write its machine-readable receipt to <runDir>/morning-briefing-evidence.json as {\"calendar\":{\"connector\":\"google\",\"action\":\"calendar.list_events\",\"ok\":true|false,\"checkedAt\":\"ISO timestamp\",\"eventCount\":0,\"reason\":\"failure reason when not ok\"}}; prose is not evidence. Deliver the completed briefing to the stable Garrison Web thread and directly to Omi when it is available. Record a missing Calendar or Omi connection as a visibly degraded section/delivery result; never invent unavailable data, and do not duplicate the Web delivery through Omi's fallback.";
+
+const MORNING_BRIEF_DESCRIPTION =
+  "Prepare today's morning briefing. Read today's Google Calendar events when the connector is available, and " +
+  "never fabricate events when it is not. Summarise active and due Kanban work, blocked cards, and Needs attention. " +
+  "Recommend 1-3 Backlog cards worth promoting to To do today, each with a one-line reason — do not move them yourself. " +
+  "Recap yesterday factually, from actual sources only: Kanban cards that reached Done (title plus the substantive " +
+  "work or decision on each), notable Discussions, memories captured to Basic Memory, and any Improver-proposed " +
+  "changes (its last report lives at ~/.garrison/improver/last-run.json when the Improver ran that day); omit a " +
+  "section entirely rather than guessing when its source has nothing to report. Then recommend a concise focus for " +
+  "the day. After the actual Google connector call, write its machine-readable receipt to " +
+  "<runDir>/morning-briefing-evidence.json as {\"calendar\":{\"connector\":\"google\",\"action\":\"calendar.list_events\"," +
+  "\"ok\":true|false,\"checkedAt\":\"ISO timestamp\",\"eventCount\":0,\"reason\":\"failure reason when not ok\"}}; " +
+  "prose is not evidence. Your reply is the whole briefing body — delivery to Web, Omi, Slack and Email is automatic " +
+  "and fans out to every channel that is currently running or configured, with each unavailable one already recorded " +
+  "as a visibly degraded line; you do not need to deliver it yourself.";
+
 // Seed the replacement while the legacy job is still live, but PAUSED. This lets
 // the operator inspect it and exercise Run now before cutover without creating a
 // second regular delivery. The first setup after the raw job is removed enables
 // it according to the legacy job's recorded enabled state.
 export async function ensureMorningBriefTemplate(root, board, { force = false, now = new Date().toISOString() } = {}) {
   const cards = await loadAllCards(root);
-  const existing = cards.find((card) => card.systemKey === MORNING_BRIEF_SYSTEM_KEY);
+  let existing = cards.find((card) => card.systemKey === MORNING_BRIEF_SYSTEM_KEY);
+  // Upgrade only the known stock instructions. CAS rechecks the current text
+  // so an operator edit racing setup is preserved too.
+  if (existing?.description === LEGACY_MORNING_BRIEF_DESCRIPTION) {
+    const synced = await updateCardCAS(root, existing.id, (current) =>
+      current.description === LEGACY_MORNING_BRIEF_DESCRIPTION
+        ? { ...current, description: MORNING_BRIEF_DESCRIPTION }
+        : null
+    );
+    if (synced) existing = synced;
+  }
   const legacyState = await legacyMorningBriefJob(root);
   const legacy = legacyState.state === "present" ? legacyState.job : null;
   if (existing) {
@@ -239,15 +271,7 @@ export async function ensureMorningBriefTemplate(root, board, { force = false, n
     : "0 8 * * 1-5";
   const card = await createCard(root, {
     title: "Morning briefing",
-    description:
-      "Prepare today's morning briefing. Read today's Google Calendar events when the connector is available; " +
-      "summarise active and due Kanban work, blocked cards, and Needs attention; then recommend a concise focus for the day. " +
-      "After the actual Google connector call, write its machine-readable receipt to <runDir>/morning-briefing-evidence.json " +
-      "as {\"calendar\":{\"connector\":\"google\",\"action\":\"calendar.list_events\",\"ok\":true|false," +
-      "\"checkedAt\":\"ISO timestamp\",\"eventCount\":0,\"reason\":\"failure reason when not ok\"}}; prose is not evidence. " +
-      "Deliver the completed briefing to the stable Garrison Web thread and directly to Omi when it is available. " +
-      "Record a missing Calendar or Omi connection as a visibly degraded section/delivery result; never invent unavailable data, " +
-      "and do not duplicate the Web delivery through Omi's fallback.",
+    description: MORNING_BRIEF_DESCRIPTION,
     scope: "personal",
     list: "scheduled",
     origin: "scheduler",

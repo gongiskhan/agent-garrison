@@ -67,6 +67,14 @@ x-garrison:
       type: integer
       default: 2
       description: Hours before a running or waiting card counts as stalled in the weekly review (override via KANBAN_REVIEW_STALL_HOURS).
+    - key: morning_brief_email
+      type: string
+      description: >-
+        Recipient address for the morning briefing's Email channel (override via
+        GARRISON_KANBANLOOP_MORNING_BRIEF_EMAIL). Sent via the google connector's
+        gmail.send once configured AND Google is connected; unset, or Google not
+        connected, degrades this one channel honestly without failing the
+        briefing's Web/Omi/Slack delivery.
   provides:
     - kind: automation-runner
       name: kanban-loop
