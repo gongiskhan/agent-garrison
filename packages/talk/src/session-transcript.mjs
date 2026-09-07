@@ -41,12 +41,13 @@ export async function readJsonlLines(file, offset = 0) {
     const length = size - offset;
     const buffer = Buffer.alloc(length);
     await handle.read(buffer, 0, length, offset);
-    const text = buffer.toString("utf8");
-    const lastNewline = text.lastIndexOf("\n");
+    // Account in raw bytes: a bounded tail may begin inside a UTF-8 codepoint.
+    // Re-encoding its replacement character would skip bytes in the next read.
+    const lastNewline = buffer.lastIndexOf(10);
     if (lastNewline === -1) return { lines: [], offset };
-    const complete = text.slice(0, lastNewline);
+    const complete = buffer.subarray(0, lastNewline).toString("utf8");
     const lines = complete.split("\n").filter((line) => line.trim() !== "");
-    return { lines, offset: offset + Buffer.byteLength(complete, "utf8") + 1 };
+    return { lines, offset: offset + lastNewline + 1 };
   } finally {
     await handle?.close().catch(() => {});
   }

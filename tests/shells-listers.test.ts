@@ -3,7 +3,7 @@
 // mkdtemp sandbox per test, following the DS1-reader convention in
 // tests/dev-env-claude-sessions.test.ts.
 
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -16,7 +16,7 @@ import { list as listCursor } from "../fittings/seed/remote-shell-runtime/lib/li
 // @ts-ignore — pure .mjs
 import { list as listGemini } from "../fittings/seed/remote-shell-runtime/lib/listers/gemini.mjs";
 // @ts-ignore — pure .mjs
-import { buildIndex } from "../fittings/seed/remote-shell-runtime/lib/session-index.mjs";
+import { buildIndex, applyHookStatus } from "../fittings/seed/remote-shell-runtime/lib/session-index.mjs";
 
 const NOW = 1_800_000_000_000; // fixed instant, well past any real boot time
 
@@ -102,7 +102,7 @@ describe("codex lister", () => {
       new Date(NOW - 4_000)
     );
 
-    const rows = listCodex({ windowDays: 5, now: NOW, env: { GARRISON_HOME: sandbox, CODEX_HOME: home } as unknown as NodeJS.ProcessEnv });
+    const rows = listCodex({ windowDays: 5, now: NOW, env: { HOME: sandbox, GARRISON_HOME: sandbox, CODEX_HOME: home } as unknown as NodeJS.ProcessEnv });
     expect(rows).toHaveLength(1);
     expect(rows[0].id).toBe("019f-parent");
     expect(rows[0].title).toBe("Parent thread");
@@ -114,7 +114,7 @@ describe("codex lister", () => {
     const home = path.join(sandbox, "codex-home2");
     mkdirSync(home, { recursive: true });
     writeCodexRollout(path.join(home, "sessions"), "019f-old", { cwd: "/tmp/proj" }, new Date(NOW - 5 * 60_000));
-    const rows = listCodex({ windowDays: 5, now: NOW, env: { GARRISON_HOME: sandbox, CODEX_HOME: home } as unknown as NodeJS.ProcessEnv });
+    const rows = listCodex({ windowDays: 5, now: NOW, env: { HOME: sandbox, GARRISON_HOME: sandbox, CODEX_HOME: home } as unknown as NodeJS.ProcessEnv });
     expect(rows[0].status).toBe("unknown");
   });
 });
@@ -141,7 +141,7 @@ describe("cursor lister", () => {
     writeFileSync(desktopFile, `${JSON.stringify({ role: "user", message: { content: [{ type: "text", text: "hello desktop" }] } })}\n`);
     utimesSync(desktopFile, new Date(NOW - 10 * 60_000), new Date(NOW - 10 * 60_000));
 
-    const rows = listCursor({ windowDays: 5, now: NOW, env: { GARRISON_CURSOR_HOME: home } as unknown as NodeJS.ProcessEnv });
+    const rows = listCursor({ windowDays: 5, now: NOW, env: { HOME: sandbox, GARRISON_CURSOR_HOME: home } as unknown as NodeJS.ProcessEnv });
     const cli = rows.find((r: { id: string }) => r.id === "cli-1");
     expect(cli.kind).toBe("cli");
     expect(cli.cwd).toBe("/tmp/proj");
@@ -207,7 +207,7 @@ describe("buildIndex", () => {
           id: "s1", transport: { name: "local" }, tmuxSession: "dup",
           cwd: "/tmp/dup", label: "dup shell", createdAt: "2026-09-03T09:00:00Z",
           lastEventAt: "2026-09-03T09:00:01Z", state: "running", runtime: "codex",
-          resumeRef: null, resumeCommand: null, paneCommand: "codex", lastOutputAt: NOW
+          resumeRef: "019f-dup", resumeCommand: null, paneCommand: "codex", lastOutputAt: NOW
         }]
       ])
     };
@@ -216,7 +216,7 @@ describe("buildIndex", () => {
       manager: fakeManager as never,
       now: NOW,
       garrisonHomeDir,
-      env: { GARRISON_HOME: sandbox, CODEX_HOME: codexHomeDir } as unknown as NodeJS.ProcessEnv,
+      env: { HOME: sandbox, GARRISON_HOME: sandbox, CODEX_HOME: codexHomeDir } as unknown as NodeJS.ProcessEnv,
       claudeBackgroundAgents: []
     });
 
@@ -231,6 +231,17 @@ describe("buildIndex", () => {
     expect(shellRow.statusSource).toBe("hooks");
   });
 
+  it("a peer wrapper with the same tmux name cannot claim this node's shell", () => {
+    const home = path.join(sandbox, "local-claims");
+    mkdirSync(path.join(home, "web-channel", "threads"), { recursive: true });
+    writeFileSync(path.join(home, "web-channel", "threads", "peer.json"), JSON.stringify({
+      id: "peer-wrapper", context: { shell: { node: "peer", transport: "local", tmuxSession: "shared-name" } }
+    }));
+    const manager = { sessions: new Map([["s", { id: "s", transport: { name: "local" }, tmuxSession: "shared-name", cwd: "/tmp/project" }]]) };
+    const rows = buildIndex({ manager, now: NOW, garrisonHomeDir: home, claudeBackgroundAgents: [], env: { HOME: sandbox, GARRISON_HOME: home, GARRISON_NODE_NAME: "self", GARRISON_CURSOR_HOME: sandbox, GEMINI_CLI_HOME: sandbox } });
+    expect(rows.find((r: { id: string }) => r.id === "shell:local:shared-name").threadId).toBeNull();
+  });
+
   it("sorts working before idle before unknown, most recent first within a tier", () => {
     const garrisonHomeDir = path.join(sandbox, "garrison2");
     const codexHomeDir = path.join(sandbox, "codex-idx2");
@@ -243,11 +254,81 @@ describe("buildIndex", () => {
       manager: null,
       now: NOW,
       garrisonHomeDir,
-      env: { GARRISON_HOME: sandbox, CODEX_HOME: codexHomeDir } as unknown as NodeJS.ProcessEnv,
+      env: { HOME: sandbox, GARRISON_HOME: sandbox, CODEX_HOME: codexHomeDir } as unknown as NodeJS.ProcessEnv,
       claudeBackgroundAgents: []
     });
     expect(rows.map((r: { id: string }) => r.id)).toEqual(["019f-fresh", "019f-stale"]);
     expect(rows[0].status).toBe("working");
     expect(rows[1].status).toBe("unknown");
+  });
+});
+
+describe("recent native session discovery regressions", () => {
+  it("includes the real Codex home alongside the runner home and an old creation directory resumed today", () => {
+    const nativeHome = path.join(sandbox, ".codex");
+    const runtimeHome = path.join(sandbox, "runtime-codex");
+    const native = writeCodexRollout(path.join(nativeHome, "sessions"), "native-resumed", { cwd: "/tmp/native" }, new Date(NOW));
+    const oldDir = path.join(nativeHome, "sessions", "2025", "01", "01");
+    mkdirSync(oldDir, { recursive: true });
+    writeFileSync(path.join(oldDir, path.basename(native)), readFileSync(native));
+    rmSync(native);
+    utimesSync(path.join(oldDir, path.basename(native)), new Date(NOW), new Date(NOW));
+    for (let i = 10; i < 20; i++) mkdirSync(path.join(nativeHome, "sessions", "2026", "09", String(i)), { recursive: true });
+    writeCodexRollout(path.join(runtimeHome, "sessions"), "runtime-1", { cwd: "/tmp/runtime" }, new Date(NOW));
+    const rows = listCodex({ now: NOW, env: { HOME: sandbox, GARRISON_HOME: sandbox, CODEX_HOME: runtimeHome } });
+    expect(rows.map((r: { id: string }) => r.id).sort()).toEqual(["native-resumed", "runtime-1"]);
+  });
+
+  it("keeps Codex running through a quiet long tool call, then clears immediately on task_complete", () => {
+    const home = path.join(sandbox, "codex-signals");
+    const file = writeCodexRollout(path.join(home, "sessions"), "quiet-turn", { cwd: "/tmp/quiet" }, new Date(NOW));
+    appendFileSync(file, JSON.stringify({ type: "event_msg", timestamp: new Date(NOW - 600_000).toISOString(), payload: { type: "task_started" } }) + "\n");
+    utimesSync(file, new Date(NOW - 600_000), new Date(NOW - 600_000));
+    const list = () => listCodex({ now: NOW, env: { HOME: sandbox, GARRISON_HOME: sandbox, CODEX_HOME: home } });
+    expect(list()[0]).toMatchObject({ status: "working", statusSource: "transcript-events" });
+    appendFileSync(file, JSON.stringify({ type: "event_msg", timestamp: new Date(NOW).toISOString(), payload: { type: "task_complete" } }) + "\n");
+    utimesSync(file, new Date(NOW), new Date(NOW));
+    expect(list()[0]).toMatchObject({ status: "idle", statusSource: "transcript-events" });
+  });
+
+  it("keeps unrelated native sessions in the same folder as an owned shell", () => {
+    const home = path.join(sandbox, "codex-siblings");
+    writeCodexRollout(path.join(home, "sessions"), "owned-session", { cwd: "/tmp/shared" }, new Date(NOW));
+    writeCodexRollout(path.join(home, "sessions"), "independent-session", { cwd: "/tmp/shared" }, new Date(NOW));
+    const manager = { sessions: new Map([["s", { id: "s", transport: { name: "local" }, tmuxSession: "one", runtime: "codex", cwd: "/tmp/shared", resumeRef: "owned-session" }]]) };
+    const rows = buildIndex({ manager, now: NOW, garrisonHomeDir: sandbox, claudeBackgroundAgents: [], env: { HOME: sandbox, GARRISON_HOME: sandbox, CODEX_HOME: home, GARRISON_CURSOR_HOME: sandbox, GEMINI_CLI_HOME: sandbox } });
+    expect(rows.map((r: { id: string }) => r.id)).toEqual(expect.arrayContaining(["shell:local:one", "independent-session"]));
+    expect(rows.some((r: { id: string }) => r.id === "owned-session")).toBe(false);
+  });
+
+  it("shows Cursor flat text journals with unknown cwd and metadata-only CLI sessions", () => {
+    const home = path.join(sandbox, "cursor-flat");
+    const dir = path.join(home, "projects", "Users-client-project", "agent-transcripts");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, "desktop.txt"), "user:\nPlease inspect the layout.\n");
+    utimesSync(path.join(dir, "desktop.txt"), new Date(NOW), new Date(NOW));
+    const chat = path.join(home, "chats", "ws", "cli-without-journal");
+    mkdirSync(chat, { recursive: true });
+    writeFileSync(path.join(chat, "meta.json"), JSON.stringify({ cwd: "/tmp/client", updatedAtMs: NOW, createdAtMs: NOW }));
+    const rows = buildIndex({ now: NOW, garrisonHomeDir: sandbox, claudeBackgroundAgents: [], env: { HOME: sandbox, GARRISON_HOME: sandbox, GARRISON_CURSOR_HOME: home, GEMINI_CLI_HOME: sandbox } });
+    expect(rows.find((r: { id: string }) => r.id === "desktop")).toMatchObject({ kind: "desktop", cwd: null, transcript: { format: "cursor-agent-text" } });
+    expect(rows.find((r: { id: string }) => r.id === "cli-without-journal")).toMatchObject({ kind: "cli", cwd: "/tmp/client", status: "unknown" });
+  });
+});
+
+describe("session-specific hook evidence", () => {
+  const row = { id: "a", runtime: "cursor", cwd: "/tmp/shared", status: "unknown", lastActivityAt: new Date(NOW).toISOString() };
+  it("does not light up sibling sessions when another id is working in the same folder", () => {
+    const events = [{ event: "agent-start", runtime: "cursor", cwd: row.cwd, session_id: "b", ts: new Date(NOW).toISOString() }];
+    expect(applyHookStatus(row, events, NOW).status).toBe("unknown");
+  });
+  it("does not apply an id-less cwd event when that cwd has several sessions", () => {
+    const events = [{ event: "agent-start", runtime: "cursor", cwd: row.cwd, session_id: "unknown", ts: new Date(NOW).toISOString() }];
+    expect(applyHookStatus(row, events, NOW, 2).status).toBe("unknown");
+    expect(applyHookStatus(row, events, NOW, 1).status).toBe("working");
+  });
+  it("a later transcript completion wins over a missed Stop hook", () => {
+    const events = [{ event: "agent-start", session_id: "a", ts: new Date(NOW - 1000).toISOString() }];
+    expect(applyHookStatus({ ...row, status: "idle", statusAt: new Date(NOW).toISOString() }, events, NOW).status).toBe("idle");
   });
 });

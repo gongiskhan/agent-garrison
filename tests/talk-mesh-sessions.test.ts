@@ -37,6 +37,8 @@ beforeEach(async () => {
   writeFileSync(path.join(sandbox, "node.json"), JSON.stringify({ accent: "moss" }));
   mkdirSync(path.join(sandbox, "ui-fittings"), { recursive: true });
   writeFileSync(path.join(sandbox, "ui-fittings", "remote-shell-runtime.json"), JSON.stringify({ url: "http://127.0.0.1:1" }));
+  const previousPeer = await harness.client.getConfig("shells.sessions", "node:peer-node");
+  if (previousPeer) await harness.client.putConfig("shells.sessions", "node:peer-node", { rows: [] }, { ifMatchRev: previousPeer.rev });
   _resetCachesForTests();
 });
 
@@ -56,12 +58,13 @@ function fakeFetchWithBody(body: unknown) {
 
 describe("meshSessions", () => {
   it("merges local (injected fetch) and peer (real state service) rows, node accents included", async () => {
+    const previousPeer = await harness.client.getConfig("shells.sessions", "node:peer-node");
     await harness.client.putConfig("shells.sessions", "node:peer-node", {
       node: "peer-node",
       shellOrigin: { loopback: "http://127.0.0.1:8098", public: "https://peer.tail.example:8498" },
       updatedAt: NOW,
       rows: [{ id: "peer-1", runtime: "cursor", kind: "cli", cwd: "/tmp/peer", project: "peer", title: null, status: "working", statusSource: "hooks", startedAt: NOW, lastActivityAt: NOW, resumable: true, attachable: false, resumeRef: "chat_1", resumeCommand: null, transcript: null }]
-    }, { ifMatchRev: 0 });
+    }, { ifMatchRev: previousPeer?.rev ?? 0 });
 
     const localBody = {
       node: "self-node",
@@ -106,6 +109,16 @@ describe("meshSessions", () => {
     expect(claudeRow.boundTo).toEqual({ kind: "conversation", threadId: "t2" });
   });
 
+  it("binds a local shell wrapper to the exact peer shell so its thread keeps the peer spinner", async () => {
+    await ensureThread({ id: "peer-shell-wrapper", source: "shell", context: { shell: { node: "peer-node", transport: "local", tmuxSession: "peer-shell" } } });
+    const current = await harness.client.getConfig("shells.sessions", "node:peer-node");
+    await harness.client.putConfig("shells.sessions", "node:peer-node", { updatedAt: new Date().toISOString(), rows: [
+      { id: "shell:local:peer-shell", kind: "shell", runtime: "codex", status: "working", lastActivityAt: new Date().toISOString(), shell: { transport: "local", tmuxSession: "peer-shell", sessionId: "remote-id" } }
+    ] }, { ifMatchRev: current?.rev ?? 0 });
+    const result = await meshSessions({ fetchImpl: fakeFetchWithBody({ rows: [] }) });
+    expect(result.rows.find((r: { id: string }) => r.id === "shell:local:peer-shell")).toMatchObject({ threadId: "peer-shell-wrapper", status: "working", node: "peer-node" });
+  });
+
   it("sorts working > idle > unknown > ended, and caps ended rows per node", async () => {
     const rows = [];
     for (let i = 0; i < 25; i++) {
@@ -116,6 +129,8 @@ describe("meshSessions", () => {
     const result = await meshSessions({ fetchImpl: fakeFetchWithBody(localBody), limitEndedPerNode: 5 });
     expect(result.rows[0].id).toBe("working-1");
     expect(result.rows.filter((r: { status: string }) => r.status === "ended")).toHaveLength(5);
+    const uncapped = await meshSessions({ fetchImpl: fakeFetchWithBody(localBody) });
+    expect(uncapped.rows.filter((r: { status: string }) => r.status === "ended")).toHaveLength(25);
   });
 
   it("a state-service outage still returns local rows, never throws", async () => {

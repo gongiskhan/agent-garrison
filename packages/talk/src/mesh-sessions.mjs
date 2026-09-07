@@ -12,7 +12,7 @@ import { listThreads } from "./threads.mjs";
 
 const LOCAL_CACHE_MS = 2000;
 const PEER_CACHE_MS = 5000;
-const DEFAULT_ENDED_CAP_PER_NODE = 20;
+const DEFAULT_ENDED_CAP_PER_NODE = Infinity;
 const FETCH_TIMEOUT_MS = 2500;
 
 // Mirror of the shell's NODE_ACCENTS palette (src/lib/node-identity.ts),
@@ -148,8 +148,8 @@ export async function meshSessions({ limitEndedPerNode = DEFAULT_ENDED_CAP_PER_N
     } catch {
       registry = [];
     }
-    for (const peer of registry) {
-      if (peer.name === self.node) continue;
+    await Promise.all(registry.map(async (peer) => {
+      if (peer.name === self.node) return;
       const body = await fetchPeerIndex(c, peer.name);
       nodes.push({
         node: peer.name,
@@ -158,41 +158,43 @@ export async function meshSessions({ limitEndedPerNode = DEFAULT_ENDED_CAP_PER_N
         lastSeenAt: peer.lastSeenAt ?? null,
         shellOrigin: body?.shellOrigin?.public ?? null
       });
+      const stale = !body?.updatedAt || Date.now() - Date.parse(body.updatedAt) > 90_000;
       const rows = (body?.rows ?? [])
         .map((r) => normalizeRow(r, peer.name))
         .filter(Boolean)
         .map((r) => ({
           ...r,
+          ...(stale && r.status === "working" ? { status: "unknown", statusSource: "stale-node" } : {}),
           nodeAccent: resolveAccent(peer.accentColor) ?? peer.accentColor ?? null,
           nodeStatus: peer.status ?? "unknown",
           shellOrigin: body?.shellOrigin?.public ?? null
         }));
       peerRows.push(...rows);
-    }
+    }));
   }
 
-  let all = [...localRows, ...peerRows];
+  const cutoff = Date.now() - 5 * 86_400_000;
+  let all = [...localRows, ...peerRows].filter((r) => r.status === "working" ||
+    Date.parse(r.lastActivityAt ?? r.startedAt) >= cutoff);
 
-  // Bind LOCAL rows to a thread this node already owns - a peer's row can
-  // only be bound by ITS OWN node (that is what publishes threadId into the
-  // row before this node ever sees it).
+  // Bind this node's wrapper threads to their exact shell on ANY node.
+  // Native conversation identities remain owner-local.
   if (self.node) {
     const threads = await listThreads().catch(() => []);
     const byShellKey = new Map();
     const byClaudeSession = new Map();
     for (const t of threads) {
       if (t.shell?.transport && t.shell?.tmuxSession) {
-        byShellKey.set(`${t.shell.transport} ${t.shell.tmuxSession}`, t.id);
+        byShellKey.set(`${t.shell.node || self.node} ${t.shell.transport} ${t.shell.tmuxSession}`, t.id);
       }
       if (t.claudeSessionId) byClaudeSession.set(t.claudeSessionId, t.id);
     }
     all = all.map((r) => {
-      if (r.node !== self.node) return r;
       if (r.kind === "shell" && r.shell?.transport && r.shell?.tmuxSession) {
-        const tid = byShellKey.get(`${r.shell.transport} ${r.shell.tmuxSession}`);
+        const tid = byShellKey.get(`${r.node} ${r.shell.transport} ${r.shell.tmuxSession}`);
         if (tid) return { ...r, threadId: tid };
       }
-      if (r.runtime === "claude" && byClaudeSession.has(r.id)) {
+      if (r.node === self.node && r.runtime === "claude" && byClaudeSession.has(r.id)) {
         return { ...r, boundTo: { kind: "conversation", threadId: byClaudeSession.get(r.id) } };
       }
       return r;

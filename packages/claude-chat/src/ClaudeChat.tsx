@@ -1538,17 +1538,29 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   const pinnedRef = useRef(true);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
-  // The message box grows with its text up to half the viewport, then scrolls.
-  // Done in JS because the WebKit the phone app runs in has no
-  // `field-sizing: content`, and a one-line box made a long dictation
-  // unreadable. Empty resets to the stylesheet's one-line height.
+  // Leave room to read the conversation, including in a short Kanban pane.
+  // WebKit has no field-sizing support, so also resize when the host pane or
+  // keyboard changes size. The cap belongs to this chat, not the whole window.
   useEffect(() => {
     const ta = taRef.current;
-    if (!ta) return;
-    if (!input) { ta.style.height = ""; return; }
-    ta.style.height = "auto";
-    const cap = Math.max(120, Math.floor(window.innerHeight * 0.5));
-    ta.style.height = `${Math.min(ta.scrollHeight, cap)}px`;
+    const root = rootRef.current;
+    if (!ta || !root) return;
+    const resize = () => {
+      const available = Math.min(root.clientHeight || window.innerHeight, window.visualViewport?.height ?? window.innerHeight);
+      const cap = Math.max(80, Math.min(240, Math.floor(available * 0.32)));
+      ta.style.maxHeight = `${cap}px`;
+      if (!input) { ta.style.height = ""; return; }
+      ta.style.height = "auto";
+      ta.style.height = `${Math.min(ta.scrollHeight + 2, cap)}px`;
+    };
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(root);
+    window.visualViewport?.addEventListener("resize", resize);
+    return () => {
+      observer.disconnect();
+      window.visualViewport?.removeEventListener("resize", resize);
+    };
   }, [input]);
 
   // ── Theme (opt-in). Mirrors the dev-env terminal toggle: shared LS key, so
@@ -3580,7 +3592,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
               />
               <button
                 type="button"
-                className="cc-mic"
+                className="cc-mic cc-attach"
                 disabled={attachmentLocked}
                 aria-label="Attach a file"
                 title={attachmentLocked ? "Attachments are unavailable while messages are pending" : "Attach a file"}

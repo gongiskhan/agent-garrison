@@ -82,6 +82,9 @@ beforeEach(async () => {
 
 describe("Conversations navigation and responsive composer", () => {
   it("keeps Zeca above shells and working sessions visible when idle sessions collapse", async () => {
+    await expect.poll(()=>page.getByTestId('rail-sessions-toggle').getAttribute('aria-expanded')).toBe('true');
+    expect(await page.getByRole('button',{name:/Old shell/}).isVisible()).toBe(true);
+    await page.getByTestId('rail-sessions-toggle').click();
     await expect.poll(()=>page.getByTestId('rail-sessions-toggle').getAttribute('aria-expanded')).toBe('false');
     expect(await page.getByRole('button',{name:/Current review/}).isVisible()).toBe(true);
     expect(await page.getByRole('button',{name:/Old shell/}).count()).toBe(0);

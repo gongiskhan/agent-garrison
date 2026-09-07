@@ -2582,6 +2582,10 @@
 .talk-host .wc-main { height: 100%; min-height: 0; }
 .talk-host .cc-root { --cc-measure: 920px; }
 .talk-host .cc-conversation .cc-header { min-height: 32px; padding-top: 5px; padding-bottom: 5px; }
+/* Conversations report activity in their transcript. The separate PTY status
+   and empty Raw terminal controls only belong to shell sessions. */
+.talk-host .cc-conversation .cc-root > .cc-header,
+.talk-host .cc-conversation .cc-statusstrip { display: none; }
 .talk-host .cc-conv-head { min-width: 0; gap: 12px; }
 .talk-host .cc-conv-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .talk-host .cc-conv-search { min-width: 0; }
@@ -2590,7 +2594,12 @@
 .talk-host .cc-conv-welcome strong { font: 600 clamp(23px, 3vw, 30px)/1.2 var(--wc-serif, Georgia, serif); color: var(--wc-ink, #18211c); }
 .talk-host .cc-conv-welcome span { font-size: 15px; line-height: 1.6; color: #565a50; }
 .talk-host .cc-session-head:has(+ .cc-session-scroll > .cc-session-empty .cc-conv-welcome) { display: none; }
-.talk-host .cc-input { border-radius: 8px; padding: 12px 14px; }
+.talk-host .cc-composer { padding: 8px 12px; padding-bottom: max(8px, env(safe-area-inset-bottom)); box-shadow: none; }
+.talk-host .cc-input { border-radius: 8px; padding: 9px 12px; min-height: 42px; }
+.talk-host .cc-composerrow { gap: 5px; }
+.talk-host .cc-composertools { gap: 5px; }
+.talk-host .cc-composertools :is(.cc-send, .cc-stop, .wcv-mic, .wc-rec-btn) { min-height: 36px; }
+.talk-host .cc-composertools :is(.cc-send, .cc-stop) { min-height: 44px; }
 .talk-host .cc-input:focus { outline: 2px solid #6f8f6a; outline-offset: 1px; }
 .talk-host .cc-send { background: #3d6249; border-color: #3d6249; border-radius: 6px; }
 .talk-host .cc-send:disabled { opacity: .48; }
@@ -2643,6 +2652,23 @@
 .wc-conversation-stop { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; min-height: 44px; padding: 0 12px; border: 1px solid #9b362d; border-radius: 6px; color: #9b362d; background: #fbf8f1; font: 600 13px var(--wc-sans, sans-serif); cursor: pointer; }
 .wc-conversation-stop:disabled { opacity: .65; cursor: wait; }
 .wc-conversation-error { max-width: 260px; font: 12px/1.4 var(--wc-sans, sans-serif); color: #9b362d; }
+@media (max-width: 600px), (any-pointer: coarse) {
+  .talk-host .cc-composertools :is(.cc-send, .cc-stop, .wcv-mic, .wc-rec-btn) { min-height: 44px; }
+}
+
+.wc-thread-spinner {
+  box-sizing: border-box; display: inline-block; flex: 0 0 12px; width: 12px; height: 12px;
+  border: 1.5px solid currentColor; border-top-color: transparent; border-radius: 50%;
+  animation: wc-thread-spin .8s linear infinite;
+}
+@keyframes wc-thread-spin { to { transform: rotate(360deg); } }
+.wc-native-terminal { position: relative; display: flex; flex: 1 1 auto; min-height: 0; overflow: hidden; background: #10140f; }
+.wc-sess-body:has(> .wc-native-terminal) { display: flex; flex-direction: column; overflow: hidden; }
+.wc-native-terminal-mount { width: 100%; height: 100%; min-width: 0; padding: 8px; }
+.wc-native-terminal-state { position: absolute; bottom: 8px; right: 10px; max-width: calc(100% - 20px); padding: 5px 8px; border-radius: 4px; background: #18211ce8; color: #d2dbc9; font: 12px/1.4 var(--wc-sans, sans-serif); }
+@media (prefers-reduced-motion: reduce) {
+  .wc-thread-spinner { animation: none; }
+}
 @media (max-width: 600px) {
   .talk-host .cc-conv-head:has(.wc-conversation-stop) .cc-conv-search { flex-basis: 36%; }
   .talk-host .wc-conversation-error { position: absolute; top: 100%; left: 12px; right: 12px; max-width: none; padding: 10px; z-index: 10; background: #fff0eb; border: 1px solid #9b362d; }

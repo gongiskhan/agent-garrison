@@ -114,6 +114,22 @@ function installCursorHooks(env, garrisonHomeDir, hookPath, log) {
   } else {
     cfg.hooks.beforeSubmitPrompt = startList;
   }
+  // Refresh the exact conversation's activity during a long turn. These are
+  // observational hooks only: no output and no permission decision.
+  for (const name of ["preToolUse", "postToolUse", "afterAgentThought"]) {
+    const command = `${hookPath} agent-start cursor`;
+    const list = Array.isArray(cfg.hooks[name]) ? cfg.hooks[name] : [];
+    if (!list.some((h) => h?.command === command)) {
+      cfg.hooks[name] = [...list, { command }];
+      changed = true;
+    }
+  }
+  const endCommand = `${hookPath} session-end cursor`;
+  const endList = Array.isArray(cfg.hooks.sessionEnd) ? cfg.hooks.sessionEnd : [];
+  if (!endList.some((h) => h?.command === endCommand)) {
+    cfg.hooks.sessionEnd = [...endList, { command: endCommand }];
+    changed = true;
+  }
   if (changed) {
     writeJson(file, cfg);
     log(`cursor hooks.json updated (${file})`);

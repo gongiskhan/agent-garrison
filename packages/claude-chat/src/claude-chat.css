@@ -409,16 +409,17 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 }
 .cc-mic-spin { width: 13px; height: 13px; }
 
-.cc-composer { position: relative; border-top: 1px solid var(--cc-border); background: var(--cc-bg-elev); padding: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
-/* Two rows: the message box alone on top (it grows with its text to half the
-   viewport, see the autosize effect), the labelled controls beneath it with
+.cc-composer { position: relative; flex: 0 0 auto; border-top: 1px solid var(--cc-border); background: var(--cc-bg-elev); padding: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+/* Two rows: the message box alone on top (it grows with its text within the
+   available pane, see the autosize effect), the controls beneath it with
    Send at the right-hand end. */
-.cc-composerrow { display: flex; flex-direction: column; align-items: stretch; gap: 8px; min-width: 0; }
-.cc-composertools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; }
+.cc-composerrow { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 0; }
+.cc-composertools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+.cc-composertools > button { flex: 0 0 auto; width: auto; align-self: center; }
 .cc-toolspacer { flex: 1 1 0; min-width: 0; }
 .cc-btnlabel { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; line-height: 1; white-space: nowrap; }
 .cc-input {
-  flex: 0 0 auto; width: 100%; min-width: 0; resize: none; max-height: 50vh; min-height: 38px;
+  box-sizing: border-box; flex: 0 0 auto; width: 100%; min-width: 0; resize: none; max-height: min(240px, 32vh); min-height: 38px;
   background: var(--cc-bg); color: var(--cc-fg); border: 1px solid var(--cc-border-strong); border-radius: 8px;
   padding: 9px 12px; font: 14px/1.4 inherit; outline: none;
 }
@@ -1608,7 +1609,19 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-routebtn-active { border-color: var(--cc-fg); color: var(--cc-fg); }
 .cc-send-icon {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  min-width: 44px; padding-left: 12px; padding-right: 14px;
+  min-width: 44px; min-height: 44px; padding-left: 12px; padding-right: 14px;
+}
+
+/* Familiar secondary actions stay small without losing their accessible name.
+   Explicit dimensions prevent host button rules from turning Attach into a bar. */
+.cc-root .cc-composertools > :is(.cc-attach, .cc-routebtn) {
+  width: 36px; height: 36px; min-width: 36px; min-height: 36px; padding: 0;
+}
+.cc-root :is(.cc-attach, .cc-routebtn) .cc-btnlabel { display: none; }
+@media (max-width: 600px), (any-pointer: coarse) {
+  .cc-root .cc-composertools > :is(.cc-attach, .cc-routebtn) {
+    width: 44px; height: 44px; min-width: 44px; min-height: 44px;
+  }
 }
 
 /* The per-message action bar is a finger target like everything else. Without

@@ -4,7 +4,7 @@
 // actions a row of its kind actually supports.
 
 import React from "react";
-import { SessionStream } from "@garrison/claude-chat";
+import { NativeTerminal } from "./native-terminal";
 import type { RailSession } from "./sessions-rail";
 
 const RUNTIME_LABEL: Record<string, string> = { claude: "Claude Code", codex: "Codex", cursor: "Cursor", gemini: "Gemini CLI", shell: "Shell" };
@@ -29,8 +29,8 @@ export function ExternalSessionView({
   const subline = row.kind === "desktop"
     ? `Cursor desktop, ${row.project ?? row.cwd ?? "unknown project"}`
     : row.status === "ended"
-      ? `Ended on ${row.node}`
-      : `Running in another terminal on ${row.node}`;
+      ? `Recent shell session on ${row.node}`
+      : `${row.status === "working" ? "Working" : "Shell session"} on ${row.node}`;
 
   return (
     <div className="wc-sess" data-testid="sess-view">
@@ -45,7 +45,7 @@ export function ExternalSessionView({
       </div>
       <div className="wc-sess-actions">
         {onContinue && (row.resumable || row.attachable) && (
-          <button type="button" className="wc-wb-reattach" data-testid={row.kind === "bg" ? "sess-attach" : "sess-continue"} disabled={busy} onClick={onContinue}>
+          <button type="button" className="wc-wb-reattach" data-testid={row.kind === "bg" ? "sess-attach" : "sess-continue"} disabled={busy || (row.status === "working" && !row.attachable)} title={row.status === "working" && !row.attachable ? "The original client is still running this session" : undefined} onClick={onContinue}>
             {busy ? "Starting…" : row.kind === "bg" ? "Attach" : "Continue in a shell"}
           </button>
         )}
@@ -57,7 +57,7 @@ export function ExternalSessionView({
       </div>
       <div className="wc-sess-body" data-testid="sess-transcript">
         {streamUrl ? (
-          <SessionStream url={streamUrl} live={row.status !== "ended"} announceLiveUpdates={false} />
+          <NativeTerminal streamUrl={streamUrl} />
         ) : (
           <div className="wc-sess-note" data-testid="sess-note">No transcript for this session yet.</div>
         )}

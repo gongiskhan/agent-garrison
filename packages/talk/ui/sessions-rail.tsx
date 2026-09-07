@@ -38,6 +38,8 @@ export interface RailMeshThread {
   title: string | null;
   lastMessageAt: string | null;
   openUrl: string | null;
+  runningSince?: string | null;
+  source?: string | null;
 }
 
 export interface RailMeshNode {
@@ -370,15 +372,14 @@ export function SessionsRail(props: {
     return searchTerms.every((term) => text.includes(term));
   };
   const searching = searchTerms.length > 0;
-  const [sessionsCollapsed, setSessionsCollapsed] = useState(true);
-  const [showEnded, setShowEnded] = useState(false);
+  const [sessionsCollapsed, setSessionsCollapsed] = useState(false);
   useEffect(() => {
-    try { setSessionsCollapsed(window.localStorage.getItem("wc.sessions.collapsed") !== "0"); } catch { /* default collapsed */ }
+    try { setSessionsCollapsed(window.localStorage.getItem("wc.sessions.collapsed.v2") === "1"); } catch { /* default expanded */ }
   }, []);
   const toggleSessionsCollapsed = useCallback(() => {
     setSessionsCollapsed((prev) => {
       const next = !prev;
-      try { window.localStorage.setItem("wc.sessions.collapsed", next ? "1" : "0"); } catch { /* best effort */ }
+      try { window.localStorage.setItem("wc.sessions.collapsed.v2", next ? "1" : "0"); } catch { /* best effort */ }
       return next;
     });
   }, []);
@@ -449,7 +450,7 @@ export function SessionsRail(props: {
       nodeName: shortNode(self.node) || null,
       accent: self.accentColor,
       activity: t.updatedAt,
-      running: Boolean(t.runningSince),
+      running: Boolean(t.runningSince) || t.remoteShell?.state === "running",
       queued: t.pendingInputCount ?? 0,
       // A shell row's useful chip is the MACHINE it runs on: every one of them
       // would otherwise read "remote-shell", which distinguishes nothing.
@@ -466,9 +467,9 @@ export function SessionsRail(props: {
         nodeName: shortNode(n.node),
         accent: n.accentColor,
         activity: t.lastMessageAt,
-        running: false,
+        running: Boolean(t.runningSince),
         queued: 0,
-        source: null,
+        source: t.source && t.source !== "chat" ? t.source : null,
         openUrl: t.openUrl
       }))
     );
@@ -758,12 +759,12 @@ export function SessionsRail(props: {
         onTouchMove={pressEnd}
         onTouchEnd={pressEnd}
       >
-        <span
+        {r.running ? <span className="wc-thread-spinner" role="status" aria-label="Running" title="Running" /> : <span
           className="wc-row-dot"
           style={{ background: r.accent || "#6a746b" }}
           title={r.nodeName ?? undefined}
           aria-hidden
-        />
+        />}
         <button type="button" className="wc-thread-open" onClick={open} title={r.title} aria-current={isActive ? "page" : undefined}>
           <span className="wc-thread-main">
             <span className="wc-thread-title">{r.title}</span>
@@ -821,11 +822,11 @@ export function SessionsRail(props: {
     }
     return [...byNode.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [sessions]);
-  const endedCount = sessionsByNode.reduce((n, [, list]) => n + list.filter((s) => s.status === "ended").length, 0);
 
   const renderSessionRow = (s: RailSession) => {
     const isActive = s.id === activeSessionId;
     const meta: React.ReactNode[] = [
+      <span key="shell" className="wc-thread-src">shell</span>,
       <span key="rt" className="wc-thread-src wc-thread-rt">{RUNTIME_LABEL[s.runtime] ?? s.runtime.toUpperCase()}</span>
     ];
     if (s.kind === "desktop") meta.push(<span key="k" className="wc-thread-src">desktop</span>);
@@ -843,7 +844,7 @@ export function SessionsRail(props: {
         data-key={`session:${s.node}:${s.id}`}
         className={["wc-thread", "wc-thread--session", isActive ? "wc-thread--active" : "", s.status === "working" ? "wc-thread--working" : "", s.status === "ended" ? "wc-thread--ended" : ""].filter(Boolean).join(" ")}
       >
-        <span className="wc-row-dot" style={{ background: s.nodeAccent || "#6a746b" }} aria-hidden />
+        {s.status === "working" ? <span className="wc-thread-spinner" role="status" aria-label="Running" title="Running" /> : <span className="wc-row-dot" style={{ background: s.nodeAccent || "#6a746b" }} aria-hidden />}
         <button type="button" className="wc-thread-open" onClick={() => onSelectSession?.(s)} title={s.title ?? s.id}>
           <span className="wc-thread-main">
             <span className="wc-thread-title">{s.title || s.cwd || s.id}</span>
@@ -968,13 +969,13 @@ export function SessionsRail(props: {
               <svg className={`wc-group-chev${sessionsCollapsed ? " wc-group-chev--closed" : ""}`} width="9" height="9" viewBox="0 0 10 10" aria-hidden="true">
                 <path d="M2.5 3.5 5 6l2.5-2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
               </svg>
-              <span className="wc-group-name">Sessions</span>
+              <span className="wc-group-name" title="Shell sessions active in the last 5 days">Shell sessions · 5 days</span>
               <span className="wc-group-count">{sessionsByNode.reduce((n, [, l]) => n + l.length, 0)}</span>
             </button>
             {sessionsByNode.map(([node, list]) => {
               const shown = list.filter((s) => searching
                 ? matches(s.title, s.project, s.cwd, s.node, s.runtime)
-                : sessionsCollapsed ? s.status === "working" || s.id === activeSessionId : showEnded || s.status !== "ended");
+                : !sessionsCollapsed || s.status === "working" || s.id === activeSessionId);
               if (shown.length === 0) return null;
               return (
                 <div key={node}>
@@ -987,11 +988,7 @@ export function SessionsRail(props: {
                 </div>
               );
             })}
-            {!sessionsCollapsed && endedCount > 0 && (
-              <button type="button" className="wc-show-ended" data-testid="rail-show-ended" onClick={() => setShowEnded((v) => !v)}>
-                {showEnded ? "Hide ended" : `Show ended (${endedCount})`}
-              </button>
-            )}
+
           </div>
         )}
 

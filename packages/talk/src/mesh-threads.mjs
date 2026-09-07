@@ -14,7 +14,7 @@ import path from "node:path";
 import os from "node:os";
 import { createStateClient } from "@garrison/state-client";
 
-const CACHE_MS = 20_000;
+const CACHE_MS = 5000;
 
 let cachedClient;
 let clientFailed = false;
@@ -75,7 +75,17 @@ function selfIdentity() {
   return { node: name, accentColor: accent };
 }
 
-export async function meshThreads({ limitPerNode = 8 } = {}) {
+// Only node-registry addresses are eligible; no user-supplied URL is fetched.
+export function peerThreadsOrigin(peer) {
+  try {
+    const origin = peer.health?.node?.appOrigin;
+    if (origin && new URL(origin).protocol === "https:") return new URL(origin).origin;
+  } catch { /* fall through */ }
+  const host = String(peer.tailnetHost ?? "").trim().replace(/\.$/, "");
+  return /^[a-z0-9.-]+$/i.test(host) ? `https://${host}` : null;
+}
+
+export async function meshThreads({ limitPerNode = 2000, fetchImpl = fetch } = {}) {
   const now = Date.now();
   if (cache.body && now - cache.at < CACHE_MS) return cache.body;
   const self0 = selfIdentity();
@@ -86,7 +96,7 @@ export async function meshThreads({ limitPerNode = 8 } = {}) {
   const registry = await c.listNodes();
   const peers = registry.filter((n) => n.name !== self);
   const nodes = [];
-  for (const peer of peers) {
+  await Promise.all(peers.map(async (peer) => {
     let threads = [];
     try {
       const doc = await c.getConfig("web-channel.threads", `node:${peer.name}`);
@@ -94,11 +104,30 @@ export async function meshThreads({ limitPerNode = 8 } = {}) {
     } catch {
       threads = [];
     }
+    // The durable index is the outage fallback. Running state is process-local
+    // and must come from the owner's live metadata endpoint, which never
+    // returns transcript/message bodies and does not recurse into meshThreads.
+    let live = false;
+    const origin = peerThreadsOrigin(peer);
+    if (origin) {
+      try {
+        const res = await fetchImpl(`${origin}/api/threads`, { signal: AbortSignal.timeout(4000), redirect: "error" });
+        if (res.ok) {
+          const body = await res.json();
+          if (Array.isArray(body?.threads)) { threads = body.threads; live = true; }
+        }
+      } catch { /* an unreachable node remains visible without a false spinner */ }
+    }
+    const cutoff = now - 5 * 86_400_000;
+    threads = threads.filter((t) => t.runningSince || Date.parse(t.updatedAt ?? t.lastMessageAt ?? t.createdAt) >= cutoff)
+      .sort((a, b) => Number(Boolean(b.runningSince)) - Number(Boolean(a.runningSince)) ||
+        Date.parse(b.updatedAt ?? b.lastMessageAt ?? "0") - Date.parse(a.updatedAt ?? a.lastMessageAt ?? "0"))
+      .slice(0, limitPerNode);
     // A TETHERED peer (csg) has no tailnetHost at all - its appOrigin (carried
     // through the beat's health.node.appOrigin) is its only real address, so
     // it must not be skipped just for lacking a tailnetHost.
     const appOrigin = peer.health?.node?.appOrigin ?? null;
-    if (!peer.tailnetHost && !appOrigin && threads.length === 0) continue;
+    if (!peer.tailnetHost && !appOrigin && threads.length === 0) return;
     // Rows open THIS node's /mesh/talk/<node>/<id> page, which frames the
     // conversation on its home node. The top window never leaves this origin:
     // a cross-origin top-level load is a new tab on a phone browser, a Safari
@@ -115,13 +144,22 @@ export async function meshThreads({ limitPerNode = 8 } = {}) {
       threads: threads.map((t) => ({
         id: t.id,
         title: t.title ?? null,
-        lastMessageAt: t.lastMessageAt ?? null,
+        lastMessageAt: t.updatedAt ?? t.lastMessageAt ?? null,
+        runningSince: live ? t.runningSince ?? null : null,
+        source: t.source ?? null,
         messageCount: t.messageCount ?? null,
         openUrl: `${base}/${encodeURIComponent(t.id)}`
       }))
     });
-  }
+  }));
+  nodes.sort((a, b) => a.node.localeCompare(b.node));
   const body = { self: self0, nodes };
   cache = { at: now, body };
   return body;
+}
+
+export function _resetCachesForTests() {
+  cachedClient = undefined;
+  clientFailed = false;
+  cache = { at: 0, body: null };
 }

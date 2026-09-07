@@ -1090,7 +1090,10 @@ function ThreadedApp({
   const [meshSelf, setMeshSelf] = useState<RailSelf>({ node: null, accentColor: null });
   useEffect(() => {
     let alive = true;
+    let pending = false;
     const load = () => {
+      if (pending || document.visibilityState === "hidden") return;
+      pending = true;
       fetch("/api/mesh-threads", { cache: "no-store" })
         .then((r) => r.json())
         .then((d) => {
@@ -1098,10 +1101,11 @@ function ThreadedApp({
           setMeshNodes(d.nodes ?? []);
           if (d.self) setMeshSelf(d.self);
         })
-        .catch(() => { /* empty rail is the degraded mode */ });
+        .catch(() => { /* retain the last known list while reconnecting */ })
+        .finally(() => { pending = false; });
     };
     load();
-    const timer = window.setInterval(load, 30_000);
+    const timer = window.setInterval(load, 5000);
     return () => { alive = false; window.clearInterval(timer); };
   }, []);
 
@@ -1138,6 +1142,10 @@ function ThreadedApp({
   const visibleSessions = useMemo(() => visibleSessionRows(sessionsResult.rows), [sessionsResult.rows]);
 
   const [activeSessionRow, setActiveSessionRow] = useState<RailSession | null>(null);
+  useEffect(() => {
+    setActiveSessionRow((current) => current ? sessionsResult.rows.find((row) =>
+      row.id === current.id && row.node === current.node) ?? current : null);
+  }, [sessionsResult.rows]);
   const [newShellOpen, setNewShellOpen] = useState(false);
   const [shellOrigin, setShellOrigin] = useState<string | null>(null);
   const [shellOriginError, setShellOriginError] = useState<ShellOriginError | null>(null);
@@ -1507,11 +1515,20 @@ function ThreadedApp({
   // view instead of the chat.
   const selectSessionRow = useCallback((row: RailSession) => {
     if (row.threadId) { void selectThread(row.threadId); return; }
+    if (row.shell?.sessionId && row.shell.tmuxSession) {
+      void apiEnsureThread({
+        id: `shell-${row.node}-${row.shell.transport}-${row.shell.tmuxSession}`,
+        title: row.title || row.project || row.runtime, source: "shell",
+        context: { shell: { ...row.shell, node: row.node, runtime: row.runtime,
+          cwd: row.cwd, shellOrigin: row.shellOrigin } }
+      }).then((thread) => { if (thread) void openThread(thread.id); });
+      return;
+    }
     setActiveId(null);
     setActiveThread(null);
     setActiveSessionRow(row);
     setSidebarOpen(false);
-  }, [selectThread]);
+  }, [selectThread, openThread]);
 
   // "Continue in a shell" / "Attach": start (or resume) the session on its
   // owning node and turn it into an owned shell thread - the same
@@ -1568,7 +1585,8 @@ function ThreadedApp({
 
   const copyResumeCommand = useCallback((row: RailSession) => {
     if (!row.resumeCommand) return;
-    void navigator.clipboard?.writeText(`cd ${row.cwd ?? "~"} && ${row.resumeCommand}`).catch(() => {});
+    const cwd = row.cwd ? "\'" + row.cwd.replace(/\'/g, "\'\\\'\'") + "\'" : "~";
+    void navigator.clipboard?.writeText(`cd ${cwd} && ${row.resumeCommand}`).catch(() => {});
   }, []);
 
   // New shell: a fresh session on any node, from the "+ New" > "New shell..."

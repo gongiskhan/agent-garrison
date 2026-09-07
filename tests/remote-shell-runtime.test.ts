@@ -201,6 +201,41 @@ describe("hook-driven lifecycle", () => {
     expect((notifications[0] as { text: string }).text).toContain("finished");
   });
 
+  it("correlates hooks to the exact tmux shell and ignores a same-cwd native sibling", async () => {
+    const manager = await makeManager([]);
+    const session = manager.get("s1");
+    session.cwd = "/tmp/shared";
+    session.runtime = "cursor";
+    const emit = (extra: Record<string, unknown>) => manager.onEventLine(session, JSON.stringify({
+      ts: new Date().toISOString(), event: "agent-start", runtime: "cursor", cwd: session.cwd,
+      session_id: "native-one", ...extra
+    }));
+    emit({ tmux_session: "other-shell" });
+    expect(session.state).toBe("idle");
+    emit({});
+    expect(session.state).toBe("idle");
+    emit({ tmux_session: session.tmuxSession });
+    expect(session.state).toBe("running");
+    expect(session.nativeSessionId).toBe("native-one");
+    emit({ event: "agent-stop", session_id: "native-two" });
+    expect(session.state).toBe("running");
+    emit({ event: "agent-stop" });
+    expect(session.state).toBe("idle");
+  });
+
+  it("session end clears an owned shell spinner and fails an unfinished turn", async () => {
+    const manager = await makeManager([]);
+    const session = manager.get("s1");
+    manager.onEventLine(session, JSON.stringify({ event: "agent-start" }));
+    const turn = { id: "ended-turn", state: "running", waiters: [] };
+    session.turns.set(turn.id, turn);
+    session.activeTurn = turn;
+    manager.onEventLine(session, JSON.stringify({ event: "session-end" }));
+    expect(session.state).toBe("idle");
+    expect(turn.state).toBe("failed");
+    expect(session.activeTurn).toBeNull();
+  });
+
   it("ignores malformed and unknown event lines", async () => {
     const notifications: unknown[] = [];
     const manager = await makeManager(notifications);

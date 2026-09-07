@@ -167,7 +167,16 @@ export function parseGeminiChatLines(lines) {
   return { events, title: null };
 }
 
+export function parseCursorTextLines(lines) {
+  // Older Cursor journals are plain text with role headings. Render them in
+  // their original order in the shell observer; do not invent JSON structure.
+  const text = lines.join("\n");
+  return { events: text ? [{ id: "cursor-text", role: "assistant", ts: null,
+    blocks: [{ type: "text", text: clampText(text) }] }] : [], title: null };
+}
+
 const PARSERS = {
+  "cursor-agent-text": parseCursorTextLines,
   "claude-jsonl": (lines) => parseTranscriptLines(lines),
   "cursor-agent-jsonl": parseCursorTranscriptLines,
   "codex-rollout": parseCodexRolloutLines,

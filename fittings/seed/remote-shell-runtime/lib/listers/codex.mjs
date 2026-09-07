@@ -10,28 +10,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { projectName, transcriptStatus } from "./common.mjs";
-
-function* jsonlRecords(file) {
-  let text;
-  try {
-    text = fs.readFileSync(file, "utf8");
-  } catch {
-    return;
-  }
-  for (const line of text.split("\n")) {
-    const t = line.trim();
-    if (!t.startsWith("{")) continue;
-    try {
-      yield JSON.parse(t);
-    } catch { /* a torn final line is not a parse failure worth reporting */ }
-  }
-}
+import { projectName, codexTranscriptStatus, readJsonlSlice } from "./common.mjs";
 
 /** Day directories under sessions/, newest first, bounded - mirrors
  *  codex-runtime's own adapter (a different fitting; duplicated rather than
  *  cross-imported, per this repo's one-fitting-one-package convention). */
-function sessionDayDirs(root, limit) {
+function sessionDayDirs(root) {
   const dirs = [];
   const listNumeric = (dir) => {
     try {
@@ -46,7 +30,6 @@ function sessionDayDirs(root, limit) {
     for (const m of listNumeric(path.join(root, y))) {
       for (const d of listNumeric(path.join(root, y, m))) {
         dirs.push(path.join(root, y, m, d));
-        if (dirs.length >= limit) return dirs;
       }
     }
   }
@@ -54,16 +37,17 @@ function sessionDayDirs(root, limit) {
 }
 
 function codexHomes(env = process.env) {
-  const homeDir = os.homedir();
+  const homeDir = env.HOME?.trim() || os.homedir();
   const garrisonHome = env.GARRISON_HOME?.trim() || path.join(homeDir, ".garrison");
   const candidates = [
-    env.CODEX_HOME?.trim() || path.join(homeDir, ".codex"),
+    path.join(homeDir, ".codex"),
+    env.CODEX_HOME?.trim(),
     path.join(garrisonHome, "runtime-homes", "codex"),
     path.join(garrisonHome, "marathon", "codex-home")
   ];
   const seen = new Set();
   const homes = [];
-  for (const c of candidates) {
+  for (const c of candidates.filter(Boolean)) {
     const abs = path.resolve(c);
     if (seen.has(abs)) continue;
     seen.add(abs);
@@ -101,7 +85,7 @@ export function list({ windowDays = 5, now = Date.now(), env = process.env } = {
   for (const home of codexHomes(env)) {
     const index = readSessionIndex(home);
     const root = path.join(home, "sessions");
-    for (const dir of sessionDayDirs(root, windowDays + 2)) {
+    for (const dir of sessionDayDirs(root)) {
       let entries;
       try {
         entries = fs.readdirSync(dir).filter((f) => f.startsWith("rollout-") && f.endsWith(".jsonl"));
@@ -121,7 +105,7 @@ export function list({ windowDays = 5, now = Date.now(), env = process.env } = {
         // replay the parent's whole history, so reading further would just
         // re-derive the same session_meta anyway.
         let meta = null;
-        for (const rec of jsonlRecords(file)) {
+        for (const rec of readJsonlSlice(file, { maxBytes: 64 * 1024 })) {
           if (rec?.type === "session_meta") meta = rec.payload;
           break;
         }
@@ -131,7 +115,7 @@ export function list({ windowDays = 5, now = Date.now(), env = process.env } = {
         if (meta.thread_source === "subagent" || meta.source?.subagent) continue;
         seen.add(meta.id);
         const indexed = index.get(meta.id);
-        const base = transcriptStatus(stat.mtimeMs, now);
+        const base = codexTranscriptStatus(file, stat.mtimeMs, now);
         rows.push({
           id: meta.id,
           runtime: "codex",
@@ -139,8 +123,7 @@ export function list({ windowDays = 5, now = Date.now(), env = process.env } = {
           cwd: typeof meta.cwd === "string" ? meta.cwd : null,
           project: projectName(meta.cwd),
           title: indexed?.thread_name ?? null,
-          status: base.status,
-          statusSource: base.statusSource,
+          ...base,
           startedAt: typeof meta.timestamp === "string" ? meta.timestamp : null,
           lastActivityAt: new Date(stat.mtimeMs).toISOString(),
           resumable: true,

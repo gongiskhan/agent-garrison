@@ -2,6 +2,7 @@
 // hook into Cursor/Codex/Gemini's own config files, idempotent, preserving
 // unrelated entries, snapshotting once, and uninstallable.
 
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -98,6 +99,18 @@ describe("install-hooks.mjs", () => {
     installHooks(env, () => {});
     const script = readFileSync(path.join(env.GARRISON_HOME!, "shells", "agent-event-hook.sh"), "utf8");
     expect(script).toContain(path.join(env.GARRISON_HOME!, "shells", "events.jsonl"));
+  });
+
+  it("records quoted cwd and native identity from real hook input without copying prompt or tool content", () => {
+    installHooks(env, () => {});
+    const script = path.join(env.GARRISON_HOME!, "shells", "agent-event-hook.sh");
+    execFileSync("bash", [script, "agent-start", "cursor"], { input: JSON.stringify({
+      conversation_id: "neutral-session", workspace_roots: ['/tmp/project with "quotes"'],
+      prompt: "DO_NOT_RECORD_PROMPT", tool_input: "DO_NOT_RECORD_TOOL"
+    }), env: { ...process.env, TMUX: "", TMUX_PANE: "" } });
+    const text = readFileSync(path.join(env.GARRISON_HOME!, "shells", "events.jsonl"), "utf8");
+    expect(JSON.parse(text)).toMatchObject({ session_id: "neutral-session", runtime: "cursor", cwd: '/tmp/project with "quotes"', event: "agent-start" });
+    expect(text).not.toContain("DO_NOT_RECORD");
   });
 
   it("snapshots each file exactly once, even across repeated installs", () => {

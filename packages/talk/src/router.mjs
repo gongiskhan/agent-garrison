@@ -24,6 +24,7 @@
 import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { meshThreads } from "./mesh-threads.mjs";
 import { meshSessions } from "./mesh-sessions.mjs";
+import { readCursorDesktopTranscript } from "./cursor-desktop-transcript.mjs";
 import { parseByFormat } from "./transcript-formats.mjs";
 import { gatewayCancelForwarder, gatewayMessageForwarder, handleConversationRequest } from "@garrison/claude-pty";
 import { rotateZecaConversation, zecaConversation } from "./zeca.mjs";
@@ -2411,9 +2412,8 @@ async function handleThreadsList(res) {
   // additionally spins on the fitting's HOOK-DRIVEN session state, so work
   // typed straight into the remote TUI still shows as live.
   const running = new Set(runningThreadIds());
-  const rsh = await remoteShellSessions();
-  const shellByThread = await shellSessionsByThread();
-  const threads = (await listThreads()).map((t) => {
+  const [rsh, shellByThread, listed] = await Promise.all([remoteShellSessions(), shellSessionsByThread(), listThreads()]);
+  const threads = listed.map((t) => {
     const session = matchRemoteShellSession(t.remoteShell, rsh);
     // The agent's own lifecycle IS this thread's activity: a terminal-first
     // shell never writes a message, so without this its row would sit at the
@@ -2506,12 +2506,39 @@ async function handleExternalSessionStream(req, res, id) {
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
 
+  if (format === "cursor-desktop-db") {
+    const read = () => readCursorDesktopTranscript(filePath, row.id);
+    const first = read();
+    emit({ type: "init", ...first, live: true });
+    let signature = JSON.stringify(first.events);
+    const poll = setInterval(() => {
+      const next = read();
+      const updated = JSON.stringify(next.events);
+      if (next.available && updated !== signature) {
+        signature = updated;
+        emit({ type: "events", events: next.events });
+      }
+    }, 1500);
+    const keep = setInterval(() => { try { res.write(": keep-alive\n\n"); } catch { /* client disconnected */ } }, 15000);
+    const stop = () => { clearInterval(poll); clearInterval(keep); };
+    req.on("close", stop);
+    res.on("close", stop);
+    return;
+  }
+
+  // These formats number rows within each parsed chunk. Qualify the id with
+  // its file offset so the next poll cannot overwrite an unrelated earlier row.
+  const identify = (events, byteOffset) => ["codex-rollout", "cursor-agent-jsonl", "cursor-agent-text"].includes(format)
+    ? events.map((event) => ({ ...event, id: `${byteOffset}:${event.id}` })) : events;
   let offset = 0;
   try {
-    const first = await readJsonlLines(filePath, 0);
+    // Native journals can span months. Start with bounded recent output,
+    // matching terminal scrollback, then stream new complete records.
+    const start = Math.max(0, statSync(filePath).size - 2 * 1024 * 1024);
+    const first = await readJsonlLines(filePath, start);
     offset = first.offset;
     const { events, title } = parseByFormat(format, first.lines);
-    emit({ type: "init", available: true, live: row.status !== "ended", title, events });
+    emit({ type: "init", available: true, live: row.status !== "ended", title, events: identify(events, start) });
   } catch {
     emit({ type: "init", available: false, live: false, events: [] });
     emit({ type: "end" });
@@ -2523,11 +2550,12 @@ async function handleExternalSessionStream(req, res, id) {
   const poll = setInterval(async () => {
     if (closed) return;
     try {
+      const chunkOffset = offset;
       const next = await readJsonlLines(filePath, offset);
       if (next.lines.length) {
         offset = next.offset;
         const { events, title } = parseByFormat(format, next.lines);
-        if (events.length) emit({ type: "events", title, events });
+        if (events.length) emit({ type: "events", title, events: identify(events, chunkOffset) });
       }
     } catch { /* transient read error; retry next tick */ }
   }, 800);

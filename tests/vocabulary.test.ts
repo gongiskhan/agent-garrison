@@ -331,6 +331,10 @@ const SESSION_IS_THE_RUNTIME: ReadonlyArray<{ file: string; why: string }> = [
     why: "the rail's Sessions section lists live claude/codex/cursor/gemini/tmux sessions across every mesh node, distinct from the conversation threads above it"
   },
   {
+    file: "packages/talk/ui/native-terminal.tsx",
+    why: "A read-only terminal observer for native CLI and IDE runtime sessions; this does not name a Garrison conversation."
+  },
+  {
     file: "packages/talk/ui/session-view.tsx",
     why: "the external-session view streams the transcript of one runtime session (Claude, Codex, Cursor, Gemini, or a bare shell) that a conversation has not yet claimed"
   }

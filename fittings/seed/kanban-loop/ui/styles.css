@@ -2032,7 +2032,7 @@ button:active, .btn:active { transform: translateY(1px); }
    conversation read as part of the card rather than as a transplanted chat. */
 .conv-block { margin: 16px 0 4px; }
 .kanban-conversation {
-  height: min(60vh, 520px);
+  height: min(72vh, 720px);
   border: 1px solid var(--rule-2);
   background: var(--paper);
 }
@@ -2069,6 +2069,12 @@ button:active, .btn:active { transform: translateY(1px); }
    not drawn on this surface. */
 .kanban-conversation .cc-root > .cc-header,
 .kanban-conversation .cc-statusstrip { display: none; }
+/* The card already names the conversation. Keep its search and log controls on
+   one line, leaving the space below for the actual messages. */
+.kanban-conversation .cc-conv-title { display: none; }
+.kanban-conversation .cc-conv-head { flex-wrap: nowrap; padding: 6px 8px; gap: 6px; }
+.kanban-conversation .cc-conv-search { flex: 1 1 0; order: 0; margin-left: 0; }
+.kanban-conversation .cc-composer { padding: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
 /* A frozen card's conversation is a record, not a place to write. The transport
    refuses the write too - this only stops the board offering a dead control.
    Replace with ConversationView's own read-only prop once it has one. */
@@ -2972,15 +2978,8 @@ label.row { display: flex; align-items: center; gap: 8px; }
    a dropdown, so the armed option is readable at a glance on a phone. The
    hint line under it says what the next message will do, and briefly what
    the last one did. */
-/* The chat renders a composer adornment as a slot at the LEFT of its input
-   row. A two-way switch plus a hint line has no business in a side column
-   next to the textarea (on a phone it squeezed the input to a third of the
-   width), so the row wraps and the adornment takes a full line above it. The
-   quick replies get the same line for the same reason. */
-.kanban-conversation .cc-composerrow { flex-wrap: wrap; }
-/* The input's own `width: 100%` would wrap it onto a line of its own too;
-   a zero basis keeps attach, input and send together on the second line. */
-.kanban-conversation .cc-composerrow > .cc-input { flex: 1 1 0; width: auto; }
+/* Adornments now live in the tools row beneath a full-width message box. Keep
+   the delivery choice together without changing the textarea's flex sizing. */
 .kanban-conversation .conv-delivery,
 .kanban-conversation .conv-quickreplies { flex: 1 1 100%; order: -1; min-width: 0; }
 .kanban-conversation .conv-quickreplies { padding: 0 0 4px; }

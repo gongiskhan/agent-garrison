@@ -261,8 +261,8 @@ describe("media", () => {
 
 describe("the listing", () => {
   it("lists newest first and survives a corrupt run directory", async () => {
-    const a = await openRun({ title: "first" });
-    const b = await openRun({ title: "second" });
+    const a = await openRun({ title: "first" }, new Date("2026-09-07T00:00:00.000Z"));
+    const b = await openRun({ title: "second" }, new Date("2026-09-07T00:00:00.001Z"));
     await fs.mkdir(path.join(resultsDir(), "broken"), { recursive: true });
     await fs.writeFile(path.join(resultsDir(), "broken", "run.json"), "{not json");
 

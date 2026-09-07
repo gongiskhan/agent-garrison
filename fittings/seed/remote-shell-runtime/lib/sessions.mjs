@@ -174,20 +174,26 @@ const PANE_BYTES_CEILING = 64 * 1024 * 1024;
 // already-absolute path for the `local` transport) - never shell-quoted here,
 // since it is trusted composition config, not remote input.
 export function buildEventHook(eventsFilePath) {
+  const script = `import datetime,json,os,sys,subprocess
+try:
+    data=json.load(sys.stdin)
+    sid=data.get("conversation_id") or data.get("session_id") or data.get("chat_id") or data.get("thread_id") or "unknown"
+    roots=data.get("workspace_roots") or []
+    cwd=data.get("cwd") or data.get("workspace_root") or data.get("workspacePath") or (roots[0] if roots else os.getcwd())
+    record={"ts":datetime.datetime.now(datetime.timezone.utc).isoformat(),"event":sys.argv[2],"runtime":sys.argv[3],"session_id":sid,"cwd":cwd}
+    if os.environ.get("TMUX_PANE"):
+        try: record["tmux_session"]=subprocess.check_output(["tmux","display-message","-p","-t",os.environ["TMUX_PANE"],"#S"],text=True,timeout=1).strip()
+        except Exception: pass
+    file=os.path.expanduser(sys.argv[1])
+    os.makedirs(os.path.dirname(file),exist_ok=True)
+    fd=os.open(file,os.O_WRONLY|os.O_CREAT|os.O_APPEND,0o600)
+    with os.fdopen(fd,"w") as out: out.write(json.dumps(record)+"\\n")
+except Exception:
+    pass
+`;
   return `#!/usr/bin/env bash
-# Append one JSON line per agent lifecycle event to a local file.
-# $1 = event name (agent-start | agent-stop). $2 = runtime id (optional).
-# Never makes network calls. Maintained by Garrison's remote-shell fitting -
-# local edits are overwritten.
-event="\${1:-agent-stop}"
-runtime="\${2:-}"
-input=$(cat 2>/dev/null || true)
-ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-sid=$(printf '%s' "$input" | grep -oE '"(conversation_id|session_id|chat_id)"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed -E 's/.*:[[:space:]]*"([^"]*)"/\\1/')
-cwd=$(printf '%s' "$input" | grep -oE '"(cwd|workspace_root|workspacePath)"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed -E 's/.*:[[:space:]]*"([^"]*)"/\\1/')
-[ -z "$cwd" ] && cwd="$PWD"
-mkdir -p "$(dirname ${eventsFilePath})" 2>/dev/null
-printf '{"ts":"%s","event":"%s","session_id":"%s","cwd":"%s","runtime":"%s"}\\n' "$ts" "$event" "\${sid:-unknown}" "$cwd" "$runtime" >> ${eventsFilePath}
+# Metadata-only lifecycle observer. Never alters a client decision or prompt.
+python3 -c ${shellQuote(script)} ${shellQuote(eventsFilePath)} "\${1:-agent-stop}" "\${2:-}" 2>/dev/null || true
 exit 0
 `;
 }
@@ -492,6 +498,7 @@ export class SessionManager {
       lastEventAt: s.lastEventAt,
       runtime: s.runtime ?? null,
       resumeRef: s.resumeRef ?? null,
+      nativeSessionId: s.nativeSessionId ?? null,
       resumeCommand: s.resumeCommand ?? null
     }));
     await writeFile(sessionsFile(), JSON.stringify({ sessions: rows }, null, 2));
@@ -525,6 +532,7 @@ export class SessionManager {
         runtime: typeof row.runtime === "string" ? row.runtime : null,
         runtimeBin: null,
         resumeRef: typeof row.resumeRef === "string" ? row.resumeRef : null,
+        nativeSessionId: typeof row.nativeSessionId === "string" ? row.nativeSessionId : null,
         resumeCommand: typeof row.resumeCommand === "string" ? row.resumeCommand : null
       });
       n++;
@@ -555,6 +563,7 @@ export class SessionManager {
       kind: "shell",
       runtime: s.runtime ?? "shell",
       resumeRef: s.resumeRef ?? null,
+      nativeSessionId: s.nativeSessionId ?? null,
       resumeCommand: s.resumeCommand ?? null,
       label: s.label,
       tmuxSession: s.tmuxSession,
@@ -1482,12 +1491,36 @@ export class SessionManager {
     // there. An event without one (the pre-cwd hook) keeps the old behavior
     // rather than going silent.
     if (evt.cwd && session.cwd && normCwd(evt.cwd) !== normCwd(session.cwd)) return;
+    if (evt.runtime && session.runtime && session.runtime !== "shell" && evt.runtime !== session.runtime) return;
+    const eventId = evt.session_id && evt.session_id !== "unknown" ? evt.session_id : null;
+    const knownId = session.nativeSessionId ?? session.resumeRef;
+    if (evt.tmux_session) {
+      if (evt.tmux_session !== session.tmuxSession) return;
+    } else if (eventId && knownId) {
+      if (eventId !== knownId) return;
+    } else if (evt.cwd && eventId) {
+      // A native client beside this shell is not this shell. Older events
+      // without an identity retain compatibility; named sessions require a
+      // tmux or resume binding instead of guessing from a shared directory.
+      return;
+    }
+    if (eventId) session.nativeSessionId = eventId;
     session.lastEventAt = evt.ts ?? new Date().toISOString();
 
     if (evt.event === "agent-start") {
       this.#setState(session, "running");
     } else if (evt.event === "agent-stop") {
       this.#settleStop(session, evt);
+    } else if (evt.event === "session-end") {
+      this.#setState(session, "idle");
+      const turn = session.activeTurn;
+      if (turn?.state === "running") {
+        turn.state = "failed";
+        turn.error = "The native client ended before completing this turn.";
+        turn.endedAt = evt.ts ?? new Date().toISOString();
+        session.activeTurn = null;
+        for (const waiter of turn.waiters.splice(0)) waiter();
+      }
     }
     this.persist().catch(() => {});
   }

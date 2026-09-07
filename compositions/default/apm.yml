@@ -440,9 +440,9 @@ x-garrison:
             cell:
               target: astra
               effort: max
-        ladder: codex
         default: deep
         ceiling: deep
+        ladder: codex
       - id: image
         title: Image
         description: Produce or edit an image.
@@ -812,13 +812,6 @@ x-garrison:
         params:
           type: secondary
           authMode: subscription
-      - id: astra
-        runtime: codex
-        model: gpt-6-astra
-        provider: chatgpt-subscription
-        params:
-          type: secondary
-          authMode: subscription
       - id: fable
         runtime: agent-sdk
         model: claude-opus-5
@@ -842,3 +835,10 @@ x-garrison:
         model: auto
         params:
           type: secondary
+      - id: astra
+        runtime: codex
+        model: gpt-6-astra
+        provider: chatgpt-subscription
+        params:
+          type: secondary
+          authMode: subscription

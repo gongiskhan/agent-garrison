@@ -410,16 +410,17 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 }
 .cc-mic-spin { width: 13px; height: 13px; }
 
-.cc-composer { position: relative; border-top: 1px solid var(--cc-border); background: var(--cc-bg-elev); padding: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
-/* Two rows: the message box alone on top (it grows with its text to half the
-   viewport, see the autosize effect), the labelled controls beneath it with
+.cc-composer { position: relative; flex: 0 0 auto; border-top: 1px solid var(--cc-border); background: var(--cc-bg-elev); padding: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+/* Two rows: the message box alone on top (it grows with its text within the
+   available pane, see the autosize effect), the controls beneath it with
    Send at the right-hand end. */
-.cc-composerrow { display: flex; flex-direction: column; align-items: stretch; gap: 8px; min-width: 0; }
-.cc-composertools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; }
+.cc-composerrow { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 0; }
+.cc-composertools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+.cc-composertools > button { flex: 0 0 auto; width: auto; align-self: center; }
 .cc-toolspacer { flex: 1 1 0; min-width: 0; }
 .cc-btnlabel { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; line-height: 1; white-space: nowrap; }
 .cc-input {
-  flex: 0 0 auto; width: 100%; min-width: 0; resize: none; max-height: 50vh; min-height: 38px;
+  box-sizing: border-box; flex: 0 0 auto; width: 100%; min-width: 0; resize: none; max-height: min(240px, 32vh); min-height: 38px;
   background: var(--cc-bg); color: var(--cc-fg); border: 1px solid var(--cc-border-strong); border-radius: 8px;
   padding: 9px 12px; font: 14px/1.4 inherit; outline: none;
 }
@@ -885,7 +886,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-session-md { font-size: 14px; line-height: 1.55; }
 .cc-session-md > :first-child { margin-top: 0; }
 .cc-session-md > :last-child { margin-bottom: 0; }
-.cc-session-longtext > summary { cursor: pointer; color: var(--cc-fg-dim); }
+.cc-session-longtext > summary { cursor: pointer; color: var(--cc-fg-dim); overflow-wrap: anywhere; }
 :is(
   .cc-session-longtext,
   .cc-session-interim,
@@ -1609,7 +1610,19 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-routebtn-active { border-color: var(--cc-fg); color: var(--cc-fg); }
 .cc-send-icon {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  min-width: 44px; padding-left: 12px; padding-right: 14px;
+  min-width: 44px; min-height: 44px; padding-left: 12px; padding-right: 14px;
+}
+
+/* Familiar secondary actions stay small without losing their accessible name.
+   Explicit dimensions prevent host button rules from turning Attach into a bar. */
+.cc-root .cc-composertools > :is(.cc-attach, .cc-routebtn) {
+  width: 36px; height: 36px; min-width: 36px; min-height: 36px; padding: 0;
+}
+.cc-root :is(.cc-attach, .cc-routebtn) .cc-btnlabel { display: none; }
+@media (max-width: 600px), (any-pointer: coarse) {
+  .cc-root .cc-composertools > :is(.cc-attach, .cc-routebtn) {
+    width: 44px; height: 44px; min-width: 44px; min-height: 44px;
+  }
 }
 
 /* The per-message action bar is a finger target like everything else. Without
@@ -4405,7 +4418,7 @@ button:active, .btn:active { transform: translateY(1px); }
    conversation read as part of the card rather than as a transplanted chat. */
 .conv-block { margin: 16px 0 4px; }
 .kanban-conversation {
-  height: min(60vh, 520px);
+  height: min(72vh, 720px);
   border: 1px solid var(--rule-2);
   background: var(--paper);
 }
@@ -4442,6 +4455,12 @@ button:active, .btn:active { transform: translateY(1px); }
    not drawn on this surface. */
 .kanban-conversation .cc-root > .cc-header,
 .kanban-conversation .cc-statusstrip { display: none; }
+/* The card already names the conversation. Keep its search and log controls on
+   one line, leaving the space below for the actual messages. */
+.kanban-conversation .cc-conv-title { display: none; }
+.kanban-conversation .cc-conv-head { flex-wrap: nowrap; padding: 6px 8px; gap: 6px; }
+.kanban-conversation .cc-conv-search { flex: 1 1 0; order: 0; margin-left: 0; }
+.kanban-conversation .cc-composer { padding: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
 /* A frozen card's conversation is a record, not a place to write. The transport
    refuses the write too - this only stops the board offering a dead control.
    Replace with ConversationView's own read-only prop once it has one. */
@@ -5345,15 +5364,8 @@ label.row { display: flex; align-items: center; gap: 8px; }
    a dropdown, so the armed option is readable at a glance on a phone. The
    hint line under it says what the next message will do, and briefly what
    the last one did. */
-/* The chat renders a composer adornment as a slot at the LEFT of its input
-   row. A two-way switch plus a hint line has no business in a side column
-   next to the textarea (on a phone it squeezed the input to a third of the
-   width), so the row wraps and the adornment takes a full line above it. The
-   quick replies get the same line for the same reason. */
-.kanban-conversation .cc-composerrow { flex-wrap: wrap; }
-/* The input's own `width: 100%` would wrap it onto a line of its own too;
-   a zero basis keeps attach, input and send together on the second line. */
-.kanban-conversation .cc-composerrow > .cc-input { flex: 1 1 0; width: auto; }
+/* Adornments now live in the tools row beneath a full-width message box. Keep
+   the delivery choice together without changing the textarea's flex sizing. */
 .kanban-conversation .conv-delivery,
 .kanban-conversation .conv-quickreplies { flex: 1 1 100%; order: -1; min-width: 0; }
 .kanban-conversation .conv-quickreplies { padding: 0 0 4px; }
