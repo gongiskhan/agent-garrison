@@ -108,13 +108,14 @@ def cmd_write(args: argparse.Namespace) -> int:
 
     body = sys.stdin.buffer.read()
     artifact_path.write_bytes(body)
+    written_at = now_iso()
 
     if sidecar_path.exists():
         meta = read_sidecar(sidecar_path)
     else:
         meta = {
             "id": uuid.uuid4().hex,
-            "created": now_iso()
+            "created": written_at
         }
     meta["filename"] = filename
     meta["namespace"] = args.namespace
@@ -131,7 +132,7 @@ def cmd_write(args: argparse.Namespace) -> int:
         guessed, _ = mimetypes.guess_type(filename)
         mime = guessed or "application/octet-stream"
     meta["mime"] = mime
-    meta["updated"] = now_iso()
+    meta["updated"] = written_at
 
     write_sidecar(sidecar_path, meta)
     print(meta["id"])

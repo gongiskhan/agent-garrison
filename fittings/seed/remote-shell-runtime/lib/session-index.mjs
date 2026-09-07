@@ -126,7 +126,9 @@ export function applyHookStatus(row, events, now, contextCount = 1) {
   if (!best) return row;
   // A later journal completion outranks an earlier start hook (including a
   // Stop hook that was never delivered after a client disconnect).
-  if (Date.parse(row.statusAt) > bestTs) return row;
+  const explicitStartOutranksInference = row.statusInferred && best.event === "agent-start"
+    && now - bestTs < RUNNING_TRUST_MS;
+  if (Date.parse(row.statusAt) > bestTs && !explicitStartOutranksInference) return row;
   if (best.event === "agent-start" && now - bestTs < RUNNING_TRUST_MS) {
     return { ...row, status: "working", statusSource: "hooks", lastActivityAt: new Date(Math.max(bestTs, Date.parse(row.lastActivityAt) || 0)).toISOString() };
   }

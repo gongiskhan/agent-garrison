@@ -60,14 +60,23 @@ export function claudeTranscriptStatus(file, mtimeMs, now = Date.now()) {
   for (const rec of readJsonlSlice(file, { tail: true })) {
     if (rec.type === "user") state = "working";
     else if (rec.type === "assistant") {
-      state = ["end_turn", "stop_sequence"].includes(rec.message?.stop_reason) ? "idle" : "working";
+      const message = rec.message ?? {};
+      const textOnly = Array.isArray(message.content) && message.content.length > 0
+        && message.content.every((part) => part?.type === "text");
+      state = ["end_turn", "stop_sequence"].includes(message.stop_reason) ? "idle"
+        : message.stop_reason == null && textOnly ? "text" : "working";
     } else if (rec.type === "system" && rec.subtype === "turn_duration") state = "idle";
     else continue;
     statusAt = rec.timestamp ?? null;
   }
   if (!state) return null;
+  // Some native print versions persist stop_reason:null even on their final
+  // response. Give text blocks time to be followed by a tool/thinking block;
+  // a settled text-only response then clears instead of spinning for hours.
+  const statusInferred = state === "text" && now - (Date.parse(statusAt) || mtimeMs) > 5_000;
+  if (state === "text") state = statusInferred ? "idle" : "working";
   return { status: state === "working" && now - mtimeMs > ACTIVE_TURN_MAX_AGE_MS ? "unknown" : state,
-    statusSource: "transcript-events", statusAt };
+    statusSource: "transcript-events", statusAt, statusInferred };
 }
 
 export function codexTranscriptStatus(file, mtimeMs, now = Date.now()) {

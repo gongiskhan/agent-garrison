@@ -58,8 +58,10 @@ export function list({ windowDays = 5, backgroundAgents } = {}) {
   // Past sessions not already covered by the live registry above. listHistory
   // does not filter internal cwds itself (readLiveRegistry does, via its own
   // default excludeCwd) - filter here.
-  for (const h of listHistory({ windowDays, limit: 300 })) {
+  for (const h of listHistory({ windowDays, limit: 2000 })) {
     if (liveIds.has(h.sessionId) || isInternalCwd(h.cwd)) continue;
+    const file = h.cwd ? transcriptPath(h.cwd, h.sessionId) : null;
+    const journal = file ? claudeTranscriptStatus(file, h.lastActivityAt) : null;
     rows.push({
       id: h.sessionId,
       runtime: "claude",
@@ -67,16 +69,19 @@ export function list({ windowDays = 5, backgroundAgents } = {}) {
       cwd: h.cwd,
       project: projectName(h.cwd),
       title: h.title,
-      // A Claude transcript with no live registry entry belongs to a process
-      // that is no longer running - this is a real "ended", not a guess.
-      status: "ended",
-      statusSource: "registry",
+      // Native print clients can omit the process registry entirely. An
+      // unfinished bounded journal is still evidence of a running turn;
+      // absence from the registry alone cannot prove that it ended.
+      status: journal && journal.status !== "idle" ? journal.status : "ended",
+      statusSource: journal?.statusSource ?? "registry",
+      statusAt: journal?.statusAt ?? null,
+      statusInferred: journal?.statusInferred ?? false,
       startedAt: h.startedAt,
       lastActivityAt: new Date(h.lastActivityAt).toISOString(),
       resumable: true,
       attachable: false,
       resumeRef: h.sessionId,
-      transcript: h.cwd ? { format: "claude-jsonl", path: transcriptPath(h.cwd, h.sessionId) } : null
+      transcript: file ? { format: "claude-jsonl", path: file } : null
     });
   }
 

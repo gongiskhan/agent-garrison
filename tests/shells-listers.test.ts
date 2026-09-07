@@ -18,6 +18,8 @@ import { list as listCursor } from "../fittings/seed/remote-shell-runtime/lib/li
 import { list as listGemini } from "../fittings/seed/remote-shell-runtime/lib/listers/gemini.mjs";
 // @ts-ignore — pure .mjs
 import { buildIndex, applyHookStatus } from "../fittings/seed/remote-shell-runtime/lib/session-index.mjs";
+// @ts-ignore — pure .mjs
+import { claudeTranscriptStatus } from "../fittings/seed/remote-shell-runtime/lib/listers/common.mjs";
 
 const NOW = 1_800_000_000_000; // fixed instant, well past any real boot time
 
@@ -42,6 +44,51 @@ afterEach(() => {
 });
 
 describe("claude lister", () => {
+  it("keeps more than three hundred Claude journals active within five days", () => {
+    const home = path.join(sandbox, "claude-many-recent");
+    process.env.GARRISON_CLAUDE_HOME = home;
+    const dir = path.join(home, "projects", "-tmp-many-claude");
+    mkdirSync(dir, { recursive: true });
+    const recent = new Date(Date.now() - 4 * 24 * 60 * 60_000);
+    for (let i = 0; i < 305; i++) {
+      const file = path.join(dir, `recent-${i}.jsonl`);
+      writeFileSync(file, JSON.stringify({ type: "assistant", cwd: "/tmp/many-claude", timestamp: recent.toISOString(), message: { stop_reason: "end_turn", content: [{ type: "text", text: "Complete" }] } }) + "\n");
+      utimesSync(file, recent, recent);
+    }
+    expect(listClaude({ windowDays: 5, backgroundAgents: [] })).toHaveLength(305);
+  });
+
+  it("recognizes native print completion with a null stop reason after a short text grace period", () => {
+    const file = path.join(sandbox, "native-null-stop.jsonl");
+    writeFileSync(file, JSON.stringify({ type: "assistant", timestamp: new Date(NOW - 45_000).toISOString(), message: { stop_reason: null, content: [{ type: "tool_use", name: "TaskOutput" }] } }) + "\n");
+    expect(claudeTranscriptStatus(file, NOW - 45_000, NOW).status).toBe("working");
+    appendFileSync(file, JSON.stringify({ type: "assistant", timestamp: new Date(NOW).toISOString(), message: { stop_reason: null, content: [{ type: "text", text: "Complete" }] } }) + "\n");
+    expect(claudeTranscriptStatus(file, NOW, NOW + 1_000).status).toBe("working");
+    const settled = claudeTranscriptStatus(file, NOW, NOW + 6_000);
+    expect(settled).toMatchObject({ status: "idle", statusInferred: true });
+    const row = { ...settled, id: "native-text", runtime: "claude", lastActivityAt: new Date(NOW).toISOString() };
+    const events = [{ event: "agent-start", runtime: "claude", session_id: row.id, ts: new Date(NOW - 10_000).toISOString() }];
+    expect(applyHookStatus(row, events, NOW + 6_000).status).toBe("working");
+    appendFileSync(file, JSON.stringify({ type: "assistant", timestamp: new Date(NOW).toISOString(), message: { stop_reason: "end_turn", content: [{ type: "text", text: "Complete" }] } }) + "\n");
+    expect(applyHookStatus({ ...row, ...claudeTranscriptStatus(file, NOW, NOW + 6_000) }, events, NOW + 6_000).status).toBe("idle");
+  });
+
+  it("keeps native print clients without a registry working through quiet tools, then clears explicit completion", () => {
+    const home = path.join(sandbox, "claude-print");
+    process.env.GARRISON_CLAUDE_HOME = home;
+    const dir = path.join(home, "projects", "-tmp-print-claude");
+    mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, "print-claude.jsonl");
+    const quietAt = new Date(Date.now() - 45_000);
+    writeFileSync(file, JSON.stringify({ type: "assistant", cwd: "/tmp/print-claude", timestamp: quietAt.toISOString(), message: { stop_reason: "tool_use", content: [{ type: "tool_use", name: "TaskOutput" }] } }) + "\n");
+    utimesSync(file, quietAt, quietAt);
+    let row = listClaude({ backgroundAgents: [] }).find((r: { id: string }) => r.id === "print-claude");
+    expect(row).toMatchObject({ status: "working", statusSource: "transcript-events" });
+    appendFileSync(file, JSON.stringify({ type: "assistant", timestamp: new Date().toISOString(), message: { stop_reason: "end_turn", content: [{ type: "text", text: "Complete" }] } }) + "\n");
+    row = listClaude({ backgroundAgents: [] }).find((r: { id: string }) => r.id === "print-claude");
+    expect(row).toMatchObject({ status: "ended", statusSource: "transcript-events" });
+  });
+
   it("uses journal lifecycle when a live Claude registry omits busy state, retaining quiet tools and clearing completion", () => {
     const home = path.join(sandbox, "claude-quiet");
     process.env.GARRISON_CLAUDE_HOME = home;
