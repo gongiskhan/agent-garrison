@@ -19,6 +19,54 @@ beforeAll(async () => {
 }, 60_000);
 afterAll(async () => { await browser?.close(); });
 
+it("repeated native-session polls retain one Cursor row and clear its spinner despite a peer hook alias", async () => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  try {
+    const page = await context.newPage();
+    const now = new Date().toISOString();
+    const native = {
+      id: "cursor-session", node: "mini", nodeAccent: null, nodeStatus: "online", shellOrigin: null,
+      runtime: "cursor", kind: "desktop", cwd: null, project: null, title: "Workspace review",
+      status: "working", statusSource: "hooks", startedAt: now, lastActivityAt: now,
+      resumable: false, attachable: false, resumeRef: "cursor-session", resumeCommand: null,
+      transcript: { format: "cursor-agent-text", path: "/fixture/cursor-session.txt" }
+    };
+    let idle = false;
+    let reads = 0;
+    await page.route("http://talk.test/**", async route => {
+      const url = new URL(route.request().url());
+      if (url.pathname === "/") return route.fulfill({ contentType: "text/html", body: '<div id="root"></div>' });
+      if (url.pathname.endsWith("/stream")) return route.fulfill({ contentType: "text/event-stream", body: 'event: snapshot\ndata: {"events":[]}\n\n' });
+      let data: unknown = { nodes: [], hits: [] };
+      if (url.pathname === "/api/threads") data = { threads: [] };
+      if (url.pathname === "/api/sidebar") data = { groups: [], archived: [], membership: {}, order: {}, read: {} };
+      if (url.pathname === "/api/sessions") {
+        reads++;
+        const observed = { ...native, status: idle ? "idle" : "working" };
+        const alias = { ...native, runtime: "claude", kind: "cli", transcript: null, status: "working" };
+        data = { self: { node: "pro", accentColor: null }, nodes: [], rows: reads % 2 ? [alias, observed] : [observed, alias] };
+      }
+      return route.fulfill({ contentType: "application/json", body: JSON.stringify(data) });
+    });
+    await page.goto("http://talk.test/");
+    await page.clock.install();
+    await page.addScriptTag({ content: bundle });
+    const row = page.locator('[data-key="session:mini:cursor-session"]');
+    await expect.poll(() => row.count()).toBe(1);
+    expect(await row.locator(".wc-thread-spinner").count()).toBe(1);
+    expect(await row.locator(".wc-thread-rt").textContent()).toBe("CURSOR");
+    for (let poll = 0; poll < 6; poll++) {
+      idle = poll >= 2;
+      const before = reads;
+      await page.clock.fastForward(5_000);
+      await expect.poll(() => reads).toBeGreaterThan(before);
+      await expect.poll(() => row.locator(".wc-thread-spinner").count()).toBe(idle ? 0 : 1);
+      expect(await row.count()).toBe(1);
+      expect(await row.locator(".wc-thread-rt").textContent()).toBe("CURSOR");
+    }
+  } finally { await context.close(); }
+}, 30_000);
+
 it("discovers another client's conversation without replacing the draft, and retains history through a failed refresh", async () => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   try {

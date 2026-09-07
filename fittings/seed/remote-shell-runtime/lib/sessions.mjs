@@ -180,7 +180,11 @@ try:
     sid=data.get("conversation_id") or data.get("session_id") or data.get("chat_id") or data.get("thread_id") or "unknown"
     roots=data.get("workspace_roots") or []
     cwd=data.get("cwd") or data.get("workspace_root") or data.get("workspacePath") or (roots[0] if roots else os.getcwd())
-    record={"ts":datetime.datetime.now(datetime.timezone.utc).isoformat(),"event":sys.argv[2],"runtime":sys.argv[3],"session_id":sid,"cwd":cwd}
+    runtime=sys.argv[3]
+    # Cursor loads Claude-compatible hooks too. Its payload, unlike an
+    # inherited terminal environment, identifies which client invoked us.
+    if runtime=="claude" and isinstance(data.get("cursor_version"),str) and data["cursor_version"].strip(): runtime="cursor"
+    record={"ts":datetime.datetime.now(datetime.timezone.utc).isoformat(),"event":sys.argv[2],"runtime":runtime,"session_id":sid,"cwd":cwd}
     if os.environ.get("TMUX_PANE"):
         try: record["tmux_session"]=subprocess.check_output(["tmux","display-message","-p","-t",os.environ["TMUX_PANE"],"#S"],text=True,timeout=1).strip()
         except Exception: pass

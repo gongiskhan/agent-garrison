@@ -215,18 +215,28 @@ export function buildIndex({
   // Some native clients emit lifecycle metadata before creating their journal.
   // Keep that session visible immediately; a later lister row supplies its title
   // and transcript without changing the identity.
-  const ids = new Set(listerRows.map((r) => `${r.runtime}\0${r.id}`));
+  // IDEs can execute compatibility hooks from another client's configuration.
+  // A journal/registry identifies the actual runtime; a hook-only alias must
+  // not manufacture another session with the same native identity.
+  const ids = new Set([...listerRows.map((r) => r.id), ...owned.flatMap((r) => [r.nativeSessionId, r.resumeRef].filter((id) => typeof id === "string"))]);
+  const hookSessions = new Map();
   const cutoff = now - windowDays * 86_400_000;
   for (const e of events) {
     if (!e.session_id || e.session_id === "unknown" || !RUNTIMES[e.runtime] ||
         Date.parse(e.ts) < cutoff || !Number.isFinite(Date.parse(e.ts))) continue;
-    const key = `${e.runtime}\0${e.session_id}`;
-    if (ids.has(key)) continue;
-    ids.add(key);
+    if (ids.has(e.session_id)) continue;
+    const previous = hookSessions.get(e.session_id);
+    // Older observers wrote both native Cursor and Claude-compatible events.
+    // Before a journal exists, Cursor's native event resolves that alias.
+    if (!previous || (previous.runtime === "claude" && e.runtime === "cursor")) hookSessions.set(e.session_id, e);
+  }
+  for (const e of hookSessions.values()) {
     listerRows.push({ id: e.session_id, runtime: e.runtime, kind: "cli", cwd: e.cwd ?? null,
       project: projectName(e.cwd), title: null, status: "unknown", statusSource: "hooks",
-      startedAt: e.ts, lastActivityAt: e.ts, resumable: true, attachable: false,
-      resumeRef: e.session_id, transcript: null });
+      startedAt: e.ts, lastActivityAt: e.ts, resumable: e.runtime !== "cursor", attachable: false,
+      // A Cursor hook alone does not prove a CLI resume target rather than an
+      // IDE composer. Its lister can enable resume once CLI metadata exists.
+      resumeRef: e.runtime === "cursor" ? null : e.session_id, transcript: null });
   }
   const contextCounts = new Map();
   for (const r of listerRows) {

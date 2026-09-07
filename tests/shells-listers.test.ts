@@ -369,6 +369,48 @@ describe("gemini lister", () => {
 });
 
 describe("buildIndex", () => {
+  it("prefers native Cursor hooks before a journal exists and suppresses aliases of an owned shell", () => {
+    const eventsDir = path.join(sandbox, "shells");
+    mkdirSync(eventsDir, { recursive: true });
+    writeFileSync(path.join(eventsDir, "events.jsonl"), [
+      { runtime: "claude", session_id: "native-cursor", event: "agent-start", ts: new Date(NOW - 100).toISOString() },
+      { runtime: "cursor", session_id: "native-cursor", event: "agent-stop", ts: new Date(NOW).toISOString() },
+      { runtime: "claude", session_id: "owned-cursor", event: "agent-start", ts: new Date(NOW).toISOString() }
+    ].map((event) => JSON.stringify(event)).join("\n") + "\n");
+    const manager = { sessions: new Map([["s", { id: "s", transport: { name: "local" }, tmuxSession: "owned", runtime: "cursor", nativeSessionId: "owned-cursor" }]]) };
+    const rows = buildIndex({ manager, now: NOW, garrisonHomeDir: sandbox, claudeBackgroundAgents: [], env: {
+      HOME: sandbox, GARRISON_HOME: sandbox, GARRISON_CURSOR_HOME: sandbox, GEMINI_CLI_HOME: sandbox
+    } });
+    expect(rows.filter((row: { id: string }) => row.id === "native-cursor")).toEqual([
+      expect.objectContaining({ runtime: "cursor", status: "idle", resumable: false, resumeCommand: null })
+    ]);
+    expect(rows.some((row: { id: string }) => row.id === "owned-cursor")).toBe(false);
+    expect(rows.some((row: { id: string }) => row.id === "shell:local:owned")).toBe(true);
+  });
+
+  it("keeps the observed native runtime when another client's compatibility hook names the same session", () => {
+    const home = path.join(sandbox, "cursor-native");
+    const dir = path.join(home, "projects", "client-project", "agent-transcripts");
+    mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, "native-cursor.txt");
+    writeFileSync(file, "user:\nReview the layout.\n");
+    utimesSync(file, new Date(NOW), new Date(NOW));
+    const eventsDir = path.join(sandbox, "shells");
+    mkdirSync(eventsDir, { recursive: true });
+    writeFileSync(path.join(eventsDir, "events.jsonl"), [
+      { runtime: "cursor", session_id: "native-cursor", event: "agent-stop", ts: new Date(NOW).toISOString() },
+      { runtime: "claude", session_id: "native-cursor", event: "agent-start", ts: new Date(NOW).toISOString() },
+      { runtime: "claude", session_id: "new-claude", event: "agent-start", ts: new Date(NOW).toISOString() }
+    ].map((event) => JSON.stringify(event)).join("\n") + "\n");
+    const rows = buildIndex({ now: NOW, garrisonHomeDir: sandbox, claudeBackgroundAgents: [], env: {
+      HOME: sandbox, GARRISON_HOME: sandbox, GARRISON_CURSOR_HOME: home, GEMINI_CLI_HOME: sandbox
+    } });
+    expect(rows.filter((row: { id: string }) => row.id === "native-cursor")).toEqual([
+      expect.objectContaining({ runtime: "cursor", kind: "desktop", status: "idle", transcript: { format: "cursor-agent-text", path: file } })
+    ]);
+    expect(rows.find((row: { id: string }) => row.id === "new-claude")).toMatchObject({ runtime: "claude", status: "working" });
+  });
+
   it("tags a listed session claimed by a thread, and hides an owned-shell duplicate", () => {
     const garrisonHomeDir = path.join(sandbox, "garrison");
     const codexHomeDir = path.join(sandbox, "codex-idx");

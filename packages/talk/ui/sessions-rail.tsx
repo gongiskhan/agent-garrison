@@ -103,7 +103,18 @@ const RUNTIME_LABEL: Record<string, string> = { claude: "CLAUDE", codex: "CODEX"
  *  Exported so app.tsx and tests can compute "how many sessions" without
  *  duplicating this filter. */
 export function visibleSessionRows(sessions: RailSession[]): RailSession[] {
-  return sessions.filter((s) => !s.threadId && !s.boundTo && !s.claimedBy);
+  const unique = new Map<string, RailSession>();
+  const represented = new Set(sessions.filter((s) => s.threadId || s.boundTo || s.claimedBy).map((s) => `${s.node}\0${s.id}`));
+  for (const session of sessions) {
+    const key = `${session.node}\0${session.id}`;
+    if (represented.has(key)) continue;
+    const previous = unique.get(key);
+    // Older peers may report a compatibility-hook alias alongside the native
+    // journal. Repeated React keys leave stale rows behind across polls, so
+    // render one identity and prefer its directly observed transcript.
+    if (!previous || (!previous.transcript && session.transcript)) unique.set(key, session);
+  }
+  return [...unique.values()];
 }
 
 /** Keep running work visible even when another node has many idle shells. */

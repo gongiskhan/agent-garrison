@@ -153,6 +153,21 @@ describe("install-hooks.mjs", () => {
     expect(readFileSync(snap, "utf8")).toBe(before);
   });
 
+  it.each([
+    [{ session_id: "compatibility", conversation_id: "compatibility", cursor_version: "1.7.2" }, "claude", "cursor"],
+    [{ session_id: "native-claude" }, "claude", "claude"],
+    [{ conversation_id: "native-cursor", cursor_version: "1.7.2" }, "cursor", "cursor"]
+  ])("attributes compatibility hooks using the client payload, not inherited terminal variables", (payload, configured, expected) => {
+    installHooks(env, () => {});
+    const script = path.join(env.GARRISON_HOME!, "shells", "agent-event-hook.sh");
+    execFileSync("bash", [script, "agent-start", configured], {
+      input: JSON.stringify(payload), env: { ...process.env, CURSOR_VERSION: "1.7.2", TMUX: "", TMUX_PANE: "" }
+    });
+    const event = JSON.parse(readFileSync(path.join(env.GARRISON_HOME!, "shells", "events.jsonl"), "utf8"));
+    expect(event.runtime).toBe(expected);
+    expect(event).not.toHaveProperty("cursor_version");
+  });
+
   it("respects the opt-out and never touches any file", () => {
     mkdirSync(env.GARRISON_CURSOR_HOME!, { recursive: true });
     writeFileSync(path.join(env.GARRISON_CURSOR_HOME!, "hooks.json"), JSON.stringify({ version: 1, hooks: {} }));

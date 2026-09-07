@@ -39,6 +39,16 @@ function session(overrides: Partial<RailSession> = {}): RailSession {
 }
 
 describe("visibleSessionRows", () => {
+  it("keeps one native identity per node when a peer also reports a hook-only runtime alias", () => {
+    const cursor = session({ id: "shared-id", runtime: "cursor", kind: "desktop", status: "idle" });
+    const alias = session({ id: "shared-id", runtime: "claude", transcript: null, status: "working" });
+    const peer = session({ ...cursor, node: "other-node" });
+    for (const rows of [[alias, cursor, peer], [cursor, alias, peer]]) {
+      expect(visibleSessionRows(rows)).toEqual([cursor, peer]);
+      expect(groupSessionRows(rows, "dev-madrid").flatMap(([, list]) => list)).toHaveLength(2);
+    }
+  });
+
   it("puts nodes with running work before idle nodes, favoring self within each group", () => {
     const rows = [
       ...Array.from({ length: 33 }, (_, i) => session({ id: `idle-${i}`, node: "a-idle", status: "idle" })),
@@ -55,6 +65,13 @@ describe("visibleSessionRows", () => {
   it("keeps a plain unbound, unclaimed session", () => {
     const rows = [session()];
     expect(visibleSessionRows(rows)).toEqual(rows);
+  });
+
+  it("hides an unclaimed alias when its native identity is already represented by a card", () => {
+    const claimed = session({ id: "shared-id", runtime: "cursor", claimedBy: { kind: "card", id: "card-1" } });
+    const alias = session({ id: "shared-id", transcript: null });
+    expect(visibleSessionRows([claimed, alias])).toEqual([]);
+    expect(visibleSessionRows([alias, claimed])).toEqual([]);
   });
 
   it("drops a session already bound to a local thread", () => {
