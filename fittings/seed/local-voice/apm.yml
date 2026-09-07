@@ -1,0 +1,167 @@
+name: local-voice
+version: 0.1.0
+description: Local Voice Fitting (channels role, own-port). Fully local, multilingual speech I/O — no cloud, no API key. A Node own-port wrapper supervises the voice-server (faster-whisper STT + Kokoro/Piper TTS, MIT/Apache) and exposes the Garrison voice contract on port 8100, so any channel that consumes `voice` works against it unchanged (drop-in alternative to deepgram-voice). STT auto-detects the spoken language (PT/FR/EN/ES/IT/…) and TTS speaks the response back in its own language — Portuguese uses Piper's native European pt_PT voice, the rest use Kokoro.
+target: claude
+type: hybrid
+includes: auto
+x-garrison:
+  faculty: channels
+  cardinality_hint: single
+  own_port: true
+  default_port: 8100
+  component_shape: plugin
+  platforms:
+    - claude-code
+  summary: Key-free local, multilingual speech I/O. POST audio to /stt for a transcript plus the auto-detected language; POST text to /tts for spoken audio in the response text's own language. STT = faster-whisper (multilingual), TTS = Kokoro (per-language voice), both running on the host via a supervised Python voice-server. Nothing leaves the machine.
+  config_schema:
+    - key: port
+      type: integer
+      default: 8100
+      description: HTTP port the Node voice wrapper binds to. Bound exactly; the server exits 1 on EADDRINUSE rather than shifting ports.
+    - key: bind_host
+      type: string
+      default: 127.0.0.1
+      description: Bind address; 0.0.0.0 to expose over the LAN/Tailscale.
+    - key: kokoro_voice
+      type: string
+      default: bm_george
+      description: Kokoro TTS voice used by /tts (e.g. bm_george = calm British male). Run voice-server/make_samples.py to audition others.
+    - key: kokoro_speed
+      type: number
+      default: 1.0
+      description: Kokoro TTS speech rate multiplier.
+    - key: pause_comma
+      type: number
+      default: 0.12
+      description: Seconds of silence inserted after a comma (only when the clause before it is at least min_clause chars — short clauses ride on the engine's own intonation). Part of the prosody-aware cadence; bigger boundary → longer pause.
+    - key: pause_clause
+      type: number
+      default: 0.22
+      description: Seconds of silence after a clause mark (; :) or a spaced dash (— –).
+    - key: pause_sentence
+      type: number
+      default: 0.32
+      description: Seconds of silence after a full stop (.). The baseline between-sentence beat.
+    - key: pause_question
+      type: number
+      default: 0.38
+      description: Seconds of silence after a question or exclamation (? !).
+    - key: pause_ellipsis
+      type: number
+      default: 0.48
+      description: Seconds of silence after an ellipsis (… or ...) — the longest intra-turn beat.
+    - key: pause_para
+      type: number
+      default: 0.6
+      description: Seconds of silence at a line break / paragraph / topic change. The longest pause, so a change of subject reads distinctly.
+    - key: min_clause
+      type: integer
+      default: 26
+      description: Minimum characters a clause must reach before a comma (or other soft boundary) becomes its own spoken pause. Shorter clauses stay glued to the next so speech never chops into staccato fragments. Lower = more pauses, higher = fewer.
+    - key: whisper_model
+      type: string
+      default: small
+      description: Whisper checkpoint used by /stt (both engines load the same weights). Multilingual checkpoints (tiny, base, small, medium, large-v3) auto-detect the spoken language; the *.en variants (small.en…) are English-only and faster. Default small auto-detects PT/FR/EN/… in ~1.7s on CPU but mangles European Portuguese — for PT use large-v3 (with stt_engine whisper-cpp for GPU speed).
+    - key: stt_engine
+      type: select
+      default: faster-whisper
+      description: STT backend. faster-whisper runs on CPU (int8) and needs no extra install. whisper-cpp runs the same weights on the Apple GPU (Metal) via a supervised whisper-server — ~3x faster (~4s vs ~12s on a 33s clip), same accuracy; needs `brew install whisper-cpp` + the ggml model (scripts/setup.sh fetches both).
+      options:
+        - faster-whisper
+        - whisper-cpp
+    - key: whisper_cpp_model
+      type: string
+      default: ~/.cache/whisper-cpp/ggml-large-v3.bin
+      description: Path to the ggml whisper model used when stt_engine is whisper-cpp (~ is expanded). Ignored by the faster-whisper engine, which loads whisper_model by name instead.
+    - key: whisper_beam
+      type: integer
+      default: 5
+      description: Whisper decoding beam width. 1 = greedy — fastest but badly mistranscribes European Portuguese ("que horas são em Lisboa" -> "então é só uma luz boa"). 5 is the accuracy sweet spot; 2 keeps most of beam search's error recovery at a fraction of the decode cost. Lower it when decode latency hurts on a loaded machine.
+    - key: whisper_cpp_no_timestamps
+      type: boolean
+      default: false
+      description: Pass -nt (no timestamps) to whisper-server. REQUIRED for fine-tunes trained without timestamp tokens (e.g. INESC-ID WhisperLv3-FT-EP for European Portuguese) — without it they decode to empty "." transcripts. Leave off for stock OpenAI checkpoints.
+    - key: whisper_lang
+      type: string
+      default: ""
+      description: 'Pin STT to one ISO-639-1 language (e.g. pt) instead of auto-detecting. Empty = auto-detect. Pin it for a single-language user: auto-detect flips wildly on short mic clips (PT heard as es/fr/en → garbage) and drags the TTS voice with it. Pinning trades first-class handling of other languages for stability.'
+    - key: stt_normalize_gain
+      type: select
+      default: "off"
+      description: Normalize (boost) quiet mic input before STT, up to ~+18 dB. Helps a far or soft microphone; leave off for a close, well-levelled mic.
+      options:
+        - "off"
+        - "on"
+    - key: lang_voices
+      type: string
+      default: ""
+      description: 'Optional JSON map ISO-639-1 → { voice, klang } overriding the per-language Kokoro voice used by /tts. Empty uses the built-in defaults (en=bm_george/en-gb, fr=ff_siwis/fr-fr, es=em_alex/es, it=im_nicola/it). Note: pt is served by Piper (see piper_voices), not Kokoro.'
+    - key: tts_force_lang
+      type: string
+      default: ""
+      description: Force every TTS reply into one ISO-639-1 language's voice instead of detecting it from the reply text. Empty = detect per reply. Set it (usually to match whisper_lang) so the voice never switches mid-reply for a single-language user.
+    - key: piper_voices
+      type: string
+      default: ""
+      description: 'Optional JSON map ISO-639-1 → Piper .onnx path. Languages here use Piper instead of Kokoro (native accent + faster). Default: pt → voice-server/piper-voices/pt_PT-tugao-medium.onnx (European Portuguese), since Kokoro only has Brazilian pt voices. Set to {} to disable Piper and fall back to Kokoro for everything.'
+    - key: wake_word
+      type: select
+      default: "off"
+      description: 'Always-on local "hey jarvis" wake word (openWakeWord, host mic). Emit-only: detection is broadcast on the WS /events feed; the consuming channel (jarvis-os HUD) arms its own hands-free session from it. Standby plays no TTS, so self-waking is a non-issue. Setup installs the extra deps + ~7MB of models when enabled. Off by default (single-purpose hosts may not want an always-open mic).'
+      options:
+        - "off"
+        - "on"
+    - key: wake_threshold
+      type: number
+      default: 0.5
+      description: openWakeWord score (0–1) required to fire the wake event. Raise toward 0.6–0.7 if random speech false-triggers; lower toward 0.4 if "hey jarvis" is hard to trigger.
+    - key: python_bin
+      type: string
+      default: ""
+      description: Override the Python interpreter. Empty = use the venv created by setup (voice-server/.venv), else fall back to python3.
+  provides:
+    - kind: voice
+      name: local
+  consumes: []
+  setup:
+    command: bash scripts/setup.sh
+    idempotent: true
+    timeout_ms: 600000
+  verify:
+    command: node apm_modules/_local/local-voice/scripts/probe.mjs --probe
+    expect: ok
+    timeout_ms: 10000
+  for_consumers: |
+    Consumers discover this Fitting at runtime by reading:
+      ~/.garrison/ui-fittings/local-voice.json   ({ fittingId, port, url, pid })
+    It speaks the same contract as deepgram-voice, so a channel coded against
+    one works against the other (voice is a singleton — only one is stationed).
+    Endpoints (all on that url):
+      GET  /health   - liveness: { ok, port, pid, host, enginesReady }.
+                       enginesReady=false while the Python models warm up
+                       (first boot JITs whisper, ~10s); /stt and /tts return
+                       503 until ready.
+      POST /stt      - speech-to-text. Body: raw audio bytes (Content-Type =
+                       the recording's mime, e.g. audio/webm or audio/wav).
+                       Returns: { transcript, confidence, detected_language,
+                       eot_prob }. confidence is null (faster-whisper gives
+                       none); detected_language is the auto-detected spoken
+                       language as an ISO-639-1 code (pt, fr, en, …); eot_prob
+                       (0..1) is how likely the transcript is a finished
+                       utterance — voice UIs size their end-of-turn grace
+                       window from it.
+      POST /tts      - text-to-speech. Body: { "text": "...", "format": "wav" }.
+                       Returns: audio bytes (audio/wav), streamed
+                       sentence-by-sentence so playback can start early. The
+                       voice is chosen from the TEXT's own language, so a reply
+                       written in PT is spoken in a PT voice without any extra
+                       call. Pass it the session's reply text verbatim.
+    The session replies in the language it was addressed in; this Fitting then
+    speaks that reply back in the same language. Everything runs on the host
+    (Kokoro + faster-whisper); no key, no network.
+    The WS /stream incremental-STT endpoint is not implemented in v1 — use the
+    batch /stt with push-to-talk.
+    WS /events broadcasts wake-word events when wake_word=on: on connect a
+    {"type":"hello","wake":bool} reports whether "hey jarvis" is armed; each
+    detection emits {"type":"wake","score":0..1}. Channels use it to arm their
+    hands-free session by voice.

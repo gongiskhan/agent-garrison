@@ -1,0 +1,28 @@
+# Local Voice — Python deps for the Fable voice-server (Kokoro TTS + faster-whisper STT).
+# Derived from the Fable jarvis-hud README. CPU build (Apple Silicon / no CUDA):
+# the README's onnxruntime-gpu + nvidia-* wheels are Linux/Windows-GPU only.
+kokoro-onnx
+faster-whisper
+fastapi
+uvicorn
+soundfile
+numpy
+onnxruntime
+# HTTP client used to proxy audio to the whisper.cpp whisper-server (Metal GPU
+# STT) when stt_engine=whisper-cpp.
+httpx
+# WebSocket support for uvicorn — without it the /events feed (wake-word +
+# hello) rejects every WS upgrade with a plain 404.
+websockets
+# Local text language-ID — picks the TTS voice matching the response text's
+# language. Pure-Python n-gram models, no download, ~ms per call.
+lingua-language-detector
+# Piper TTS — native voices Kokoro lacks (e.g. European Portuguese pt_PT) and
+# faster than Kokoro (RTF ~0.12). Bundles its own espeak-ng-data, so no system
+# espeak is required. The voice .onnx files are fetched by scripts/setup.sh.
+piper-tts
+# Wake word "hey jarvis" (optional; enable with wake_word=on). Installed by
+# scripts/setup.sh when enabled — NOT from this file, because openwakeword is
+# pinned against tflite deps we don't want (we run its ONNX path):
+#   pip install --no-deps openwakeword
+#   pip install sounddevice scipy scikit-learn tqdm requests

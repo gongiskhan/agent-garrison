@@ -1,0 +1,44 @@
+{
+  "_comment": "Voice e2e test corpus. Focus order: pt-PT (primary, voice Joana) > pt-BR (Luciana) > en. `deepgram` is the language code passed to Deepgram STT; `detectPrefix` is what detect_language is expected to return (Deepgram reports Portuguese generically as 'pt'). Add phrases freely — keep a mix of commands, questions, and numbers/names (harder for STT).",
+  "languages": [
+    {
+      "code": "pt-PT",
+      "deepgram": "pt",
+      "detectPrefix": "pt",
+      "voice": "Joana",
+      "priority": 1,
+      "phrases": [
+        "Faz commit das alterações e abre um pull request para a branch principal.",
+        "Que horas são em Tóquio quando aqui são duas da tarde?",
+        "Lembra-me de ligar ao Tiago amanhã às nove e meia da manhã.",
+        "Corre os testes todos e diz-me quantos é que falharam.",
+        "Explica-me por palavras simples o que faz esta função."
+      ]
+    },
+    {
+      "code": "pt-BR",
+      "deepgram": "pt-BR",
+      "detectPrefix": "pt",
+      "voice": "Luciana",
+      "priority": 2,
+      "phrases": [
+        "Faça o commit das alterações e abra um pull request na branch principal.",
+        "Quanto é setecentos e trinta e cinco dividido por cinco?",
+        "Me lembre de ligar para o Tiago amanhã às nove e meia da manhã.",
+        "Rode todos os testes e me diga quantos falharam."
+      ]
+    },
+    {
+      "code": "en",
+      "deepgram": "en",
+      "detectPrefix": "en",
+      "voice": "Samantha",
+      "priority": 3,
+      "phrases": [
+        "Deploy the latest build to staging and notify me when it finishes.",
+        "How many days are left until the thirty-first of December?",
+        "Summarize the last three messages from the engineering channel."
+      ]
+    }
+  ]
+}
