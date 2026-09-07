@@ -1,21 +1,8 @@
-"""
-Jarvis local voice — Kokoro-82M TTS + faster-whisper STT behind FastAPI
-on :3108.
+"""Local Voice's private speech engine: bounded REST STT and complete WAV TTS.
 
-The standalone voice process the handoff reserved (Next API routes stay
-stateless; this holds the warm models). lib/tts.ts and lib/stt.ts
-auto-detect it via /health and fall back to ElevenLabs when it's not
-running.
-
-GET  /health         -> {"ok": true, "voice": "...", "stt": {...}}
-GET  /speak?text=... -> audio/wav, streamed sentence-by-sentence so the
-                        browser starts playback after the FIRST sentence
-                        is generated, not the whole reply.
-POST /stt            -> raw audio body (webm/opus/wav) -> {"text": "..."}
-                        faster-whisper on CUDA (RTX 5090, ~100ms warm),
-                        CPU int8 if CUDA init fails.
-
-Run: .venv\\Scripts\\python.exe server.py   (or start-voice-server.vbs)
+The Node wrapper supplies VOICE_PY_PORT and VOICE_PARENT_PID. Model files live
+in LOCAL_VOICE_MODEL_DIR; host microphone capture is disabled unless WAKE_WORD
+is explicitly enabled. Only loopback is bound; the wrapper owns public access.
 """
 
 import asyncio
@@ -42,24 +29,31 @@ if hasattr(os, "add_dll_directory"):
         os.add_dll_directory(_d)
         os.environ["PATH"] = _d + os.pathsep + os.environ["PATH"]
 
+from runtime_support import (MAX_AUDIO_BYTES, MAX_AUDIO_SECONDS, MAX_TEXT_CHARS,
+                             arm_parent_watchdog, model_dir, piper_paths, speech_text)
+
+if __name__ == "__main__":
+    arm_parent_watchdog(lambda: globals().get("_reap_whisper_cpp", lambda: None)())
+
 import httpx
 import numpy as np
 import soundfile as sf
 import uvicorn
 from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
-from fastapi.responses import StreamingResponse
+from fastapi.concurrency import run_in_threadpool
 from faster_whisper import WhisperModel
-from faster_whisper.audio import decode_audio
 from kokoro_onnx import Kokoro
 
+from audio_support import decode_bounded
 from eot import score_eot
 from wakeword import WakeListener, WAKE_MODEL
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+MODEL_DIR = model_dir()
 # Garrison adaptation: the Node own-port wrapper (scripts/server.mjs) picks a
-# free internal port and passes it via VOICE_PY_PORT; defaults to the Fable
-# canonical 3108 when run standalone. Only line changed in this Fable file.
-PORT = int(os.environ.get("VOICE_PY_PORT", "3108"))
+# free internal port and passes it via VOICE_PY_PORT. Standalone binds an
+# ephemeral private port; no runtime port is guessed.
+PORT = int(os.environ.get("VOICE_PY_PORT", "0"))
 VOICE = os.environ.get("KOKORO_VOICE", "bm_george")  # calm British male (en fallback)
 SPEED = float(os.environ.get("KOKORO_SPEED", "1.0"))
 SAMPLE_RATE = 24000  # kokoro output rate
@@ -200,16 +194,8 @@ def detect_text_lang(text: str) -> str:
 # sounds non-native. Piper has a pt_PT voice AND is faster (RTF ~0.12 vs ~0.45),
 # so for any language with a Piper voice, /tts uses Piper instead of Kokoro.
 # Map ISO-639-1 → Piper .onnx path; override via PIPER_VOICES (JSON).
-_PIPER_DIR = os.path.join(HERE, "piper-voices")
-DEFAULT_PIPER_VOICES = {
-    "pt": os.path.join(_PIPER_DIR, "pt_PT-tugao-medium.onnx"),
-}
-try:
-    _pv_override = json.loads(os.environ.get("PIPER_VOICES", "") or "{}")
-    PIPER_VOICE_PATHS = {**DEFAULT_PIPER_VOICES, **_pv_override}
-except Exception as e:
-    print(f"bad PIPER_VOICES json ({e}); using defaults")
-    PIPER_VOICE_PATHS = dict(DEFAULT_PIPER_VOICES)
+# Configuration errors fail clearly; {} is intentionally different from unset.
+PIPER_VOICE_PATHS = piper_paths(os.environ.get("PIPER_VOICES"), MODEL_DIR)
 
 piper_voices = {}  # iso-639-1 -> loaded PiperVoice
 
@@ -238,8 +224,8 @@ def load_kokoro():
     picks the provider from ONNX_PROVIDER at init; if CUDA can't actually
     create (missing DLLs etc) onnxruntime silently falls back to CPU inside
     the session, so trust the session's own report, not the env var."""
-    model = os.path.join(HERE, "kokoro-v1.0.onnx")
-    voices = os.path.join(HERE, "voices-v1.0.bin")
+    model = os.path.join(MODEL_DIR, "kokoro-v1.0.onnx")
+    voices = os.path.join(MODEL_DIR, "voices-v1.0.bin")
     if os.environ.get("KOKORO_DEVICE", "auto") != "cpu":
         try:
             os.environ["ONNX_PROVIDER"] = "CUDAExecutionProvider"
@@ -261,11 +247,11 @@ def load_whisper():
     broken CUDA stack degrades to slow-but-working, never to dead."""
     if os.environ.get("WHISPER_DEVICE", "auto") != "cpu":
         try:
-            m = WhisperModel(WHISPER_MODEL, device="cuda", compute_type="float16")
+            m = WhisperModel(WHISPER_MODEL, device="cuda", compute_type="float16", download_root=os.path.join(MODEL_DIR, "whisper"))
             return m, "cuda"
         except Exception as e:
             print(f"whisper cuda failed ({e}); falling back to cpu int8")
-    return WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8"), "cpu"
+    return WhisperModel(WHISPER_MODEL, device="cpu", compute_type="int8", download_root=os.path.join(MODEL_DIR, "whisper")), "cpu"
 
 def _reap_whisper_cpp():
     global _whisper_cpp_proc
@@ -274,29 +260,11 @@ def _reap_whisper_cpp():
         return
     proc.terminate()
     try:
-        proc.wait(timeout=5)
+        proc.wait(timeout=1)
     except subprocess.TimeoutExpired:
         proc.kill()
+        proc.wait(timeout=1)
 
-
-# The Node wrapper reaps us on SIGTERM, but it cannot when it is itself
-# SIGKILLed (jetsam under memory pressure on an 8 GB box, `kill -9`, a hard
-# crash) -- then we survive as an orphan still holding the mic for wakeword,
-# burning ~18% CPU each. Six of them accumulated over a week (2026-07-30) and
-# pushed the Air into 10.8 GB of swap, so every STT re-read the mmap'd 3 GB
-# model from SSD. Same lesson as _reap_whisper_cpp one level down: watch the
-# parent directly instead of trusting it to clean up.
-def _watch_parent(original_ppid, interval=5.0):
-    while True:
-        time.sleep(interval)
-        if os.getppid() != original_ppid:
-            print(f"[voice-py] parent {original_ppid} gone (ppid now "
-                  f"{os.getppid()}); reaping whisper-server and exiting",
-                  flush=True)
-            _reap_whisper_cpp()
-            # sys.exit() from a non-main thread only unwinds that thread, and
-            # atexit would not run either -- reap explicitly, then hard-exit.
-            os._exit(0)
 
 
 def start_whisper_cpp():
@@ -460,7 +428,7 @@ def transcribe_pcm(audio_f32):
 # The HUD connects to ws://:3108/events. The wake thread emits through
 # emit_event() which hops onto the uvicorn event loop thread-safely.
 
-WAKE_ENABLED = os.environ.get("WAKE_WORD", "on").lower() not in ("off", "0", "false")
+WAKE_ENABLED = os.environ.get("WAKE_WORD", "off").lower() not in ("off", "0", "false")
 WAKE_THRESHOLD = float(os.environ.get("WAKE_THRESHOLD", "0.5"))
 
 ws_clients: set = set()
@@ -512,8 +480,7 @@ async def _startup():
 
 
 def wav_header(sample_rate: int) -> bytes:
-    """Streaming WAV header with unknown length (0x7FFFFFFF) — browsers
-    play it progressively and stop at end-of-stream."""
+    """PCM WAV header; the bounded response patches its final byte lengths."""
     data_size = 0x7FFFFFFF - 36
     return struct.pack(
         "<4sI4s4sIHHIIHH4sI",
@@ -641,6 +608,7 @@ def segments_of(text: str):
 def health():
     return {
         "ok": True,
+        "voice_contract": {"maxTextChars": MAX_TEXT_CHARS, "ttsFormat": "wav", "stream": False},
         "engine": "kokoro",
         "voice": VOICE,
         "device": KOKORO_DEVICE,
@@ -673,74 +641,58 @@ def health():
     }
 
 
-@app.post("/stt")
-async def stt(req: Request):
-    audio = await req.body()
-    if len(audio) < 1000:
-        return Response(status_code=400, content="clip too short")
-    t0 = time.time()
-    # Debug capture for A/B tuning: dump the raw inbound audio so the SAME real
-    # utterance can be replayed through other engines. Gated on STT_DUMP_DIR.
-    _dump = os.environ.get("STT_DUMP_DIR", "").strip()
-    if _dump:
+stt_busy = threading.Lock()
+tts_busy = threading.Lock()
+
+
+def _transcribe_audio(audio):
+    """The worker owns its gate until native decoding ends, even on disconnect."""
+    if not stt_busy.acquire(blocking=False):
+        return Response(status_code=429, content="speech recognition busy")
+    try:
+        t0 = time.monotonic()
         try:
-            os.makedirs(_dump, exist_ok=True)
-            with open(os.path.join(_dump, f"clip_{int(t0 * 1000)}.bin"), "wb") as _f:
-                _f.write(audio)
-        except Exception:
-            pass
-    if USE_WHISPER_CPP:
-        # whisper.cpp needs PCM/WAV, so always decode here (PyAV handles
-        # webm/opus). Boost a quiet speaker, hand to the warm Metal server. Its
-        # /inference (json) doesn't report the language, so derive it from the
-        # text for the bilingual reply hint.
-        try:
-            pcm = normalize_gain(decode_audio(io.BytesIO(audio), sampling_rate=16000))
+            # Decode once and bound decoded duration too: compressed bytes alone
+            # do not bound the amount of model work in a valid audio file.
+            pcm = decode_bounded(audio)
+        except OverflowError as error:
+            return Response(status_code=413, content=str(error))
         except Exception:
             return Response(status_code=400, content="could not decode audio")
-        text = transcribe_cpp(pcm)
-        lang = detect_text_lang(text) if text else DEFAULT_TTS_LANG
-        prob = 1.0
-    else:
-        # Default path hands raw bytes to whisper (PyAV decodes webm/opus/wav
-        # internally). Only when gain normalization is enabled do we decode to a
-        # float32 array first so we can boost a quiet speaker; on any decode
-        # hiccup we fall back to the raw bytes. WHISPER_LANG pins the language;
-        # whisper still reports it on `info`, so the spoken language travels with
-        # the transcript.
-        if STT_NORMALIZE_GAIN:
-            try:
-                source = normalize_gain(decode_audio(io.BytesIO(audio), sampling_rate=16000))
-            except Exception:
-                source = io.BytesIO(audio)
+        if len(pcm) > MAX_AUDIO_SECONDS * 16000:
+            return Response(status_code=413, content="audio exceeds 120 seconds")
+        if not len(pcm):
+            return Response(status_code=400, content="empty audio")
+        pcm = normalize_gain(pcm)
+        if USE_WHISPER_CPP:
+            text = transcribe_cpp(pcm)
+            lang, prob = detect_text_lang(text) if text else DEFAULT_TTS_LANG, 1.0
         else:
-            source = io.BytesIO(audio)
-        with whisper_lock:
-            segments, info = whisper.transcribe(
-                source, beam_size=WHISPER_BEAM, vad_filter=STT_VAD_FILTER,
-                initial_prompt=WHISPER_PROMPT or None,
-                language=WHISPER_LANG or None,
-            )
-            text = " ".join(s.text.strip() for s in segments).strip()
-        lang = info.language
-        prob = float(info.language_probability)
-    ms = int((time.time() - t0) * 1000)
-    # Observability for real-mic tuning: log every transcript with the detected
-    # language + confidence so a bad utterance can be diagnosed from the log.
-    print(
-        f"[stt] {ms}ms engine={STT_ENGINE} lang={lang}({prob:.2f}) "
-        f"bytes={len(audio)} vad={STT_VAD_FILTER} gain={STT_NORMALIZE_GAIN} -> {text!r}",
-        flush=True,
-    )
-    return {
-        "text": text,
-        "ms": ms,
-        "language": lang,
-        "language_probability": round(prob, 3),
-        # End-of-turn probability of the transcript (see eot.py) — the HUD's
-        # smart endpointing sizes its grace window from this.
-        "eot_prob": round(score_eot(text), 2),
-    }
+            with whisper_lock:
+                segments, info = whisper.transcribe(
+                    pcm, beam_size=WHISPER_BEAM, vad_filter=STT_VAD_FILTER,
+                    initial_prompt=WHISPER_PROMPT or None, language=WHISPER_LANG or None)
+                text = " ".join(segment.text.strip() for segment in segments).strip()
+            lang, prob = info.language, float(info.language_probability)
+        ms = int((time.monotonic() - t0) * 1000)
+        # Metadata only: transcripts belong to the caller, not routine logs.
+        print(f"[stt] {ms}ms engine={STT_ENGINE} lang={lang} bytes={len(audio)}", flush=True)
+        return {"text": text, "ms": ms, "language": lang,
+                "language_probability": round(prob, 3), "eot_prob": round(score_eot(text), 2)}
+    finally:
+        stt_busy.release()
+
+
+@app.post("/stt")
+async def stt(req: Request):
+    audio = bytearray()
+    async for chunk in req.stream():
+        audio.extend(chunk)
+        if len(audio) > MAX_AUDIO_BYTES:
+            return Response(status_code=413, content="audio too large")
+    if len(audio) < 1000:
+        return Response(status_code=400, content="clip too short")
+    return await run_in_threadpool(_transcribe_audio, bytes(audio))
 
 
 @app.get("/turn")
@@ -754,9 +706,12 @@ def turn(text: str = ""):
 
 @app.get("/speak")
 def speak(text: str = "", lang: Optional[str] = None):
-    text = text.strip()[:900]
-    if not text:
-        return Response(status_code=400, content="empty text")
+    try:
+        text = speech_text(text)
+    except OverflowError as error:
+        return Response(status_code=413, content=str(error))
+    except ValueError as error:
+        return Response(status_code=400, content=str(error))
 
     # Pick the voice from the response text's language (local, ~ms). A caller
     # may override by passing ?lang=pt to force a specific voice.
@@ -779,36 +734,65 @@ def speak(text: str = "", lang: Optional[str] = None):
         out_sr = SAMPLE_RATE
         engine, voice_label = "kokoro", voice
 
-    def gen():
-        yield wav_header(out_sr)
+    def chunks():
         for seg, gap in segments_of(text):
             if pvoice is not None:
                 for audio in pvoice.synthesize(seg):
                     yield audio.audio_int16_bytes
             else:
                 samples, sr = kokoro.create(seg, voice=voice, speed=SPEED, lang=klang)
-                pcm = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
-                yield pcm.tobytes()
-            # variable breath sized to the boundary strength (comma < sentence <
-            # paragraph) so topic changes and clauses read distinctly, not corrido
+                if sr != out_sr:
+                    raise RuntimeError("unexpected speech sample rate")
+                yield (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16).tobytes()
             if gap > 0:
                 yield b"\x00" * (int(out_sr * gap) * 2)
 
-    # Surface the chosen engine/voice/language for logging on the consumer side.
-    return StreamingResponse(gen(), media_type="audio/wav",
-                             headers={"Cache-Control": "no-store",
-                                      "X-Voice-Lang": code, "X-Voice": f"{engine}:{voice_label}"})
+    if not tts_busy.acquire(blocking=False):
+        return Response(status_code=429, content="speech synthesis busy")
+    try:
+        audio = bytearray()
+        audible = False
+        for chunk in chunks():
+            if len(audio) + len(chunk) > 12 * 1024 * 1024:
+                return Response(status_code=502, content="speech output too large")
+            audible = audible or any(chunk)
+            audio.extend(chunk)
+        if not audio or not audible:
+            return Response(status_code=502, content="speech engine produced no audible samples")
+        # A complete WAV has truthful lengths and works with browser decoders.
+        # The bounded worker owns the gate even if its HTTP caller disconnects.
+        header = bytearray(wav_header(out_sr))
+        struct.pack_into("<I", header, 4, len(audio) + 36)
+        struct.pack_into("<I", header, 40, len(audio))
+        return Response(bytes(header) + bytes(audio), media_type="audio/wav",
+                        headers={"Cache-Control": "no-store", "X-Voice-Lang": code,
+                                 "X-Voice": f"{engine}:{voice_label}"})
+    except Exception:
+        return Response(status_code=502, content="speech synthesis failed")
+    finally:
+        tts_busy.release()
+
+
+@app.post("/speak")
+async def speak_post(req: Request):
+    body = bytearray()
+    async for chunk in req.stream():
+        body.extend(chunk)
+        if len(body) > 16 * 1024:
+            return Response(status_code=413, content="request too large")
+    try:
+        value = json.loads(body)
+        if not isinstance(value, dict):
+            raise ValueError()
+        lang = value.get("lang")
+        if lang is not None and (not isinstance(lang, str) or not re.fullmatch(r"[a-zA-Z]{2}", lang)):
+            raise ValueError()
+    except Exception:
+        return Response(status_code=400, content="invalid speech request")
+    return await run_in_threadpool(speak, value.get("text"), lang)
 
 
 if __name__ == "__main__":
-    # Start the watchdog BEFORE the warmup, not after: warmup takes tens of
-    # seconds loading kokoro + piper + a 3 GB ggml model, which is exactly the
-    # window where memory pressure is worst and the wrapper is most likely to
-    # be jetsam'd. A watchdog that only arms after warmup would miss it.
-    threading.Thread(
-        target=_watch_parent, args=(os.getppid(),), daemon=True,
-        name="parent-watchdog",
-    ).start()
     # warm both models so the first real request doesn't pay init cost —
     # whisper's first CUDA run JITs kernels (~9s); feed it kokoro's warmup
     # audio so the whole pipeline is hot
@@ -827,4 +811,4 @@ if __name__ == "__main__":
             pass
     print(f"kokoro({KOKORO_DEVICE}) + whisper({WHISPER_MODEL}/{WHISPER_DEVICE}) "
           f"warm — serving :{PORT} langs={sorted(LANG_VOICES)} default={DEFAULT_TTS_LANG}")
-    uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning")
+    uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning", ws_max_size=16 * 1024, ws_max_queue=4)

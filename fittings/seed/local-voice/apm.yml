@@ -1,6 +1,6 @@
 name: local-voice
 version: 0.1.0
-description: Local Voice Fitting (channels role, own-port). Fully local, multilingual speech I/O — no cloud, no API key. A Node own-port wrapper supervises the voice-server (faster-whisper STT + Kokoro/Piper TTS, MIT/Apache) and exposes the Garrison voice contract on port 8100, so any channel that consumes `voice` works against it unchanged (drop-in alternative to deepgram-voice). STT auto-detects the spoken language (PT/FR/EN/ES/IT/…) and TTS speaks the response back in its own language — Portuguese uses Piper's native European pt_PT voice, the rest use Kokoro.
+description: Local Voice Fitting (channels role, own-port). Fully local, multilingual speech I/O — no cloud, no API key. A Node own-port wrapper supervises the voice-server (faster-whisper STT + Kokoro/Piper TTS) and exposes the Garrison voice contract on port 8100, so any channel that consumes `voice` works against it unchanged (local alternative to capture-service for consumers of the REST voice contract). STT auto-detects the spoken language (PT/FR/EN/ES/IT/…) and TTS speaks the response back in its own language — Portuguese uses Piper's native European pt_PT voice, the rest use Kokoro.
 target: claude
 type: hybrid
 includes: auto
@@ -103,7 +103,7 @@ x-garrison:
     - key: piper_voices
       type: string
       default: ""
-      description: 'Optional JSON map ISO-639-1 → Piper .onnx path. Languages here use Piper instead of Kokoro (native accent + faster). Default: pt → voice-server/piper-voices/pt_PT-tugao-medium.onnx (European Portuguese), since Kokoro only has Brazilian pt voices. Set to {} to disable Piper and fall back to Kokoro for everything.'
+      description: 'Optional JSON map ISO-639-1 → Piper .onnx path. Languages here use Piper instead of Kokoro (native accent + faster). Default: pt → ~/.cache/garrison-local-voice/models/piper-voices/pt_PT-tugao-medium.onnx (European Portuguese), since Kokoro only has Brazilian pt voices. Set to {} to disable Piper and fall back to Kokoro for everything.'
     - key: wake_word
       type: select
       default: "off"
@@ -118,7 +118,7 @@ x-garrison:
     - key: python_bin
       type: string
       default: ""
-      description: Override the Python interpreter. Empty = use the venv created by setup (voice-server/.venv), else fall back to python3.
+      description: Override the Python interpreter. The external setup venv is preferred (~/.cache/garrison-local-voice/venv, or LOCAL_VOICE_VENV); this interpreter is the fallback when no prepared venv exists.
   provides:
     - kind: voice
       name: local
@@ -132,36 +132,32 @@ x-garrison:
     expect: ok
     timeout_ms: 10000
   for_consumers: |
-    Consumers discover this Fitting at runtime by reading:
-      ~/.garrison/ui-fittings/local-voice.json   ({ fittingId, port, url, pid })
-    It speaks the same contract as deepgram-voice, so a channel coded against
-    one works against the other (voice is a singleton — only one is stationed).
-    Endpoints (all on that url):
-      GET  /health   - liveness: { ok, port, pid, host, enginesReady }.
-                       enginesReady=false while the Python models warm up
-                       (first boot JITs whisper, ~10s); /stt and /tts return
-                       503 until ready.
-      POST /stt      - speech-to-text. Body: raw audio bytes (Content-Type =
-                       the recording's mime, e.g. audio/webm or audio/wav).
-                       Returns: { transcript, confidence, detected_language,
-                       eot_prob }. confidence is null (faster-whisper gives
-                       none); detected_language is the auto-detected spoken
-                       language as an ISO-639-1 code (pt, fr, en, …); eot_prob
-                       (0..1) is how likely the transcript is a finished
-                       utterance — voice UIs size their end-of-turn grace
-                       window from it.
-      POST /tts      - text-to-speech. Body: { "text": "...", "format": "wav" }.
-                       Returns: audio bytes (audio/wav), streamed
-                       sentence-by-sentence so playback can start early. The
-                       voice is chosen from the TEXT's own language, so a reply
-                       written in PT is spoken in a PT voice without any extra
-                       call. Pass it the session's reply text verbatim.
-    The session replies in the language it was addressed in; this Fitting then
-    speaks that reply back in the same language. Everything runs on the host
-    (Kokoro + faster-whisper); no key, no network.
-    The WS /stream incremental-STT endpoint is not implemented in v1 — use the
-    batch /stt with push-to-talk.
-    WS /events broadcasts wake-word events when wake_word=on: on connect a
-    {"type":"hello","wake":bool} reports whether "hey jarvis" is armed; each
-    detection emits {"type":"wake","score":0..1}. Channels use it to arm their
-    hands-free session by voice.
+    Resolve the selected voice provider from GARRISON_VOICE_FITTING_ID and read
+    its owner-node record under $GARRISON_HOME/ui-fittings/local-voice.json.
+    Record URLs are server-to-server addresses; never send a loopback URL to a browser.
+    GET /health reports enginesReady and voice capabilities:
+      { stt, tts, restEnabled, maxTextChars: 900, ttsFormat: "wav",
+        stream: false, wakeEvents }, plus wake.enabled and wake.ok.
+    /stt and /tts return 503 while engines warm up. Read capabilities before
+    enabling controls; Local Voice does not provide capture-service's phone
+    capture, pendant, screen-audio or incremental streaming features.
+    POST /stt accepts raw audio with its audio/* Content-Type (25 MiB and
+    120 seconds maximum). Returns { transcript, confidence: null,
+    detected_language, language, eot_prob, ms }. Empty speech is a valid empty
+    transcript; malformed audio is 400. Concurrent engine work can return 429.
+    POST /tts accepts application/json { "text": "...", "lang": "en" }.
+    lang is optional. Returns a complete non-silent audio/wav response. A request
+    may contain at most 900 Unicode characters; longer text returns 413 and is
+    never truncated. Split replies at sentence/word boundaries using the
+    advertised maxTextChars and play the chunks in order. Voice is selected
+    from the response text's language unless explicitly pinned.
+    Requests have a 120-second wall-clock deadline; 504 means the client should
+    report the timeout. A disconnected client releases its transport; a native
+    model operation already executing finishes within its bounded worker gate.
+    There is no WS /stream. WS /events provides hello/wake notifications only;
+    use it only when voice.wakeEvents is true. wake_word defaults off and only
+    an explicit on setting opens the host microphone.
+    Native loopback callers need no token. Off-box calls require the optional
+    LOCAL_VOICE_AUTH_TOKEN bearer token. Browser requests must have the exact
+    incoming Host origin, including port. Audio processing stays local; setup
+    downloads the selected dependencies and models into external user caches.
