@@ -933,6 +933,20 @@
     }
   },
   {
+    "id": "spotify",
+    "name": "Spotify connector",
+    "repo": "local:fittings/seed/spotify",
+    "localPath": "fittings/seed/spotify",
+    "summary": "Spotify connector — control playback (pause/next/play-by-search/volume) on the active Spotify Connect device over the Web API. Needs Premium; OAuth2 sealed in the Vault.",
+    "platforms": [
+      "all"
+    ],
+    "ratings": {
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
     "id": "vault-git-sync",
     "name": "Vault Git Sync",
     "repo": "local:fittings/seed/vault-git-sync",
