@@ -58,7 +58,17 @@ function candidateCwds(chatsCwds, env) {
   return [...out];
 }
 
-let desktopCache = { file: null, at: 0, rows: new Map() };
+let desktopCache = { file: null, at: 0, rows: new Map(), error: null };
+
+function desktopReadError(err) {
+  if (err?.code === "ETIMEDOUT") return "timeout";
+  if (err?.code === "ENOBUFS") return "output-limit";
+  if (err?.code === "ENOENT") return "sqlite-unavailable";
+  if (["EACCES", "EPERM"].includes(err?.code)) return "permission-denied";
+  if (/database is (?:locked|busy)/i.test(String(err?.stderr ?? ""))) return "database-locked";
+  if (err instanceof SyntaxError) return "invalid-json";
+  return Number.isInteger(err?.status) ? `sqlite-exit-${err.status}` : "read-failed";
+}
 
 /** Read only composer metadata from Cursor's own database. Selecting the full
  * values also pulled message bodies and hit sqlite3's output cap on busy IDEs. */
@@ -66,10 +76,18 @@ function readDesktopMetadata(env) {
   const home = env.HOME?.trim() || os.homedir();
   const dbPath = env.GARRISON_CURSOR_STATE_DB || path.join(home, "Library", "Application Support", "Cursor", "User", "globalStorage", "state.vscdb");
   if (desktopCache.file === dbPath && Date.now() - desktopCache.at < TITLE_CACHE_MS) return desktopCache.rows;
-  const rows = new Map();
-  desktopCache = { file: dbPath, at: Date.now(), rows };
-  if (!fs.existsSync(dbPath)) return rows;
+  // Only a successful read can replace the last snapshot. A locked or slow
+  // IDE database is not evidence that its recent sessions were deleted.
+  desktopCache = desktopCache.file === dbPath
+    ? { ...desktopCache, at: Date.now() }
+    : { file: dbPath, at: Date.now(), rows: new Map(), error: null };
   try {
+    try { fs.statSync(dbPath); } catch (err) {
+      if (err?.code !== "ENOENT") throw err;
+      desktopCache.rows = new Map();
+      desktopCache.error = null;
+      return desktopCache.rows;
+    }
     const sql = `select substr(key, 14) as id,
       json_extract(value, '$.name') as title,
       json_extract(value, '$.status') as status,
@@ -78,10 +96,25 @@ function readDesktopMetadata(env) {
       json_extract(value, '$.cwd') as cwd
       from cursorDiskKV where key like 'composerData:%' and json_valid(value)`;
     const out = execFileSync("sqlite3", ["-readonly", "-json", dbPath, sql],
-      { encoding: "utf8", timeout: 5000, maxBuffer: 4 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] });
-    for (const row of JSON.parse(out)) if (row?.id) rows.set(row.id, { ...row, dbPath });
-  } catch { /* an absent/locked IDE database never blocks shell discovery */ }
-  return rows;
+      { encoding: "utf8", timeout: 5000, maxBuffer: 4 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
+    // sqlite3 emits no bytes for zero rows. That is a successful deletion,
+    // unlike malformed/partial JSON from a failed metadata read.
+    const parsed = out.trim() ? JSON.parse(out) : [];
+    if (!Array.isArray(parsed)) throw new SyntaxError("invalid metadata result");
+    const rows = new Map();
+    for (const row of parsed) if (row?.id) rows.set(row.id, { ...row, dbPath });
+    desktopCache.rows = rows;
+    desktopCache.error = null;
+  } catch (err) {
+    const reason = desktopReadError(err);
+    if (desktopCache.error !== reason) {
+      console.warn(`[shells-cursor-lister] desktop metadata read failed (${reason}); retaining ${desktopCache.rows.size} cached rows`);
+    }
+    desktopCache.error = reason;
+  }
+  // list() still applies the five-day cutoff to original activity timestamps;
+  // failed refreshes never make an old session recent again.
+  return desktopCache.rows;
 }
 
 /** The first user turn's text, snippeted - the fallback title when there is

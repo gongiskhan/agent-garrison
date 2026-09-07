@@ -5,9 +5,10 @@
 
 import { appendFileSync, readFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import os from "node:os";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { once } from "node:events";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // @ts-ignore — pure .mjs
 import { list as listClaude } from "../fittings/seed/remote-shell-runtime/lib/listers/claude.mjs";
 // @ts-ignore — pure .mjs
@@ -38,6 +39,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   rmSync(sandbox, { recursive: true, force: true });
   if (prevHome === undefined) delete process.env.GARRISON_CLAUDE_HOME;
   else process.env.GARRISON_CLAUDE_HOME = prevHome;
@@ -221,6 +223,87 @@ describe("codex lister", () => {
 });
 
 describe("cursor lister", () => {
+  function desktopFixture() {
+    const db = path.join(sandbox, "state.vscdb");
+    const meta = JSON.stringify({ name: "Desktop title", status: "completed", createdAt: NOW - 1000, lastUpdatedAt: NOW, conversation: "private-body-sentinel" });
+    execFileSync("sqlite3", [db, `create table cursorDiskKV (key text primary key, value text); insert into cursorDiskKV values ('composerData:desktop-only', '${meta}');`]);
+    const env = { HOME: sandbox, GARRISON_CURSOR_HOME: path.join(sandbox, "cursor"), GARRISON_CURSOR_STATE_DB: db };
+    return { db, env, list: (now = NOW) => listCursor({ windowDays: 5, now, env }) };
+  }
+
+  async function holdDatabase(db: string) {
+    const child = spawn("sqlite3", [db], { stdio: ["pipe", "pipe", "pipe"] });
+    const ready = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("SQLite fixture did not acquire its lock")), 5000);
+      child.once("error", (err) => { clearTimeout(timer); reject(err); });
+      child.once("exit", () => { clearTimeout(timer); reject(new Error("SQLite fixture exited before locking")); });
+      child.stdout.on("data", (chunk) => {
+        if (String(chunk).includes("LOCKED")) { clearTimeout(timer); resolve(); }
+      });
+    });
+    child.stdin.write("BEGIN EXCLUSIVE;\nSELECT 'LOCKED';\n");
+    try { await ready; } catch (err) { child.kill(); throw err; }
+    return async () => {
+      const ended = once(child, "exit");
+      child.stdin.end("ROLLBACK;\n");
+      await ended;
+    };
+  }
+
+  it("retains metadata-only desktop sessions during a failed read and refreshes after recovery", async () => {
+    const fixture = desktopFixture();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(NOW);
+    const warnings = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const initial = fixture.list();
+    expect(initial).toHaveLength(1);
+    const release = await holdDatabase(fixture.db);
+    try {
+      clock.mockReturnValue(NOW + 6000);
+      expect(fixture.list(NOW + 6000)).toEqual(initial);
+      clock.mockReturnValue(NOW + 12000);
+      expect(fixture.list(NOW + 12000)).toEqual(initial);
+      expect(warnings).toHaveBeenCalledTimes(1);
+      expect(String(warnings.mock.calls[0][0])).toContain("database-locked");
+      expect(JSON.stringify(warnings.mock.calls)).not.toMatch(/Desktop title|private-body-sentinel|state\.vscdb/);
+    } finally {
+      await release();
+    }
+    execFileSync("sqlite3", [fixture.db, "update cursorDiskKV set value = json_set(value, '$.name', 'Renamed desktop');"]);
+    clock.mockReturnValue(NOW + 18000);
+    expect(fixture.list(NOW + 18000)[0]).toMatchObject({ title: "Renamed desktop", lastActivityAt: new Date(NOW).toISOString() });
+  });
+
+  it("expires cached desktop sessions by original activity during an ongoing read failure", async () => {
+    const fixture = desktopFixture();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(NOW);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(fixture.list()).toHaveLength(1);
+    const release = await holdDatabase(fixture.db);
+    try {
+      const later = NOW + 6 * 86400000;
+      clock.mockReturnValue(later);
+      expect(fixture.list(later)).toEqual([]);
+    } finally {
+      await release();
+    }
+  });
+
+  it("clears cached desktop sessions after a successful empty read or confirmed database removal", () => {
+    const fixture = desktopFixture();
+    const original = readFileSync(fixture.db);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(NOW);
+    expect(fixture.list()).toHaveLength(1);
+    execFileSync("sqlite3", [fixture.db, "delete from cursorDiskKV;"]);
+    clock.mockReturnValue(NOW + 6000);
+    expect(fixture.list(NOW + 6000)).toEqual([]);
+    writeFileSync(fixture.db, original);
+    clock.mockReturnValue(NOW + 12000);
+    expect(fixture.list(NOW + 12000)).toHaveLength(1);
+    rmSync(fixture.db);
+    clock.mockReturnValue(NOW + 18000);
+    expect(fixture.list(NOW + 18000)).toEqual([]);
+  });
+
   it("a chats-indexed id is a CLI row with the meta cwd; an un-indexed id is a desktop row", () => {
     const home = path.join(sandbox, "cursor-home");
     const slug = "-tmp-proj";

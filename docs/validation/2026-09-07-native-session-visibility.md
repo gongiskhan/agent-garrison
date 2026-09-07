@@ -41,4 +41,8 @@ Selecting a known shell attaches its existing terminal without allocating anothe
 
 ## Implementation note
 
+The Mini's live Cursor metadata-only rows intermittently disappeared while its three transcript-backed rows remained visible. The metadata cache previously discarded its successful snapshot before each SQLite query. A temporary database lock or failed read therefore looked like deletion. The follow-up retains the last successful snapshot for the same database on read failure, logs only a bounded failure category, and still applies the five-day cutoff to the original activity times. A successful empty query or confirmed database removal clears the snapshot. Reads are synchronous, so refreshes cannot interleave within one process.
+
+The follow-up passed 44 native lister, mesh-session, hook and terminal tests plus TypeScript. Its real SQLite regression holds an exclusive lock, verifies retained rows and content-free diagnostics, releases the lock and observes a renamed session; separate checks cover five-day expiration during failure and actual deletion. Evidence: `/private/tmp/garrison-cursor-cache-focused-20260907.log` and `/private/tmp/garrison-cursor-cache-typecheck-20260907.log` on the Pro. Deployment verification is recorded separately in the shared node operations note.
+
 `session-index.mjs` in the previous revision contained literal NUL bytes as map-key separators. The change replaces them with equivalent JavaScript `\0` escapes. Git may display the old-versus-new diff as binary because the old revision contains NULs; `git diff --text` displays the source changes for review.
