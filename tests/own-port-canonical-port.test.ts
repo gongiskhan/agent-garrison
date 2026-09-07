@@ -18,9 +18,13 @@
 //
 // Together these two invariants make the failure impossible to reintroduce: ports
 // are unique at the source, and a collision is loud rather than silently shifted.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import http from "node:http";
+import { pathToFileURL } from "node:url";
 import { load as parseYaml } from "js-yaml";
 
 const REPO_ROOT = join(__dirname, "..");
@@ -69,6 +73,52 @@ function listenerSource(shimSrc: string): string {
   const rel = exportsMap["./server"];
   if (typeof rel !== "string") throw new Error(`@garrison/${m[1]} declares no ./server export`);
   return `${shimSrc}\n${readFileSync(join(pkgDir, rel), "utf8")}`;
+}
+
+// These independently testable servers propagate all listen errors through the
+// startServer Promise. A literal EADDRINUSE branch is unnecessary; exercise the
+// real contract, including ownership and absence of model/setup side effects.
+const PROMISE_BIND_SERVERS = new Set(["jarvis-os", "local-voice", "preflight"]);
+async function assertOccupiedPortRefused(id: string, serverModule: string) {
+  const home = await mkdtemp(join(tmpdir(), `gar-canonical-${id}-`));
+  const incumbent = http.createServer((_req, res) => res.end("incumbent fixture"));
+  let accidentallyStarted: any;
+  const signals = [process.listenerCount("SIGTERM"), process.listenerCount("SIGINT")];
+  try {
+    await new Promise<void>((resolve, reject) => {
+      incumbent.once("error", reject); incumbent.listen(0, "127.0.0.1", resolve);
+    });
+    const port = (incumbent.address() as { port: number }).port;
+    const statusFile = join(home, "ui-fittings", `${id}.json`);
+    await mkdir(join(home, "ui-fittings"));
+    // No live PID short-circuit: the occupied TCP port itself must reject startup.
+    const saved = JSON.stringify({ fittingId: id, pid: -1, marker: "preserve incumbent" });
+    await writeFile(statusFile, saved);
+    const spawnPython = vi.fn(() => { throw new Error("model must not spawn before bind succeeds"); });
+    const module = await import(pathToFileURL(serverModule).href);
+    await expect(module.startServer({ port, host: "127.0.0.1", gatewayUrl: "" }, {
+      home, statusFile, spawnPython, signals: false
+    }).then((value: unknown) => { accidentallyStarted = value; return value; })).rejects.toMatchObject({ code: "EADDRINUSE" });
+    expect(spawnPython).not.toHaveBeenCalled();
+    expect(await readFile(statusFile, "utf8")).toBe(saved);
+    expect([process.listenerCount("SIGTERM"), process.listenerCount("SIGINT")]).toEqual(signals);
+    const body = await new Promise<string>((resolve, reject) => {
+      http.get({ hostname: "127.0.0.1", port, path: "/", agent: false }, res => {
+        let text = ""; res.on("data", c => { text += c; }); res.on("end", () => resolve(text)); res.on("error", reject);
+      }).on("error", reject);
+    });
+    expect(body).toBe("incumbent fixture");
+  } finally {
+    // If auto-shift ever regresses, do not leave that accidental test server up.
+    if (accidentallyStarted?.shutdown) await accidentallyStarted.shutdown();
+    else {
+      const server = accidentallyStarted?.server || accidentallyStarted;
+      if (server?.close) await new Promise<void>(resolve => { server.closeAllConnections?.(); server.close(() => resolve()); });
+    }
+    incumbent.closeAllConnections();
+    await new Promise<void>(resolve => incumbent.close(() => resolve()));
+    await rm(home, { recursive: true, force: true });
+  }
 }
 
 function ownPortSeeds(): OwnPortSeed[] {
@@ -121,7 +171,7 @@ describe("own-port fittings — canonical port contract", () => {
   // Bug (2). The contract from 07ba683, enforced for EVERY own-port server rather
   // than the subset that happened to be stationed the day it was written.
   for (const { id, dir } of seeds) {
-    it(`${id} binds its configured port or exits — no findFreePort shift`, () => {
+    it(`${id} binds its configured port or exits — no findFreePort shift`, async () => {
       const server = join(dir, "scripts", "server.mjs");
       if (!existsSync(server)) return; // start.mjs-only fittings are covered elsewhere
       const src = listenerSource(readFileSync(server, "utf8"));
@@ -131,6 +181,10 @@ describe("own-port fittings — canonical port contract", () => {
         `${id}/scripts/server.mjs still calls findFreePort — a port collision silently shifts the server to a different port instead of failing, which orphans its status-file slot and hides the collision`
       ).toBe(false);
 
+      if (PROMISE_BIND_SERVERS.has(id)) {
+        await assertOccupiedPortRefused(id, server);
+        return;
+      }
       expect(
         EADDRINUSE_GUARD.test(src),
         `${id}/scripts/server.mjs has no EADDRINUSE guard — it must refuse to start on a shifted port (the configured port is canonical)`

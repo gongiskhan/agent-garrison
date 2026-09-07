@@ -83,8 +83,9 @@ The audit comparison is retained at
 
 At this checkpoint, published release `6184f717` remains live on Pro,
 dev-madrid, Mini and Air. Feature repair commits are not yet a deployed release.
-The combined suite and final deployment acceptance must be recorded below
-before claiming the feature integration live.
+Final combined-suite and owner-node deployment results are maintained in the
+shared Basic Memory topic `Projects/Garrison/Memory/Garrison Node Operations`;
+this document records the feature checks preceding publication.
 
 During validation, root invoked the wrong Jarvis entrypoint with `--probe`.
 It briefly started an unstationed HTTP process (PID 94899) on Pro. Root verified
@@ -96,3 +97,13 @@ Csg's tunnel relay connects but its forwarded SSH/web services reset before a
 usable connection. Its current checkout and release remain unverified; roadmap
 `c2.12` stays open until all-node acceptance. Existing conversation and native
 session evidence is in [the native-session validation](2026-09-07-native-session-visibility.md).
+
+The first combined run on `df0b4302` passed 8,208 tests and exposed three stale
+canonical-port source assertions. These were replaced by occupied-port behavior checks that also verify status
+ownership, no model startup and no signal-listener leaks. That run also exposed a gateway import in a test that ignored
+the existing no-listen seam and wrote a generated `.garrison/mcp.json` in the
+checkout; the test now uses the existing no-listen seam and an isolated composition.
+Its confirmed artifact was removed, and the two corrected test files passed
+51 checks with the checkout still clean of generated artifacts before the
+final full-suite run. The failed-run log is preserved at
+`/private/tmp/garrison-selective-combined-tests-20260907.log`.
