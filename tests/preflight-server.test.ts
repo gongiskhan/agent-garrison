@@ -39,18 +39,24 @@ async function listen(deps = dependencies(), onRequest?: (req: http.IncomingMess
   if (!address || typeof address === "string") throw new Error("missing fixture port");
   return { server, port: address.port, base: `http://127.0.0.1:${address.port}` };
 }
-function request(port: number, route: string, body?: string, headers: IncomingHttpHeaders = {}, method = body === undefined ? "GET" : "POST") {
+function request(port: number, route: string, body?: string, headers: IncomingHttpHeaders = {}, method = body === undefined ? "GET" : "POST", headersOnly = false) {
   return new Promise<{ status: number; text: string }>((resolve, reject) => {
     const req = http.request({ host: "127.0.0.1", port, path: route, method, agent: false,
       headers: { ...(body !== undefined ? { "content-type": "application/json" } : {}), ...headers } }, (res) => {
       let text = "";
       res.setEncoding("utf8");
       res.on("data", (chunk) => { text += chunk; });
-      res.once("end", () => resolve({ status: res.statusCode!, text }));
+      res.once("end", () => { resolve({ status: res.statusCode!, text }); req.destroy(); });
       res.once("error", reject);
     });
     req.once("error", reject);
-    req.end(body);
+    // A header rejection must arrive before an upload is required. Continuing
+    // a large rejected upload can race the peer's close into an OS-level reset.
+    if (headersOnly) {
+      req.setTimeout(5000, () => req.destroy(new Error("timed out waiting for header rejection")));
+      req.flushHeaders();
+    }
+    else req.end(body);
   });
 }
 const fixBody = JSON.stringify({ actionId: "fixture-repair", params: { fittingId: "fixture" } });
@@ -121,7 +127,7 @@ describe("Preflight HTTP mutation boundary", () => {
     const { port } = await listen(deps);
     const body = JSON.stringify({ actionId: "fixture-repair", params: { text: "é".repeat(530_000) } });
     expect(body.length).toBeLessThan(1024 * 1024);
-    expect((await request(port, "/api/fix", body, { "content-length": String(Buffer.byteLength(body)) })).status).toBe(413);
+    expect((await request(port, "/api/fix", undefined, { "content-type": "application/json", "content-length": String(Buffer.byteLength(body)) }, "POST", true)).status).toBe(413);
     expect((await request(port, "/api/fix", body, { "transfer-encoding": "chunked" })).status).toBe(413);
     expect(deps.runFix).not.toHaveBeenCalled();
   });

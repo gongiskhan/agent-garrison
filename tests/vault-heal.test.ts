@@ -94,6 +94,9 @@ writeFileSync(
   })
 );
 const statusFile = path.join(uiDir, FITTING_ID + ".json");
+// The status file is the parent's readiness signal. Install cleanup first so
+// an external SIGTERM immediately after publication cannot bypass the handler.
+${sigtermHandler}
 writeFileSync(
   statusFile,
   JSON.stringify({
@@ -105,7 +108,6 @@ writeFileSync(
   })
 );
 
-${sigtermHandler}
 setInterval(() => {}, 1 << 30);
 `;
 }
@@ -206,7 +208,7 @@ describe("vault heal (own-port spawn records + keyless re-delivery)", () => {
     const result = await startOwnPortFitting(entry, extraEnv);
     expect(result.ok).toBe(true);
     const pid = track(result.pid);
-    await waitFor(() => existsSync(statusFile(entry.id)), `${entry.id} status file`);
+    await waitFor(() => readJsonSafe<{ pid: number }>(statusFile(entry.id))?.pid === pid, `${entry.id} status file`);
     return pid;
   }
 
@@ -512,11 +514,13 @@ describe("vault heal (own-port spawn records + keyless re-delivery)", () => {
     expect(readJson<SpawnRecord>(recordFile(VAULT_ID)).pid).toBe(newPid);
   });
 
-  it("a Garrison stop after an external exit still removes the spawn record", async () => {
+  it.each(["SIGTERM", "SIGKILL"] as const)("a Garrison stop after an external %s still removes the spawn record", async (signal) => {
     const pid = await startRunning(vaultEntry, { [PROBE_KEY]: PROBE_VALUE });
-    process.kill(pid, "SIGTERM");
+    process.kill(pid, signal);
     await waitFor(() => !alive(pid), "external exit");
-    await waitFor(() => !existsSync(statusFile(VAULT_ID)), "status file removal");
+    // Once the process has exited, its cleanup is finished. SIGKILL leaves the
+    // status behind deliberately; Garrison must clear both tracking files.
+    expect(existsSync(statusFile(VAULT_ID))).toBe(signal === "SIGKILL");
     expect(existsSync(recordFile(VAULT_ID))).toBe(true);
 
     const stopped = await stopOwnPortFitting(VAULT_ID);
@@ -525,6 +529,7 @@ describe("vault heal (own-port spawn records + keyless re-delivery)", () => {
     // The stale secretsDelivered:true record is gone — it can no longer mask
     // a future keyless run.
     expect(existsSync(recordFile(VAULT_ID))).toBe(false);
+    expect(existsSync(statusFile(VAULT_ID))).toBe(false);
   });
 
   it(

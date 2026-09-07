@@ -107,3 +107,16 @@ Its confirmed artifact was removed, and the two corrected test files passed
 51 checks with the checkout still clean of generated artifacts before the
 final full-suite run. The failed-run log is preserved at
 `/private/tmp/garrison-selective-combined-tests-20260907.log`.
+
+The second combined run on `a7754294` passed 8,210 tests and exposed two fixture
+races. The own-port fixture published readiness before installing its SIGTERM
+handler; a controlled interleaving reproduced the stale status file. Readiness
+now follows handler installation, and both graceful and forced external exits
+verify that Garrison clears tracking records. Preflight's declared-size test
+continued uploading after an early 413, racing the socket close into ECONNRESET.
+It now verifies header rejection before sending a body, while the separate
+chunked upload still exercises actual multibyte counting. Both fixes leave
+production behavior and timeouts unchanged; their focused suites passed 61
+tests. The failed combined log is
+`/private/tmp/garrison-selective-final-full-tests-20260907.log`. Pro and Mini
+publication waiters were cancelled before any deployment began.
