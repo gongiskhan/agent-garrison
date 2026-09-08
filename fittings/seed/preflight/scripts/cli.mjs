@@ -39,7 +39,8 @@ function printFindings(findings) {
       console.log(`\n== ${f.check} ==`);
       lastCheck = f.check;
     }
-    console.log(`  ${ICON[f.status] || "?"} [${f.status}] ${f.id}: ${f.detail}`);
+    const age = f.age === "new" ? " (new)" : f.age === "regressed" ? ` (REGRESSED from ${f.previousStatus})` : "";
+    console.log(`  ${ICON[f.status] || "?"} [${f.status}] ${f.id}${age}: ${f.detail}`);
     if (f.fix) console.log(`      fix: ${f.fix}`);
     if (f.evidence) console.log(`      evidence: ${f.evidence.split("\n")[0].slice(0, 200)}`);
   }
@@ -98,7 +99,7 @@ async function runGate(report, args) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const report = await buildReport({ checks: args.checks });
+  const report = await buildReport({ checks: args.checks, ledger: "update" });
 
   if (args.gate) {
     process.exit(await runGate(report, args));
@@ -133,6 +134,11 @@ async function main() {
     console.log(JSON.stringify(report, null, 2));
   } else {
     printFindings(report.findings);
+    // Gone since the last run — the half of "what changed" that has no row.
+    if (report.resolved?.length) {
+      console.log("\n== resolved since the last run ==");
+      for (const r of report.resolved) console.log(`  ✓ ${r.key} (was ${r.lastStatus} at ${r.lastSeenAt})`);
+    }
     const { counts, overall } = report.summary;
     // info is listed apart: it is deliberately not part of the verdict.
     const info = counts.info ? ` (+${counts.info} info)` : "";

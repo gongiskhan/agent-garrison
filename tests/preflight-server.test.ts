@@ -233,12 +233,63 @@ describe("Preflight serialized live operations", () => {
   });
 });
 
+describe("Preflight report cache", () => {
+  it("serves a repeat read from cache and coalesces concurrent misses", async () => {
+    const deps = dependencies({ reportCacheMs: 60_000 });
+    const { port } = await listen(deps);
+    await Promise.all([request(port, "/api/report"), request(port, "/api/report")]);
+    expect(deps.buildReport).toHaveBeenCalledTimes(1);
+    await request(port, "/api/report");
+    expect(deps.buildReport).toHaveBeenCalledTimes(1);
+  });
+
+  it("keys the cache by the requested subset", async () => {
+    const deps = dependencies({ reportCacheMs: 60_000 });
+    const { port } = await listen(deps);
+    await request(port, "/api/report");
+    await request(port, "/api/report?checks=drift");
+    expect(deps.buildReport).toHaveBeenCalledTimes(2);
+  });
+
+  it("honours an explicit fresh read", async () => {
+    const deps = dependencies({ reportCacheMs: 60_000 });
+    const { port } = await listen(deps);
+    await request(port, "/api/report");
+    await request(port, "/api/report?fresh=1");
+    expect(deps.buildReport).toHaveBeenCalledTimes(2);
+  });
+
+  // A repair changes the reality the cached report describes; serving the stale
+  // one afterwards would show the operator a problem they just fixed.
+  it("invalidates after a successful repair and after a sweep", async () => {
+    const deps = dependencies({ reportCacheMs: 60_000 });
+    const { port } = await listen(deps);
+    await request(port, "/api/report");
+    await request(port, "/api/fix", JSON.stringify({ actionId: "library-add-entry", params: { fittingId: "x" } }));
+    await request(port, "/api/report");
+    expect(deps.buildReport).toHaveBeenCalledTimes(2);
+    await request(port, "/api/verify-sweep", JSON.stringify({ compositionId: "default" }));
+    await request(port, "/api/report");
+    expect(deps.buildReport).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not cache a failed build", async () => {
+    const buildReport = vi.fn(async () => { throw new Error("boom"); });
+    const deps = dependencies({ reportCacheMs: 60_000, buildReport });
+    const { port } = await listen(deps);
+    expect((await request(port, "/api/report")).status).toBe(500);
+    await request(port, "/api/report");
+    expect(buildReport).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("Preflight read-only surface", () => {
   it("serves the injected report and confines assets by real path", async () => {
     const deps = dependencies();
     const { port } = await listen(deps);
     expect((await request(port, "/api/report?checks=ports,drift")).status).toBe(200);
-    expect(deps.buildReport).toHaveBeenCalledWith({ checks: ["ports", "drift"] });
+    // The server records history; the repair revalidation deliberately does not.
+    expect(deps.buildReport).toHaveBeenCalledWith({ checks: ["ports", "drift"], ledger: "update" });
     expect((await request(port, "/")).text).toBe("fixture view");
     expect((await request(port, "/", undefined, {}, "HEAD")).text).toBe("");
     for (const route of ["/../dist-sibling/secret.txt", "/%2e%2e/dist-sibling/secret.txt", "/escape.txt", "/missing"]) {

@@ -6,6 +6,7 @@ import { readFile, writeFile, rename, unlink, mkdir, appendFile, open, stat } fr
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
 import { findRepoRoot, GARRISON_HOME } from "./collect.mjs";
+import { dataDir } from "./ledger.mjs";
 import { RETIRED_SEED_IDS } from "./preflight-core.mjs";
 import { appUrl } from "./app-client.mjs";
 
@@ -99,30 +100,44 @@ async function appendJournal(home, entry) {
   } catch { /* A failed audit append cannot undo an already completed repair. */ }
 }
 
-export async function readFixJournal(limit = 20, { home = GARRISON_HOME } = {}) {
-  const count = Math.min(100, Math.max(0, Math.floor(limit)));
-  if (!count) return [];
-  let file;
+async function tailLines(file, count) {
+  let handle;
   try {
-    file = await open(path.join(home, "preflight-fixes.jsonl"), "r");
-    const { size } = await file.stat();
+    handle = await open(file, "r");
+    const { size } = await handle.stat();
     const start = Math.max(0, size - 256_000);
     const buffer = Buffer.alloc(size - start);
-    await file.read(buffer, 0, buffer.length, start);
+    await handle.read(buffer, 0, buffer.length, start);
     const lines = buffer.toString("utf8").split("\n");
     if (start) lines.shift();
-    return lines.filter(Boolean).slice(-count).reverse()
-      .map((line) => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean);
-  } catch { return []; } finally { await file?.close(); }
+    return lines.filter(Boolean).slice(-count);
+  } catch { return []; } finally { await handle?.close(); }
+}
+
+// Reads the current journal AND the flat legacy path this fitting used before
+// its state moved into ~/.garrison/preflight/, so history does not vanish the
+// day the location changed.
+export async function readFixJournal(limit = 20, { home = dataDir(), legacyHome = GARRISON_HOME } = {}) {
+  const count = Math.min(100, Math.max(0, Math.floor(limit)));
+  if (!count) return [];
+  const current = path.join(home, "preflight-fixes.jsonl");
+  const legacy = path.join(legacyHome, "preflight-fixes.jsonl");
+  const lines = [
+    ...(current === legacy ? [] : await tailLines(legacy, count)),
+    ...(await tailLines(current, count))
+  ];
+  return lines.slice(-count).reverse()
+    .map((line) => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean);
 }
 
 export function createFixRunner({
   root: suppliedRoot,
-  home = GARRISON_HOME,
+  home = dataDir(),
   env = process.env,
   exec = execOk,
   fetchImpl = fetch,
-  getReport = async () => (await import("./report.mjs")).buildReport({ startDir: suppliedRoot || process.cwd() })
+  // ledger stays off: revalidation measures fresh reality, it does not record history.
+  getReport = async () => (await import("./report.mjs")).buildReport({ startDir: suppliedRoot, ledger: "off" })
 } = {}) {
   let tail = Promise.resolve();
   const run = async (actionId, params) => {

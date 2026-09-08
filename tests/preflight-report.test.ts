@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 // @ts-ignore
 import { buildReport } from "../fittings/seed/preflight/lib/report.mjs";
+// @ts-ignore
+import { reconcile } from "../fittings/seed/preflight/lib/ledger.mjs";
 
 type Finding = { check: string; id: string; status: string; detail: string };
 
@@ -115,5 +117,69 @@ describe("real problems survive the ranking", () => {
     const orphan = (r.findings as Finding[]).find((f) => f.id === "orphan-mappings");
     expect(orphan?.status).toBe("warn");
     expect(orphan?.detail).toContain("9999");
+  });
+});
+
+// "What changed since last time" is derived from finding IDENTITY, not from
+// diffing two reports: a report carries generatedAt, live pids and counts, so
+// comparing two of them says "changed" every single run.
+describe("the finding ledger", () => {
+  const row = (status: string) => ({ firstSeenAt: "t0", lastSeenAt: "t0", lastStatus: status, seenCount: 1 });
+
+  it("marks new, ongoing, regressed and resolved", () => {
+    const previous = { version: 1, findings: { "a:1": row("warn"), "b:2": row("pass"), "gone:3": row("fail") } };
+    const out = reconcile(previous, [
+      { check: "a", id: "1", status: "fail" },
+      { check: "b", id: "2", status: "pass" },
+      { check: "c", id: "9", status: "warn" }
+    ], "t1");
+    expect(out.annotated.map((f: any) => `${f.check}:${f.id}=${f.age}`))
+      .toEqual(["a:1=regressed", "b:2=ongoing", "c:9=new"]);
+    expect(out.resolved.map((r: any) => r.key)).toEqual(["gone:3"]);
+  });
+
+  it("keeps the date a finding was first seen", () => {
+    const out = reconcile({ version: 1, findings: { "a:1": row("warn") } }, [{ check: "a", id: "1", status: "warn" }], "t9");
+    expect(out.annotated[0].firstSeenAt).toBe("t0");
+    expect(out.next.findings["a:1"].seenCount).toBe(2);
+  });
+
+  // A pass that disappears is not an achievement worth announcing.
+  it("does not announce a vanished pass as resolved", () => {
+    const out = reconcile({ version: 1, findings: { "a:1": row("pass"), "b:2": row("info") } }, [], "t1");
+    expect(out.resolved).toEqual([]);
+  });
+
+  it("annotates and persists through buildReport", async () => {
+    let stored: unknown = null;
+    const collectors = healthy({
+      readLedger: async () => ({ version: 1, findings: {} }),
+      writeLedger: async (doc: unknown) => { stored = doc; }
+    });
+    const r = await buildReport({ startDir: "/fixture", collectors, ledger: "update" });
+    expect((r.findings as any[]).every((f) => f.age === "new")).toBe(true);
+    expect(stored).not.toBeNull();
+  });
+
+  // Reading a corrupt ledger as empty would announce the whole board as new and
+  // everything remembered as resolved. Refuse loudly instead.
+  it("reports an unusable ledger instead of silently starting over", async () => {
+    const collectors = healthy({
+      readLedger: async () => { throw new Error("not valid JSON"); },
+      writeLedger: async () => { throw new Error("must not be called"); }
+    });
+    const r = await buildReport({ startDir: "/fixture", collectors, ledger: "update" });
+    const row = (r.findings as Finding[]).find((f) => f.check === "ledger");
+    expect(row?.status).toBe("warn");
+    expect(row?.detail).toContain("not valid JSON");
+  });
+
+  it("does not touch the ledger when it is off", async () => {
+    const collectors = healthy({
+      readLedger: async () => { throw new Error("must not be read"); },
+      writeLedger: async () => { throw new Error("must not be written"); }
+    });
+    const r = await buildReport({ startDir: "/fixture", collectors });
+    expect((r.findings as Finding[]).some((f) => f.check === "ledger")).toBe(false);
   });
 });

@@ -207,6 +207,35 @@ export function readHookScripts(root, compositions = [], activeCompositionId = n
   return out;
 }
 
+// Which GARRISON_* names a fitting's own code actually reads. Scanned from its
+// scripts and lib, which is where a fitting reads its config; a name that looks
+// right but mangles the id differently than the runner does is absent forever
+// rather than wrong once.
+export function readFittingEnvNames(root, manifests) {
+  const out = [];
+  for (const m of manifests) {
+    if (!(m.configKeys || []).length && !m.ownPort) continue;
+    const names = new Set();
+    for (const sub of ["scripts", "lib"]) {
+      const dir = path.join(root, "fittings", "seed", m.id, sub);
+      let files = [];
+      try { files = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+      for (const f of files) {
+        if (!f.isFile() || !/\.(mjs|js|ts|tsx|sh|py)$/.test(f.name)) continue;
+        try {
+          const text = readFileSync(path.join(dir, f.name), "utf8");
+          // Both manglings matter: GARRISON_<ID>_<KEY> for the runtime spawn and
+          // bare <ID>_<KEY> for setup/verify hooks. Knowing a fitting reads the
+          // RIGHT one is what separates a live bug from a dead fallback.
+          for (const hit of text.matchAll(/\b[A-Z][A-Z0-9_]{2,}\b/g)) names.add(hit[0]);
+        } catch { /* unreadable file: the manifest-parse check owns that story */ }
+      }
+    }
+    out.push({ id: m.id, ownPort: m.ownPort, configKeys: m.configKeys || [], envNames: [...names] });
+  }
+  return out;
+}
+
 export function readCapabilityKinds(root) {
   try {
     const text = readFileSync(path.join(root, "src", "lib", "types.ts"), "utf8");

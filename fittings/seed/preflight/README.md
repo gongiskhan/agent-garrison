@@ -15,9 +15,22 @@ instead of one failure at a time across repeated failed launches.
 | 5 | **Orphan processes** — status files + spawn ledger vs live pids (report-only) | `local-voice` leaked `server.py` processes on an 8 GB machine; count orphans before blaming any model |
 | 6 | **Composition drift** — last-up staleness, apm.yml vs git HEAD, and **unfitted re-station** detection | A fitting removed from selections without an `unfitted` record re-adds itself on the next read; `vault-git-sync` re-stationed itself 16 minutes after being deliberately dropped |
 | 7 | **Capability kinds** — every declared kind still in `capabilityKinds` | One unknown kind 500s `/api/compositions` and takes the whole Muster UI down |
+| 9 | **Config projection** — the env name a fitting reads vs the one the runner projects | The runner uses TWO manglings — `GARRISON_<ID with separators REMOVED>_<KEY>` at runtime, bare `<ID>_<KEY>` for hooks — so a name that keeps the separators is absent forever and the declared default silently wins |
 | 8 | **Hook cwd asymmetry** — paths a setup and verify script each derive from their own location | Setup runs from the seed dir and verify from the composition dir, so `basic-memory` tears down a file in setup that verify then demands — the reason `default-2` could not come up |
 
 Every failing row carries a **`fix`** hint naming the concrete remedy.
+
+## What changed since the last run
+
+Not a snapshot diff: a report carries `generatedAt`, live pids and counts, so
+comparing two of them says "changed" every single time. What is stable is a
+finding's identity, `check:id`, so a ledger under `~/.garrison/preflight/`
+records one row per finding and derives **new** / **ongoing** / **regressed** /
+**resolved** from that. A corrupt ledger is reported and refused, never read as
+empty — reading it as empty would announce the whole board as new and
+everything remembered as resolved. `GARRISON_PREFLIGHT_DATA_DIR` relocates it;
+the legacy flat `~/.garrison/preflight-fixes.jsonl` is still read so repair
+history survived the move.
 
 ## Four bands, and the ranking
 

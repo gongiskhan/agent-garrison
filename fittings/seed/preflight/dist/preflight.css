@@ -130,6 +130,12 @@ button.linkish {
 .finding-detail { color: var(--fg); }
 .finding-fix { margin: 6px 0 0 18px; color: var(--muted); font-size: 13px; }
 .finding-fix::first-line { font-style: italic; }
+.age-chip {
+  font-size: 11px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--border);
+}
+.age-new { color: var(--pass); border-color: var(--pass); }
+.age-regressed { color: var(--fail); border-color: var(--fail); }
+
 .res-badge {
   margin-left: auto; padding: 1px 8px; border-radius: 999px; font-size: 11px;
   white-space: nowrap;

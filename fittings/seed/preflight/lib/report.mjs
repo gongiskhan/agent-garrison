@@ -6,6 +6,7 @@ import {
   crossCheckLibrary,
   findOrphanServeMappings,
   findHookCwdAsymmetry,
+  checkConfigProjection,
   attributeSandboxListeners,
   buildPortClaims,
   findPortCollisions,
@@ -24,6 +25,7 @@ import {
   readCuratedLibrary,
   readCapabilityKinds,
   readHookScripts,
+  readFittingEnvNames,
   readCompositions,
   readLiveListeners,
   readStatusFiles,
@@ -39,17 +41,18 @@ import {
 } from "./collect.mjs";
 import { isAppUp, fetchViews, fetchRunnerState, appUrl } from "./app-client.mjs";
 import { readFixJournal, libraryChange } from "./fixers.mjs";
+import { readLedger, writeLedger, reconcile } from "./ledger.mjs";
 
 // Every side effect this module performs, in one injectable bag. The fitting
 // already does this twice — createRequestHandler(deps) and createFixRunner({..})
 // — and without it the assembly layer is the one layer no test can drive, which
 // is exactly where the report's ranking and deduplication decisions now live.
 const DEFAULT_COLLECTORS = {
-  findRepoRoot, readSeedManifests, readCuratedLibrary, readCapabilityKinds, readHookScripts, readCompositions,
+  findRepoRoot, readSeedManifests, readCuratedLibrary, readCapabilityKinds, readHookScripts, readFittingEnvNames, readCompositions,
   readLiveListeners, readStatusFiles, readGatewayRecords, readProcessCommands,
   readSpawnRecords, readTailscaleServeMap, readActiveComposition,
   readTetheredPorts, resolveProfile, pidAlive, isAppUp, fetchViews, fetchRunnerState, appUrl,
-  readFixJournal, libraryChange
+  readFixJournal, libraryChange, readLedger, writeLedger
 };
 
 // Re-check each journaled fix against CURRENT reality. "resolved" here means
@@ -70,7 +73,9 @@ function annotateResolution(entries, ctx) {
   });
 }
 
-export async function buildReport({ startDir = FITTING_DIR, checks = null, collectors = {} } = {}) {
+// `ledger`: "off" (default) | "read" | "update". The repair revalidation must
+// stay "off" — it exists to measure fresh reality, not to record history.
+export async function buildReport({ startDir = FITTING_DIR, checks = null, collectors = {}, ledger = "off" } = {}) {
   const c = { ...DEFAULT_COLLECTORS, ...collectors };
   const wanted = checks && checks.length ? new Set(checks) : null;
   const run = (name) => !wanted || wanted.has(name);
@@ -166,6 +171,10 @@ export async function buildReport({ startDir = FITTING_DIR, checks = null, colle
     for (const x of compositions) findings.push(...assessDrift({ ...x, activeCompositionId }));
   }
 
+  if (run("config-projection")) {
+    findings.push(...checkConfigProjection(c.readFittingEnvNames(root, manifests)));
+  }
+
   if (run("hook-cwd")) {
     findings.push(...findHookCwdAsymmetry(c.readHookScripts(root, compositions, activeCompositionId)));
   }
@@ -174,8 +183,28 @@ export async function buildReport({ startDir = FITTING_DIR, checks = null, colle
     findings.push(...scanKinds(manifests, { vocabulary: c.readCapabilityKinds(root) }));
   }
 
+  // What changed since the last run. A corrupt ledger is reported, never read
+  // as empty: reading it as empty would announce the whole board as new and
+  // everything remembered as resolved.
+  let resolved = [];
+  if (ledger !== "off") {
+    try {
+      const previous = await c.readLedger();
+      const outcome = reconcile(previous, findings);
+      findings.length = 0;
+      findings.push(...outcome.annotated);
+      resolved = outcome.resolved;
+      if (ledger === "update") await c.writeLedger(outcome.next);
+    } catch (err) {
+      findings.push(mk("ledger", "preflight-ledger", "warn",
+        `The finding ledger could not be used (${err?.message || err}) — "new since last run" is unavailable this run.`,
+        { fix: "Inspect or delete the ledger file; preflight starts a fresh one on the next run." }));
+    }
+  }
+
   const pendingLibrary = await c.libraryChange(root);
   return {
+    resolved,
     findings,
     summary: summarize(findings),
     degraded: !appUp,

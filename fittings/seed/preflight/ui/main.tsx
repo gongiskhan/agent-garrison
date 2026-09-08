@@ -12,6 +12,8 @@ type Finding = {
   evidence?: string;
   fix?: string;
   action?: { id: string; params: Record<string, unknown>; command: string };
+  age?: "new" | "ongoing" | "regressed";
+  previousStatus?: string;
 };
 
 type FixEntry = { at: string; actionId: string; params: Record<string, unknown>; ok: boolean; detail?: string; error?: string; resolved?: boolean | null };
@@ -24,6 +26,7 @@ type Report = {
   compositions?: string[];
   sweepableCompositions?: string[];
   activeComposition?: string | null;
+  resolved?: { key: string; lastStatus: string; lastSeenAt: string }[];
   recentFixes?: FixEntry[];
   libraryDiff?: string | null;
   libraryDiffHash?: string | null;
@@ -107,6 +110,8 @@ function FindingRow({ f, onSweep }: { f: Finding; onSweep?: (compositionId: stri
         ) : (
           <span className="finding-id">{f.id}</span>
         )}
+        {f.age === "new" && <span className="age-chip age-new">new</span>}
+        {f.age === "regressed" && <span className="age-chip age-regressed">regressed from {f.previousStatus}</span>}
         <span className="finding-detail">{f.detail}</span>
       </div>
       {f.fix && <div className="finding-fix">fix: {f.fix}</div>}
@@ -345,6 +350,13 @@ function App() {
         <span className="ts">{new Date(report.generatedAt).toLocaleTimeString()}</span>
         <button onClick={refresh} disabled={sweeping}>refresh</button>
       </div>
+
+      {!!report.resolved?.length && (
+        <div className="headline">
+          <span className="headline-fittings ok">resolved since the last run:</span>
+          <span className="headline-other">{report.resolved.map((r) => r.key).join(" · ")}</span>
+        </div>
+      )}
 
       {(failingFittings.length > 0 || failsByCheck.size > 0) && (
         <div className="headline">

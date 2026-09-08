@@ -24561,6 +24561,11 @@ function FindingRow({ f, onSweep }) {
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "comp-badge", children: parts[0] }),
         parts.slice(1).join(":")
       ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-id", children: f.id }),
+      f.age === "new" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "age-chip age-new", children: "new" }),
+      f.age === "regressed" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "age-chip age-regressed", children: [
+        "regressed from ",
+        f.previousStatus
+      ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-detail", children: f.detail })
     ] }),
     f.fix && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding-fix", children: [
@@ -24773,6 +24778,10 @@ This is heavy: it flips the runner status, may run apm install, and runs every s
       report.degraded && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: "degraded \u2014 app down" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "ts", children: new Date(report.generatedAt).toLocaleTimeString() }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: refresh, disabled: sweeping, children: "refresh" })
+    ] }),
+    !!report.resolved?.length && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "headline", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "headline-fittings ok", children: "resolved since the last run:" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "headline-other", children: report.resolved.map((r) => r.key).join(" \xB7 ") })
     ] }),
     (failingFittings.length > 0 || failsByCheck.size > 0) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "headline", children: [
       failingFittings.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "headline-fittings", children: [

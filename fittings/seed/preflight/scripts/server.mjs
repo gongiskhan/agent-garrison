@@ -172,7 +172,7 @@ export function createRequestHandler(deps = {}) {
       if (cached.inflight) return cached.inflight;
       if (cached.value && Date.now() - cached.at < cacheTtlMs) return Promise.resolve(cached.value);
     }
-    const inflight = Promise.resolve(api.buildReport({ checks })).then(
+    const inflight = Promise.resolve(api.buildReport({ checks, ledger: "update" })).then(
       (value) => { cached = { key, at: Date.now(), inflight: null, value }; return value; },
       (err) => { invalidateReport(); throw err; }
     );

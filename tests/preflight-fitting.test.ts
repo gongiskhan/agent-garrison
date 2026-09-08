@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 // The core is a pure .mjs module with no type declarations; single-line import
 // so the @ts-ignore anchors to the module specifier and suppresses TS7016.
 // @ts-ignore
-import { parseManifest, parseComposition, crossCheckLibrary, buildPortClaims, findPortCollisions, findOrphanServeMappings, findHookCwdAsymmetry, resolveScriptPaths, servePort, assessVerifyResults, assessSweepResults, serveCoverage, classifyOrphans, assessDrift, demote, scanKinds, summarize } from "../fittings/seed/preflight/lib/preflight-core.mjs";
+import { parseManifest, parseComposition, crossCheckLibrary, buildPortClaims, findPortCollisions, findOrphanServeMappings, findHookCwdAsymmetry, resolveScriptPaths, checkConfigProjection, setupEnvName, runtimeEnvName, servePort, assessVerifyResults, assessSweepResults, serveCoverage, classifyOrphans, assessDrift, demote, scanKinds, summarize } from "../fittings/seed/preflight/lib/preflight-core.mjs";
 // @ts-ignore
 import { parseSsListeners } from "../fittings/seed/preflight/lib/collect.mjs";
 
@@ -408,6 +408,56 @@ describe("findOrphanServeMappings", () => {
 
 // The runner runs setup from the seed dir and verify from the composition dir,
 // so any path a script derives from its own location means two things.
+// The runner projects a fitting's config under two DIFFERENT manglings, and
+// confusing them produces a variable that is absent forever rather than wrong
+// once -- the declared default then silently wins.
+describe("checkConfigProjection", () => {
+  it("knows both manglings apart", () => {
+    expect(runtimeEnvName("file-browser", "root")).toBe("GARRISON_FILEBROWSER_ROOT");
+    expect(setupEnvName("file-browser", "root")).toBe("FILE_BROWSER_ROOT");
+  });
+
+  const entry = (envNames: string[]) => ({
+    id: "file-browser", ownPort: true,
+    configKeys: [{ key: "root", type: "string", default: "" }], envNames
+  });
+
+  it("fails a name that keeps the separators the runner drops", () => {
+    const f = checkConfigProjection([entry(["GARRISON_FILE_BROWSER_ROOT"])]) as Finding[];
+    expect(fails(f).map((x) => x.id)).toEqual(["file-browser:GARRISON_FILE_BROWSER_ROOT"]);
+    expect(fails(f)[0].detail).toContain("GARRISON_FILEBROWSER_ROOT");
+  });
+
+  // Matching on the key suffix alone flags every generic variable that happens
+  // to end the same way. These are read on purpose and are not this fitting's.
+  it("ignores instance-wide variables that merely end with the same word", () => {
+    const f = checkConfigProjection([{
+      id: "capture-service", ownPort: true,
+      configKeys: [{ key: "port", type: "integer", default: "8083" }, { key: "enabled", type: "boolean", default: "true" }],
+      envNames: ["GARRISON_BIND_HOST", "GARRISON_GATEWAY_PORT", "GARRISON_CAPTURESERVICE_TRANSCRIBE_ENABLED"]
+    }]) as Finding[];
+    expect(fails(f)).toEqual([]);
+  });
+
+  it("demotes a mangled name when a correct one is read too", () => {
+    const f = checkConfigProjection([entry(["GARRISON_FILE_BROWSER_ROOT", "GARRISON_FILEBROWSER_ROOT"])]) as Finding[];
+    expect(fails(f)).toEqual([]);
+    expect(infos(f)[0].detail).toContain("still arrives");
+  });
+
+  it("warns a non-scalar config key, which neither projection carries", () => {
+    const f = checkConfigProjection([{
+      id: "x", ownPort: false, configKeys: [{ key: "rules", type: "array", default: null }], envNames: []
+    }]) as Finding[];
+    expect(warns(f).map((x) => x.id)).toEqual(["x:rules"]);
+  });
+
+  it("passes a fitting that reads exactly what the runner projects", () => {
+    const f = checkConfigProjection([entry(["GARRISON_FILEBROWSER_ROOT"])]) as Finding[];
+    expect(f.map((x) => x.status)).toEqual(["pass"]);
+  });
+});
+
 describe("findHookCwdAsymmetry", () => {
   const v = (over: Record<string, unknown> = {}) => ({
     name: "KANBAN_FITTING_DIR", expr: "$MODULES_DIR/_local/kanban-loop",

@@ -52,6 +52,10 @@ x-garrison:
       type: string
       default: ""
       description: Garrison app base URL. Empty = use the runner-projected GARRISON_APP_URL, else discover the port via scripts/garrison-instance.sh for the resolved profile (node unless GARRISON_INSTANCE_ID says otherwise). Only set this to reach an app the runner did not tell us about.
+    - key: data_dir
+      type: string
+      default: ""
+      description: Where the finding ledger and repair journal live. Empty = ~/.garrison/preflight/ (GARRISON_PREFLIGHT_DATA_DIR). The legacy flat ~/.garrison/preflight-fixes.jsonl is still read, so history survived the move.
     - key: report_cache_ms
       type: integer
       default: 15000

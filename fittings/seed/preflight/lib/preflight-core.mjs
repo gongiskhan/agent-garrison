@@ -75,18 +75,23 @@ export function parseManifest(text, id = "") {
   // for a top-level config_schema — a silent miss in the very check that exists
   // because improver hid a port claim in a config_schema default.
   const portKeys = [];
+  const configKeys = [];
   const block = configSchemaBlock(text);
   if (block) {
     const items = block.split(/^\s*-\s+key:/m).slice(1);
     for (const item of items) {
       const key = (item.match(/^\s*([\w.-]+)/) || [])[1];
+      if (!key) continue;
+      const type = (item.match(/^\s*type:\s*([\w-]+)\s*$/m) || [])[1] || null;
+      const rawDefault = (item.match(/^\s*default:\s*(.*?)\s*$/m) || [])[1] ?? null;
+      configKeys.push({ key, type, default: rawDefault });
       const def = item.match(/^\s*default:\s*(\d+)\s*$/m);
-      if (key && PORT_KEY.test(key) && def) portKeys.push({ key, default: Number(def[1]) });
+      if (PORT_KEY.test(key) && def) portKeys.push({ key, default: Number(def[1]) });
     }
   }
 
   const kinds = [...text.matchAll(/^\s*-\s*kind:\s*([\w-]+)/gm)].map((m) => m[1]);
-  return { id, ownPort, defaultPort, portKeys, kinds };
+  return { id, ownPort, defaultPort, portKeys, configKeys, kinds };
 }
 
 // Extract selections + unfitted from a composition apm.yml. Returns
@@ -584,6 +589,79 @@ export function findHookCwdAsymmetry(entries) {
   if (!findings.length) {
     findings.push(mk("hook-cwd", "all", "pass",
       `${entries.length} fittings with both hooks derive no path that differs between the seed and composition roots.`));
+  }
+  return findings;
+}
+
+// ---------------------------------------------------------------------------
+// Check 9 — declared config vs the env it will actually be projected as
+//
+// STATIC by necessity: the env a running fitting actually received is exposed
+// by no API and persisted nowhere (only a one-way sha256 lands in the spawn
+// record, src/lib/own-port-lifecycle.ts:103-127). So this compares the DECLARED
+// config against the two projection rules and flags what will silently fail to
+// arrive. It cannot and does not read a live process.
+//
+// Two different manglings exist, and confusing them is the whole point:
+//   setup/verify hooks  runner.ts:1400  NORM(id)_NORM(key), no GARRISON_ prefix
+//   runtime spawn       own-port-lifecycle.ts:73  GARRISON_ + id with separators
+//                                                 REMOVED + _NORM(key)
+// ---------------------------------------------------------------------------
+
+const normKey = (key) => key.replace(/[^A-Za-z0-9]+/g, "_").toUpperCase();
+export const setupEnvName = (id, key) => `${normKey(id)}_${normKey(key)}`;
+export const runtimeEnvName = (id, key) => `GARRISON_${id.replace(/[^A-Za-z0-9]/g, "").toUpperCase()}_${normKey(key)}`;
+
+const LOOPBACK = /^(?:127\.0\.0\.1|localhost|::1|\[::1\])$/i;
+
+// entries: [{ id, ownPort, configKeys: [{key,type,default}], envNames: string[] }]
+export function checkConfigProjection(entries) {
+  const findings = [];
+  for (const entry of entries) {
+    for (const { key, type, default: value } of entry.configKeys || []) {
+      const correct = runtimeEnvName(entry.id, key);
+      const suffix = `_${normKey(key)}`;
+      const bareId = entry.id.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+      // The expensive mistake, and ONLY it: a name whose prefix is this
+      // fitting's id spelled with separators kept (GARRISON_FILE_BROWSER_ROOT)
+      // where the runner drops them (GARRISON_FILEBROWSER_ROOT). Matching on
+      // the key suffix alone is far too broad — it flags GARRISON_BIND_HOST and
+      // GARRISON_GATEWAY_PORT, which are instance-wide variables a fitting
+      // reads on purpose, and GARRISON_<ID>_TRANSCRIBE_ENABLED, which is simply
+      // a different setting that happens to end the same way.
+      // A fitting that ALSO reads a correct name has a dead fallback, not a
+      // silent failure: dev-env reads GARRISON_DEVENV_PORT first and only then
+      // the mangled spelling, so the value does arrive.
+      const readsCorrect = (entry.envNames || []).includes(correct) || (entry.envNames || []).includes(setupEnvName(entry.id, key));
+      const wrong = (entry.envNames || []).filter((n) => {
+        if (n === correct || !n.startsWith("GARRISON_") || !n.endsWith(suffix)) return false;
+        const prefix = n.slice("GARRISON_".length, n.length - suffix.length);
+        return prefix.replace(/_/g, "") === bareId && prefix !== bareId;
+      });
+      for (const name of wrong) {
+        const row = mk("config-projection", `${entry.id}:${name}`, readsCorrect ? "warn" : "fail",
+          `${entry.id} reads ${name}, but the runner projects its "${key}" config as ${correct} — the id is uppercased with separators REMOVED, not underscored, so ${name} is never set.`,
+          { fix: readsCorrect
+              ? `Harmless today because ${entry.id} also reads a correct name, but the dead fallback invites the next reader to copy it. Delete it.`
+              : `Read ${correct} (runtime) or ${setupEnvName(entry.id, key)} (setup/verify hooks); today the declared default silently wins instead.` });
+        findings.push(readsCorrect ? demote(row, "a correct name is read too, so the value still arrives") : row);
+      }
+      if (type === "object" || type === "array") {
+        findings.push(mk("config-projection", `${entry.id}:${key}`, "warn",
+          `${entry.id} declares "${key}" as ${type}, and neither projection carries non-scalar values — it will never reach the process.`,
+          { fix: "Flatten it into scalar keys, or read it from a file the setup hook writes." }));
+      }
+      // Deliberately NOT reported: a loopback bind_host default (dropped on
+      // purpose so the instance-wide GARRISON_BIND_HOST governs) and a
+      // synthesised port. Both are true of nearly every fitting, so a row for
+      // each is filler, not signal.
+      void LOOPBACK;
+      void value;
+    }
+  }
+  if (!findings.length) {
+    findings.push(mk("config-projection", "all", "pass",
+      `${entries.length} fittings read their config under the names the runner actually projects.`));
   }
   return findings;
 }
