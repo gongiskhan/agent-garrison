@@ -153,20 +153,39 @@ describe("seed Fittings", () => {
   // "Unknown fitting"), so an unregistered selection is silently dropped and the
   // composition never resolves. This catches the "new seed fitting created but
   // not registered" gap for the whole run's new fittings, not just identity.
-  it("every fitting selected by the default composition is registered in the library", async () => {
+  //
+  // EVERY composition, not just `default`. Checking only `default` is how
+  // `knowledge` sat unregistered from 2026-06-27 to 2026-09-08: it is stationed
+  // in `jarvis`, so nothing here looked at it, and the resolver silently
+  // dropped it every time that composition was read.
+  it("every fitting selected by ANY composition is registered in the library", async () => {
     const fs = await import("node:fs");
     const yaml = await import("js-yaml");
-    const compManifest = yaml.load(
-      fs.readFileSync(path.resolve(__dirname, "..", "compositions", "default", "apm.yml"), "utf8")
-    ) as { "x-garrison"?: { composition?: { selections?: Record<string, Array<{ id: string }>> } } };
+    const compositionsDir = path.resolve(__dirname, "..", "compositions");
     const library = JSON.parse(
       fs.readFileSync(path.resolve(__dirname, "..", "data", "library.json"), "utf8")
     ) as Array<{ id: string }>;
     const registered = new Set(library.map((e) => e.id));
-    const selections = compManifest["x-garrison"]?.composition?.selections ?? {};
-    const selectedIds = Object.values(selections).flat().map((s) => s.id);
-    const missing = selectedIds.filter((id) => !registered.has(id));
-    expect(missing).toEqual([]);
+
+    const missing: string[] = [];
+    const checked: string[] = [];
+    for (const name of fs.readdirSync(compositionsDir).sort()) {
+      const manifestPath = path.join(compositionsDir, name, "apm.yml");
+      if (!fs.existsSync(manifestPath)) continue;
+      checked.push(name);
+      const compManifest = yaml.load(fs.readFileSync(manifestPath, "utf8")) as {
+        "x-garrison"?: { composition?: { selections?: Record<string, Array<{ id: string }>> } };
+      };
+      const selections = compManifest["x-garrison"]?.composition?.selections ?? {};
+      for (const { id } of Object.values(selections).flat()) {
+        if (!registered.has(id)) missing.push(`${name} selects unregistered "${id}"`);
+      }
+    }
+
+    // A composition set that suddenly reads as empty would make this pass for
+    // the wrong reason.
+    expect(checked.length).toBeGreaterThan(0);
+    expect(missing, missing.join("\n")).toEqual([]);
   });
 });
 
