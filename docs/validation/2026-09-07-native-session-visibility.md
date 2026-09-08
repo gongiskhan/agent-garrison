@@ -218,3 +218,13 @@ and file changes. Owner evidence: ~/.garrison/convergence/shell-control-check/.
 No existing client IDE session was altered. Final deployment and browser results
 are recorded in shared Garrison Node Operations; physical iPhone acceptance is
 still separate from phone-sized WebKit evidence.
+
+
+Mini startup subsequently reproduced a separate transport deadline: its first
+native Node authenticated request to the state authority took 7,391ms; the next
+config read took 339ms. The shared client's former five-second default repeatedly
+aborted Basic Memory and Kanban startup. Its bounded default is now fifteen
+seconds; explicit probe/request budgets and the existing single connection retry
+remain unchanged. Generated fitting copies come from the one shared client.
+A delayed real HTTP response beyond five seconds and an explicit short deadline
+cover this operational fix. No optional fitting behavior or authority changed.

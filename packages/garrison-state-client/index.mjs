@@ -60,7 +60,9 @@ export function discoverStateConfig({ env = process.env, readFileSync } = {}) {
 }
 
 export class StateClient {
-  constructor({ url, token, node, fetchImpl, timeoutMs = 5000 } = {}) {
+  // A cold tailnet connection can take over five seconds before the first
+  // byte (7.4s observed on the Mini). Explicit short probe budgets still win.
+  constructor({ url, token, node, fetchImpl, timeoutMs = 15000 } = {}) {
     if (!url || !token) throw new Error("StateClient requires url and token — use discoverStateConfig()");
     this.url = url.replace(/\/+$/, "");
     this.token = token;
