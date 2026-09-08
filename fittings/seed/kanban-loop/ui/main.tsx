@@ -5229,7 +5229,7 @@ function App() {
 
   // Deep-link support: `?card=<id>` opens that card's detail overlay on load —
   // used by the Jarvis Tasks panel ("jump straight to a card") and by the embed
-  // route, which forwards its query string (incl. garrison:navigate-fitting
+  // route, which forwards its query string (incl. the fitting-navigation
   // params) onto the board iframe. `popstate` handles following another card link
   // in-tab without a full reload. The id must look like a ULID or it's ignored
   // (a bad id would only 404 in DetailSheet).
