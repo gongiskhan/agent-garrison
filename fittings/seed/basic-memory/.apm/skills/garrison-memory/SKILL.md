@@ -22,10 +22,11 @@ The Basic Memory Fitting:
   TCC-protected folders so headless tools can reach it).
 - Registers the `basic-memory mcp` server with Claude Code (and Codex +
   Gemini) so memory tools are available in-session.
-- Wires a lightweight **SessionEnd / PreCompact capture hook** that writes
-  a secret-redacted session checkpoint into the vault's `Memory/` folder.
-  No LLM runs — it is just metadata plus a short transcript tail. Basic
-  Memory's watcher indexes it on the next sync.
+- On nodes enrolled in shared agent continuity, preserves the six owned
+  lifecycle hooks. They publish structural metadata only; raw transcripts and
+  existing authored-note imports stay disabled. Save durable decisions into
+  topic notes deliberately. Unenrolled installations retain their existing
+  capture setup; do not copy its historical transcript material into shared notes.
 
 The vault is committed and pushed to git on a schedule by the Garrison
 **`vault-git-sync`** scheduler job (default nightly, `0 4 * * *`), so memory
@@ -68,9 +69,19 @@ Prefer the Basic Memory MCP tools over reading raw files:
 - `recent_activity` — what changed recently across the knowledge base.
 - `write_note` — persist a durable memory as a markdown note.
 
-CLI equivalents exist for non-MCP contexts:
-`basic-memory tool search-notes "<query>"`, `... read-note <permalink>`,
-`... write-note --title "<t>" --folder <dir>` (content via stdin).
+For CLI fallback, first check `GARRISON_AGENT_CONTINUITY_CONFIG` or the operator's
+`~/.config/garrison/agent-continuity.json`. When enrolled, read its
+`bridge_command` argv array and invoke that command with
+`--config <absolute-config-path> memory-cli --` followed by the normal Basic
+Memory arguments, for example `tool read-note --project main --local <permalink>`
+or `tool write-note --project main --local --title "<t>" --folder <dir>` with
+content on stdin. Preserve argv boundaries; do not evaluate configuration as
+shell code. The bridge selects the same local or SSH authority as MCPs.
+
+Do not use bare `basic-memory` inside an enrolled fitting: its inherited
+configuration can select a different index even for the same vault. Invalid or
+unavailable enrollment is an error to report, not permission to silently choose
+another index. Only unenrolled installations retain the normal bare CLI fallback.
 
 ## Writing durable memories
 

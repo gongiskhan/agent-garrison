@@ -6,9 +6,12 @@
 // The single exception is readWorkingTree(), used only by explicitly-dirty
 // preview flows.
 
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+
+import { relativePath, readRepoText } from "./paths.mjs";
+import { runProcess } from "./process.mjs";
 
 const MAX_BUFFER = 32 * 1024 * 1024; // a big diff or a long log must not truncate silently
 
@@ -16,8 +19,8 @@ function run(root, args, { allowFailure = false } = {}) {
   return new Promise((resolve, reject) => {
     execFile(
       "git",
-      args,
-      { cwd: root, maxBuffer: MAX_BUFFER, encoding: "utf8", windowsHide: true },
+      ["-c", "core.quotePath=false", ...args],
+      { cwd: root, maxBuffer: MAX_BUFFER, encoding: "utf8", windowsHide: true, timeout: 30_000, killSignal: "SIGKILL" },
       (err, stdout, stderr) => {
         if (err) {
           if (allowFailure) return resolve(null);
@@ -32,7 +35,7 @@ function run(root, args, { allowFailure = false } = {}) {
 
 /** Repo-relative, forward-slashed. Manifests never carry a backslash. */
 export function toRepoPath(p) {
-  return String(p).split(path.sep).join("/").replace(/^\.\//, "");
+  return relativePath(String(p).split(path.sep).join("/"));
 }
 
 export async function isGitRepo(root) {
@@ -46,7 +49,8 @@ export async function headSha(root) {
 }
 
 export async function resolveSha(root, rev) {
-  const out = await run(root, ["rev-parse", rev]);
+  const out = await run(root, ["rev-parse", "--verify", "--end-of-options", `${rev}^{commit}`]);
+  if (!/^[a-f0-9]{40}$/.test(out.trim())) throw new Error("revision is not a commit");
   return out.trim();
 }
 
@@ -80,14 +84,15 @@ export async function isDirty(root) {
  * it into an `invalidated` badge, not an exception.
  */
 export async function gitShow(root, sha, relPath) {
-  const out = await run(root, ["show", `${sha}:${toRepoPath(relPath)}`], { allowFailure: true });
+  if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error("invalid anchor commit");
+  const out = await run(root, ["show", "--no-ext-diff", "--no-textconv", `${sha}:${toRepoPath(relPath)}`], { allowFailure: true });
   return out;
 }
 
 /** Working-tree read, for dirty previews only. Null when absent. */
 export async function readWorkingTree(root, relPath) {
   try {
-    return await readFile(path.join(root, relPath), "utf8");
+    return readRepoText(root, relPath);
   } catch {
     return null;
   }
@@ -100,7 +105,7 @@ export async function readWorkingTree(root, relPath) {
  * rename instead of a delete plus an add.
  */
 export async function diffUnifiedZero(root, oldSha, newSha) {
-  return runFiltered(root, ["diff", "--unified=0", "--find-renames", `${oldSha}..${newSha}`], isStructuralDiffLine);
+  return runFiltered(root, ["diff", "--no-ext-diff", "--no-textconv", "--unified=0", "--find-renames", `${oldSha}..${newSha}`], isStructuralDiffLine);
 }
 
 /**
@@ -136,35 +141,10 @@ export function isStructuralDiffLine(line) {
  * since memory here is now bounded by the number of hunks rather than the size of
  * the change.
  */
-function runFiltered(root, args, keep) {
-  return new Promise((resolve, reject) => {
-    const child = spawn("git", args, { cwd: root, windowsHide: true });
-    const kept = [];
-    let pending = "";
-    let stderr = "";
-
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk) => {
-      pending += chunk;
-      const lines = pending.split("\n");
-      // The last piece may be half a line; hold it until the next chunk.
-      pending = lines.pop() ?? "";
-      for (const line of lines) if (keep(line)) kept.push(line);
-    });
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk) => {
-      if (stderr.length < 4096) stderr += chunk;
-    });
-
-    child.on("error", (err) => reject(new Error(`git ${args.join(" ")} failed: ${err.message}`)));
-    child.on("close", (code) => {
-      if (pending && keep(pending)) kept.push(pending);
-      if (code !== 0) {
-        return reject(new Error(`git ${args.join(" ")} failed: ${stderr.trim() || `exit ${code}`}`));
-      }
-      resolve(kept.length ? `${kept.join("\n")}\n` : "");
-    });
-  });
+async function runFiltered(root, args, keep) {
+  const result = await runProcess("git", ["-c", "core.quotePath=false", ...args], { cwd: root, maxBytes: MAX_BUFFER, keepLine: keep });
+  if (result.code !== 0) throw new Error(`git failed: ${result.stderr.slice(0, 400)}`);
+  return result.stdout;
 }
 
 /**
@@ -172,19 +152,19 @@ function runFiltered(root, args, keep) {
  * uncommitted view shows everything that is not yet a commit in one pass.
  */
 export async function diffWorkingTree(root) {
-  return run(root, ["diff", "HEAD", "--unified=3", "--find-renames"]);
+  return run(root, ["diff", "--no-ext-diff", "--no-textconv", "HEAD", "--unified=3", "--find-renames"]);
 }
 
 /** The patch a single commit introduces, optionally narrowed to one path. */
 export async function commitPatch(root, sha, relPath) {
-  const args = ["show", "--format=", "--unified=3", "--find-renames", sha];
+  const args = ["show", "--no-ext-diff", "--no-textconv", "--format=", "--unified=3", "--find-renames", sha];
   if (relPath) args.push("--", toRepoPath(relPath));
   return run(root, args);
 }
 
 /** Files a commit touched, with status letters. */
 export async function commitFiles(root, sha) {
-  const out = await run(root, ["show", "--format=", "--name-status", "--find-renames", sha]);
+  const out = await run(root, ["show", "--no-ext-diff", "--no-textconv", "--format=", "--name-status", "--find-renames", sha]);
   return parseNameStatus(out);
 }
 
@@ -206,7 +186,7 @@ export function parseNameStatus(out) {
 
 /** Commit metadata for a walkthrough header. */
 export async function commitMeta(root, sha) {
-  const out = await run(root, ["show", "--no-patch", "--format=%H%n%h%n%an%n%aI%n%s%n%b", sha]);
+  const out = await run(root, ["show", "--no-ext-diff", "--no-textconv", "--no-patch", "--format=%H%n%h%n%an%n%aI%n%s%n%b", sha]);
   const lines = String(out).split("\n");
   return {
     sha: (lines[0] ?? "").trim(),

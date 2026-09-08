@@ -66,22 +66,38 @@ function garrisonHome() {
   return override && override.length > 0 ? override : path.join(os.homedir(), ".garrison");
 }
 
-/** The web-channel fitting's own-port URL — the surface a peer proxies to for
- *  this node's threads, live SSE, inputs and interrupt.
+/** The surface a peer proxies to for this node's threads, live SSE, inputs and
+ *  interrupt: the Garrison app, which hosts the Conversations engine at /api/*.
+ *  The runner projects it as GARRISON_APP_URL (this instance's own app).
  *
- *  NOTE it is a LOOPBACK url: own-port fittings bind 127.0.0.1, so a peer cannot
- *  dial it directly. The peer-facing proxy (phase 3) resolves the node's tailnet
- *  address from the node registry and rehosts this port there — which is why the
- *  port also rides in the session body. Recording a fabricated tailnet URL here
- *  would be worse: it would look reachable and silently 502. */
+ *  Before the engine moved into the shell the surface was the web-channel
+ *  fitting's own port, read from its status file; that stays the fallback for a
+ *  node still running the legacy host, so its rows keep pointing somewhere real.
+ *
+ *  NOTE it is a LOOPBACK url either way: a peer cannot dial it directly. The
+ *  peer-facing proxy resolves the node's tailnet address from the node registry
+ *  and rehosts onto that - which is why the port also rides in the session body.
+ *  Recording a fabricated tailnet URL here would be worse: it would look
+ *  reachable and silently 502. */
 export function controlSurface() {
   if (cachedControlUrl !== undefined) return cachedControlUrl;
+  const app = process.env.GARRISON_APP_URL?.trim();
+  if (app) {
+    let port = null;
+    try {
+      port = Number(new URL(app).port) || null;
+    } catch {
+      /* an unparseable app url still names the surface; only the port is lost */
+    }
+    cachedControlUrl = { url: app, port };
+    return cachedControlUrl;
+  }
   try {
     const raw = readFileSync(path.join(garrisonHome(), "ui-fittings", "web-channel-default.json"), "utf8");
     const parsed = JSON.parse(raw);
     const url = typeof parsed?.url === "string" && parsed.url.trim() ? parsed.url.trim() : null;
     const port = Number.isFinite(Number(parsed?.port)) ? Number(parsed.port) : null;
-    if (!url) return undefined; // web-channel not up yet — retry on the next call
+    if (!url) return undefined; // legacy host not up yet - retry on the next call
     cachedControlUrl = { url, port };
     return cachedControlUrl;
   } catch {

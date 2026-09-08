@@ -1,0 +1,11 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /Users/ggomes/dev/garrison
+
+ ✓ |unit| tests/talk-capture-feedback.test.ts (12 tests) 23ms
+
+ Test Files  1 passed (1)
+      Tests  12 passed (12)
+   Start at  08:37:17
+   Duration  308ms (transform 35ms, setup 6ms, collect 46ms, tests 23ms, environment 0ms, prepare 48ms)
+

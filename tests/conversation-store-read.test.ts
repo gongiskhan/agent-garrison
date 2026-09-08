@@ -7,19 +7,20 @@
 //   - `conversationEventId` must be spelled identically in the .mjs producer and
 //     the .tsx consumer, or a search hit lands on an id nothing carries.
 import http from "node:http";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // @ts-ignore — pure .mjs
 import { openConversation } from "../packages/claude-pty/src/conversation-store.mjs";
 // @ts-ignore — pure .mjs
-import { handleConversationRequest } from "../packages/claude-pty/src/conversation-http.mjs";
+import { gatewayCancelForwarder, handleConversationRequest } from "../packages/claude-pty/src/conversation-http.mjs";
 // @ts-ignore — pure .mjs
 import { conversationEventId, ledgerToSessionEvents } from "../packages/claude-pty/src/conversation-adapt.mjs";
 // @ts-ignore — pure .mjs (the SERVER half of the block-type whitelist)
-import { sanitizeSessionEvent } from "../fittings/seed/web-channel-default/scripts/threads.mjs";
+import { sanitizeSessionEvent } from "../packages/talk/src/threads.mjs";
 import { conversationEventId as conversationEventIdTsx } from "../packages/claude-chat/src/ConversationView";
+import { groupSessionTurns, mergeSessionEvents, presentSessionTurn, stripHandoffFence } from "../packages/claude-chat/src/journal";
 
 let tmp: string;
 let env: Record<string, string>;
@@ -228,6 +229,148 @@ describe("conversation router - reads", () => {
 });
 
 describe("conversation router - stream", () => {
+  const answer = "1. Concurrent requests both pass the check. Use atomic unique admission.\n\n2. A crash after model execution can cause replay; provider cooperation is required.";
+  const savedReply = `${answer}\n\n\`\`\`handoff\n{"summary":"Bookkeeping only"}\n\`\`\``;
+
+  async function firstFrame(base: string, id: string, from = 0) {
+    const response = await fetch(`${base}/${id}/stream?from=${from}`, { signal: AbortSignal.timeout(3000) });
+    const reader = response.body!.getReader();
+    let text = "";
+    try {
+      while (!text.includes("\n\n")) text += new TextDecoder().decode((await reader.read()).value);
+      return JSON.parse(text.slice(6, text.indexOf("\n\n")));
+    } finally {
+      await reader.cancel();
+    }
+  }
+
+  function replyStore(id: string, replyRef = "payloads/stretch-0001-reply.md") {
+    const store = openConversation(id, { role: "gateway", env });
+    store.append({ kind: "user-message", payload: { text: "Review the synthetic code" } });
+    store.append({ kind: "stretch-started", stretch: "reply-s1", payload: { target: TARGET } });
+    store.writeNamedPayload("stretch-0001-reply.md", savedReply);
+    const finish = () => {
+      store.append({ kind: "handoff", stretch: "reply-s1", payload: { summary: "Bookkeeping only", nextSteps: { next: "done" } } });
+      store.append({ kind: "stretch-ended", stretch: "reply-s1", payload: { replyRef, next: "done", model: "gpt-6-astra" } });
+    };
+    return { store, finish };
+  }
+
+  it.each([0, 3])("replays the complete saved answer through the real stream and renderer (from=%s)", async (from) => {
+    const { finish } = replyStore("c-answer-history");
+    finish();
+    const { base } = await mount();
+    const frame = await firstFrame(base, "c-answer-history", from);
+    const events = mergeSessionEvents([], frame.events.map(sanitizeSessionEvent));
+    const turns = groupSessionTurns(events);
+    const turn = turns.find((item) => item.assistantEvents.some((event) => event.turnId === "reply-s1"))!;
+    expect(stripHandoffFence(presentSessionTurn(turn, false).primaryText)).toBe(answer);
+    expect(frame.events.filter((event: any) => event.blocks.some((block: any) => block.text === savedReply))).toHaveLength(1);
+    // A reconnect recreates the same identities, rather than appending a second answer.
+    expect(mergeSessionEvents(events, (await firstFrame(base, "c-answer-history", from)).events)).toEqual(events);
+  });
+
+  it.each([false, true])("delivers a live answer after progress and avoids a complete streamed duplicate (%s)", async (alreadyStreamed) => {
+    const { store, finish } = replyStore(`c-answer-live-${alreadyStreamed}`);
+    store.append({ kind: "session-event", stretch: "reply-s1", payload: { id: "text-1", role: "assistant", blocks: [{ type: "text", text: "I am checking the two schedules." }] } });
+    const { base } = await mount();
+    const response = await fetch(`${base}/c-answer-live-${alreadyStreamed}/stream`, { signal: AbortSignal.timeout(3000) });
+    const reader = response.body!.getReader();
+    let buffered = "";
+    let events: any[] = [];
+    let stage = 0;
+    try {
+      while (!events.some((event) => event.blocks.some((block: any) => block.phase === "ended"))) {
+        buffered += new TextDecoder().decode((await reader.read()).value);
+        let at: number;
+        while ((at = buffered.indexOf("\n\n")) !== -1) {
+          const raw = buffered.slice(0, at); buffered = buffered.slice(at + 2);
+          if (!raw.startsWith("data: ")) continue;
+          const frame = JSON.parse(raw.slice(6));
+          events = mergeSessionEvents(events, frame.events ?? []);
+          if (stage === 0) {
+            stage = 1;
+            if (alreadyStreamed) store.append({ kind: "session-event", stretch: "reply-s1", payload: { id: "text-1", role: "assistant", blocks: [{ type: "text", text: savedReply }] } });
+            else finish();
+          } else if (stage === 1 && alreadyStreamed) {
+            // Final tee and settlement arrive in separate SSE batches.
+            stage = 2; finish();
+          }
+        }
+      }
+      const turn = groupSessionTurns(events).find((item) => item.assistantEvents.some((event) => event.turnId === "reply-s1"))!;
+      expect(stripHandoffFence(presentSessionTurn(turn, false).primaryText)).toBe(answer);
+      expect(events.filter((event) => event.blocks.some((block: any) => block.text === savedReply))).toHaveLength(1);
+      for (const event of events) expect(sanitizeSessionEvent(event)).not.toBeNull();
+    } finally {
+      await reader.cancel();
+    }
+  });
+
+  it.each(["../outside.md", "/etc/passwd", "payloads/../outside.md", "payloads/%2e%2e/outside.md", "payloads/missing.md", "symlink", "directory-symlink", "oversize"])("does not hydrate unsafe or unavailable reply %s", async (mode) => {
+    const validRef = "payloads/stretch-0001-reply.md";
+    const id = `c-answer-unsafe-${mode.replace(/[^a-z]+/g, "-")}`;
+    const special = ["symlink", "directory-symlink", "oversize"].includes(mode);
+    const { store, finish } = replyStore(id, special ? validRef : mode);
+    const file = path.join(store.dir, validRef);
+    const outside = path.join(tmp, "outside.md");
+    writeFileSync(outside, "PRIVATE_OUTSIDE_SENTINEL");
+    if (mode === "symlink") { rmSync(file); symlinkSync(outside, file); }
+    if (mode === "directory-symlink") {
+      const elsewhere = path.join(tmp, "elsewhere"); mkdirSync(elsewhere);
+      writeFileSync(path.join(elsewhere, "stretch-0001-reply.md"), "PRIVATE_OUTSIDE_SENTINEL");
+      rmSync(path.dirname(file), { recursive: true }); symlinkSync(elsewhere, path.dirname(file));
+    }
+    if (mode === "oversize") writeFileSync(file, "X".repeat(1024 * 1024 + 1));
+    finish();
+    const { base } = await mount();
+    const frame = await firstFrame(base, id);
+    expect(frame.events.some((event: any) => event.id.includes("#reply:"))).toBe(false);
+    expect(JSON.stringify(frame)).not.toContain("PRIVATE_OUTSIDE_SENTINEL");
+    expect(frame.events.some((event: any) => event.blocks.some((block: any) => block.phase === "ended"))).toBe(true);
+  });
+
+  it.each([
+    { name: "an existing history beyond the initial page", initial: 2105, burst: 0 },
+    { name: "a live burst beyond two delta pages", initial: 1, burst: 1205 },
+  ])("drains $name without requiring another write", async ({ initial, burst }) => {
+    const id = `c-backlog-${initial}`;
+    const store = openConversation(id, { role: "gateway", env });
+    const append = (index: number) => {
+      expect(store.append({ kind: "user-message", payload: { text: `message ${index}`, origin: "web" } }).ok).toBe(true);
+    };
+    for (let index = 0; index < initial; index += 1) append(index);
+    const { base } = await mount();
+    const response = await fetch(`${base}/${id}/stream`, { signal: AbortSignal.timeout(3000) });
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    const ids: string[] = [];
+    let buffered = "";
+    let appended = false;
+    try {
+      while (ids.length < initial + burst) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffered += decoder.decode(value, { stream: true });
+        let at: number;
+        while ((at = buffered.indexOf("\n\n")) !== -1) {
+          const raw = buffered.slice(0, at);
+          buffered = buffered.slice(at + 2);
+          if (!raw.startsWith("data: ")) continue;
+          const frame = JSON.parse(raw.slice(6));
+          ids.push(...(frame.events ?? []).map((event: { id: string }) => event.id));
+          if (frame.type === "init" && !appended) {
+            appended = true;
+            for (let index = initial; index < initial + burst; index += 1) append(index);
+          }
+        }
+      }
+      expect(ids).toEqual(Array.from({ length: initial + burst }, (_, index) => conversationEventId(id, index)));
+    } finally {
+      await reader.cancel().catch(() => {});
+    }
+  });
+
   it("emits init from the requested index, then a delta when the ledger grows", async () => {
     const store = seed("c-stream");
     const { base } = await mount();
@@ -270,6 +413,34 @@ describe("conversation router - stream", () => {
 });
 
 describe("conversation router - message", () => {
+  it("stops the addressed conversation through the real gateway cancel door", async () => {
+    const cancellations: unknown[] = [];
+    const gateway = http.createServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      cancellations.push({ path: req.url, body: JSON.parse(Buffer.concat(chunks).toString()) });
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ cancelled: true }));
+    });
+    servers.push(gateway);
+    await new Promise<void>((resolve) => gateway.listen(0, "127.0.0.1", resolve));
+    const port = (gateway.address() as { port: number }).port;
+    const { base } = await mount({ forwardCancel: gatewayCancelForwarder(`http://127.0.0.1:${port}`) });
+    const response = await fetch(`${base}/c-stop/cancel`, { method: "POST" });
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ cancelled: true, conversationId: "c-stop" });
+    expect(cancellations).toEqual([{ path: "/conversation/cancel", body: { conversationId: "c-stop" } }]);
+  });
+
+  it("reports an unavailable stop and a conversation already settled without claiming cancellation", async () => {
+    const unavailable = await mount();
+    expect((await fetch(`${unavailable.base}/c-stop/cancel`, { method: "POST" })).status).toBe(503);
+    const settled = await mount({ forwardCancel: async () => ({ ok: false, status: 404, error: "no advancing conversation" }) });
+    const response = await fetch(`${settled.base}/c-stop/cancel`, { method: "POST" });
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: "no advancing conversation" });
+  });
+
   it("refuses unknown fields, forwards, and records what the responder did not", async () => {
     const store = seed("c-msg");
     const { base, forwardMessage } = await mount();
@@ -377,6 +548,53 @@ describe("conversation router - message", () => {
   });
 });
 
+describe("conversation router - note", () => {
+  it("appends a note nobody answers, dedupes on the client id, and renders it as assistant text", async () => {
+    const store = seed("c-note");
+    const { base, forwardMessage } = await mount();
+
+    const rejected = await fetch(`${base}/c-note/note`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "hi", message: "no" }),
+    });
+    expect(rejected.status).toBe(400);
+    expect((await rejected.json()).error).toContain("message");
+
+    const empty = await fetch(`${base}/c-note/note`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "  " }),
+    });
+    expect(empty.status).toBe(400);
+
+    const post = () => fetch(`${base}/c-note/note`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "Recording ended: screen audio", origin: "capture", clientRequestId: "capture-digest:s1" }),
+    });
+    const first = await post();
+    expect(first.status).toBe(202);
+    expect(await first.json()).toMatchObject({ accepted: true, conversationId: "c-note", duplicate: false });
+    const second = await post();
+    expect(second.status).toBe(202);
+    expect(await second.json()).toMatchObject({ accepted: true, duplicate: true });
+
+    // A note never opens a responder stretch and never becomes a user message.
+    expect(forwardMessage).not.toHaveBeenCalled();
+    const notes = store.tail(50, { kinds: ["note"] });
+    expect(notes).toHaveLength(1);
+    expect(notes[0].payload).toMatchObject({ text: "Recording ended: screen audio", origin: "capture", clientRequestId: "capture-digest:s1" });
+    expect(store.tail(50, { kinds: ["user-message"] })).toHaveLength(1); // only the seeded one
+
+    const events = ledgerToSessionEvents(store.range({ fromIndex: 0, limit: 100 }).events, { conversationId: "c-note" });
+    const rendered = events.find((event: any) => event.blocks?.some((block: any) => block.text === "Recording ended: screen audio"));
+    expect(rendered).toBeTruthy();
+    expect(rendered.role).toBe("assistant");
+    expect(sanitizeSessionEvent(rendered)).not.toBeNull();
+  });
+});
+
 describe("conversation router - search", () => {
   it("returns conversation coordinates and never a file path", async () => {
     seed("c-search");
@@ -474,7 +692,7 @@ describe("ledger -> SessionEvent adapter", () => {
       stretchId: "s1",
       duty: "triage",
       chosenBy: "duty-default",
-      attribution: { runtime: "agent-sdk", model: "sonnet", effort: "medium", account: null },
+      attribution: { runtime: "agent-sdk", model: "sonnet", effort: "medium" },
     });
     expect(stretchEvents[1].blocks[0]).toMatchObject({ phase: "ended", outcome: "handoff", usedTokens: 900 });
   });
@@ -490,6 +708,35 @@ describe("ledger -> SessionEvent adapter", () => {
     expect(ended.revision).toBe(0);
     expect(ended.id).toBe(conversationEventId("c-window", 5));
     expect(sanitizeSessionEvent(ended)).not.toBeNull();
+  });
+
+  it.each([true, false])("settled runtime attribution survives separate SSE batches and sanitizer (effortApplied=%s)", (effortApplied) => {
+    const stretchStarts = new Map();
+    const record = (index: number, kind: string, payload: object) => ({ index, kind, stretch: "codex-proof", payload });
+    const opts = { conversationId: "c-attribution", stretchStarts };
+    const started = ledgerToSessionEvents([record(0, "stretch-started", {
+      target: { id: "requested", runtime: "codex", model: "requested-model", effort: "max" }
+    })], opts)[0];
+    expect(started.blocks[0].attribution).not.toHaveProperty("account");
+    expect(started.blocks[0].attribution).not.toHaveProperty("effortApplied");
+    ledgerToSessionEvents([record(1, "stretch-routing", {
+      runtime: "codex", model: "gpt-6-astra", provider: "chatgpt-subscription", account: "chatgpt", target: "astra-sub"
+    })], opts);
+    const [ended] = ledgerToSessionEvents([record(2, "stretch-ended", {
+      runtime: "codex", provider: "chatgpt-subscription", model: "gpt-6-astra", target: "astra-sub", effort: "high", effortApplied
+    })], opts);
+    expect(ended.id).toBe(started.id);
+    expect(ended.revision).toBe(1);
+    expect(sanitizeSessionEvent(ended)?.blocks[0].attribution).toEqual({
+      route: "astra-sub", runtime: "codex", provider: "chatgpt-subscription", model: "gpt-6-astra",
+      effort: "high", effortApplied, account: "chatgpt"
+    });
+    const [standalone] = ledgerToSessionEvents([record(2, "stretch-ended", {
+      runtime: "codex", model: "gpt-6-astra", effort: "high", effortApplied
+    })], { conversationId: "c-windowed" });
+    expect(sanitizeSessionEvent(standalone)?.blocks[0].attribution).toEqual({
+      runtime: "codex", model: "gpt-6-astra", effort: "high", effortApplied
+    });
   });
 
   it("maps the store's open vocabulary onto the renderer's closed one", () => {
@@ -533,6 +780,22 @@ describe("ledger -> SessionEvent adapter", () => {
 });
 
 describe("ledger -> SessionEvent adapter: teed session events", () => {
+  it.each(["split", "later-progress", "terminal"])("keeps complete reply as final prose after %s tee envelopes", (mode) => {
+    const answer = "First finding.\n\nSecond finding.";
+    const replyTexts = new Map();
+    const eventSlots = new Map();
+    const opts = { conversationId: "c-final-position", replyTexts, eventSlots, readReply: () => answer };
+    const texts = mode === "split" ? ["First finding.", "Second finding."] : mode === "later-progress" ? [answer, "Saving results."] : [answer];
+    const records = texts.map((text, index) => ({
+      index, kind: "session-event", stretch: "s1", payload: { id: `message-${index}`, role: "assistant", blocks: [mode === "terminal" ? { type: "turn_end", result: text } : { type: "text", text }] }
+    }));
+    const initial = ledgerToSessionEvents(records, opts);
+    const settled = ledgerToSessionEvents([{ index: texts.length, kind: "stretch-ended", stretch: "s1", payload: { replyRef: "payloads/reply.md", next: "done" } }], opts);
+    const turn = groupSessionTurns(mergeSessionEvents(initial, settled))[0];
+    expect(presentSessionTurn(turn, false).primaryText).toBe(answer);
+    expect(settled.filter((event: any) => event.id.includes("#reply:"))).toHaveLength(mode === "terminal" ? 0 : 1);
+  });
+
   it("passes the stretch transcript through verbatim, stamped with the stretch turnId", () => {
     const store = openConversation("c-tee", { role: "gateway", env });
     store.init({ title: "tee" });

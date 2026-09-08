@@ -129,7 +129,7 @@ export function refreshStep(step, byFile, newSha, readAt) {
   if (!step.sample) return { step, outcome: "skipped" };
 
   const sample = step.sample;
-  const entry = byFile.get(sample.file);
+  const entry = sample.sha === newSha ? null : byFile.get(sample.file);
 
   if (entry && entry.status === "deleted") {
     return {
@@ -193,7 +193,7 @@ export function refreshStep(step, byFile, newSha, readAt) {
 }
 
 /** Refresh a whole flow. Returns the new flow plus a per-step report. */
-export function refreshFlow(flow, byFile, newSha, readAt) {
+export function refreshFlow(flow, byFile, newSha, readAt, { diffBySha = null } = {}) {
   // `skipped` is counted, not dropped. A flow of eight steps that reports on five
   // leaves the reader unable to reconcile the numbers with the document in front of
   // them, and an unexplained gap in a report about staleness is the worst place to
@@ -212,7 +212,7 @@ export function refreshFlow(flow, byFile, newSha, readAt) {
   const states = (flow.states ?? []).map((state) => ({
     ...state,
     steps: (state.steps ?? []).map((step) => {
-      const { step: next, outcome, renamedTo } = refreshStep(step, byFile, newSha, readAt);
+      const { step: next, outcome, renamedTo } = refreshStep(step, diffBySha?.get(step.sample?.sha ?? flow.anchoredAt?.sha) ?? byFile, newSha, readAt);
       if (outcome === "unchanged") report.unchanged += 1;
       else if (outcome === "restamped") report.restamped += 1;
       else if (outcome === "skipped") report.skipped += 1;
@@ -229,7 +229,7 @@ export function refreshFlow(flow, byFile, newSha, readAt) {
   const nextFlow = {
     ...flow,
     states,
-    anchoredAt: clean ? { ...flow.anchoredAt, sha: newSha } : flow.anchoredAt,
+    anchoredAt: clean ? { ...flow.anchoredAt, sha: newSha, shortSha: newSha.slice(0, 8) } : flow.anchoredAt,
   };
   return { flow: nextFlow, report };
 }
@@ -245,7 +245,7 @@ export function refreshFindings(findings, byFile) {
     const to = f.span.endLine ?? from;
     if (entry.status === "deleted" || hunksTouch(entry.hunks, from, to)) {
       touched.push(f.id);
-      return { ...f, status: f.status === "fixed" ? "fixed" : "open", touchedByCommit: undefined };
+      return { ...f, status: ["fixed", "dismissed"].includes(f.status) ? f.status : "open", touchedByCommit: undefined };
     }
     return f;
   });

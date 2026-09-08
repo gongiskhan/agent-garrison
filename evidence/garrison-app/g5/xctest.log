@@ -1,0 +1,913 @@
+Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild test -project Garrison.xcodeproj -scheme GarrisonApp -destination "platform=iOS Simulator,id=C1B2618D-AA75-482D-8A11-0AD3EC3A3C6E" -derivedDataPath /Users/ggomes/build/garrison-ios/DerivedData CODE_SIGNING_ALLOWED=NO
+
+Build settings from command line:
+    CODE_SIGNING_ALLOWED = NO
+
+Resolve Package Graph
+
+
+Resolved source packages:
+  capacitor-swift-pm: https://github.com/ionic-team/capacitor-swift-pm.git @ 8.5.1
+  CoreBluetoothMock: https://github.com/NordicSemiconductor/IOS-CoreBluetooth-Mock.git @ 0.18.0
+
+ComputePackagePrebuildTargetDependencyGraph
+
+Prepare packages
+
+CreateBuildRequest
+
+SendProjectDescription
+
+CreateBuildOperation
+
+ComputeTargetDependencyGraph
+note: Building targets in dependency order
+note: Target dependency graph (7 targets)
+    Target 'GarrisonTests' in project 'Garrison'
+        ➜ Explicit dependency on target 'GarrisonApp' in project 'Garrison'
+        ➜ Explicit dependency on target 'CoreBluetoothMock' in project 'CoreBluetoothMock'
+    Target 'CoreBluetoothMock' in project 'CoreBluetoothMock'
+        ➜ Explicit dependency on target 'CoreBluetoothMock' in project 'CoreBluetoothMock'
+    Target 'CoreBluetoothMock' in project 'CoreBluetoothMock' (no dependencies)
+    Target 'GarrisonApp' in project 'Garrison'
+        ➜ Explicit dependency on target 'BroadcastExtension' in project 'Garrison'
+        ➜ Explicit dependency on target 'Capacitor' in project 'capacitor-swift-pm'
+        ➜ Explicit dependency on target 'Cordova' in project 'capacitor-swift-pm'
+    Target 'Cordova' in project 'capacitor-swift-pm' (no dependencies)
+    Target 'Capacitor' in project 'capacitor-swift-pm' (no dependencies)
+    Target 'BroadcastExtension' in project 'Garrison' (no dependencies)
+
+GatherProvisioningInputs
+
+CreateBuildDescription
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -x c -c /dev/null
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc --version
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/usr/bin/actool --print-asset-tag-combinations --output-format xml1 /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Assets.xcassets
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld -version_details
+
+ReadFileContents /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/share/docc/features.json
+
+ExecuteExternalTool /Applications/Xcode.app/Contents/Developer/usr/bin/actool --version --output-format xml1
+
+Build description signature: 53545b8adfb4862abb6a726b3ca67987
+Build description path: /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/XCBuildData/53545b8adfb4862abb6a726b3ca67987.xcbuilddata
+ClangStatCache /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk /Users/ggomes/build/garrison-ios/DerivedData/SDKStatCaches.noindex/iphonesimulator26.2-23C53-7d00a8b37fbd7999ea79df8ebc024bf0.sdkstatcache
+    cd /Users/ggomes/build/garrison-ios/ios/Garrison.xcodeproj
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -o /Users/ggomes/build/garrison-ios/DerivedData/SDKStatCaches.noindex/iphonesimulator26.2-23C53-7d00a8b37fbd7999ea79df8ebc024bf0.sdkstatcache
+
+ProcessInfoPlistFile /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/BroadcastExtension.appex/Info.plist /Users/ggomes/build/garrison-ios/ios/BroadcastExtension/Info.plist (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-infoPlistUtility /Users/ggomes/build/garrison-ios/ios/BroadcastExtension/Info.plist -producttype com.apple.product-type.app-extension -expandbuildsettings -format binary -platform iphonesimulator -o /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/BroadcastExtension.appex/Info.plist
+
+SwiftDriver BroadcastExtension normal arm64 com.apple.xcode.tools.swift.compiler (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-SwiftDriver -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name BroadcastExtension -Onone -enforce-exclusivity\=checked @/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension.SwiftFileList -DDEBUG -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -application-extension -enable-testing -index-store-path /Users/ggomes/build/garrison-ios/DerivedData/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -F /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -c -j10 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/ggomes/build/garrison-ios/DerivedData/SDKStatCaches.noindex/iphonesimulator26.2-23C53-7d00a8b37fbd7999ea79df8ebc024bf0.sdkstatcache -output-file-map /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension_const_extract_protocols.json -Xcc -iquote -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/BroadcastExtension-generated-files.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/BroadcastExtension-own-target-headers.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/BroadcastExtension-all-non-framework-target-headers.hmap -Xcc -ivfsoverlay -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/Garrison-97bf04700d123ef9fb2f0398332d3b6e-VFS-iphonesimulator/all-product-headers.yaml -Xcc -iquote -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/BroadcastExtension-project-headers.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/include -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/DerivedSources-normal/arm64 -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/DerivedSources/arm64 -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension-Swift.h -working-directory /Users/ggomes/build/garrison-ios/ios -experimental-emit-module-separately -disable-cmo
+
+SwiftCompile normal arm64 Compiling\ NodeStore.swift /Users/ggomes/build/garrison-ios/ios/Shared/NodeStore.swift (in target 'BroadcastExtension' from project 'Garrison')
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Shared/NodeStore.swift (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 Compiling\ AppGroup.swift,\ CaptureProtocol.swift /Users/ggomes/build/garrison-ios/ios/Shared/AppGroup.swift /Users/ggomes/build/garrison-ios/ios/Shared/CaptureProtocol.swift (in target 'BroadcastExtension' from project 'Garrison')
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Shared/AppGroup.swift (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Shared/CaptureProtocol.swift (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 Compiling\ PendantFixture.swift /Users/ggomes/build/garrison-ios/ios/Shared/Pendant/PendantFixture.swift (in target 'BroadcastExtension' from project 'Garrison')
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Shared/Pendant/PendantFixture.swift (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 Compiling\ MockPendantTransport.swift /Users/ggomes/build/garrison-ios/ios/Shared/Pendant/MockPendantTransport.swift (in target 'BroadcastExtension' from project 'Garrison')
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Shared/Pendant/MockPendantTransport.swift (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 Compiling\ PendantProtocol.swift /Users/ggomes/build/garrison-ios/ios/Shared/Pendant/PendantProtocol.swift (in target 'BroadcastExtension' from project 'Garrison')
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Shared/Pendant/PendantProtocol.swift (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 Compiling\ SampleHandler.swift /Users/ggomes/build/garrison-ios/ios/BroadcastExtension/SampleHandler.swift (in target 'BroadcastExtension' from project 'Garrison')
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/BroadcastExtension/SampleHandler.swift (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 Compiling\ OpusEncoder.swift /Users/ggomes/build/garrison-ios/ios/Shared/OpusEncoder.swift (in target 'BroadcastExtension' from project 'Garrison')
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Shared/OpusEncoder.swift (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 Compiling\ PendantFraming.swift /Users/ggomes/build/garrison-ios/ios/Shared/Pendant/PendantFraming.swift (in target 'BroadcastExtension' from project 'Garrison')
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Shared/Pendant/PendantFraming.swift (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 Compiling\ SessionSpool.swift /Users/ggomes/build/garrison-ios/ios/Shared/SessionSpool.swift (in target 'BroadcastExtension' from project 'Garrison')
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Shared/SessionSpool.swift (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+/Users/ggomes/build/garrison-ios/ios/Shared/SessionSpool.swift:34:49: warning: left side of nil coalescing operator '??' has non-optional type 'Date', so the right side is never used
+        activeIndex = (sizes[1] > 0 && dates[1] ?? .distantPast > dates[0] ?? .distantPast) ? 1 : 0
+                                       ~~~~~~~~~^~~~~~~~~~~~~~~
+                                               
+/Users/ggomes/build/garrison-ios/ios/Shared/SessionSpool.swift:34:76: warning: left side of nil coalescing operator '??' has non-optional type 'Date', so the right side is never used
+        activeIndex = (sizes[1] > 0 && dates[1] ?? .distantPast > dates[0] ?? .distantPast) ? 1 : 0
+                                                                  ~~~~~~~~~^~~~~~~~~~~~~~~
+                                                                          
+
+SwiftCompile normal arm64 Compiling\ CaptureUploader.swift,\ DeviceTransport.swift /Users/ggomes/build/garrison-ios/ios/Shared/CaptureUploader.swift /Users/ggomes/build/garrison-ios/ios/Shared/Pendant/DeviceTransport.swift (in target 'BroadcastExtension' from project 'Garrison')
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Shared/CaptureUploader.swift (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Shared/Pendant/DeviceTransport.swift (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftEmitModule normal arm64 Emitting\ module\ for\ BroadcastExtension (in target 'BroadcastExtension' from project 'Garrison')
+
+EmitSwiftModule normal arm64 (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftDriverJobDiscovery normal arm64 Compiling PendantProtocol.swift (in target 'BroadcastExtension' from project 'Garrison')
+
+SwiftDriverJobDiscovery normal arm64 Compiling MockPendantTransport.swift (in target 'BroadcastExtension' from project 'Garrison')
+
+SwiftDriverJobDiscovery normal arm64 Compiling PendantFixture.swift (in target 'BroadcastExtension' from project 'Garrison')
+
+SwiftDriverJobDiscovery normal arm64 Compiling PendantFraming.swift (in target 'BroadcastExtension' from project 'Garrison')
+
+SwiftDriverJobDiscovery normal arm64 Compiling NodeStore.swift (in target 'BroadcastExtension' from project 'Garrison')
+
+SwiftDriverJobDiscovery normal arm64 Compiling SessionSpool.swift (in target 'BroadcastExtension' from project 'Garrison')
+
+SwiftDriverJobDiscovery normal arm64 Compiling CaptureUploader.swift, DeviceTransport.swift (in target 'BroadcastExtension' from project 'Garrison')
+
+SwiftDriverJobDiscovery normal arm64 Compiling SampleHandler.swift (in target 'BroadcastExtension' from project 'Garrison')
+
+SwiftDriverJobDiscovery normal arm64 Compiling OpusEncoder.swift (in target 'BroadcastExtension' from project 'Garrison')
+
+SwiftDriverJobDiscovery normal arm64 Emitting module for BroadcastExtension (in target 'BroadcastExtension' from project 'Garrison')
+
+SwiftDriver\ Compilation\ Requirements BroadcastExtension normal arm64 com.apple.xcode.tools.swift.compiler (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-Swift-Compilation-Requirements -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name BroadcastExtension -Onone -enforce-exclusivity\=checked @/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension.SwiftFileList -DDEBUG -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -application-extension -enable-testing -index-store-path /Users/ggomes/build/garrison-ios/DerivedData/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -F /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -c -j10 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/ggomes/build/garrison-ios/DerivedData/SDKStatCaches.noindex/iphonesimulator26.2-23C53-7d00a8b37fbd7999ea79df8ebc024bf0.sdkstatcache -output-file-map /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension_const_extract_protocols.json -Xcc -iquote -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/BroadcastExtension-generated-files.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/BroadcastExtension-own-target-headers.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/BroadcastExtension-all-non-framework-target-headers.hmap -Xcc -ivfsoverlay -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/Garrison-97bf04700d123ef9fb2f0398332d3b6e-VFS-iphonesimulator/all-product-headers.yaml -Xcc -iquote -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/BroadcastExtension-project-headers.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/include -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/DerivedSources-normal/arm64 -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/DerivedSources/arm64 -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension-Swift.h -working-directory /Users/ggomes/build/garrison-ios/ios -experimental-emit-module-separately -disable-cmo
+
+Copy /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/BroadcastExtension.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension.swiftsourceinfo (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension.swiftsourceinfo /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/BroadcastExtension.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo
+
+Copy /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/BroadcastExtension.swiftmodule/arm64-apple-ios-simulator.swiftmodule /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension.swiftmodule (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension.swiftmodule /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/BroadcastExtension.swiftmodule/arm64-apple-ios-simulator.swiftmodule
+
+Copy /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/BroadcastExtension.swiftmodule/arm64-apple-ios-simulator.abi.json /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension.abi.json (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension.abi.json /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/BroadcastExtension.swiftmodule/arm64-apple-ios-simulator.abi.json
+
+Copy /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/BroadcastExtension.swiftmodule/arm64-apple-ios-simulator.swiftdoc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension.swiftdoc (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension.swiftdoc /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/BroadcastExtension.swiftmodule/arm64-apple-ios-simulator.swiftdoc
+
+SwiftDriver GarrisonApp normal arm64 com.apple.xcode.tools.swift.compiler (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-SwiftDriver -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name GarrisonApp -Onone -enforce-exclusivity\=checked @/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp.SwiftFileList -DDEBUG -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path /Users/ggomes/build/garrison-ios/DerivedData/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -F /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -c -j10 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/ggomes/build/garrison-ios/DerivedData/SDKStatCaches.noindex/iphonesimulator26.2-23C53-7d00a8b37fbd7999ea79df8ebc024bf0.sdkstatcache -output-file-map /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp_const_extract_protocols.json -Xcc -iquote -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/GarrisonApp-generated-files.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/GarrisonApp-own-target-headers.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/GarrisonApp-all-non-framework-target-headers.hmap -Xcc -ivfsoverlay -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/Garrison-97bf04700d123ef9fb2f0398332d3b6e-VFS-iphonesimulator/all-product-headers.yaml -Xcc -iquote -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/GarrisonApp-project-headers.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/include -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/DerivedSources-normal/arm64 -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/DerivedSources/arm64 -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp-Swift.h -working-directory /Users/ggomes/build/garrison-ios/ios -experimental-emit-module-separately -disable-cmo
+
+SwiftDriverJobDiscovery normal arm64 Compiling AppGroup.swift, CaptureProtocol.swift (in target 'BroadcastExtension' from project 'Garrison')
+
+SwiftDriver\ Compilation BroadcastExtension normal arm64 com.apple.xcode.tools.swift.compiler (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-Swift-Compilation -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name BroadcastExtension -Onone -enforce-exclusivity\=checked @/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension.SwiftFileList -DDEBUG -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -application-extension -enable-testing -index-store-path /Users/ggomes/build/garrison-ios/DerivedData/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -F /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -c -j10 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/ggomes/build/garrison-ios/DerivedData/SDKStatCaches.noindex/iphonesimulator26.2-23C53-7d00a8b37fbd7999ea79df8ebc024bf0.sdkstatcache -output-file-map /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension_const_extract_protocols.json -Xcc -iquote -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/BroadcastExtension-generated-files.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/BroadcastExtension-own-target-headers.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/BroadcastExtension-all-non-framework-target-headers.hmap -Xcc -ivfsoverlay -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/Garrison-97bf04700d123ef9fb2f0398332d3b6e-VFS-iphonesimulator/all-product-headers.yaml -Xcc -iquote -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/BroadcastExtension-project-headers.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/include -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/DerivedSources-normal/arm64 -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/DerivedSources/arm64 -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension-Swift.h -working-directory /Users/ggomes/build/garrison-ios/ios -experimental-emit-module-separately -disable-cmo
+
+Ld /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/BroadcastExtension.appex/BroadcastExtension.debug.dylib normal (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -dynamiclib -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -O0 -L/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -L/Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -F/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -F/Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -filelist /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension.LinkFileList -install_name @rpath/BroadcastExtension.debug.dylib -Xlinker -rpath -Xlinker /usr/lib/swift -Xlinker -rpath -Xlinker @executable_path/Frameworks -Xlinker -rpath -Xlinker @executable_path/../../Frameworks -dead_strip -Xlinker -object_path_lto -Xlinker /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -Xlinker -dependency_info -Xlinker /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension_dependency_info.dat -fapplication-extension -fobjc-link-runtime -L/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphonesimulator -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension.swiftmodule @/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension-linker-args.resp -Xlinker -alias -Xlinker _NSExtensionMain -Xlinker ___debug_main_executable_dylib_entry_point -o /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/BroadcastExtension.appex/BroadcastExtension.debug.dylib
+
+SwiftCompile normal arm64 Compiling\ PendantFixture.swift,\ PendantFraming.swift,\ PendantProtocol.swift /Users/ggomes/build/garrison-ios/ios/Shared/Pendant/PendantFixture.swift /Users/ggomes/build/garrison-ios/ios/Shared/Pendant/PendantFraming.swift /Users/ggomes/build/garrison-ios/ios/Shared/Pendant/PendantProtocol.swift (in target 'GarrisonApp' from project 'Garrison')
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Shared/Pendant/PendantFixture.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Shared/Pendant/PendantFraming.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Shared/Pendant/PendantProtocol.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftEmitModule normal arm64 Emitting\ module\ for\ GarrisonApp (in target 'GarrisonApp' from project 'Garrison')
+EmitSwiftModule normal arm64 (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+/Users/ggomes/build/garrison-ios/ios/GarrisonApp/SpeechSink.swift:14:17: warning: stored property 'synthesizer' of 'Sendable'-conforming class 'SpeechUtterer' has non-Sendable type 'AVSpeechSynthesizer'
+    private let synthesizer = AVSpeechSynthesizer()
+                ^
+/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk/System/Library/Frameworks/AVFAudio.framework/Headers/AVSpeechSynthesis.h:227:12: note: class 'AVSpeechSynthesizer' does not conform to the 'Sendable' protocol
+@interface AVSpeechSynthesizer : NSObject
+           ^
+
+SwiftCompile normal arm64 Compiling\ GarrisonSpeechPlugin.swift,\ MockPendantTransport.swift,\ NodeStore.swift /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Plugins/GarrisonSpeechPlugin.swift /Users/ggomes/build/garrison-ios/ios/Shared/Pendant/MockPendantTransport.swift /Users/ggomes/build/garrison-ios/ios/Shared/NodeStore.swift (in target 'GarrisonApp' from project 'Garrison')
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Plugins/GarrisonSpeechPlugin.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Shared/Pendant/MockPendantTransport.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Shared/NodeStore.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 Compiling\ AppGroup.swift,\ BridgeHost.swift,\ BroadcastPicker.swift,\ CaptureController.swift /Users/ggomes/build/garrison-ios/ios/Shared/AppGroup.swift /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Web/BridgeHost.swift /Users/ggomes/build/garrison-ios/ios/GarrisonApp/BroadcastPicker.swift /Users/ggomes/build/garrison-ios/ios/GarrisonApp/CaptureController.swift (in target 'GarrisonApp' from project 'Garrison')
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Shared/AppGroup.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Web/BridgeHost.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/GarrisonApp/BroadcastPicker.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/GarrisonApp/CaptureController.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 Compiling\ SessionSpool.swift,\ SpeechSink.swift,\ GeneratedAssetSymbols.swift /Users/ggomes/build/garrison-ios/ios/Shared/SessionSpool.swift /Users/ggomes/build/garrison-ios/ios/GarrisonApp/SpeechSink.swift /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/DerivedSources/GeneratedAssetSymbols.swift (in target 'GarrisonApp' from project 'Garrison')
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Shared/SessionSpool.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+/Users/ggomes/build/garrison-ios/ios/Shared/SessionSpool.swift:34:49: warning: left side of nil coalescing operator '??' has non-optional type 'Date', so the right side is never used
+        activeIndex = (sizes[1] > 0 && dates[1] ?? .distantPast > dates[0] ?? .distantPast) ? 1 : 0
+                                       ~~~~~~~~~^~~~~~~~~~~~~~~
+                                               
+/Users/ggomes/build/garrison-ios/ios/Shared/SessionSpool.swift:34:76: warning: left side of nil coalescing operator '??' has non-optional type 'Date', so the right side is never used
+        activeIndex = (sizes[1] > 0 && dates[1] ?? .distantPast > dates[0] ?? .distantPast) ? 1 : 0
+                                                                  ~~~~~~~~~^~~~~~~~~~~~~~~
+                                                                          
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/GarrisonApp/SpeechSink.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+/Users/ggomes/build/garrison-ios/ios/GarrisonApp/SpeechSink.swift:14:17: warning: stored property 'synthesizer' of 'Sendable'-conforming class 'SpeechUtterer' has non-Sendable type 'AVSpeechSynthesizer'
+    private let synthesizer = AVSpeechSynthesizer()
+                ^
+/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk/System/Library/Frameworks/AVFAudio.framework/Headers/AVSpeechSynthesis.h:227:12: note: class 'AVSpeechSynthesizer' does not conform to the 'Sendable' protocol
+@interface AVSpeechSynthesizer : NSObject
+           ^
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/DerivedSources/GeneratedAssetSymbols.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 Compiling\ PhoneFeedbackSink.swift,\ PushManager.swift,\ PushRouter.swift /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Pendant/PhoneFeedbackSink.swift /Users/ggomes/build/garrison-ios/ios/GarrisonApp/PushManager.swift /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Web/PushRouter.swift (in target 'GarrisonApp' from project 'Garrison')
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Pendant/PhoneFeedbackSink.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/GarrisonApp/PushManager.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Web/PushRouter.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 Compiling\ GarrisonPendantPlugin.swift,\ GarrisonPlugins.swift,\ GarrisonPushPlugin.swift /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Plugins/GarrisonPendantPlugin.swift /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Plugins/GarrisonPlugins.swift /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Plugins/GarrisonPushPlugin.swift (in target 'GarrisonApp' from project 'Garrison')
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Plugins/GarrisonPendantPlugin.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Plugins/GarrisonPlugins.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Plugins/GarrisonPushPlugin.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 Compiling\ GarrisonBridgeViewController.swift,\ GarrisonCapturePlugin.swift,\ GarrisonNodePlugin.swift /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Web/GarrisonBridgeViewController.swift /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Plugins/GarrisonCapturePlugin.swift /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Plugins/GarrisonNodePlugin.swift (in target 'GarrisonApp' from project 'Garrison')
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Web/GarrisonBridgeViewController.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Plugins/GarrisonCapturePlugin.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Plugins/GarrisonNodePlugin.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 Compiling\ OpusEncoder.swift,\ PendantBLETransport.swift,\ PendantController.swift /Users/ggomes/build/garrison-ios/ios/Shared/OpusEncoder.swift /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Pendant/PendantBLETransport.swift /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Pendant/PendantController.swift (in target 'GarrisonApp' from project 'Garrison')
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Shared/OpusEncoder.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Pendant/PendantBLETransport.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Pendant/PendantController.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+/Users/ggomes/build/garrison-ios/ios/GarrisonApp/Pendant/PendantController.swift:244:27: warning: main actor-isolated property 'transport' can not be referenced from a Sendable closure
+                    self?.transport.writeHaptic(level, completion: nil)
+                          ^
+/Users/ggomes/build/garrison-ios/ios/GarrisonApp/Pendant/PendantController.swift:36:17: note: property declared here
+    private var transport: DeviceTransport
+                ^
+
+SwiftCompile normal arm64 Compiling\ CaptureProtocol.swift,\ CaptureUploader.swift,\ ClipPlayer.swift,\ ConsentSheet.swift /Users/ggomes/build/garrison-ios/ios/Shared/CaptureProtocol.swift /Users/ggomes/build/garrison-ios/ios/Shared/CaptureUploader.swift /Users/ggomes/build/garrison-ios/ios/GarrisonApp/ClipPlayer.swift /Users/ggomes/build/garrison-ios/ios/GarrisonApp/ConsentSheet.swift (in target 'GarrisonApp' from project 'Garrison')
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Shared/CaptureProtocol.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Shared/CaptureUploader.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/GarrisonApp/ClipPlayer.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/GarrisonApp/ConsentSheet.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+ConstructStubExecutorLinkFileList /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/BroadcastExtension-ExecutorLinkFileList-normal-arm64.txt (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    construct-stub-executor-link-file-list /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/BroadcastExtension.appex/BroadcastExtension.debug.dylib /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libPreviewsJITStubExecutor_no_swift_entry_point.a /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libPreviewsJITStubExecutor.a --output /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/BroadcastExtension-ExecutorLinkFileList-normal-arm64.txt
+note: Using stub executor library without Swift entry point. (in target 'BroadcastExtension' from project 'Garrison')
+
+SwiftDriverJobDiscovery normal arm64 Compiling GarrisonPendantPlugin.swift, GarrisonPlugins.swift, GarrisonPushPlugin.swift (in target 'GarrisonApp' from project 'Garrison')
+
+SwiftCompile normal arm64 Compiling\ DeviceTransport.swift,\ FixtureStreamer.swift,\ GarrisonApp.swift /Users/ggomes/build/garrison-ios/ios/Shared/Pendant/DeviceTransport.swift /Users/ggomes/build/garrison-ios/ios/GarrisonApp/FixtureStreamer.swift /Users/ggomes/build/garrison-ios/ios/GarrisonApp/GarrisonApp.swift (in target 'GarrisonApp' from project 'Garrison')
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Shared/Pendant/DeviceTransport.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/GarrisonApp/FixtureStreamer.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/GarrisonApp/GarrisonApp.swift (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+Ld /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/BroadcastExtension.appex/BroadcastExtension normal (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -O0 -L/Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -F/Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -Xlinker -rpath -Xlinker @executable_path -Xlinker -rpath -Xlinker @executable_path/Frameworks -Xlinker -rpath -Xlinker @executable_path/../../Frameworks -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -e ___debug_blank_executor_main -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __debug_dylib -Xlinker /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/BroadcastExtension-DebugDylibPath-normal-arm64.txt -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __debug_entry -Xlinker /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/BroadcastExtension-DebugEntryPoint-normal-arm64.txt -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __debug_instlnm -Xlinker /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/BroadcastExtension-DebugDylibInstallName-normal-arm64.txt -Xlinker -filelist -Xlinker /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/BroadcastExtension-ExecutorLinkFileList-normal-arm64.txt /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/BroadcastExtension.appex/BroadcastExtension.debug.dylib -o /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/BroadcastExtension.appex/BroadcastExtension
+
+SwiftDriverJobDiscovery normal arm64 Compiling PendantFixture.swift, PendantFraming.swift, PendantProtocol.swift (in target 'GarrisonApp' from project 'Garrison')
+
+SwiftDriverJobDiscovery normal arm64 Compiling PhoneFeedbackSink.swift, PushManager.swift, PushRouter.swift (in target 'GarrisonApp' from project 'Garrison')
+
+SwiftDriverJobDiscovery normal arm64 Compiling SessionSpool.swift, SpeechSink.swift, GeneratedAssetSymbols.swift (in target 'GarrisonApp' from project 'Garrison')
+
+ExtractAppIntentsMetadata (in target 'BroadcastExtension' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --module-name BroadcastExtension --sdk-root /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk --xcode-version 17C52 --platform-family iOS --deployment-target 17.0 --bundle-identifier com.gomes.garrison.broadcast --output /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/BroadcastExtension.appex --target-triple arm64-apple-ios17.0-simulator --binary-file /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/BroadcastExtension.appex/BroadcastExtension --dependency-file /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension_dependency_info.dat --stringsdata-file /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension.SwiftFileList --metadata-file-list /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/BroadcastExtension.DependencyMetadataFileList --static-metadata-file-list /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/BroadcastExtension.DependencyStaticMetadataFileList --swift-const-vals-list /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/BroadcastExtension.build/Objects-normal/arm64/BroadcastExtension.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --validate-assistant-intents --no-app-shortcuts-localization
+2026-09-02 13:40:18.560 appintentsmetadataprocessor[98430:44540548] Starting appintentsmetadataprocessor export
+2026-09-02 13:40:18.563 appintentsmetadataprocessor[98430:44540548] warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+
+Copy /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Frameworks/libXCTestSwiftSupport.dylib /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Frameworks
+
+Copy /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Frameworks/libXCTestBundleInject.dylib /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestBundleInject.dylib (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestBundleInject.dylib /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Frameworks
+
+Copy /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Frameworks/XCUnit.framework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCUnit.framework (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCUnit.framework /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Frameworks
+
+Copy /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Frameworks/XCUIAutomation.framework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/XCUIAutomation.framework (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/XCUIAutomation.framework /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Frameworks
+
+Copy /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Frameworks/XCTestSupport.framework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestSupport.framework (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestSupport.framework /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Frameworks
+
+Copy /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Frameworks/XCTestCore.framework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestCore.framework (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestCore.framework /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Frameworks
+
+Copy /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Frameworks/XCTest.framework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/XCTest.framework (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/XCTest.framework /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Frameworks
+
+Copy /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Frameworks/XCTAutomationSupport.framework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTAutomationSupport.framework (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTAutomationSupport.framework /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Frameworks
+
+Copy /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Frameworks/Testing.framework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/Testing.framework (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/Testing.framework /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Frameworks
+
+SwiftDriverJobDiscovery normal arm64 Emitting module for GarrisonApp (in target 'GarrisonApp' from project 'Garrison')
+
+SwiftDriver\ Compilation\ Requirements GarrisonApp normal arm64 com.apple.xcode.tools.swift.compiler (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-Swift-Compilation-Requirements -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name GarrisonApp -Onone -enforce-exclusivity\=checked @/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp.SwiftFileList -DDEBUG -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path /Users/ggomes/build/garrison-ios/DerivedData/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -F /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -c -j10 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/ggomes/build/garrison-ios/DerivedData/SDKStatCaches.noindex/iphonesimulator26.2-23C53-7d00a8b37fbd7999ea79df8ebc024bf0.sdkstatcache -output-file-map /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp_const_extract_protocols.json -Xcc -iquote -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/GarrisonApp-generated-files.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/GarrisonApp-own-target-headers.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/GarrisonApp-all-non-framework-target-headers.hmap -Xcc -ivfsoverlay -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/Garrison-97bf04700d123ef9fb2f0398332d3b6e-VFS-iphonesimulator/all-product-headers.yaml -Xcc -iquote -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/GarrisonApp-project-headers.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/include -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/DerivedSources-normal/arm64 -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/DerivedSources/arm64 -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp-Swift.h -working-directory /Users/ggomes/build/garrison-ios/ios -experimental-emit-module-separately -disable-cmo
+
+Copy /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.swiftmodule/arm64-apple-ios-simulator.swiftmodule /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp.swiftmodule (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp.swiftmodule /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.swiftmodule/arm64-apple-ios-simulator.swiftmodule
+
+Copy /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.swiftmodule/arm64-apple-ios-simulator.swiftdoc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp.swiftdoc (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp.swiftdoc /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.swiftmodule/arm64-apple-ios-simulator.swiftdoc
+
+Copy /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.swiftmodule/arm64-apple-ios-simulator.abi.json /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp.abi.json (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp.abi.json /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.swiftmodule/arm64-apple-ios-simulator.abi.json
+
+Copy /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp.swiftsourceinfo (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp.swiftsourceinfo /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo
+
+SwiftDriver GarrisonTests normal arm64 com.apple.xcode.tools.swift.compiler (in target 'GarrisonTests' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-SwiftDriver -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name GarrisonTests -Onone -enforce-exclusivity\=checked @/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests.SwiftFileList -DDEBUG -DPENDANT_MOCK_BLE -plugin-path /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path /Users/ggomes/build/garrison-ios/DerivedData/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -Isystem /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib -F /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/PackageFrameworks -F /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -F /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks -F /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk/Developer/Library/Frameworks -c -j10 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/ggomes/build/garrison-ios/DerivedData/SDKStatCaches.noindex/iphonesimulator26.2-23C53-7d00a8b37fbd7999ea79df8ebc024bf0.sdkstatcache -output-file-map /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests_const_extract_protocols.json -Xcc -iquote -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/GarrisonTests-generated-files.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/GarrisonTests-own-target-headers.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/GarrisonTests-all-non-framework-target-headers.hmap -Xcc -ivfsoverlay -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/Garrison-97bf04700d123ef9fb2f0398332d3b6e-VFS-iphonesimulator/all-product-headers.yaml -Xcc -iquote -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/GarrisonTests-project-headers.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/include -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/DerivedSources-normal/arm64 -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/DerivedSources/arm64 -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests-Swift.h -working-directory /Users/ggomes/build/garrison-ios/ios -experimental-emit-module-separately -disable-cmo
+
+SwiftDriverJobDiscovery normal arm64 Compiling GarrisonSpeechPlugin.swift, MockPendantTransport.swift, NodeStore.swift (in target 'GarrisonApp' from project 'Garrison')
+
+SwiftDriverJobDiscovery normal arm64 Compiling AppGroup.swift, BridgeHost.swift, BroadcastPicker.swift, CaptureController.swift (in target 'GarrisonApp' from project 'Garrison')
+
+SwiftDriverJobDiscovery normal arm64 Compiling DeviceTransport.swift, FixtureStreamer.swift, GarrisonApp.swift (in target 'GarrisonApp' from project 'Garrison')
+
+SwiftDriverJobDiscovery normal arm64 Compiling GarrisonBridgeViewController.swift, GarrisonCapturePlugin.swift, GarrisonNodePlugin.swift (in target 'GarrisonApp' from project 'Garrison')
+
+SwiftCompile normal arm64 Compiling\ NodeRecordTests.swift /Users/ggomes/build/garrison-ios/ios/Tests/NodeRecordTests.swift (in target 'GarrisonTests' from project 'Garrison')
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Tests/NodeRecordTests.swift (in target 'GarrisonTests' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 Compiling\ SettingsAndConsentTests.swift /Users/ggomes/build/garrison-ios/ios/Tests/SettingsAndConsentTests.swift (in target 'GarrisonTests' from project 'Garrison')
+
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Tests/SettingsAndConsentTests.swift (in target 'GarrisonTests' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 Compiling\ CaptureProtocolTests.swift /Users/ggomes/build/garrison-ios/ios/Tests/CaptureProtocolTests.swift (in target 'GarrisonTests' from project 'Garrison')
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Tests/CaptureProtocolTests.swift (in target 'GarrisonTests' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftEmitModule normal arm64 Emitting\ module\ for\ GarrisonTests (in target 'GarrisonTests' from project 'Garrison')
+
+EmitSwiftModule normal arm64 (in target 'GarrisonTests' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 Compiling\ SpeechSinkTests.swift /Users/ggomes/build/garrison-ios/ios/Tests/SpeechSinkTests.swift (in target 'GarrisonTests' from project 'Garrison')
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Tests/SpeechSinkTests.swift (in target 'GarrisonTests' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftCompile normal arm64 Compiling\ UploaderResumeTests.swift /Users/ggomes/build/garrison-ios/ios/Tests/UploaderResumeTests.swift (in target 'GarrisonTests' from project 'Garrison')
+SwiftCompile normal arm64 /Users/ggomes/build/garrison-ios/ios/Tests/UploaderResumeTests.swift (in target 'GarrisonTests' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    
+
+SwiftDriverJobDiscovery normal arm64 Compiling OpusEncoder.swift, PendantBLETransport.swift, PendantController.swift (in target 'GarrisonApp' from project 'Garrison')
+
+SwiftDriverJobDiscovery normal arm64 Compiling CaptureProtocol.swift, CaptureUploader.swift, ClipPlayer.swift, ConsentSheet.swift (in target 'GarrisonApp' from project 'Garrison')
+
+SwiftDriver\ Compilation GarrisonApp normal arm64 com.apple.xcode.tools.swift.compiler (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-Swift-Compilation -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name GarrisonApp -Onone -enforce-exclusivity\=checked @/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp.SwiftFileList -DDEBUG -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path /Users/ggomes/build/garrison-ios/DerivedData/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -F /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -c -j10 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/ggomes/build/garrison-ios/DerivedData/SDKStatCaches.noindex/iphonesimulator26.2-23C53-7d00a8b37fbd7999ea79df8ebc024bf0.sdkstatcache -output-file-map /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp_const_extract_protocols.json -Xcc -iquote -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/GarrisonApp-generated-files.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/GarrisonApp-own-target-headers.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/GarrisonApp-all-non-framework-target-headers.hmap -Xcc -ivfsoverlay -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/Garrison-97bf04700d123ef9fb2f0398332d3b6e-VFS-iphonesimulator/all-product-headers.yaml -Xcc -iquote -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/GarrisonApp-project-headers.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/include -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/DerivedSources-normal/arm64 -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/DerivedSources/arm64 -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp-Swift.h -working-directory /Users/ggomes/build/garrison-ios/ios -experimental-emit-module-separately -disable-cmo
+
+Ld /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/GarrisonApp.debug.dylib normal (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -dynamiclib -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -O0 -L/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -L/Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -F/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -F/Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -filelist /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp.LinkFileList -install_name @rpath/GarrisonApp.debug.dylib -Xlinker -rpath -Xlinker /usr/lib/swift -Xlinker -rpath -Xlinker @executable_path/Frameworks -dead_strip -Xlinker -object_path_lto -Xlinker /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -Xlinker -dependency_info -Xlinker /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp_dependency_info.dat -fobjc-link-runtime -L/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphonesimulator -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp.swiftmodule @/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp-linker-args.resp -Xlinker -alias -Xlinker _main -Xlinker ___debug_main_executable_dylib_entry_point -framework Capacitor -framework Cordova -o /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/GarrisonApp.debug.dylib
+
+SwiftDriverJobDiscovery normal arm64 Compiling SettingsAndConsentTests.swift (in target 'GarrisonTests' from project 'Garrison')
+
+SwiftDriverJobDiscovery normal arm64 Compiling NodeRecordTests.swift (in target 'GarrisonTests' from project 'Garrison')
+
+SwiftDriverJobDiscovery normal arm64 Emitting module for GarrisonTests (in target 'GarrisonTests' from project 'Garrison')
+
+SwiftDriver\ Compilation\ Requirements GarrisonTests normal arm64 com.apple.xcode.tools.swift.compiler (in target 'GarrisonTests' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-Swift-Compilation-Requirements -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name GarrisonTests -Onone -enforce-exclusivity\=checked @/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests.SwiftFileList -DDEBUG -DPENDANT_MOCK_BLE -plugin-path /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path /Users/ggomes/build/garrison-ios/DerivedData/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -Isystem /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib -F /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/PackageFrameworks -F /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -F /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks -F /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk/Developer/Library/Frameworks -c -j10 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/ggomes/build/garrison-ios/DerivedData/SDKStatCaches.noindex/iphonesimulator26.2-23C53-7d00a8b37fbd7999ea79df8ebc024bf0.sdkstatcache -output-file-map /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests_const_extract_protocols.json -Xcc -iquote -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/GarrisonTests-generated-files.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/GarrisonTests-own-target-headers.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/GarrisonTests-all-non-framework-target-headers.hmap -Xcc -ivfsoverlay -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/Garrison-97bf04700d123ef9fb2f0398332d3b6e-VFS-iphonesimulator/all-product-headers.yaml -Xcc -iquote -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/GarrisonTests-project-headers.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/include -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/DerivedSources-normal/arm64 -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/DerivedSources/arm64 -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests-Swift.h -working-directory /Users/ggomes/build/garrison-ios/ios -experimental-emit-module-separately -disable-cmo
+
+Copy /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonTests.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests.swiftsourceinfo (in target 'GarrisonTests' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests.swiftsourceinfo /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonTests.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo
+
+Copy /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonTests.swiftmodule/arm64-apple-ios-simulator.swiftmodule /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests.swiftmodule (in target 'GarrisonTests' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests.swiftmodule /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonTests.swiftmodule/arm64-apple-ios-simulator.swiftmodule
+
+Copy /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonTests.swiftmodule/arm64-apple-ios-simulator.abi.json /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests.abi.json (in target 'GarrisonTests' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests.abi.json /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonTests.swiftmodule/arm64-apple-ios-simulator.abi.json
+
+SwiftDriverJobDiscovery normal arm64 Compiling CaptureProtocolTests.swift (in target 'GarrisonTests' from project 'Garrison')
+
+SwiftDriverJobDiscovery normal arm64 Compiling SpeechSinkTests.swift (in target 'GarrisonTests' from project 'Garrison')
+
+SwiftDriverJobDiscovery normal arm64 Compiling UploaderResumeTests.swift (in target 'GarrisonTests' from project 'Garrison')
+
+SwiftDriver\ Compilation GarrisonTests normal arm64 com.apple.xcode.tools.swift.compiler (in target 'GarrisonTests' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-Swift-Compilation -- /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name GarrisonTests -Onone -enforce-exclusivity\=checked @/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests.SwiftFileList -DDEBUG -DPENDANT_MOCK_BLE -plugin-path /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path /Users/ggomes/build/garrison-ios/DerivedData/Index.noindex/DataStore -Xcc -D_LIBCPP_HARDENING_MODE\=_LIBCPP_HARDENING_MODE_DEBUG -swift-version 5 -I /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -Isystem /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib -F /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/PackageFrameworks -F /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -F /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks -F /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk/Developer/Library/Frameworks -c -j10 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/ggomes/build/garrison-ios/DerivedData/SDKStatCaches.noindex/iphonesimulator26.2-23C53-7d00a8b37fbd7999ea79df8ebc024bf0.sdkstatcache -output-file-map /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -sdk-module-cache-path /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/ggomes/build/garrison-ios/DerivedData/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests_const_extract_protocols.json -Xcc -iquote -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/GarrisonTests-generated-files.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/GarrisonTests-own-target-headers.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/GarrisonTests-all-non-framework-target-headers.hmap -Xcc -ivfsoverlay -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/Garrison-97bf04700d123ef9fb2f0398332d3b6e-VFS-iphonesimulator/all-product-headers.yaml -Xcc -iquote -Xcc /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/GarrisonTests-project-headers.hmap -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/include -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/DerivedSources-normal/arm64 -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/DerivedSources/arm64 -Xcc -I/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests-Swift.h -working-directory /Users/ggomes/build/garrison-ios/ios -experimental-emit-module-separately -disable-cmo
+
+ConstructStubExecutorLinkFileList /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/GarrisonApp-ExecutorLinkFileList-normal-arm64.txt (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    construct-stub-executor-link-file-list /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/GarrisonApp.debug.dylib /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libPreviewsJITStubExecutor_no_swift_entry_point.a /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libPreviewsJITStubExecutor.a --output /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/GarrisonApp-ExecutorLinkFileList-normal-arm64.txt
+note: Using stub executor library with Swift entry point. (in target 'GarrisonApp' from project 'Garrison')
+
+Ld /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/GarrisonApp normal (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -O0 -L/Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -F/Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -Xlinker -rpath -Xlinker @executable_path -Xlinker -rpath -Xlinker @executable_path/Frameworks -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -e ___debug_blank_executor_main -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __debug_dylib -Xlinker /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/GarrisonApp-DebugDylibPath-normal-arm64.txt -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __debug_instlnm -Xlinker /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/GarrisonApp-DebugDylibInstallName-normal-arm64.txt -Xlinker -filelist -Xlinker /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/GarrisonApp-ExecutorLinkFileList-normal-arm64.txt /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/GarrisonApp.debug.dylib -o /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/GarrisonApp
+
+Copy /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/PlugIns/BroadcastExtension.appex /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/BroadcastExtension.appex (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks -remove-static-executable /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/BroadcastExtension.appex /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/PlugIns
+
+CopySwiftLibs /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-swiftStdLibTool --copy --verbose --scan-executable /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/GarrisonApp.debug.dylib --scan-folder /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Frameworks --scan-folder /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/PlugIns --scan-folder /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/SystemExtensions --scan-folder /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Extensions --platform iphonesimulator --toolchain /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Frameworks --strip-bitcode --strip-bitcode-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os
+Ignoring --strip-bitcode because --sign was not passed
+
+ProcessInfoPlistFile /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Info.plist /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Info.plist (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-infoPlistUtility /Users/ggomes/build/garrison-ios/ios/GarrisonApp/Info.plist -producttype com.apple.product-type.application -genpkginfo /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/PkgInfo -expandbuildsettings -format binary -platform iphonesimulator -additionalcontentfile /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/assetcatalog_generated_info.plist -scanforprivacyfile /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Frameworks/Capacitor.framework -scanforprivacyfile /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Frameworks/Cordova.framework -scanforprivacyfile /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/PlugIns/BroadcastExtension.appex -o /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Info.plist
+
+ExtractAppIntentsMetadata (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --module-name GarrisonApp --sdk-root /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk --xcode-version 17C52 --platform-family iOS --deployment-target 17.0 --bundle-identifier com.gomes.garrison --output /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app --target-triple arm64-apple-ios17.0-simulator --binary-file /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/GarrisonApp --dependency-file /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp_dependency_info.dat --stringsdata-file /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp.SwiftFileList --metadata-file-list /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/GarrisonApp.DependencyMetadataFileList --static-metadata-file-list /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/GarrisonApp.DependencyStaticMetadataFileList --swift-const-vals-list /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonApp.build/Objects-normal/arm64/GarrisonApp.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --validate-assistant-intents --no-app-shortcuts-localization
+2026-09-02 13:40:19.675 appintentsmetadataprocessor[98578:44540897] Starting appintentsmetadataprocessor export
+2026-09-02 13:40:19.676 appintentsmetadataprocessor[98578:44540897] warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+
+ValidateEmbeddedBinary /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/PlugIns/BroadcastExtension.appex (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    /Applications/Xcode.app/Contents/Developer/usr/bin/embeddedBinaryValidationUtility /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/PlugIns/BroadcastExtension.appex -info-plist-path /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/Info.plist
+
+ProcessInfoPlistFile /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/PlugIns/GarrisonTests.xctest/Info.plist /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/empty-GarrisonTests.plist (in target 'GarrisonTests' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-infoPlistUtility /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/empty-GarrisonTests.plist -producttype com.apple.product-type.bundle.unit-test -expandbuildsettings -format binary -platform iphonesimulator -o /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/PlugIns/GarrisonTests.xctest/Info.plist
+
+Ld /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/PlugIns/GarrisonTests.xctest/GarrisonTests normal (in target 'GarrisonTests' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -bundle -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk -O0 -L/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -L/Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -L/Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib -F/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -F/Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/PackageFrameworks -F/Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator -iframework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks -iframework /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk/Developer/Library/Frameworks -filelist /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests.LinkFileList -Xlinker -rpath -Xlinker /usr/lib/swift -Xlinker -rpath -Xlinker /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/PackageFrameworks -Xlinker -rpath -Xlinker @loader_path/Frameworks -Xlinker -rpath -Xlinker @executable_path/Frameworks -dead_strip -bundle_loader /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/GarrisonApp -Xlinker -object_path_lto -Xlinker /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -Xlinker -dependency_info -Xlinker /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests_dependency_info.dat -fobjc-link-runtime -L/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphonesimulator -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests.swiftmodule @/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests-linker-args.resp -Wl,-no_warn_duplicate_libraries -Xlinker -needed_framework -Xlinker XCTest -framework XCTest -Xlinker -needed-lXCTestSwiftSupport -lXCTestSwiftSupport /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/GarrisonApp.debug.dylib -o /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/PlugIns/GarrisonTests.xctest/GarrisonTests -Xlinker -add_ast_path -Xlinker /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/CoreBluetoothMock.build/Debug-iphonesimulator/CoreBluetoothMock.build/Objects-normal/arm64/CoreBluetoothMock.swiftmodule @/Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/CoreBluetoothMock.build/Debug-iphonesimulator/CoreBluetoothMock.build/Objects-normal/arm64/CoreBluetoothMock-linker-args.resp
+
+CopySwiftLibs /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/PlugIns/GarrisonTests.xctest (in target 'GarrisonTests' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-swiftStdLibTool --copy --verbose --scan-executable /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/PlugIns/GarrisonTests.xctest/GarrisonTests --scan-folder /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/PlugIns/GarrisonTests.xctest/Frameworks --scan-folder /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/PlugIns/GarrisonTests.xctest/PlugIns --scan-folder /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/PlugIns/GarrisonTests.xctest/SystemExtensions --scan-folder /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/PlugIns/GarrisonTests.xctest/Extensions --platform iphonesimulator --toolchain /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/PlugIns/GarrisonTests.xctest/Frameworks --strip-bitcode --scan-executable /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib --strip-bitcode-tool /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os
+Ignoring --strip-bitcode because --sign was not passed
+
+ExtractAppIntentsMetadata (in target 'GarrisonTests' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --module-name GarrisonTests --sdk-root /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk --xcode-version 17C52 --platform-family iOS --deployment-target 17.0 --bundle-identifier com.gomes.garrison.tests --output /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/PlugIns/GarrisonTests.xctest --target-triple arm64-apple-ios17.0-simulator --binary-file /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app/PlugIns/GarrisonTests.xctest/GarrisonTests --dependency-file /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests_dependency_info.dat --stringsdata-file /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests.SwiftFileList --metadata-file-list /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/GarrisonTests.DependencyMetadataFileList --static-metadata-file-list /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/GarrisonTests.DependencyStaticMetadataFileList --swift-const-vals-list /Users/ggomes/build/garrison-ios/DerivedData/Build/Intermediates.noindex/Garrison.build/Debug-iphonesimulator/GarrisonTests.build/Objects-normal/arm64/GarrisonTests.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --validate-assistant-intents --no-app-shortcuts-localization
+2026-09-02 13:40:19.967 appintentsmetadataprocessor[98600:44540940] Starting appintentsmetadataprocessor export
+2026-09-02 13:40:19.968 appintentsmetadataprocessor[98600:44540940] warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+
+Validate /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app (in target 'GarrisonApp' from project 'Garrison')
+    cd /Users/ggomes/build/garrison-ios/ios
+    builtin-validationUtility /Users/ggomes/build/garrison-ios/DerivedData/Build/Products/Debug-iphonesimulator/GarrisonApp.app -shallow-bundle -infoplist-subpath Info.plist
+
+Unable to find config.xml, make sure it exists and run npx cap copy.
+2026-09-02 13:40:31.248726+0100 GarrisonApp[99048:44542187] DiskCookieStorage changing policy from 2 to 0, cookie file: file:///Users/ggomes/Library/Developer/CoreSimulator/Devices/C1B2618D-AA75-482D-8A11-0AD3EC3A3C6E/data/Containers/Data/Application/34421193-8439-449C-89A8-52DCE7E4B90F/Library/Cookies/com.gomes.garrison.binarycookies
+2026-09-02 13:40:31.264306+0100 GarrisonApp[99048:44542359] [default] Failed to resolve host network app id to config: bundleID: com.apple.WebKit.Networking instance ID: Optional([_EXExtensionInstanceIdentifier: B88EA70F-9BC5-42F5-9395-EB3DC803A0C4])
+⚡️  Loading app at https://goncalos-macbook-pro.tail31efa.ts.net/talk...
+2026-09-02 13:40:31.493730+0100 GarrisonApp[99048:44542359] [General] Failed to send CA Event for app launch measurements for ca_event_type: 0 event_name: com.apple.app_launch_measurement.FirstFramePresentationMetric
+2026-09-02 13:40:31.703496+0100 GarrisonApp[99048:44542355] [CoreBluetooth] XPC connection invalid
+2026-09-02 13:40:31.765411+0100 GarrisonApp[99048:44542187] [UIFocus] UIKeyboardLayoutStar implements focusItemsInRect: - caching for linear focus movement is limited as long as this view is on screen.
+2026-09-02 13:40:35.010948+0100 GarrisonApp[99048:44542187] [Process] 0x1190f40c0 - [PID=99142] WebProcessProxy::didBecomeUnresponsive:
+2026-09-02 13:40:35.011003+0100 GarrisonApp[99048:44542187] [Process] 0x10502a418 - [pageProxyID=7, webPageID=8, PID=99142] WebPageProxy::processDidBecomeUnresponsive:
+2026-09-02 13:40:35.050276+0100 GarrisonApp[99048:44542187] void * _Nullable NSMapGet(NSMapTable * _Nonnull, const void * _Nullable): map table argument is NULL
+Test Suite 'All tests' started at 2026-09-02 13:40:35.054.
+Test Suite 'GarrisonTests.xctest' started at 2026-09-02 13:40:35.055.
+Test Suite 'BridgePluginRegistryTests' started at 2026-09-02 13:40:35.055.
+Test Case '-[GarrisonTests.BridgePluginRegistryTests testEachPluginExposesExactlyTheContractMethods]' started.
+Test Case '-[GarrisonTests.BridgePluginRegistryTests testEachPluginExposesExactlyTheContractMethods]' passed (0.006 seconds).
+Test Case '-[GarrisonTests.BridgePluginRegistryTests testEveryDeclaredMethodHasAnObjCImplementation]' started.
+Test Case '-[GarrisonTests.BridgePluginRegistryTests testEveryDeclaredMethodHasAnObjCImplementation]' passed (0.009 seconds).
+Test Case '-[GarrisonTests.BridgePluginRegistryTests testJsNamesAreTheFiveInOrder]' started.
+Test Case '-[GarrisonTests.BridgePluginRegistryTests testJsNamesAreTheFiveInOrder]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.BridgePluginRegistryTests testMakeBuildsOneInstancePerNameInOrder]' started.
+Test Case '-[GarrisonTests.BridgePluginRegistryTests testMakeBuildsOneInstancePerNameInOrder]' passed (0.001 seconds).
+Test Suite 'BridgePluginRegistryTests' passed at 2026-09-02 13:40:35.074.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.017 (0.019) seconds
+Test Suite 'CaptureProtocolTests' started at 2026-09-02 13:40:35.074.
+Test Case '-[GarrisonTests.CaptureProtocolTests testBroadcastConversationIdIsConsumedOnce]' started.
+Test Case '-[GarrisonTests.CaptureProtocolTests testBroadcastConversationIdIsConsumedOnce]' passed (0.004 seconds).
+Test Case '-[GarrisonTests.CaptureProtocolTests testControlMessageWireShapes]' started.
+Test Case '-[GarrisonTests.CaptureProtocolTests testControlMessageWireShapes]' passed (0.026 seconds).
+Test Case '-[GarrisonTests.CaptureProtocolTests testConversationIdVocabulary]' started.
+Test Case '-[GarrisonTests.CaptureProtocolTests testConversationIdVocabulary]' passed (0.002 seconds).
+Test Case '-[GarrisonTests.CaptureProtocolTests testDecodesAFeedbackEventCarryingASpokenCue]' started.
+Test Case '-[GarrisonTests.CaptureProtocolTests testDecodesAFeedbackEventCarryingASpokenCue]' passed (0.004 seconds).
+Test Case '-[GarrisonTests.CaptureProtocolTests testDecodesAFeedbackEventWithLanguage]' started.
+Test Case '-[GarrisonTests.CaptureProtocolTests testDecodesAFeedbackEventWithLanguage]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.CaptureProtocolTests testDecodesAFeedbackEventWithNoCue]' started.
+Test Case '-[GarrisonTests.CaptureProtocolTests testDecodesAFeedbackEventWithNoCue]' passed (0.000 seconds).
+Test Case '-[GarrisonTests.CaptureProtocolTests testDecodesAnAckWithAndWithoutLanguage]' started.
+Test Case '-[GarrisonTests.CaptureProtocolTests testDecodesAnAckWithAndWithoutLanguage]' passed (0.004 seconds).
+Test Case '-[GarrisonTests.CaptureProtocolTests testFramingRejectsGarbage]' started.
+Test Case '-[GarrisonTests.CaptureProtocolTests testFramingRejectsGarbage]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.CaptureProtocolTests testFramingRoundTrip]' started.
+Test Case '-[GarrisonTests.CaptureProtocolTests testFramingRoundTrip]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.CaptureProtocolTests testServerMessageParsing]' started.
+Test Case '-[GarrisonTests.CaptureProtocolTests testServerMessageParsing]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.CaptureProtocolTests testSessionIdMatchesServerCharset]' started.
+Test Case '-[GarrisonTests.CaptureProtocolTests testSessionIdMatchesServerCharset]' passed (0.003 seconds).
+Test Suite 'CaptureProtocolTests' passed at 2026-09-02 13:40:35.121.
+	 Executed 11 tests, with 0 failures (0 unexpected) in 0.044 (0.047) seconds
+Test Suite 'MockPendantTransportTests' started at 2026-09-02 13:40:35.122.
+Test Case '-[GarrisonTests.MockPendantTransportTests testDroppedPacketCountsOneLoss]' started.
+Test Case '-[GarrisonTests.MockPendantTransportTests testDroppedPacketCountsOneLoss]' passed (0.020 seconds).
+Test Case '-[GarrisonTests.MockPendantTransportTests testHapticUnsupportedFailsWrite]' started.
+Test Case '-[GarrisonTests.MockPendantTransportTests testHapticUnsupportedFailsWrite]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.MockPendantTransportTests testLowBatteryEventFires]' started.
+Test Case '-[GarrisonTests.MockPendantTransportTests testLowBatteryEventFires]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.MockPendantTransportTests testMalformedInjectionCountsWithoutBreakingStream]' started.
+Test Case '-[GarrisonTests.MockPendantTransportTests testMalformedInjectionCountsWithoutBreakingStream]' passed (0.004 seconds).
+Test Case '-[GarrisonTests.MockPendantTransportTests testOutOfOrderDeliveryCountsLoss]' started.
+Test Case '-[GarrisonTests.MockPendantTransportTests testOutOfOrderDeliveryCountsLoss]' passed (0.002 seconds).
+Test Case '-[GarrisonTests.MockPendantTransportTests testReadsCodecFeaturesBattery]' started.
+Test Case '-[GarrisonTests.MockPendantTransportTests testReadsCodecFeaturesBattery]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.MockPendantTransportTests testRecordsHapticWritesWithTimestamps]' started.
+Test Case '-[GarrisonTests.MockPendantTransportTests testRecordsHapticWritesWithTimestamps]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.MockPendantTransportTests testScriptedDisconnectAndReconnectResumesLive]' started.
+Test Case '-[GarrisonTests.MockPendantTransportTests testScriptedDisconnectAndReconnectResumesLive]' passed (0.008 seconds).
+Test Case '-[GarrisonTests.MockPendantTransportTests testStreamsFixtureFramesInOrder]' started.
+Test Case '-[GarrisonTests.MockPendantTransportTests testStreamsFixtureFramesInOrder]' passed (0.010 seconds).
+Test Suite 'MockPendantTransportTests' passed at 2026-09-02 13:40:35.170.
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.046 (0.048) seconds
+Test Suite 'NodeRecordTests' started at 2026-09-02 13:40:35.171.
+Test Case '-[GarrisonTests.NodeRecordTests testDefaultCaptureBaseURLIsPort8497OnTheSameHost]' started.
+Test Case '-[GarrisonTests.NodeRecordTests testDefaultCaptureBaseURLIsPort8497OnTheSameHost]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.NodeRecordTests testMigratesLegacyKeysIntoOneSelectedNode]' started.
+Test Case '-[GarrisonTests.NodeRecordTests testMigratesLegacyKeysIntoOneSelectedNode]' passed (0.007 seconds).
+Test Case '-[GarrisonTests.NodeRecordTests testNoLegacyKeysMeansNoNodes]' started.
+Test Case '-[GarrisonTests.NodeRecordTests testNoLegacyKeysMeansNoNodes]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.NodeRecordTests testNormalizedOriginAddsHTTPSStripsPathAndRejectsGarbage]' started.
+Test Case '-[GarrisonTests.NodeRecordTests testNormalizedOriginAddsHTTPSStripsPathAndRejectsGarbage]' passed (0.003 seconds).
+Test Case '-[GarrisonTests.NodeRecordTests testRemovingTheCurrentNodeClearsTheLegacyKeys]' started.
+Test Case '-[GarrisonTests.NodeRecordTests testRemovingTheCurrentNodeClearsTheLegacyKeys]' passed (0.010 seconds).
+Test Case '-[GarrisonTests.NodeRecordTests testSelectMirrorsCaptureURLAndTokenIntoTheLegacyKeys]' started.
+Test Case '-[GarrisonTests.NodeRecordTests testSelectMirrorsCaptureURLAndTokenIntoTheLegacyKeys]' passed (0.004 seconds).
+Test Case '-[GarrisonTests.NodeRecordTests testUpsertReplacesByNameAndKeepsOrderStable]' started.
+Test Case '-[GarrisonTests.NodeRecordTests testUpsertReplacesByNameAndKeepsOrderStable]' passed (0.003 seconds).
+Test Suite 'NodeRecordTests' passed at 2026-09-02 13:40:35.202.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.029 (0.031) seconds
+Test Suite 'OpusEncoderTests' started at 2026-09-02 13:40:35.202.
+Test Case '-[GarrisonTests.OpusEncoderTests testEncodeProducesPackets]' started.
+Test Case '-[GarrisonTests.OpusEncoderTests testEncodeProducesPackets]' passed (0.147 seconds).
+Test Case '-[GarrisonTests.OpusEncoderTests testFlushDrainsTailAndFinishesEncoder]' started.
+Test Case '-[GarrisonTests.OpusEncoderTests testFlushDrainsTailAndFinishesEncoder]' passed (0.005 seconds).
+Test Case '-[GarrisonTests.OpusEncoderTests testGainAdaptsToSpeechOnlyAndNeverPumpsNoise]' started.
+Test Case '-[GarrisonTests.OpusEncoderTests testGainAdaptsToSpeechOnlyAndNeverPumpsNoise]' passed (0.099 seconds).
+Test Case '-[GarrisonTests.OpusEncoderTests testInputFormatExposedForChangeDetection]' started.
+Test Case '-[GarrisonTests.OpusEncoderTests testInputFormatExposedForChangeDetection]' passed (0.006 seconds).
+Test Suite 'OpusEncoderTests' passed at 2026-09-02 13:40:35.459.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.257 (0.258) seconds
+Test Suite 'PendantBLETransportMockTests' started at 2026-09-02 13:40:35.459.
+Test Case '-[GarrisonTests.PendantBLETransportMockTests testDiscoversConnectsAndReadsTheProfile]' started.
+2026-09-02 13:40:35.549054+0100 GarrisonApp[99048:44543000] [AXRuntimeCommon] WebContent[99142] Could not register system wide server: -25204
+2026-09-02 13:40:35.549117+0100 GarrisonApp[99048:44543000] [AXRuntimeCommon] WebContent[99142] _AXAddToElementCache was called even though the element was in the cache: <WKAccessibilityWebPageObject: 0x6000021186e0>
+2026-09-02 13:40:35.658138+0100 GarrisonApp[99048:44542403] [General] Failed to send CA Event for app launch measurements for ca_event_type: 1 event_name: com.apple.app_launch_measurement.ExtendedLaunchMetrics
+2026-09-02 13:40:35.683479+0100 GarrisonApp[99048:44543000] [ResourceLoadStatistics] WebContent[99142] Unable to hide query parameters from script (missing data)
+2026-09-02 13:40:35.729590+0100 GarrisonApp[99048:44542187] [RTILog] -[RTIInputSystemClient remoteTextInputSessionWithID:textSuggestionsChanged:]  Can only set suggestions for an active session. sessionID = F59A44A7-63FD-4F93-A9FC-29ABC30DC261
+Test Case '-[GarrisonTests.PendantBLETransportMockTests testDiscoversConnectsAndReadsTheProfile]' passed (0.329 seconds).
+Test Case '-[GarrisonTests.PendantBLETransportMockTests testFailedServiceDiscoveryStillReachesConnected]' started.
+Test Case '-[GarrisonTests.PendantBLETransportMockTests testFailedServiceDiscoveryStillReachesConnected]' passed (0.190 seconds).
+Test Case '-[GarrisonTests.PendantBLETransportMockTests testHapticWriteReachesThePeripheral]' started.
+⚡️  WebView loaded
+⚡️  To Native ->  GarrisonPush addListener 40225105
+⚡️  To Native ->  GarrisonPush pendingRoute 40225106
+⚡️  TO JS {}
+Test Case '-[GarrisonTests.PendantBLETransportMockTests testHapticWriteReachesThePeripheral]' passed (0.195 seconds).
+Test Case '-[GarrisonTests.PendantBLETransportMockTests testStreamsFramedAudioThroughTheRealReassembler]' started.
+Test Case '-[GarrisonTests.PendantBLETransportMockTests testStreamsFramedAudioThroughTheRealReassembler]' passed (0.211 seconds).
+Test Case '-[GarrisonTests.PendantBLETransportMockTests testUnexpectedDisconnectEntersReconnectingAndRecovers]' started.
+Test Case '-[GarrisonTests.PendantBLETransportMockTests testUnexpectedDisconnectEntersReconnectingAndRecovers]' passed (4.532 seconds).
+Test Case '-[GarrisonTests.PendantBLETransportMockTests testUnreachableStoredIdentifierFallsBackToScanning]' started.
+Test Case '-[GarrisonTests.PendantBLETransportMockTests testUnreachableStoredIdentifierFallsBackToScanning]' passed (8.181 seconds).
+Test Suite 'PendantBLETransportMockTests' passed at 2026-09-02 13:40:49.100.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 13.638 (13.641) seconds
+Test Suite 'PendantFeedbackMappingTests' started at 2026-09-02 13:40:49.101.
+Test Case '-[GarrisonTests.PendantFeedbackMappingTests testEveryTierHasAPattern]' started.
+Test Case '-[GarrisonTests.PendantFeedbackMappingTests testEveryTierHasAPattern]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.PendantFeedbackMappingTests testFailureIsALowTriple]' started.
+Test Case '-[GarrisonTests.PendantFeedbackMappingTests testFailureIsALowTriple]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.PendantFeedbackMappingTests testPendantIsOwnedByTheAppNotByAView]' started.
+Test Case '-[GarrisonTests.PendantFeedbackMappingTests testPendantIsOwnedByTheAppNotByAView]' passed (0.003 seconds).
+Test Case '-[GarrisonTests.PendantFeedbackMappingTests testSegmentCapturedIsNotMistakableForAWake]' started.
+Test Case '-[GarrisonTests.PendantFeedbackMappingTests testSegmentCapturedIsNotMistakableForAWake]' passed (0.000 seconds).
+Test Case '-[GarrisonTests.PendantFeedbackMappingTests testWakeLapsedIsDistinctFromEveryOtherTier]' started.
+Test Case '-[GarrisonTests.PendantFeedbackMappingTests testWakeLapsedIsDistinctFromEveryOtherTier]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.PendantFeedbackMappingTests testWindowClosedAndTaskCreatedAreDistinguishable]' started.
+Test Case '-[GarrisonTests.PendantFeedbackMappingTests testWindowClosedAndTaskCreatedAreDistinguishable]' passed (0.000 seconds).
+Test Suite 'PendantFeedbackMappingTests' passed at 2026-09-02 13:40:49.109.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.006 (0.008) seconds
+Test Suite 'PendantFixtureTests' started at 2026-09-02 13:40:49.109.
+Test Case '-[GarrisonTests.PendantFixtureTests testBadLineThrows]' started.
+Test Case '-[GarrisonTests.PendantFixtureTests testBadLineThrows]' passed (0.002 seconds).
+Test Case '-[GarrisonTests.PendantFixtureTests testParsesJsonlPackets]' started.
+Test Case '-[GarrisonTests.PendantFixtureTests testParsesJsonlPackets]' passed (0.000 seconds).
+Test Suite 'PendantFixtureTests' passed at 2026-09-02 13:40:49.117.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.003 (0.009) seconds
+Test Suite 'PendantFramingTests' started at 2026-09-02 13:40:49.118.
+Test Case '-[GarrisonTests.PendantFramingTests testDecodeRejectsRunt]' started.
+Test Case '-[GarrisonTests.PendantFramingTests testDecodeRejectsRunt]' passed (0.000 seconds).
+Test Case '-[GarrisonTests.PendantFramingTests testEncodeDecodeRoundTrip]' started.
+Test Case '-[GarrisonTests.PendantFramingTests testEncodeDecodeRoundTrip]' passed (0.000 seconds).
+Test Case '-[GarrisonTests.PendantFramingTests testFragmentedFrameReassembles]' started.
+Test Case '-[GarrisonTests.PendantFramingTests testFragmentedFrameReassembles]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.PendantFramingTests testFrameIndexGapDropsPendingFrame]' started.
+Test Case '-[GarrisonTests.PendantFramingTests testFrameIndexGapDropsPendingFrame]' passed (0.000 seconds).
+Test Case '-[GarrisonTests.PendantFramingTests testMalformedPacketCountedAndIgnored]' started.
+Test Case '-[GarrisonTests.PendantFramingTests testMalformedPacketCountedAndIgnored]' passed (0.000 seconds).
+Test Case '-[GarrisonTests.PendantFramingTests testPacketIdGapDropsPendingFrame]' started.
+Test Case '-[GarrisonTests.PendantFramingTests testPacketIdGapDropsPendingFrame]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.PendantFramingTests testPacketIdWrapsAt65536WithoutLoss]' started.
+Test Case '-[GarrisonTests.PendantFramingTests testPacketIdWrapsAt65536WithoutLoss]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.PendantFramingTests testSingleNotificationFramesCloseOnNextIndexZero]' started.
+Test Case '-[GarrisonTests.PendantFramingTests testSingleNotificationFramesCloseOnNextIndexZero]' passed (0.001 seconds).
+Test Suite 'PendantFramingTests' passed at 2026-09-02 13:40:49.157.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.005 (0.039) seconds
+Test Suite 'PushRoutingTests' started at 2026-09-02 13:40:49.157.
+Test Case '-[GarrisonTests.PushRoutingTests testFlatPathIsAcceptedForHandBuiltPushes]' started.
+Test Case '-[GarrisonTests.PushRoutingTests testFlatPathIsAcceptedForHandBuiltPushes]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.PushRoutingTests testMissingPathIsNil]' started.
+Test Case '-[GarrisonTests.PushRoutingTests testMissingPathIsNil]' passed (0.000 seconds).
+Test Case '-[GarrisonTests.PushRoutingTests testNestedDataPathWins]' started.
+Test Case '-[GarrisonTests.PushRoutingTests testNestedDataPathWins]' passed (0.000 seconds).
+Test Case '-[GarrisonTests.PushRoutingTests testOnlyBareShellPathsPass]' started.
+Test Case '-[GarrisonTests.PushRoutingTests testOnlyBareShellPathsPass]' passed (0.000 seconds).
+Test Suite 'PushRoutingTests' passed at 2026-09-02 13:40:49.174.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.002 (0.017) seconds
+Test Suite 'SessionSpoolTests' started at 2026-09-02 13:40:49.174.
+Test Case '-[GarrisonTests.SessionSpoolTests testAppendScanAndResumeFilter]' started.
+Test Case '-[GarrisonTests.SessionSpoolTests testAppendScanAndResumeFilter]' passed (0.004 seconds).
+Test Case '-[GarrisonTests.SessionSpoolTests testRingRotationBoundsDiskAndDropsOldest]' started.
+Test Case '-[GarrisonTests.SessionSpoolTests testRingRotationBoundsDiskAndDropsOldest]' passed (0.012 seconds).
+Test Case '-[GarrisonTests.SessionSpoolTests testSurvivesReopenAndSkipsTruncatedTail]' started.
+Test Case '-[GarrisonTests.SessionSpoolTests testSurvivesReopenAndSkipsTruncatedTail]' passed (0.003 seconds).
+Test Suite 'SessionSpoolTests' passed at 2026-09-02 13:40:49.194.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.018 (0.019) seconds
+Test Suite 'SettingsAndConsentTests' started at 2026-09-02 13:40:49.194.
+Test Case '-[GarrisonTests.SettingsAndConsentTests testAuthedRequestCarriesBearerAndPath]' started.
+Test Case '-[GarrisonTests.SettingsAndConsentTests testAuthedRequestCarriesBearerAndPath]' passed (0.003 seconds).
+Test Case '-[GarrisonTests.SettingsAndConsentTests testBroadcastLivenessIsAHeartbeatNotAFlag]' started.
+Test Case '-[GarrisonTests.SettingsAndConsentTests testBroadcastLivenessIsAHeartbeatNotAFlag]' passed (0.003 seconds).
+Test Case '-[GarrisonTests.SettingsAndConsentTests testConsentSuppressionPersists]' started.
+Test Case '-[GarrisonTests.SettingsAndConsentTests testConsentSuppressionPersists]' passed (0.002 seconds).
+Test Case '-[GarrisonTests.SettingsAndConsentTests testEndpointSettingsRoundTrip]' started.
+Test Case '-[GarrisonTests.SettingsAndConsentTests testEndpointSettingsRoundTrip]' passed (0.002 seconds).
+Test Case '-[GarrisonTests.SettingsAndConsentTests testTheExtensionCanExplainWhyItRefusedToStart]' started.
+Test Case '-[GarrisonTests.SettingsAndConsentTests testTheExtensionCanExplainWhyItRefusedToStart]' passed (0.004 seconds).
+Test Case '-[GarrisonTests.SettingsAndConsentTests testUnsetEndpointYieldsNilNotGarbage]' started.
+Test Case '-[GarrisonTests.SettingsAndConsentTests testUnsetEndpointYieldsNilNotGarbage]' passed (0.001 seconds).
+Test Suite 'SettingsAndConsentTests' passed at 2026-09-02 13:40:49.211.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.016 (0.017) seconds
+Test Suite 'SpeechSinkTests' started at 2026-09-02 13:40:49.211.
+Test Case '-[GarrisonTests.SpeechSinkTests testACueNeverQueuesAndNeverDisturbsTheAckQueue]' started.
+2026-09-02 13:40:49.235037+0100 GarrisonApp[99048:44542354] [VoiceDBClient] Error fetching locales: Swift.DecodingError.keyNotFound(_ContainerCodingKey(stringValue: "codingKey: CodingKeys(stringValue: "primary", intValue: nil)", intValue: nil), Swift.DecodingError.Context(codingPath: [], debugDescription: "Missing key", underlyingError: nil)). Using fallback locales.
+Test Case '-[GarrisonTests.SpeechSinkTests testACueNeverQueuesAndNeverDisturbsTheAckQueue]' passed (0.082 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testCeilingNeverSacrificesAnError]' started.
+Test Case '-[GarrisonTests.SpeechSinkTests testCeilingNeverSacrificesAnError]' passed (0.002 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testCuesSpeakEvenWhenInfoAcksAreMuted]' started.
+2026-09-02 13:40:49.314236+0100 GarrisonApp[99048:44542404] [VoiceDBClient] Error fetching voices: Swift.DecodingError.dataCorrupted(Swift.DecodingError.Context(codingPath: [], debugDescription: "Invalid container metadata for _UnkeyedDecodingContainer, found keyedGraphEncodingNodeID", underlyingError: nil)). Using fallback voices.
+2026-09-02 13:40:49.320588+0100 GarrisonApp[99048:44542404] [VoiceDBClient] Error fetching voices: Swift.DecodingError.dataCorrupted(Swift.DecodingError.Context(codingPath: [], debugDescription: "Invalid container metadata for _UnkeyedDecodingContainer, found keyedGraphEncodingNodeID", underlyingError: nil)). Using fallback voices.
+2026-09-02 13:40:49.321416+0100 GarrisonApp[99048:44544524] [VoiceDBClient] Error fetching locales: Swift.DecodingError.keyNotFound(_ContainerCodingKey(stringValue: "codingKey: CodingKeys(stringValue: "primary", intValue: nil)", intValue: nil), Swift.DecodingError.Context(codingPath: [], debugDescription: "Missing key", underlyingError: nil)). Using fallback locales.
+Test Case '-[GarrisonTests.SpeechSinkTests testCuesSpeakEvenWhenInfoAcksAreMuted]' passed (0.037 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testDropsAStaleCue]' started.
+2026-09-02 13:40:49.334225+0100 GarrisonApp[99048:44544524] [VoiceDBClient] Error fetching voices: Swift.DecodingError.dataCorrupted(Swift.DecodingError.Context(codingPath: [], debugDescription: "Invalid container metadata for _UnkeyedDecodingContainer, found keyedGraphEncodingNodeID", underlyingError: nil)). Using fallback voices.
+2026-09-02 13:40:49.334975+0100 GarrisonApp[99048:44544524] [VoiceDBClient] Error fetching voices: Swift.DecodingError.dataCorrupted(Swift.DecodingError.Context(codingPath: [], debugDescription: "Invalid container metadata for _UnkeyedDecodingContainer, found keyedGraphEncodingNodeID", underlyingError: nil)). Using fallback voices.
+2026-09-02 13:40:49.335571+0100 GarrisonApp[99048:44542404] [VoiceDBClient] Error fetching locales: Swift.DecodingError.keyNotFound(_ContainerCodingKey(stringValue: "codingKey: CodingKeys(stringValue: "primary", intValue: nil)", intValue: nil), Swift.DecodingError.Context(codingPath: [], debugDescription: "Missing key", underlyingError: nil)). Using fallback locales.
+Test Case '-[GarrisonTests.SpeechSinkTests testDropsAStaleCue]' passed (0.013 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testFallsBackToTheOnDeviceVoiceWhenTheClipFails]' started.
+Test Case '-[GarrisonTests.SpeechSinkTests testFallsBackToTheOnDeviceVoiceWhenTheClipFails]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testFallsBackToTheSynthesizerWhenTheCueClipFails]' started.
+2026-09-02 13:40:49.348327+0100 GarrisonApp[99048:44542404] [VoiceDBClient] Error fetching voices: Swift.DecodingError.dataCorrupted(Swift.DecodingError.Context(codingPath: [], debugDescription: "Invalid container metadata for _UnkeyedDecodingContainer, found keyedGraphEncodingNodeID", underlyingError: nil)). Using fallback voices.
+2026-09-02 13:40:49.349228+0100 GarrisonApp[99048:44542404] [VoiceDBClient] Error fetching voices: Swift.DecodingError.dataCorrupted(Swift.DecodingError.Context(codingPath: [], debugDescription: "Invalid container metadata for _UnkeyedDecodingContainer, found keyedGraphEncodingNodeID", underlyingError: nil)). Using fallback voices.
+2026-09-02 13:40:49.349823+0100 GarrisonApp[99048:44542404] [VoiceDBClient] Error fetching locales: Swift.DecodingError.keyNotFound(_ContainerCodingKey(stringValue: "codingKey: CodingKeys(stringValue: "primary", intValue: nil)", intValue: nil), Swift.DecodingError.Context(codingPath: [], debugDescription: "Missing key", underlyingError: nil)). Using fallback locales.
+Test Case '-[GarrisonTests.SpeechSinkTests testFallsBackToTheSynthesizerWhenTheCueClipFails]' passed (0.013 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testMasterAndInfoTogglesWithErrorOverride]' started.
+Test Case '-[GarrisonTests.SpeechSinkTests testMasterAndInfoTogglesWithErrorOverride]' passed (0.003 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testMasterSwitchAndMuteSilenceCues]' started.
+Test Case '-[GarrisonTests.SpeechSinkTests testMasterSwitchAndMuteSilenceCues]' passed (0.002 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testMuteForMinutesAndQuietHours]' started.
+Test Case '-[GarrisonTests.SpeechSinkTests testMuteForMinutesAndQuietHours]' passed (0.003 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testNeverSettlesForABrazilianVoiceSilently]' started.
+2026-09-02 13:40:49.370114+0100 GarrisonApp[99048:44542354] [VoiceDBClient] Error fetching voices: Swift.DecodingError.dataCorrupted(Swift.DecodingError.Context(codingPath: [], debugDescription: "Invalid container metadata for _UnkeyedDecodingContainer, found keyedGraphEncodingNodeID", underlyingError: nil)). Using fallback voices.
+2026-09-02 13:40:49.371169+0100 GarrisonApp[99048:44544524] [VoiceDBClient] Error fetching voices: Swift.DecodingError.dataCorrupted(Swift.DecodingError.Context(codingPath: [], debugDescription: "Invalid container metadata for _UnkeyedDecodingContainer, found keyedGraphEncodingNodeID", underlyingError: nil)). Using fallback voices.
+2026-09-02 13:40:49.371945+0100 GarrisonApp[99048:44542403] [VoiceDBClient] Error fetching locales: Swift.DecodingError.keyNotFound(_ContainerCodingKey(stringValue: "codingKey: CodingKeys(stringValue: "primary", intValue: nil)", intValue: nil), Swift.DecodingError.Context(codingPath: [], debugDescription: "Missing key", underlyingError: nil)). Using fallback locales.
+2026-09-02 13:40:49.382703+0100 GarrisonApp[99048:44542346] [VoiceDBClient] Error fetching voices: Swift.DecodingError.dataCorrupted(Swift.DecodingError.Context(codingPath: [], debugDescription: "Invalid container metadata for _UnkeyedDecodingContainer, found keyedGraphEncodingNodeID", underlyingError: nil)). Using fallback voices.
+2026-09-02 13:40:49.383581+0100 GarrisonApp[99048:44542403] [VoiceDBClient] Error fetching voices: Swift.DecodingError.dataCorrupted(Swift.DecodingError.Context(codingPath: [], debugDescription: "Invalid container metadata for _UnkeyedDecodingContainer, found keyedGraphEncodingNodeID", underlyingError: nil)). Using fallback voices.
+2026-09-02 13:40:49.384166+0100 GarrisonApp[99048:44542403] [VoiceDBClient] Error fetching locales: Swift.DecodingError.keyNotFound(_ContainerCodingKey(stringValue: "codingKey: CodingKeys(stringValue: "primary", intValue: nil)", intValue: nil), Swift.DecodingError.Context(codingPath: [], debugDescription: "Missing key", underlyingError: nil)). Using fallback locales.
+Test Case '-[GarrisonTests.SpeechSinkTests testNeverSettlesForABrazilianVoiceSilently]' passed (0.026 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testPicksAVoiceMatchingTheLanguage]' started.
+2026-09-02 13:40:49.396051+0100 GarrisonApp[99048:44544524] [VoiceDBClient] Error fetching voices: Swift.DecodingError.dataCorrupted(Swift.DecodingError.Context(codingPath: [], debugDescription: "Invalid container metadata for _UnkeyedDecodingContainer, found keyedGraphEncodingNodeID", underlyingError: nil)). Using fallback voices.
+2026-09-02 13:40:49.396921+0100 GarrisonApp[99048:44544524] [VoiceDBClient] Error fetching voices: Swift.DecodingError.dataCorrupted(Swift.DecodingError.Context(codingPath: [], debugDescription: "Invalid container metadata for _UnkeyedDecodingContainer, found keyedGraphEncodingNodeID", underlyingError: nil)). Using fallback voices.
+2026-09-02 13:40:49.397533+0100 GarrisonApp[99048:44544524] [VoiceDBClient] Error fetching locales: Swift.DecodingError.keyNotFound(_ContainerCodingKey(stringValue: "codingKey: CodingKeys(stringValue: "primary", intValue: nil)", intValue: nil), Swift.DecodingError.Context(codingPath: [], debugDescription: "Missing key", underlyingError: nil)). Using fallback locales.
+2026-09-02 13:40:49.407463+0100 GarrisonApp[99048:44542354] [VoiceDBClient] Error fetching voices: Swift.DecodingError.dataCorrupted(Swift.DecodingError.Context(codingPath: [], debugDescription: "Invalid container metadata for _UnkeyedDecodingContainer, found keyedGraphEncodingNodeID", underlyingError: nil)). Using fallback voices.
+2026-09-02 13:40:49.408259+0100 GarrisonApp[99048:44542404] [VoiceDBClient] Error fetching voices: Swift.DecodingError.dataCorrupted(Swift.DecodingError.Context(codingPath: [], debugDescription: "Invalid container metadata for _UnkeyedDecodingContainer, found keyedGraphEncodingNodeID", underlyingError: nil)). Using fallback voices.
+2026-09-02 13:40:49.408886+0100 GarrisonApp[99048:44542346] [VoiceDBClient] Error fetching locales: Swift.DecodingError.keyNotFound(_ContainerCodingKey(stringValue: "codingKey: CodingKeys(stringValue: "primary", intValue: nil)", intValue: nil), Swift.DecodingError.Context(codingPath: [], debugDescription: "Missing key", underlyingError: nil)). Using fallback locales.
+Test Case '-[GarrisonTests.SpeechSinkTests testPicksAVoiceMatchingTheLanguage]' passed (0.025 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testPlaysTheRenderedClipInsteadOfSynthesizing]' started.
+Test Case '-[GarrisonTests.SpeechSinkTests testPlaysTheRenderedClipInsteadOfSynthesizing]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testPrefersTheRenderedClipForACue]' started.
+Test Case '-[GarrisonTests.SpeechSinkTests testPrefersTheRenderedClipForACue]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testReceiptSaysWhichVoiceSpoke]' started.
+Test Case '-[GarrisonTests.SpeechSinkTests testReceiptSaysWhichVoiceSpoke]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testSpeaksAWakeCue]' started.
+2026-09-02 13:40:49.425657+0100 GarrisonApp[99048:44542404] [VoiceDBClient] Error fetching voices: Swift.DecodingError.dataCorrupted(Swift.DecodingError.Context(codingPath: [], debugDescription: "Invalid container metadata for _UnkeyedDecodingContainer, found keyedGraphEncodingNodeID", underlyingError: nil)). Using fallback voices.
+2026-09-02 13:40:49.426356+0100 GarrisonApp[99048:44542404] [VoiceDBClient] Error fetching voices: Swift.DecodingError.dataCorrupted(Swift.DecodingError.Context(codingPath: [], debugDescription: "Invalid container metadata for _UnkeyedDecodingContainer, found keyedGraphEncodingNodeID", underlyingError: nil)). Using fallback voices.
+2026-09-02 13:40:49.426900+0100 GarrisonApp[99048:44542403] [VoiceDBClient] Error fetching locales: Swift.DecodingError.keyNotFound(_ContainerCodingKey(stringValue: "codingKey: CodingKeys(stringValue: "primary", intValue: nil)", intValue: nil), Swift.DecodingError.Context(codingPath: [], debugDescription: "Missing key", underlyingError: nil)). Using fallback locales.
+Test Case '-[GarrisonTests.SpeechSinkTests testSpeaksAWakeCue]' passed (0.013 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testSpeaksTextVerbatimAndReportsReceipt]' started.
+Test Case '-[GarrisonTests.SpeechSinkTests testSpeaksTextVerbatimAndReportsReceipt]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testStaleAcksAreDroppedHonestly]' started.
+Test Case '-[GarrisonTests.SpeechSinkTests testStaleAcksAreDroppedHonestly]' passed (0.003 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testSynthesizesWhenNoClipWasRendered]' started.
+Test Case '-[GarrisonTests.SpeechSinkTests testSynthesizesWhenNoClipWasRendered]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testTenAcksInFiveSecondsDoNotProduceTenSentences]' started.
+Test Case '-[GarrisonTests.SpeechSinkTests testTenAcksInFiveSecondsDoNotProduceTenSentences]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testTheCueToggleSilencesCuesOnly]' started.
+Test Case '-[GarrisonTests.SpeechSinkTests testTheCueToggleSilencesCuesOnly]' passed (0.002 seconds).
+Test Suite 'SpeechSinkTests' passed at 2026-09-02 13:40:49.447.
+	 Executed 20 tests, with 0 failures (0 unexpected) in 0.231 (0.236) seconds
+Test Suite 'UploaderResumeTests' started at 2026-09-02 13:40:49.448.
+Test Case '-[GarrisonTests.UploaderResumeTests testResumesFromLastAckedSeqAfterDrop]' started.
+2026-09-02 13:40:49.451693+0100 GarrisonApp[99048:44542403] [] nw_listener_socket_inbox_create_socket setsockopt SO_NECP_LISTENUUID failed [2: No such file or directory]
+2026-09-02 13:40:49.609880+0100 GarrisonApp[99048:44544524] [connection] nw_socket_handle_socket_event [C1:2] Socket SO_ERROR [54: Connection reset by peer]
+2026-09-02 13:40:49.610033+0100 GarrisonApp[99048:44544524] [connection] nw_read_request_report [C1] Receive failed with error "Connection reset by peer"
+2026-09-02 13:40:49.610100+0100 GarrisonApp[99048:44544524] [connection] nw_protocol_socket_reset_linger [C1:2] setsockopt SO_LINGER failed [22: Invalid argument]
+2026-09-02 13:40:49.610130+0100 GarrisonApp[99048:44542346] [websocket] Read completed with an error Connection reset by peer
+2026-09-02 13:40:49.610202+0100 GarrisonApp[99048:44544524] [Default] Connection 1: received failure notification
+2026-09-02 13:40:49.610280+0100 GarrisonApp[99048:44542403] [connection] nw_flow_add_write_request [C1 127.0.0.1:56876 failed socket-flow (satisfied (Path is satisfied), interface: lo0)] cannot accept write requests
+2026-09-02 13:40:49.610343+0100 GarrisonApp[99048:44542403] [connection] nw_write_request_report [C1] Send failed with error "Socket is not connected"
+2026-09-02 13:40:49.611099+0100 GarrisonApp[99048:44542346] [Default] Task <5C758149-CAB3-4144-9926-AE00CDEC59F0>.<1> finished with error [54] Error Domain=NSPOSIXErrorDomain Code=54 "Connection reset by peer" UserInfo={NSDescription=Connection reset by peer, _NSURLErrorRelatedURLSessionTaskErrorKey=(
+    "LocalWebSocketTask <5C758149-CAB3-4144-9926-AE00CDEC59F0>.<1>"
+), _NSURLErrorFailingURLSessionTaskErrorKey=LocalWebSocketTask <5C758149-CAB3-4144-9926-AE00CDEC59F0>.<1>}
+Test Case '-[GarrisonTests.UploaderResumeTests testResumesFromLastAckedSeqAfterDrop]' passed (1.241 seconds).
+2026-09-02 13:40:50.689007+0100 GarrisonApp[99048:44542346] [Default] Task <716421FA-11E9-4F94-9277-F1E9BC119C66>.<2> finished with error [57] Error Domain=NSPOSIXErrorDomain Code=57 "Socket is not connected" UserInfo={NSErrorFailingURLStringKey=ws://127.0.0.1:56876/capture/stream, NSErrorFailingURLKey=ws://127.0.0.1:56876/capture/stream, _NSURLErrorRelatedURLSessionTaskErrorKey=(
+    "LocalWebSocketTask <716421FA-11E9-4F94-9277-F1E9BC119C66>.<2>"
+), _NSURLErrorFailingURLSessionTaskErrorKey=LocalWebSocketTask <716421FA-11E9-4F94-9277-F1E9BC119C66>.<2>}
+Test Case '-[GarrisonTests.UploaderResumeTests testSpeakReachesHandlerAndReceiptRidesBack]' started.
+2026-09-02 13:40:50.689563+0100 GarrisonApp[99048:44542346] [] nw_listener_socket_inbox_create_socket setsockopt SO_NECP_LISTENUUID failed [2: No such file or directory]
+Test Case '-[GarrisonTests.UploaderResumeTests testSpeakReachesHandlerAndReceiptRidesBack]' passed (0.105 seconds).
+2026-09-02 13:40:50.794246+0100 GarrisonApp[99048:44542346] [Default] Task <1C04793D-ACDA-4A3A-97BA-F48E5B754393>.<1> finished with error [57] Error Domain=NSPOSIXErrorDomain Code=57 "Socket is not connected" UserInfo={NSErrorFailingURLStringKey=ws://127.0.0.1:56890/capture/stream, NSErrorFailingURLKey=ws://127.0.0.1:56890/capture/stream, _NSURLErrorRelatedURLSessionTaskErrorKey=(
+    "LocalWebSocketTask <1C04793D-ACDA-4A3A-97BA-F48E5B754393>.<1>"
+), _NSURLErrorFailingURLSessionTaskErrorKey=LocalWebSocketTask <1C04793D-ACDA-4A3A-97BA-F48E5B754393>.<1>}
+Test Case '-[GarrisonTests.UploaderResumeTests testStreamsFramesAndReceivesContiguousAcks]' started.
+2026-09-02 13:40:50.794795+0100 GarrisonApp[99048:44544620] [] nw_listener_socket_inbox_create_socket setsockopt SO_NECP_LISTENUUID failed [2: No such file or directory]
+2026-09-02 13:40:50.897243+0100 GarrisonApp[99048:44544620] [Default] Task <BC4004F7-54BD-4EAB-8383-936572B249A7>.<1> finished with error [57] Error Domain=NSPOSIXErrorDomain Code=57 "Socket is not connected" UserInfo={NSErrorFailingURLStringKey=ws://127.0.0.1:56892/capture/stream, NSErrorFailingURLKey=ws://127.0.0.1:56892/capture/stream, _NSURLErrorRelatedURLSessionTaskErrorKey=(
+    "LocalWebSocketTask <BC4004F7-54BD-4EAB-8383-936572B249A7>.<1>"
+), _NSURLErrorFailingURLSessionTaskErrorKey=LocalWebSocketTask <BC4004F7-54BD-4EAB-8383-936572B249A7>.<1>}
+Test Case '-[GarrisonTests.UploaderResumeTests testStreamsFramesAndReceivesContiguousAcks]' passed (0.103 seconds).
+Test Suite 'UploaderResumeTests' passed at 2026-09-02 13:40:50.897.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 1.449 (1.450) seconds
+Test Suite 'GarrisonTests.xctest' passed at 2026-09-02 13:40:50.898.
+	 Executed 93 tests, with 0 failures (0 unexpected) in 15.762 (15.843) seconds
+Test Suite 'All tests' passed at 2026-09-02 13:40:50.898.
+	 Executed 93 tests, with 0 failures (0 unexpected) in 15.762 (15.843) seconds
+2026-09-02 13:40:51.303 xcodebuild[97650:44538659] [MT] IDETestOperationsObserverDebug: 30.968 elapsed -- Testing started completed.
+2026-09-02 13:40:51.304 xcodebuild[97650:44538659] [MT] IDETestOperationsObserverDebug: 0.000 sec, +0.000 sec -- start
+2026-09-02 13:40:51.304 xcodebuild[97650:44538659] [MT] IDETestOperationsObserverDebug: 30.968 sec, +30.968 sec -- end
+
+Test session results, code coverage, and logs:
+	/Users/ggomes/build/garrison-ios/DerivedData/Logs/Test/Test-GarrisonApp-2026.09.02_13-40-07-+0100.xcresult
+
+** TEST SUCCEEDED **
+
+Testing started
+EXIT 0

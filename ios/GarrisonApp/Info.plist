@@ -30,12 +30,30 @@
 	<string>Garrison records the microphone only during a capture session you start, to transcribe it and act on your spoken commands.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Garrison connects to your Omi pendant over Bluetooth to stream its audio to your own Garrison server for transcription and wake-word commands.</string>
-	<!-- bluetooth-central keeps the pendant link and its audio relay alive in
+	<!-- audio keeps a microphone capture session alive when the phone locks or
+	     the user switches apps; without it the AVAudioSession is suspended and
+	     the upload stream goes silent mid-session.
+	     bluetooth-central keeps the pendant link and its audio relay alive in
 	     the background; paired with CoreBluetooth state restoration in
 	     PendantBLETransport. -->
 	<key>UIBackgroundModes</key>
 	<array>
+		<string>audio</string>
 		<string>bluetooth-central</string>
+	</array>
+	<!-- garrison://open?path=/talk/... lands a shell route in the bridge web
+	     view (PushRouter.open). The path must be absolute and carry no host:
+	     the web view stays on the selected node's origin. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.gomes.garrison</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>garrison</string>
+			</array>
+		</dict>
 	</array>
 	<!-- No custom/proprietary encryption: skips the TestFlight export-compliance prompt. -->
 	<key>ITSAppUsesNonExemptEncryption</key>

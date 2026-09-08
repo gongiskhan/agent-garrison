@@ -194,8 +194,15 @@ text where applicable.
   `runtime:codex`.
 - `gemini-runtime` — runtime Fitting bridging Gemini CLI. Provides
   `runtime:gemini`.
-- `deepgram-voice` — voice channel Fitting using Deepgram STT/TTS. Provides
-  `voice:deepgram`. Own-port headless backend on `27085`.
+- `capture-service` - the voice layer (2026-09-02; `deepgram-voice` retired):
+  browser push-to-talk and read-aloud over `POST /stt` / `POST /tts`, phone
+  capture over a websocket ingress, Omi realtime segments forwarded onto the
+  same wake bus. Provides `channel:companion`, `voice:companion` and
+  `connector:voice`. Own-port on `8097`, every REST call Bearer-gated by the
+  capture token.
+- `omi-channel` - Omi wearable channel: memory batches into the shared triage,
+  realtime segments forwarded to the voice layer (no wake bus or chat of its
+  own). Provides `channel:omi`. Own-port on `8094`.
 
 The Phase 5 / 5.5 Sequoias decomposition shipped `worktrees-sequoias`,
 `session-view-sequoias`, and `terminal-armory-default` into the seed

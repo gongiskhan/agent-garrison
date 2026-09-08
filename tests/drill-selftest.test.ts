@@ -9,6 +9,14 @@ import { chromium, type Browser, type Page } from "playwright";
 import { startFixtureServer } from "../fittings/seed/drill/test-fixtures/serve.mjs";
 import { waitExit } from "./helpers/wait-exit";
 
+// Tests that spawn a NESTED `playwright test` (npx startup + a second Chromium)
+// get twice the plain 30s budget: alone they finish in ~4s, but under the full
+// parallel vitest run (600 files, several of them launching their own
+// Chromium) they were observed timing out at 30s and leaving their fixture
+// servers behind, which then squatted the fixed fixture ports for every later
+// drill suite. A genuinely stuck run still fails, 30s later.
+const NESTED_PW_TIMEOUT_MS = 60000;
+
 // ═══════════════════════════════════════════════════════════════════════
 // DRILL_SELFTEST — the brief's 13 non-negotiable items, all run against the
 // D5 fixture app (chat.html / build.html) so they are reproducible. Every
@@ -341,7 +349,7 @@ describe("3. Vision to e2e: run against the fixture chat page, spec emitted + re
     expect(runResult.status, runResult.output).toBe(0);
     expect(trap.hit()).toBe(false);
     await trap.close();
-  }, 30000);
+  }, NESTED_PW_TIMEOUT_MS);
 });
 
 let trapPort = 7266;
@@ -397,7 +405,7 @@ describe("4. Judge helper: citation-quality step emits with drillJudge(), passes
     const cfg = writePwConfig();
     const result = await runPlaywrightAsync(cfg, ["citegood.spec.ts"], { GARRISON_BASE_URL: STUB_BASE });
     expect(result.status, result.output).toBe(0);
-  }, 30000);
+  }, NESTED_PW_TIMEOUT_MS);
 
   it("the same judgment step, targeting the bug-flagged fixture, fails via drillJudge()", async () => {
     await fetch(`${DRILL_BASE}/api/pages/citebad`, {
@@ -414,7 +422,7 @@ describe("4. Judge helper: citation-quality step emits with drillJudge(), passes
     const result = await runPlaywrightAsync(cfg, ["citebad.spec.ts"], { GARRISON_BASE_URL: STUB_BASE });
     expect(result.status).not.toBe(0); // it correctly FAILS on the buggy fixture
     judgeShouldPass = true;
-  }, 30000);
+  }, NESTED_PW_TIMEOUT_MS);
 });
 
 // ─── item 5: healing ────────────────────────────────────────────────────
@@ -449,7 +457,7 @@ describe("5. Healing: a renamed testid breaks the graduated e2e step; it heals v
     expect(result.status, result.output).toBe(0);
     expect(trap.hit()).toBe(false);
     await trap.close();
-  }, 30000);
+  }, NESTED_PW_TIMEOUT_MS);
 });
 
 // ─── item 6: states ─────────────────────────────────────────────────────

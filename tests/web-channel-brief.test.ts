@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import os from "node:os";
 import path from "node:path";
 // @ts-ignore — pure .mjs server
-import { resolveBriefPath } from "../fittings/seed/web-channel-default/scripts/server.mjs";
+import { resolveBriefPath } from "../packages/talk/src/server.mjs";
 
 // Confinement contract for the brief editor's direct file access: only "*.md" files
 // under ~/**/briefs/ are reachable. The realpath-of-ancestor check needs the ancestor

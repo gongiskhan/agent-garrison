@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { build } from "esbuild";
@@ -16,6 +16,8 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 
 const REPO = path.resolve(__dirname, "..");
 const css = readFileSync(path.join(REPO, "packages/claude-chat/src/claude-chat.css"), "utf8");
+const talkSkin = readFileSync(path.join(REPO, "packages/talk/ui/styles.css"), "utf8");
+const kanbanSkin = readFileSync(path.join(REPO, "fittings/seed/kanban-loop/ui/styles.css"), "utf8");
 let browser: Browser;
 let context: BrowserContext;
 let page: Page;
@@ -67,6 +69,7 @@ beforeAll(async () => {
         const transport = {
           base: "",
           connect(onEvent) { onEvent({ type: "connection", state: "open" }); return () => {}; },
+          async uploadFile() { return { path: "/tmp/layout-fixture" }; },
           async sendMessage(text, meta) { window.__sends.push({ text, meta }); },
           async sendKey() {},
           async setMode(mode) { return { mode, reached: true }; },
@@ -123,11 +126,56 @@ beforeAll(async () => {
 }, 60_000);
 
 beforeEach(async () => {
+  await page.setViewportSize({ width: 1100, height: 760 });
   await page.setContent(
     `<style>html,body{margin:0;height:100%}#root{height:100%}` +
     `${css.replace(/<\/style/gi, "<\\/style")}</style><div id="root"></div>`
   );
   await page.addScriptTag({ content: bundle });
+});
+
+describe("conversation composer space", () => {
+  it.each([
+    { name: "talk-desktop", width: 1100, height: 760, paneHeight: 760, host: "talk-host", skin: talkSkin },
+    { name: "talk-phone", width: 390, height: 720, paneHeight: 720, host: "talk-host", skin: talkSkin },
+    { name: "kanban-card", width: 700, height: 760, paneHeight: 420, host: "kanban-conversation", skin: kanbanSkin },
+  ])("keeps controls compact and messages readable in $name", async ({ name, width, height, paneHeight, host, skin }) => {
+    await page.setViewportSize({ width, height });
+    await page.addStyleTag({ content: skin });
+    await page.evaluate(({ host, paneHeight }) => {
+      const root = document.getElementById("root")!;
+      root.className = host;
+      root.style.height = `${paneHeight}px`;
+      root.style.minHeight = "0";
+    }, { host, paneHeight });
+    await mount();
+    await emit({ type: "init", available: true, live: false, events: [
+      { id: "01CONV#1", role: "user", ts: 1, revision: 1, blocks: [{ type: "text", text: "Please review the latest changes and explain what is ready." }] },
+      { id: "01CONV#2", role: "assistant", ts: 2, revision: 1, blocks: [{ type: "text", text: "The review is complete. The conversation keeps its reading space while the message field grows with your draft.\n\nAttachments and routing remain within reach beneath the message box." }] },
+    ] });
+    const attach = page.getByRole("button", { name: "Attach a file", exact: true });
+    const attachmentBox = await attach.boundingBox();
+    expect(attachmentBox?.width).toBeLessThanOrEqual(44);
+    expect(attachmentBox?.height).toBeLessThanOrEqual(44);
+    const emptyComposer = await page.locator(".cc-composer").boundingBox();
+    expect(emptyComposer?.height).toBeLessThan(120);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+
+    const input = page.locator(".cc-input");
+    await input.fill(Array.from({ length: 30 }, (_, i) => `Review note ${i + 1}: preserve room for the messages above.`).join("\n"));
+    await expect.poll(() => input.evaluate((node) => node.getBoundingClientRect().height)).toBeLessThanOrEqual(paneHeight * .32 + 2);
+    expect(await input.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
+    // A resized card/keyboard must recompute the cap without editing the draft.
+    await page.evaluate(() => { document.getElementById("root")!.style.height = "320px"; });
+    await expect.poll(() => input.evaluate((node) => node.getBoundingClientRect().height)).toBeLessThanOrEqual(104);
+    await input.fill("");
+    await page.evaluate((paneHeight) => { document.getElementById("root")!.style.height = `${paneHeight}px`; }, paneHeight);
+    await expect.poll(() => input.evaluate((node) => node.getBoundingClientRect().height)).toBeLessThanOrEqual(46);
+    if (process.env.GARRISON_UI_EVIDENCE_DIR) {
+      mkdirSync(process.env.GARRISON_UI_EVIDENCE_DIR, { recursive: true });
+      await page.screenshot({ path: path.join(process.env.GARRISON_UI_EVIDENCE_DIR, `${name}.png`) });
+    }
+  });
 });
 
 afterAll(async () => {

@@ -315,8 +315,43 @@ elif [ -f "$SKILL_STATE_FILE" ]; then
   rm -f "$SKILL_STATE_FILE" "$SKILL_LOCAL_FINGERPRINT"
 fi
 
-# 6. Install the capture hook to a stable location + wire it (idempotent).
-if [ "$CAPTURE_ENABLED" = "true" ]; then
+# 6. Respect the operator-installed shared bridge across APM/up() reruns.
+# A partial bridge is a configuration error, never permission to restore raw
+# transcript capture. Only our historical capture entries are retired here.
+SHARED_CONTINUITY="$(python3 - "$SETTINGS_FILE" <<'PY_SHARED'
+import json, sys
+from pathlib import Path
+sp = Path(sys.argv[1])
+if not sp.exists():
+    print("false")
+    raise SystemExit(0)
+data = json.loads(sp.read_text() or "{}")
+hooks = data.get("hooks", {})
+def commands(event):
+    return [h.get("command", "") for group in hooks.get(event, []) for h in group.get("hooks", [])]
+shared = any("agent-continuity.py" in command for event in hooks for command in commands(event))
+if shared:
+    for event in ("SessionStart", "UserPromptSubmit", "PostToolUse", "PreCompact", "Stop", "SessionEnd"):
+        if not any("agent-continuity.py" in command for command in commands(event)):
+            raise SystemExit("Incomplete shared continuity hooks; rerun install-agent-continuity.py")
+    changed = False
+    for event, groups in list(hooks.items()):
+        kept = []
+        for group in groups:
+            old = group.get("hooks", [])
+            remaining = [h for h in old if "basic-memory/capture-session.py" not in h.get("command", "")]
+            changed = changed or len(remaining) != len(old)
+            if remaining or not old:
+                kept.append({**group, "hooks": remaining})
+        hooks[event] = kept
+    if changed:
+        sp.write_text(json.dumps(data, indent=2) + "\n")
+print("true" if shared else "false")
+PY_SHARED
+)"
+# Install the legacy capture only on standalone installations without the
+# shared bridge; their shipped local/cortex behavior remains unchanged.
+if [ "$CAPTURE_ENABLED" = "true" ] && [ "$SHARED_CONTINUITY" != "true" ]; then
   mkdir -p "$HOOK_HOME"
   cp "$SCRIPT_DIR/capture-session.py" "$HOOK_PATH"
   chmod +x "$HOOK_PATH"
@@ -374,6 +409,8 @@ for event in ("SessionEnd", "PreCompact"):
 sp.write_text(json.dumps(data, indent=2) + "\n")
 print("[basic-memory-setup] capture hook wired: " + (", ".join(added) if added else "already wired"))
 PY
+elif [ "$SHARED_CONTINUITY" = "true" ]; then
+  log "shared agent continuity owns session capture; legacy transcript hooks retired"
 else
   log "capture hook disabled (capture_enabled=false)"
 fi

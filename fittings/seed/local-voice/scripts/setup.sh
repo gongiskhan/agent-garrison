@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Local Voice setup hook — runs from the installed Fitting dir on every `up`,
 # before verify. Side-effecting prep only (CLAUDE.md setup-vs-verify):
-#   1. create a Python venv under voice-server/.venv
+#   1. create a Python venv under $LOCAL_VOICE_VENV (defaults to
+#      ~/.cache/garrison-local-voice/venv — see the note on VENV below)
 #   2. install the voice-server deps (Kokoro TTS + faster-whisper STT)
-#   3. fetch the Kokoro model + voices into voice-server/ if missing
+#   3. fetch models into the external model cache if missing
 # Idempotent: each step is skipped when already satisfied. Fails loud (non-zero
 # exit aborts `up`) so a half-built voice stack never looks healthy.
 set -euo pipefail
@@ -16,10 +17,18 @@ VS="$HERE/../voice-server"
 VENV="${LOCAL_VOICE_VENV:-$HOME/.cache/garrison-local-voice/venv}"
 PY="${LOCAL_VOICE_PYTHON:-python3}"
 
-KOKORO_ONNX="$VS/kokoro-v1.0.onnx"
-KOKORO_VOICES="$VS/voices-v1.0.bin"
+MODEL_DIR="${LOCAL_VOICE_MODEL_DIR:-$HOME/.cache/garrison-local-voice/models}"
+# Match Python expanduser semantics for configuration-supplied paths.
+case "$MODEL_DIR" in "~/"*) MODEL_DIR="$HOME/${MODEL_DIR#\~/}" ;; esac
+mkdir -p "$MODEL_DIR"
+export LOCAL_VOICE_MODEL_DIR="$MODEL_DIR"
+KOKORO_ONNX="$MODEL_DIR/kokoro-v1.0.onnx"
+KOKORO_VOICES="$MODEL_DIR/voices-v1.0.bin"
 REL="https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
 
+# An existing prepared venv is the runtime interpreter. Do not reject it just
+# because the host's unselected system Python is older.
+if [ -x "$VENV/bin/python" ]; then PY="$VENV/bin/python"; fi
 echo "[local-voice:setup] using interpreter: $PY"
 if ! command -v "$PY" >/dev/null 2>&1; then
   echo "[local-voice:setup] ERROR: '$PY' not found. Install Python 3.10+ (or set LOCAL_VOICE_PYTHON)." >&2
@@ -47,8 +56,8 @@ VPY="$VENV/bin/python"
 
 # 2. deps (CPU build — see requirements.txt; Apple Silicon / no CUDA)
 echo "[local-voice:setup] installing Python deps (this can take a few minutes)"
-"$VPY" -m pip install --quiet --upgrade pip
-"$VPY" -m pip install --quiet -r "$VS/requirements.txt"
+if ! "$VPY" -m pip --version >/dev/null 2>&1; then "$VPY" -m ensurepip; fi
+"$VPY" -m pip install --quiet --timeout 30 --retries 2 -r "$VS/requirements.txt"
 
 # Expand a leading "~/" in a config-supplied path. Composition config reaches us
 # as a variable value, and the shell does NOT expand ~ there — so "~/.cache/x"
@@ -65,31 +74,52 @@ expand_tilde() {
 # 3. Kokoro model files (~325MB + ~28MB) — only fetch when missing
 fetch() {
   local url="$1" out="$2"
-  if [ -f "$out" ]; then
+  if [ -s "$out" ]; then
     echo "[local-voice:setup] present: $(basename "$out")"
     return 0
   fi
+  mkdir -p "$(dirname "$out")"
   echo "[local-voice:setup] downloading $(basename "$out") ..."
   if command -v curl >/dev/null 2>&1; then
-    curl -fL --retry 3 -o "$out.partial" "$url"
+    curl -fL --connect-timeout 15 --max-time 300 --retry 2 --retry-max-time 360 -o "$out.partial.$$" "$url"
   elif command -v wget >/dev/null 2>&1; then
-    wget -O "$out.partial" "$url"
+    wget --timeout=30 --tries=2 -O "$out.partial.$$" "$url"
   else
     echo "[local-voice:setup] ERROR: need curl or wget to fetch models." >&2
     exit 1
   fi
-  mv "$out.partial" "$out"
+  if [ ! -s "$out.partial.$$" ]; then echo "[local-voice:setup] ERROR: empty model download" >&2; return 1; fi
+  mv "$out.partial.$$" "$out"
 }
 fetch "$REL/kokoro-v1.0.onnx" "$KOKORO_ONNX"
 fetch "$REL/voices-v1.0.bin"  "$KOKORO_VOICES"
 
 # 4. Piper voices (native accents Kokoro lacks). pt_PT = European Portuguese
 #    (~63MB .onnx + small .json), fetched from rhasspy/piper-voices on HF.
-PIPER_DIR="$VS/piper-voices"
+PIPER_DIR="$MODEL_DIR/piper-voices"
 mkdir -p "$PIPER_DIR"
 PIPER_PT_BASE="https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_PT/tug%C3%A3o/medium"
-fetch "$PIPER_PT_BASE/pt_PT-tug%C3%A3o-medium.onnx"      "$PIPER_DIR/pt_PT-tugao-medium.onnx"
-fetch "$PIPER_PT_BASE/pt_PT-tug%C3%A3o-medium.onnx.json" "$PIPER_DIR/pt_PT-tugao-medium.onnx.json"
+# Setup and runtime share precisely the same blank/default versus {} rule.
+PIPER_CONFIG="${LOCAL_VOICE_PIPER_VOICES:-${PIPER_VOICES:-}}"
+PIPER_DEFAULT="$PIPER_DIR/pt_PT-tugao-medium.onnx"
+PIPER_SELECTED="$(PYTHONPATH="$VS" "$VPY" - "$PIPER_CONFIG" "$PIPER_DEFAULT" <<'PYEOF'
+import sys
+from runtime_support import piper_paths
+paths = piper_paths(sys.argv[1])
+print('default' if sys.argv[2] in paths.values() else 'custom')
+PYEOF
+)"
+if [ "$PIPER_SELECTED" = default ]; then
+  fetch "$PIPER_PT_BASE/pt_PT-tug%C3%A3o-medium.onnx" "$PIPER_DEFAULT"
+  fetch "$PIPER_PT_BASE/pt_PT-tug%C3%A3o-medium.onnx.json" "$PIPER_DEFAULT.json"
+fi
+PYTHONPATH="$VS" "$VPY" - "$PIPER_CONFIG" <<'PYEOF'
+import os, sys
+from runtime_support import piper_paths
+for code, path in piper_paths(sys.argv[1]).items():
+    if path and (not os.path.isfile(path) or not os.path.isfile(path + '.json')):
+        raise SystemExit(f'[local-voice:setup] missing configured Piper model/config: {code}')
+PYEOF
 
 # 5. whisper.cpp (Metal GPU STT) — only when selected as the STT engine. Runs
 #    large-v3 on the Apple GPU via a supervised whisper-server, ~3x faster than
@@ -170,4 +200,4 @@ else:
 PYEOF
 fi
 
-echo "[local-voice:setup] done — venv + deps + Kokoro + Piper(pt_PT) models ready"
+echo "[local-voice:setup] done — dependencies and selected local models ready"

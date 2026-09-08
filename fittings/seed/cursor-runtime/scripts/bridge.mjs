@@ -72,18 +72,34 @@ async function logDecision(rec) {
 }
 
 // Health probe, offline-safe (no model turn): the CLI must be on PATH AND print a
-// version, and the box must be able to authenticate — either Cursor's native login
+// version, and the box must be able to authenticate - either Cursor's native login
 // reports authenticated, or a CURSOR_API_KEY is present. Returns null when healthy,
-// else the reason, so --probe can fail loudly with the remediation.
+// else {level, reason}: "absent" (the binary itself is missing - most nodes in the
+// mesh do not run Cursor, so this is the common, non-fatal case) vs
+// "unauthenticated" (the binary IS here but nobody logged in, which only happens on
+// a node that needs `cursor-agent login` before Cursor can run). Both remain
+// unavailable; only nodes explicitly requiring Cursor block composition startup.
 export function probeFailure(run = (bin, argv) => spawnSync(bin, argv, { encoding: "utf8" }), env = process.env) {
-  const v = run("cursor-agent", ["--version"]);
-  const version = `${v.stdout ?? ""}${v.stderr ?? ""}`.trim();
-  if (v.status !== 0 || !/\d/.test(version)) {
-    return "cursor-agent CLI not found on PATH (or no version string) — install the Cursor CLI (https://cursor.com/cli)";
+  // A bare `cursor-agent` resolves via PATH like a real login shell would; the
+  // `~/.local/bin/cursor-agent` fallback covers a non-interactive probe (no login
+  // shell, so no PATH augmentation) on a box where the CLI is installed there but
+  // not symlinked anywhere PATH already covers.
+  const candidates = ["cursor-agent", path.join(env.HOME || os.homedir(), ".local/bin/cursor-agent")];
+  let bin = null;
+  for (const candidate of candidates) {
+    const v = run(candidate, ["--version"]);
+    const version = `${v.stdout ?? ""}${v.stderr ?? ""}`.trim();
+    if (v.status === 0 && /\d/.test(version)) {
+      bin = candidate;
+      break;
+    }
+  }
+  if (!bin) {
+    return { level: "absent", reason: "not found on PATH or in ~/.local/bin (install: https://cursor.com/cli)" };
   }
   // An API key authenticates without any stored login, so it short-circuits.
   if (String(env.CURSOR_API_KEY ?? "").trim()) return null;
-  const s = run("cursor-agent", ["status", "--format", "json"]);
+  const s = run(bin, ["status", "--format", "json"]);
   const out = `${s.stdout ?? ""}`.trim();
   let parsed = null;
   try {
@@ -92,20 +108,45 @@ export function probeFailure(run = (bin, argv) => spawnSync(bin, argv, { encodin
     /* fall through to the loud not-authenticated message */
   }
   if (parsed?.isAuthenticated === true) return null;
+  // Older CLIs (2025.10.01 is still what `cursor-agent update` leaves on a
+  // box that installed it last autumn) have `status` but no `--format`: the
+  // json probe dies with "unknown option '--format'" and a logged-in machine
+  // would read as logged out. Ask the plain command instead and read its
+  // verdict line; every other failure keeps the loud message below.
+  if (/unknown option '--format'/i.test(`${s.stdout ?? ""}${s.stderr ?? ""}`)) {
+    const plain = run("cursor-agent", ["status"]);
+    const text = `${plain.stdout ?? ""}${plain.stderr ?? ""}`;
+    if (plain.status === 0 && /login successful|logged in as|authenticated/i.test(text) && !/not (logged in|authenticated)/i.test(text)) {
+      return null;
+    }
+  }
   const detail = parsed?.status ?? (out.slice(0, 120) || "no status output");
-  return `cursor-agent is not authenticated (${detail}) — run \`cursor-agent login\` on this box, or set CURSOR_API_KEY`;
+  return {
+    level: "unauthenticated",
+    reason: `cursor-agent is not authenticated (${detail}) - run \`cursor-agent login\` on this box, or set CURSOR_API_KEY`
+  };
 }
 
 async function main() {
   const argv = process.argv.slice(2);
   if (argv.includes("--probe")) {
     const failure = probeFailure();
-    if (failure) {
-      console.error(failure);
-      process.exit(1);
+    if (!failure) {
+      console.log("ok");
+      return;
     }
-    console.log("ok");
-    return;
+    // Optional Cursor availability must not block every other runtime. Keep
+    // the login failure visible, and fail the whole node only when Cursor is
+    // explicitly required. This is a composition probe policy, not an auth
+    // bypass: actual delegation still uses Cursor's login and fails normally.
+    if (process.env.GARRISON_REQUIRE_CURSOR !== "1") {
+      console.log("ok");
+      const detail = failure.level === "absent" ? "no cursor-agent on this node" : "Cursor unavailable on this node";
+      console.log(`degraded: ${detail} (${failure.reason})`);
+      return;
+    }
+    console.error(failure.reason);
+    process.exit(1);
   }
 
   const specFileIdx = argv.indexOf("--spec-file");

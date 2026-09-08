@@ -1,0 +1,10 @@
+# npx playwright test tests/e2e/capture-page.spec.ts --project=desktop-chromium --project=mobile
+# 2026-09-02T12:53:58Z
+  ✓  1 [desktop-chromium] › tests/e2e/capture-page.spec.ts:10:5 › capture page: browser sees the fallback and no menu entry (5.0s)
+  ✓  2 [desktop-chromium] › tests/e2e/capture-page.spec.ts:18:5 › capture page: with the native bridge the controls render and the menu lists Capture (6.8s)
+  ✓  3 [desktop-chromium] › tests/e2e/capture-page.spec.ts:62:5 › conversation composer: the record button appears with the native bridge and passes the conversation id (14.8s)
+  ✓  4 [mobile] › tests/e2e/capture-page.spec.ts:10:5 › capture page: browser sees the fallback and no menu entry (1.6s)
+  ✓  5 [mobile] › tests/e2e/capture-page.spec.ts:18:5 › capture page: with the native bridge the controls render and the menu lists Capture (2.1s)
+  ✓  6 [mobile] › tests/e2e/capture-page.spec.ts:62:5 › conversation composer: the record button appears with the native bridge and passes the conversation id (6.4s)
+  6 passed (57.8s)
+EXIT 0

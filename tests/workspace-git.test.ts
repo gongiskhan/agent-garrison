@@ -519,18 +519,24 @@ describe("pull-from-others — the event round trip", () => {
     writeFileSync(path.join(repoB, "from-b.txt"), "work only node-b has\n");
 
     // The peer's pump, running concurrently — the real executor, not a stub.
+    // Ticks are serialised the way the real pump serialises them: a second tick
+    // that starts before the first has advanced the cursor would answer the same
+    // request twice, and on a loaded machine a bare setInterval does exactly that.
     let cursor = 0;
-    const pump = setInterval(() => {
-      void pumpOnce({ client: clientB, env: envB, sinceSeq: cursor }).then((next: number) => {
-        cursor = next;
-      });
-    }, 200);
+    let pumping = true;
+    const pump = (async () => {
+      while (pumping) {
+        cursor = await pumpOnce({ client: clientB, env: envB, sinceSeq: cursor });
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    })();
 
     let report: any;
     try {
       report = await pullFromOthers("proj", { env: envA, client: clientA, deadlineMs: 20_000, pollMs: 250 });
     } finally {
-      clearInterval(pump);
+      pumping = false;
+      await pump;
     }
 
     expect(report.requestedBy).toBe("node-a");

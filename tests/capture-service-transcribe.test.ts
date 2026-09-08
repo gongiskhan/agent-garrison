@@ -269,7 +269,18 @@ describe("capture-service transcription", () => {
   it("leaves an idle session alone - silence is not a fault", async () => {
     const { handle, mock } = await boot({ transcribeMuteTimeoutMs: 200 }, { mute: true });
     (handle.transcriber as { openSession: (id: string) => boolean }).openSession("01DGIDLESESSION1");
-    await new Promise((r) => setTimeout(r, 1200));
+    // Wait for the socket to actually reach the mock before starting the clock:
+    // under the full parallel vitest run the connect alone has been seen to
+    // take most of a second, and judging the watchdog before it is even armed
+    // measures machine load, not the watchdog.
+    const connectedBy = Date.now() + 5000;
+    while (mock.state.connections < 1 && Date.now() < connectedBy) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    expect(mock.state.connections).toBe(1);
+    // The watchdog ticks at max(1000, muteMs / 4) = 1000ms; give it one full
+    // tick plus margin with the session open and nothing fed.
+    await new Promise((r) => setTimeout(r, 1300));
     expect(handle.counters.read().transcribe_mute_reconnects ?? 0).toBe(0);
     expect(mock.state.connections).toBe(1);
   });
@@ -298,9 +309,20 @@ describe("capture-service transcription", () => {
     // speaker in two on real sessions).
     expect(url.searchParams.has("diarize")).toBe(false);
     // keyterm repeats per term (URLSearchParams collapses in the object view).
-    expect(url.searchParams.getAll("keyterm")).toEqual(["Zeca", "companion"]);
+    expect(url.searchParams.getAll("keyterm")).toEqual(["Zeca", "companion", "EKOA"]);
     expect(captured[0].auth).toBe(`Token ${DG_KEY}`);
     expect(deepgramUrl(loadConfig({ DEEPGRAM_API_KEY: DG_KEY }))).toContain("model=nova-3");
+  });
+
+  it("pins the screen broadcast's stream to the session language, the pendant to the household's", () => {
+    const cfg = loadConfig({ DEEPGRAM_API_KEY: DG_KEY });
+    expect(cfg.sttLanguage).toBe("pt");
+    expect(cfg.screenSttLanguage).toBe("en");
+    expect(new URL(deepgramUrl(cfg)).searchParams.get("language")).toBe("pt");
+    expect(new URL(deepgramUrl(cfg, { language: cfg.screenSttLanguage })).searchParams.get("language")).toBe("en");
+    expect(new URL(deepgramUrl(cfg, { language: "  " })).searchParams.get("language")).toBe("pt");
+    const pinned = loadConfig({ DEEPGRAM_API_KEY: DG_KEY, GARRISON_CAPTURESERVICE_SCREEN_STT_LANGUAGE: "pt" });
+    expect(pinned.screenSttLanguage).toBe("pt");
   });
 
   it("stores the transcript on session end and references it from the record, with no text in logs", async () => {

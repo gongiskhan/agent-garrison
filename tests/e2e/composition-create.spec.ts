@@ -74,12 +74,14 @@ test("the global composition selector remounts only after a successful full swit
   await page.goto("/muster?composition=default");
   const switcher = page.locator("#composition-switcher");
   const expandSidebar = page.getByRole("button", { name: "Expand sidebar" });
+  const openMenu = page.getByRole("button", { name: "Open menu" });
   // The selector mounts after AppShell's composition and runner-state refresh.
-  // Mobile also collapses only after hydration, so wait for that stable rail
-  // before opening it rather than sampling the transient server-rendered nav.
+  // Mobile also switches to the app bar only after hydration, so wait for that
+  // stable bar before opening the drawer rather than sampling the transient
+  // server-rendered nav.
   if ((page.viewportSize()?.width ?? Infinity) < 720) {
-    await expect(expandSidebar).toBeVisible();
-    await expandSidebar.click();
+    await expect(openMenu).toBeVisible();
+    await openMenu.click();
   } else {
     await expect(switcher.or(expandSidebar)).toBeVisible();
     if (await expandSidebar.isVisible()) {

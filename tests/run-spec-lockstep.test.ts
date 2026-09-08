@@ -93,7 +93,7 @@ describe("RUN-SPEC-V1: every whitelist knows every dimension", () => {
   it("the web channel persists them all, or a pin dies on reload", () => {
     // threads.mjs re-sanitises on BOTH write and read, so a field missing from
     // ROUTING_FIELDS makes a pin work for exactly one send and then vanish.
-    const src = read("fittings/seed/web-channel-default/scripts/threads.mjs");
+    const src = read("packages/talk/src/threads.mjs");
     const body = src.slice(src.indexOf("const ROUTING_FIELDS"), src.indexOf("function cleanString"));
     for (const field of RUN_SPEC_FIELDS) {
       expect(body, `ROUTING_FIELDS is missing ${field}`).toMatch(new RegExp(`\\b${field}:`));

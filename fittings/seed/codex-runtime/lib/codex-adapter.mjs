@@ -9,6 +9,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { ensureCodexContinuityHome } from "./continuity-home.mjs";
 
 const FULL_ACCESS_PERMISSION_MODES = new Set(["auto", "bypassPermissions", "full-auto"]);
 const WORKSPACE_WRITE_PERMISSION_MODES = new Set(["acceptEdits", "allow-file-edits"]);
@@ -364,6 +365,7 @@ function childAlive(child) {
 }
 
 function defaultRunExec({ bin, argv, env, cwd, stdin, onSpawn }) {
+  ensureCodexContinuityHome({ env });
   return new Promise((resolve) => {
     const child = spawn(bin, argv, { env, cwd, stdio: ["pipe", "pipe", "pipe"] });
     let out = "";

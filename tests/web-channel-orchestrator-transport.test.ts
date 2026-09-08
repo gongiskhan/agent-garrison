@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import type { ChatEvent, SessionEvent } from "@garrison/claude-chat";
 import { createHttpTransport } from "@garrison/claude-chat";
 import { ChatTransportError } from "@garrison/claude-chat/transport";
-import { createOrchestratorTransport } from "../fittings/seed/web-channel-default/ui/orchestrator-transport";
+import { createOrchestratorTransport } from "../packages/talk/ui/orchestrator-transport";
 // @ts-ignore — dependency-free fitting JavaScript intentionally has no .d.ts.
 import { normalizeAgentSdkMessages } from "../fittings/seed/agent-sdk-runtime/lib/session-events.mjs";
 
@@ -87,7 +87,7 @@ const chatBody = (calls: { url: string; body: any }[]) => calls.find((c) => c.ur
 // page), so a test that needs its own /host-map answer has to re-import.
 async function freshTransport() {
   vi.resetModules();
-  const mod = await import("../fittings/seed/web-channel-default/ui/orchestrator-transport");
+  const mod = await import("../packages/talk/ui/orchestrator-transport");
   return mod.createOrchestratorTransport;
 }
 

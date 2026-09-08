@@ -373,10 +373,17 @@ export default function RemoteSessionPage({ params }: { params: { node: string; 
               </Fact>
             </dl>
 
-            {session.openUrl ? (
-              // A cross-origin NAVIGATION to the node that owns the session. The
-              // full conversation, the raw terminal and every WebSocket surface
-              // live there and cannot be proxied; this is the honest door.
+            {threadId ? (
+              // The full conversation, in THIS window: /mesh/talk frames it from
+              // the node that owns it (D48), so no tab and no origin change.
+              <Link className={styles.open} href={`/mesh/talk/${encodeURIComponent(node)}/${encodeURIComponent(threadId)}`}>
+                Open the conversation
+                <span aria-hidden> -&gt;</span>
+              </Link>
+            ) : session.openUrl ? (
+              // No web thread to frame: the session's raw terminal and WebSocket
+              // surfaces live on the owning node and cannot be proxied, so the
+              // honest door is that node's own shell.
               <a className={styles.open} href={session.openUrl} target="_blank" rel="noreferrer">
                 Open on {node}
                 <span aria-hidden> -&gt;</span>

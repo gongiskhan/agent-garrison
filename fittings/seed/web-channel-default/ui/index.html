@@ -15,9 +15,15 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png" />
     <link rel="stylesheet" href="/web-channel.css" />
+    <!-- Document-level rules stay with the standalone host: the shared skin
+         (@garrison/talk/ui/styles.css) scopes everything under .talk-host so the
+         Garrison shell can load it on /talk without restyling its own pages. -->
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #141a15; }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root" class="talk-host"></div>
     <script type="module" src="/web-channel.bundle.js"></script>
     <!-- Register the service worker (needs a secure context: https or localhost).
          Failure is non-fatal — the app runs fine without it, just not offline. -->

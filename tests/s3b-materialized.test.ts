@@ -46,7 +46,7 @@ afterAll(async () => {
 // web-channel server computes its dirs at MODULE LOAD from GARRISON_HOME, and static
 // imports hoist above the env assignment — load it dynamically after the sandbox is set.
 // @ts-ignore
-const webServerModule = await import("../fittings/seed/web-channel-default/scripts/server.mjs");
+const webServerModule = await import("../packages/talk/src/server.mjs");
 const { buildGatewayChatBody } = webServerModule;
 
 let server: http.Server;

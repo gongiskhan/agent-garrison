@@ -1,0 +1,14 @@
+#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "2026.07.23-e383d2b"
+  exit 0
+fi
+if [ "$1" = "status" ]; then
+  if [ "$CURSOR_FAKE_AUTH" = "1" ]; then
+    echo '{"status":"authenticated","isAuthenticated":true}'
+  else
+    echo '{"status":"unauthenticated","isAuthenticated":false}'
+  fi
+  exit 0
+fi
+exit 1

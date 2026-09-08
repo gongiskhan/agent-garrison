@@ -125,7 +125,9 @@ export async function reapOrphanCardDrills({ fetchImpl = fetch } = {}) {
     } catch {
       continue; // torn record
     }
-    if (!rec?.id || TERMINAL_STATES.has(rec.state)) continue;
+    // The listener is already accepting requests during startup recovery.
+    // A driver (or another reap pass) in this process owns its live job.
+    if (!rec?.id || TERMINAL_STATES.has(rec.state) || jobs.has(rec.id)) continue;
     jobs.set(rec.id, rec);
     await finish(
       rec,
@@ -270,9 +272,8 @@ async function setState(job, patch) {
   await persist(job).catch(() => {});
 }
 
-// Every terminal path funnels here: stamp the record, then broadcast. The
-// broadcast is AWAITED (unlike the usual fire-and-forget) so the job record's
-// `notified` receipts are truthful when the job reads terminal.
+// Every terminal path funnels here. Keep the job active until the broadcast
+// settles, then publish its terminal state and truthful receipts together.
 async function finish(job, { state, error = null, outcome = null }, { fetchImpl = fetch } = {}) {
   // The card link is opened from a phone on the tailnet, so it must carry the
   // tailnet host, not the loopback address `kanbanBaseUrl()` reads out of the
@@ -292,7 +293,7 @@ async function finish(job, { state, error = null, outcome = null }, { fetchImpl 
   const finalOutcome = outcome ?? { state, headline: error ?? null, runId: job.runId ?? null, findings: 0 };
   finalOutcome.state = state;
   finalOutcome.runId = finalOutcome.runId ?? job.runId ?? null;
-  await setState(job, { state, error, outcome: finalOutcome, endedAt: new Date().toISOString() });
+  const endedAt = new Date().toISOString();
   let receipts = [];
   try {
     receipts = await broadcastOutcome({
@@ -305,7 +306,11 @@ async function finish(job, { state, error = null, outcome = null }, { fetchImpl 
   } catch (err) {
     receipts = [{ means: "broadcast", ok: false, error: err?.message || String(err) }];
   }
-  await setState(job, { notified: receipts });
+  const completed = { ...job, state, error, outcome: finalOutcome, endedAt, notified: receipts };
+  // A polling client can read the live object during any await. Persist the
+  // complete record first so terminal readers also find its receipts on disk.
+  await persist(completed).catch(() => {});
+  Object.assign(job, completed);
   console.log(`[drill] card-drill ${job.id} (${job.card?.id}) -> ${state}: ${summarizeReceipts(receipts)}`);
   jobs.delete(job.id);
   return job;

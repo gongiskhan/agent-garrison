@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Web-channel Fitting backend — mobile-first browser chat surface.
+// Jarvis channel backend — an optional voice HUD alongside Conversations.
 //
 // Talks to the Operative through the http-gateway:
 //   - POST /api/chat   → proxies gateway POST /chat/stream (SSE)
-//   - GET  /api/stream → proxies gateway GET  /channels/web/stream (SSE)
+//   - GET  /api/stream → proxies gateway GET  /channels/jarvis/stream (SSE)
 // Also serves a static React bundle from dist/.
 //
 // LAN bind: default 127.0.0.1 (mirrors CLAUDE.md "talks only to localhost").
@@ -11,16 +11,19 @@
 
 import { execFile } from "node:child_process";
 import { createReadStream, existsSync, readFileSync } from "node:fs";
-import { mkdir, readdir, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, realpath, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import http from "node:http";
 import { promisify } from "node:util";
 import https from "node:https";
 import os from "node:os";
 import path from "node:path";
 import url from "node:url";
-import { WebSocketServer, WebSocket } from "ws";
+import { WebSocketServer } from "ws";
 import { deriveStatusLine, rankAndCapCards } from "./kanban-status.mjs";
-import { readInstanceState, scheduleInstanceWrite } from "./view-state.mjs";
+import { readInstanceState, scheduleInstanceWrite, flushInstanceWrites } from "./view-state.mjs";
+import { RequestError, originAllowed, validatePost, readBody, proxyResponse, fetchJson, jsonRes } from "./http-transport.mjs";
+import { createVoiceClient, relayVoiceStream } from "./voice-client.mjs";
 
 // Mirrors garrisonDir() in src/lib/claude-home.ts: GARRISON_HOME (when set)
 // IS the .garrison root, else ~/.garrison. Sandboxed runs (spike drivers) set
@@ -35,13 +38,6 @@ function garrisonDir() {
 const STATUS_ROOT = path.join(garrisonDir(), "ui-fittings");
 const STATUS_FILE = path.join(STATUS_ROOT, "jarvis-os.json");
 const MONITOR_STATUS_FILE = path.join(STATUS_ROOT, "monitor-default.json");
-// Voice discovery: prefer the Local Voice Fitting, fall back to deepgram-voice.
-// Either provides the same kind:voice contract (/stt, /tts); voice is a
-// singleton so at most one is stationed.
-const VOICE_STATUS_FILES = [
-  path.join(STATUS_ROOT, "local-voice.json"),
-  path.join(STATUS_ROOT, "deepgram-voice.json")
-];
 // Kanban Loop discovery: the HUD's Tasks panel mirrors the board and creates
 // cards by reaching the kanban-loop Fitting server-to-server (its own port,
 // discovered here — not hardcoded, since its port is configurable).
@@ -69,9 +65,7 @@ const SPOTIFY_CONNECTOR_CANDIDATES = connectorCandidates("spotify");
 // (commanding one never interrupts another). Absent = the switcher hides.
 const DEVENV_STATUS_FILE = path.join(STATUS_ROOT, "dev-env.json");
 
-// Reuse the proven "web" channel ring buffer on the gateway — the Jarvis HUD
-// is an alternative front-end to the web channel, not a second concurrent one.
-const CHANNEL_ID = "web";
+const CHANNEL_ID = "jarvis";
 
 // Composition config arrives from Garrison's own-port runner NAMESPACED:
 // GARRISON_<ID>_<KEY> — the fitting id stripped of every non-alphanumeric, the
@@ -83,13 +77,14 @@ const CHANNEL_ID = "web";
 // composition config and keeps its own names.
 const cfg = (key) => process.env[`GARRISON_JARVISOS_${key}`];
 
-function parseArgs(argv) {
+export function parseArgs(argv = []) {
   const out = {
     port: Number(cfg("PORT") || 8082),
     host: cfg("BIND_HOST") || "127.0.0.1",
     // config_schema `gateway_url` overrides; else the runner-injected gateway.
     gatewayUrl: cfg("GATEWAY_URL") || process.env.GARRISON_GATEWAY_URL || "",
     devEnvUrl: process.env.GARRISON_DEVENV_URL || "",
+    appUrl: process.env.GARRISON_APP_URL || "",
     tlsCert: cfg("TLS_CERT") || "",
     tlsKey: cfg("TLS_KEY") || ""
   };
@@ -104,35 +99,14 @@ function parseArgs(argv) {
   }
   if (!out.gatewayUrl) {
     const h = process.env.GARRISON_GATEWAY_HOST || "127.0.0.1";
-    const p = process.env.GARRISON_GATEWAY_PORT || "4777";
-    out.gatewayUrl = `http://${h}:${p}`;
+    const p = process.env.GARRISON_GATEWAY_PORT;
+    if (p) out.gatewayUrl = `http://${h}:${p}`;
   }
   return out;
 }
 
-function jsonRes(res, status, body) {
-  res.statusCode = status;
-  res.setHeader("Content-Type", "application/json");
-  res.end(JSON.stringify(body));
-}
-
-// Cross-site WebSocket hijacking defense: allow a request with no Origin (native
-// client), a loopback/tailnet Origin, or a same-host Origin; reject anything else
-// (a page on evil.com). Tailnet (*.ts.net) is allowed so access via `tailscale
-// serve` keeps working even though the proxy may rewrite the Host header.
-function wsOriginAllowed(request) {
-  const origin = request.headers.origin;
-  if (!origin) return true;
-  try {
-    const o = new URL(origin);
-    if (o.hostname === "127.0.0.1" || o.hostname === "localhost" || o.hostname === "[::1]") return true;
-    if (/\.ts\.net$/i.test(o.hostname)) return true;
-    return o.host === (request.headers.host || "");
-  } catch { return false; }
-}
-
 function handleHealth(req, res, opts) {
-  jsonRes(res, 200, { ok: true, port: opts.port, pid: process.pid, host: opts.host });
+  jsonRes(res, 200, { ok: true, port: req.socket.localPort, pid: process.pid, host: opts.host });
 }
 
 async function handleMonitor(req, res) {
@@ -156,45 +130,11 @@ async function handleMonitor(req, res) {
     jsonRes(res, 200, { available: false });
     return;
   }
-  jsonRes(res, 200, { available: true, url: info.url });
+  jsonRes(res, 200, { available: true, url: info.url, tailnetUrl: (await tailnetServeMap())[Number(new URL(info.url).port)] || null });
 }
 
-function pingHealth(baseUrl, timeoutMs) {
-  return new Promise((resolve) => {
-    let settled = false;
-    const settle = (ok) => { if (!settled) { settled = true; resolve(ok); } };
-    try {
-      const target = new URL("/health", baseUrl);
-      const req = http.request({
-        method: "GET",
-        hostname: target.hostname,
-        port: target.port,
-        path: target.pathname,
-        timeout: timeoutMs
-      }, (res) => {
-        res.resume();
-        settle(res.statusCode === 200);
-      });
-      req.on("error", () => settle(false));
-      req.on("timeout", () => { req.destroy(); settle(false); });
-      req.end();
-    } catch {
-      settle(false);
-    }
-  });
-}
-
-function readVoiceInfo() {
-  for (const file of VOICE_STATUS_FILES) {
-    if (!existsSync(file)) continue;
-    try {
-      const info = JSON.parse(readFileSync(file, "utf8"));
-      if (info?.url) return info;
-    } catch {
-      // try the next candidate
-    }
-  }
-  return null;
+async function pingHealth(baseUrl, timeoutMs) {
+  return (await fetchJson(baseUrl, "/health", timeoutMs))?.ok === true;
 }
 
 // Smart-endpointing config for the HUD, projected from the composition
@@ -231,7 +171,7 @@ function handleEndpointing(res) {
 // (mirrors the dev-env Fitting's per-instance view-state convention — jarvis-os
 // only ever has the one "default" instance, the always-mounted HUD). No save
 // button: every change from the panel POSTs here and the on-disk write is
-// debounced (scheduleInstanceWrite, ~500ms trailing). `latestHudSettings` is
+// debounced (scheduleInstanceWrite, ~500ms trailing). the settings store is
 // the in-memory mirror the debounced writer reads from, and what GET answers
 // from once warm — avoids a disk read on every poll.
 // orbMode/orbCorner (Phase 3): the "shrink into a corner" preference and its
@@ -258,36 +198,31 @@ const DEFAULT_HUD_SETTINGS = {
 
 const CORE_STATE_KEYS = ["listening", "thinking", "speaking"];
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
-let latestHudSettings = null;
-
-async function handleHudSettingsGet(res) {
-  if (!latestHudSettings) {
-    const { exists, state } = await readInstanceState(HUD_SETTINGS_FITTING, HUD_SETTINGS_INSTANCE);
-    latestHudSettings = exists && state && typeof state === "object"
-      ? { ...DEFAULT_HUD_SETTINGS, ...state }
-      : { ...DEFAULT_HUD_SETTINGS };
-    // stateColors is a nested object, so the spread above would hand back a
-    // PARTIAL one whenever the persisted document predates a state (or predates
-    // the setting entirely). Fill the gaps so every reader — the HUD and the
-    // shell alike — sees all three keys.
-    latestHudSettings.stateColors = {
-      ...DEFAULT_HUD_SETTINGS.stateColors,
-      ...(latestHudSettings.stateColors && typeof latestHudSettings.stateColors === "object"
-        ? latestHudSettings.stateColors
-        : {})
-    };
-  }
-  jsonRes(res, 200, latestHudSettings);
+function settingsStore(deps) {
+  return { value: null, loading: null, read: deps.readSettings || (() => readInstanceState(HUD_SETTINGS_FITTING, HUD_SETTINGS_INSTANCE)),
+    write: deps.writeSettings || ((factory) => scheduleInstanceWrite(HUD_SETTINGS_FITTING, HUD_SETTINGS_INSTANCE, factory)) };
 }
+async function loadSettings(store) {
+  if (store.value) return store.value;
+  if (!store.loading) store.loading = Promise.resolve().then(store.read).then(({ exists, state }) => {
+    const saved = exists && state && typeof state === "object" ? state : {};
+    store.value = { ...DEFAULT_HUD_SETTINGS, ...saved,
+      stateColors: { ...DEFAULT_HUD_SETTINGS.stateColors, ...(saved.stateColors || {}) } };
+    return store.value;
+  }).finally(() => { store.loading = null; });
+  return store.loading;
+}
+async function handleHudSettingsGet(res, store) { jsonRes(res, 200, await loadSettings(store)); }
 
 // Partial-update body: any subset of {color, orbMode, orbCorner, stateColors}.
 // Each recognized field is validated independently and merged onto whatever is
 // already known; a body with no recognized field is a 400 (most likely a
 // caller bug, not a real "clear settings" request — there is no such thing).
-async function handleHudSettingsPost(req, res) {
+async function handleHudSettingsPost(req, res, store) {
   let body;
   try { body = await readJsonBody(req); } catch (err) { jsonRes(res, 400, { error: `invalid json: ${err.message}` }); return; }
-  const next = { ...DEFAULT_HUD_SETTINGS, ...(latestHudSettings || {}) };
+  await loadSettings(store);
+  const next = { ...store.value };
   let touched = false;
   if (body && typeof body === "object") {
     if (typeof body.color === "string") {
@@ -327,9 +262,9 @@ async function handleHudSettingsPost(req, res) {
     }
   }
   if (!touched) { jsonRes(res, 400, { error: "no recognized field (color/orbMode/orbCorner) in body" }); return; }
-  latestHudSettings = next;
-  scheduleInstanceWrite(HUD_SETTINGS_FITTING, HUD_SETTINGS_INSTANCE, () => latestHudSettings);
-  jsonRes(res, 200, latestHudSettings);
+  store.value = next;
+  await store.write(() => store.value);
+  jsonRes(res, 200, store.value);
 }
 
 // ── workspace panel data ─────────────────────────────────────────────────────
@@ -347,30 +282,19 @@ async function runRead(cmd, args, cwd, timeout = 4000) {
   return stdout.trim();
 }
 
-// config_schema `project_root` (GARRISON_JARVISOS_PROJECT_ROOT) wins; otherwise whatever repo
-// the server itself runs inside (the Fitting installs under the composition,
-// which lives in the project checkout, so this resolves without config).
-async function resolveProjectRoot() {
-  const fromEnv = cfg("PROJECT_ROOT")?.trim();
-  if (fromEnv) return existsSync(fromEnv) ? fromEnv : null;
-  try { return await runRead("git", ["rev-parse", "--show-toplevel"], process.cwd()); }
-  catch { return null; }
-}
-
 // ── active-project ("workspace target") resolution ───────────────────────────
 // The WORKSPACE panel must reflect the repo where DEV WORK is actually
-// happening — the dev souls run under ~/dev, not this checkout — instead of the
+// happening — development sessions may run outside this checkout — instead of the
 // agent-garrison repo the HUD server itself lives in. Precedence:
 //   1. a running dev session's cwd (auto-follow), EXCLUDING sessions whose repo
-//      is this server's own repo (assistant/companion souls have no base_path so
+//      is this server's own repo (a general session may have no base_path so
 //      their cwd is the composition dir = agent-garrison — following those would
 //      re-point the panel at Jarvis itself, the exact thing we're fixing).
 //   2. the last project we followed (persisted), so the panel doesn't blank the
 //      moment a session ends.
 //   3. PROJECT_ROOT env (the static config override), if set.
 //   4. nothing — a calm empty state. We NEVER fall back to the server's own repo.
-// Souls/skills/commands keep using resolveProjectRoot() (they ARE Jarvis's own
-// config, correctly tied to the composition) — only the workspace follows this.
+// Runtime skills and commands are read from the projected configuration roots.
 const WORKSPACE_STATE_FILE = path.join(STATUS_ROOT, "jarvis-os-workspace.json");
 const WORKSPACE_TTL_MS = 8_000;
 let workspaceCache = { at: 0, data: null };
@@ -397,33 +321,40 @@ function readPersistedWorkspace() {
   catch { return null; }
 }
 
-// last_summary_at may be a number (ms) or an ISO string; missing → 0.
+// Canonical activity is ISO text; tolerate legacy millisecond timestamps.
 function sessionRecency(s) {
-  const v = s?.last_summary_at;
+  const v = s?.lastActivityAt ?? s?.startedAt ?? s?.last_summary_at;
   if (typeof v === "number") return v;
   if (typeof v === "string") { const n = Date.parse(v); return Number.isNaN(n) ? 0 : n; }
   return 0;
 }
 
+export async function findLocalWorkingWorkspace(mesh, selfRoot, { repoRoot = (cwd) => runRead("git", ["rev-parse", "--show-toplevel"], cwd),
+  pathExists = existsSync, canonicalPath = realpath } = {}) {
+  if (!mesh?.self || !("node" in mesh.self)) return null;
+  const rows = (Array.isArray(mesh.rows) ? mesh.rows : []).filter((row) =>
+    row?.node === mesh.self.node && row.status === "working" && typeof row.cwd === "string" && path.isAbsolute(row.cwd))
+    .sort((a, b) => sessionRecency(b) - sessionRecency(a));
+  let canonicalSelf = selfRoot;
+  try { if (selfRoot) canonicalSelf = await canonicalPath(selfRoot); } catch {}
+  for (const row of rows) {
+    // Remote rows are filtered before even testing a path on this filesystem.
+    if (!pathExists(row.cwd)) continue;
+    try {
+      const top = await repoRoot(row.cwd);
+      if (typeof top !== "string" || !path.isAbsolute(top)) continue;
+      const canonical = await canonicalPath(top);
+      if (canonical !== canonicalSelf) return canonical;
+    } catch { /* not a readable local repository */ }
+  }
+  return null;
+}
+
 async function computeWorkspaceRoot(opts) {
   const selfRoot = await resolveSelfRoot();
-  const same = (a, b) => a && b && path.resolve(a) === path.resolve(b);
-  // 1. auto-follow the most-recently-active running dev session
-  try {
-    const sess = await fetchJson(opts.gatewayUrl, "/sessions");
-    const running = (Array.isArray(sess?.sessions) ? sess.sessions : [])
-      .filter((s) => s && s.status === "running" && typeof s.cwd === "string" && s.cwd)
-      .sort((a, b) => sessionRecency(b) - sessionRecency(a));
-    for (const s of running) {
-      if (!existsSync(s.cwd)) continue;
-      let top;
-      try { top = await runRead("git", ["rev-parse", "--show-toplevel"], s.cwd); }
-      catch { continue; } // cwd isn't a git repo → not a workspace we can show
-      if (!top || same(top, selfRoot)) continue; // skip Jarvis's own repo
-      await persistWorkspace(top);
-      return { root: top, source: "session" };
-    }
-  } catch { /* gateway unreachable → fall through to the persisted / env target */ }
+  const mesh = await fetchJson(opts.appUrl || process.env.GARRISON_APP_URL || "", "/api/sessions", 8000, 4 * 1024 * 1024);
+  const working = await findLocalWorkingWorkspace(mesh, selfRoot);
+  if (working) { await persistWorkspace(working); return { root: working, source: "session" }; }
   // 2. last followed project
   const last = readPersistedWorkspace();
   if (last && existsSync(last)) return { root: last, source: "last" };
@@ -532,78 +463,20 @@ async function handleDiff(res, opts) {
   }
 }
 
-// Operative panel: runtime health + the agent surface (souls on disk, skills,
-// commands) for the HUD's left flank. Souls/skills are FILES — the composition's
-// souls/*.md and the repo's .claude/skills — so this only reads the disk; the
-// live/standby distinction comes from the gateway's /sessions list client-side
-// (a soul with a running session is live, the rest are standby).
-const OPERATIVE_TTL_MS = 10_000;
-let operativeCache = { at: 0, data: null };
-
-function fetchJson(baseUrl, subpath, timeoutMs = 2500) {
-  return new Promise((resolve) => {
-    let settled = false;
-    const settle = (v) => { if (!settled) { settled = true; resolve(v); } };
-    try {
-      const target = new URL(subpath, baseUrl);
-      const req = http.request(
-        { method: "GET", hostname: target.hostname, port: target.port, path: target.pathname, timeout: timeoutMs },
-        (up) => {
-          let raw = "";
-          up.on("data", (c) => { raw += c; });
-          up.on("end", () => { try { settle(JSON.parse(raw)); } catch { settle(null); } });
-          up.on("error", () => settle(null));
-        }
-      );
-      req.on("error", () => settle(null));
-      req.on("timeout", () => { req.destroy(); settle(null); });
-      req.end();
-    } catch { settle(null); }
-  });
-}
-
-async function handleOperative(res, opts) {
-  const now = Date.now();
-  if (operativeCache.data && now - operativeCache.at < OPERATIVE_TTL_MS) {
-    jsonRes(res, 200, operativeCache.data);
-    return;
-  }
-  const voiceInfo = readVoiceInfo();
-  const [gateway, voice, root] = await Promise.all([
-    fetchJson(opts.gatewayUrl, "/health"),
-    voiceInfo?.url ? fetchJson(voiceInfo.url, "/health") : Promise.resolve(null),
-    resolveProjectRoot()
-  ]);
-  // Souls live in the composition (compositions/<id>/souls/*.md); skills and
-  // commands in the repo's / composition's .claude. All best-effort reads.
-  const compositionId = process.env.GARRISON_COMPOSITION_ID?.trim() || "jarvis";
-  const listNames = async (dir, stripExt) => {
-    try {
-      const entries = await readdir(dir, { withFileTypes: true });
-      return entries
-        .filter((e) => (stripExt ? e.isFile() && e.name.endsWith(stripExt) : e.isDirectory()))
-        .map((e) => (stripExt ? e.name.slice(0, -stripExt.length) : e.name))
-        .filter((n) => !n.startsWith("."));
-    } catch { return []; }
-  };
-  const compDir = root ? path.join(root, "compositions", compositionId) : null;
-  const [souls, skills, commands] = await Promise.all([
-    compDir ? listNames(path.join(compDir, "souls"), ".md") : Promise.resolve([]),
-    root ? listNames(path.join(root, ".claude", "skills"), null) : Promise.resolve([]),
-    compDir ? listNames(path.join(compDir, ".claude", "commands"), ".md") : Promise.resolve([])
-  ]);
-  const data = {
-    gateway: gateway?.ok
-      ? {
-          ok: true, mode: gateway.mode ?? null, uptimeMs: gateway.uptime_ms ?? null,
-          sessions: gateway.sessions_count ?? null, channels: gateway.channels_count ?? null
-        }
-      : { ok: false },
-    voice: voice?.ok ? { ok: true, ready: Boolean(voice.enginesReady) } : { ok: false },
-    souls, skills, commands
-  };
-  operativeCache = { at: now, data };
-  jsonRes(res, 200, data);
+async function handleRuntime(res, opts) {
+  const [gateway, voice] = await Promise.all([fetchJson(opts.gatewayUrl, "/health"), opts.voice.capabilities()]);
+  const roots = opts.configRoots || [process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"),
+    ...(process.env.GARRISON_COMPOSITION_DIR ? [path.join(process.env.GARRISON_COMPOSITION_DIR, ".claude")] : [])];
+  const names = async (kind) => [...new Set((await Promise.all(roots.map(async (root) => {
+    try { return (await readdir(path.join(root, kind), { withFileTypes: true }))
+      .filter((entry) => !entry.name.startsWith(".") && (kind === "skills" ? entry.isDirectory() || entry.isSymbolicLink() : entry.isFile() && entry.name.endsWith(".md")))
+      .map((entry) => kind === "commands" ? entry.name.slice(0, -3) : entry.name); }
+    catch { return []; }
+  }))).flat())].sort();
+  const [skills, commands] = await Promise.all([names("skills"), names("commands")]);
+  jsonRes(res, 200, { gateway: gateway?.ok ? { ok: true, mode: gateway.mode ?? null,
+    uptimeMs: gateway.uptime_ms ?? null, sessions: gateway.sessions_count ?? null,
+    channels: gateway.channels_count ?? null } : { ok: false }, voice, skills, commands });
 }
 
 // ── kanban panel data ────────────────────────────────────────────────────────
@@ -757,9 +630,8 @@ async function ambientWeather() {
   const u = "https://api.open-meteo.com/v1/forecast?latitude=38.72&longitude=-9.14" +
     "&current=temperature_2m,weather_code&daily=temperature_2m_max,temperature_2m_min,weather_code" +
     "&timezone=Europe%2FLisbon&forecast_days=2";
-  const r = await fetch(u, { signal: AbortSignal.timeout(6000) });
-  if (!r.ok) return null;
-  const j = await r.json();
+  const j = await fetchJson(u, u, 6000);
+  if (!j) return null;
   return {
     temp: Math.round(j.current?.temperature_2m ?? NaN),
     code: j.current?.weather_code ?? null,
@@ -877,36 +749,17 @@ async function handleKanban(res) {
 
 // POST proxy → kanban `POST /cards`. Server-to-server (no Origin) so the mutation
 // guard passes. Busts the board cache so the new card shows on the next poll.
-function postJson(baseUrl, subpath, payload, res) {
-  let target;
-  try { target = new URL(subpath, baseUrl); } catch { jsonRes(res, 502, { error: "bad kanban target" }); return; }
-  const upstream = http.request({
-    method: "POST",
-    hostname: target.hostname,
-    port: target.port,
-    path: target.pathname,
-    headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) },
-    timeout: 5000
-  }, (up) => {
-    let raw = "";
-    up.on("data", (c) => { raw += c; });
-    up.on("end", () => {
-      res.statusCode = up.statusCode || 502;
-      res.setHeader("Content-Type", "application/json");
-      res.end(raw || "{}");
-      kanbanCache = { expires: 0, data: null };
-    });
-  });
-  upstream.on("error", () => { try { jsonRes(res, 502, { error: "kanban unreachable" }); } catch {} });
-  upstream.on("timeout", () => { try { upstream.destroy(); jsonRes(res, 504, { error: "kanban timeout" }); } catch {} });
-  upstream.end(payload);
+async function postJson(baseUrl, subpath, payload, res) {
+  await proxyResponse(res, new URL(subpath, baseUrl), { method: "POST", body: payload,
+    headers: { "Content-Type": "application/json" }, timeoutMs: 5000 });
+  kanbanCache = { expires: 0, data: null };
 }
 
 // Advance/start a card (voice "avança o card X"). Proxies kanban POST /cards/:id/start.
 function handleKanbanStart(res, id) {
   const info = readFittingInfo(KANBAN_STATUS_FILE);
   if (!info?.url) { jsonRes(res, 503, { error: "kanban-loop fitting not available" }); return; }
-  postJson(info.url, `/cards/${id}/start`, "{}", res);
+  return postJson(info.url, `/cards/${id}/start`, "{}", res);
 }
 
 async function handleKanbanCreate(req, res) {
@@ -921,232 +774,47 @@ async function handleKanbanCreate(req, res) {
     ...(title ? { title } : {}),
     ...(description ? { description } : {})
   });
-  postJson(info.url, "/cards", payload, res);
+  return postJson(info.url, "/cards", payload, res);
 }
 
 // Thin GET proxy to the gateway for the Workspace panel's live lists
 // (/sessions, /worktrees). Upstream errors — including the gateway's 502 when
 // the dev-env worktrees proxy isn't stationed — degrade to the fallback body so
 // the panel section simply omits itself instead of erroring.
-function handleGatewayGet(req, res, opts, subpath, fallbackBody) {
-  const target = new URL(subpath, opts.gatewayUrl);
-  const upstream = http.request(
-    {
-      method: "GET",
-      hostname: target.hostname,
-      port: target.port,
-      path: target.pathname + target.search,
-      headers: { Accept: "application/json" },
-      timeout: 4000
-    },
-    (up) => {
-      if ((up.statusCode || 500) >= 400) {
-        up.resume();
-        jsonRes(res, 200, fallbackBody);
-        return;
-      }
-      res.statusCode = 200;
-      res.setHeader("Content-Type", up.headers["content-type"] || "application/json");
-      up.pipe(res);
-    }
-  );
-  upstream.on("timeout", () => { try { upstream.destroy(new Error("gateway timeout")); } catch {} });
-  upstream.on("error", () => { try { jsonRes(res, 200, fallbackBody); } catch {} });
-  upstream.end();
+async function handleSessions(res, opts) {
+  const data = await fetchJson(opts.appUrl || process.env.GARRISON_APP_URL || "", "/api/sessions", 8000, 4 * 1024 * 1024);
+  jsonRes(res, 200, data && Array.isArray(data.rows) && Array.isArray(data.nodes) ? data :
+    { available: false, self: { node: null, accentColor: null }, nodes: [], rows: [] });
 }
 
-// Voice availability — mirrors handleMonitor. The web UI hides its mic / speaker
-// controls when this reports unavailable.
-async function handleVoiceInfo(res) {
-  const info = readVoiceInfo();
-  if (!info?.url) {
-    jsonRes(res, 200, { available: false });
-    return;
-  }
-  const ok = await pingHealth(info.url, 600);
-  jsonRes(res, 200, ok ? { available: true, url: info.url } : { available: false });
+async function handleGatewayGet(req, res, opts, subpath, fallbackBody) {
+  const data = await fetchJson(opts.gatewayUrl, subpath, 4000);
+  jsonRes(res, 200, data ?? fallbackBody);
 }
 
-// Binary proxy to the voice Fitting. Used for both /stt (audio in → JSON) and
-// /tts (JSON in → audio out). pipeUpstreamSse/readJsonBody can't carry binary
-// bodies, so this buffers the request and pipes the upstream response straight
-// back, preserving the upstream Content-Type (audio/* or application/json).
-// Same-origin so the browser needs no CORS, and the Deepgram key stays on the
-// voice Fitting — the web UI never sees it.
-async function handleVoiceProxy(req, res, subpath) {
-  const info = readVoiceInfo();
-  if (!info?.url) {
-    jsonRes(res, 503, { error: "voice fitting not available" });
-    return;
-  }
-  let body;
-  try {
-    body = await readRawBody(req);
-  } catch (err) {
-    jsonRes(res, 400, { error: `bad body: ${err.message}` });
-    return;
-  }
-  const target = new URL(subpath, info.url);
-  const upstream = http.request(
-    {
-      method: "POST",
-      hostname: target.hostname,
-      port: target.port,
-      path: target.pathname,
-      headers: {
-        "Content-Type": req.headers["content-type"] || "application/octet-stream",
-        "Content-Length": body.length
-      },
-      timeout: 30_000
-    },
-    (up) => {
-      res.statusCode = up.statusCode || 502;
-      if (up.headers["content-type"]) res.setHeader("Content-Type", up.headers["content-type"]);
-      res.setHeader("Cache-Control", "no-store");
-      up.pipe(res);
-    }
-  );
-  upstream.on("error", (err) => {
-    if (res.headersSent) { try { res.destroy(err); } catch {} return; }
-    try { jsonRes(res, 502, { error: `voice upstream: ${err.message}` }); } catch {}
-  });
-  upstream.on("timeout", () => { try { upstream.destroy(new Error("voice upstream timeout")); } catch {} });
-  // If the client aborts (navigates away / cancels), tear down the upstream so a
-  // slow voice request doesn't leak the socket (mirrors handleVoiceTtsGet).
-  req.on("close", () => { try { upstream.destroy(); } catch {} });
-  upstream.end(body);
+async function handleVoiceInfo(res, opts) { jsonRes(res, 200, await opts.voice.capabilities()); }
+async function handleVoiceProxy(req, res, subpath, opts) { return opts.voice.proxy(req, res, subpath); }
+async function handleVoiceTtsGet(req, res, opts) { return opts.voice.proxy(req, res, "/tts"); }
+
+async function readJsonBody(req) {
+  if (req.jarvisJson !== undefined) return req.jarvisJson;
+  const value = JSON.parse((await readBody(req, { limit: 256 * 1024 })).toString("utf8"));
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new RequestError(400, "JSON object required");
+  return value;
 }
-
-// GET variant of /tts for progressive <audio src> playback. The voice Fitting
-// streams a single growing WAV (header declares unknown length), so the browser
-// can START PLAYING after the first synthesized sentence instead of waiting for
-// the whole utterance. A POST+blob() in the UI would defeat that and add the
-// full ~2s synth latency before any audio — this GET keeps the pipe open and
-// lets the <audio> element consume it as it arrives.
-async function handleVoiceTtsGet(req, res) {
-  const info = readVoiceInfo();
-  if (!info?.url) { jsonRes(res, 503, { error: "voice fitting not available" }); return; }
-  const text = String(url.parse(req.url, true).query.text || "");
-  if (!text.trim()) { jsonRes(res, 400, { error: "text is required" }); return; }
-  const body = Buffer.from(JSON.stringify({ text, format: "wav" }), "utf8");
-  const target = new URL("/tts", info.url);
-  const upstream = http.request(
-    {
-      method: "POST",
-      hostname: target.hostname,
-      port: target.port,
-      path: target.pathname,
-      headers: { "Content-Type": "application/json", "Content-Length": body.length }
-    },
-    (up) => {
-      res.statusCode = up.statusCode || 502;
-      if (up.headers["content-type"]) res.setHeader("Content-Type", up.headers["content-type"]);
-      res.setHeader("Cache-Control", "no-store");
-      up.pipe(res);
-    }
-  );
-  upstream.on("error", (err) => {
-    try { jsonRes(res, 502, { error: `voice upstream: ${err.message}` }); } catch {}
-  });
-  req.on("close", () => { try { upstream.destroy(); } catch {} });
-  upstream.end(body);
-}
-
-// Pure passthrough relay: browser WS ⇄ voice Fitting WS (`/stream` for live
-// PCM STT, `/events` for wake-word + hello events). Binary and text frames are
-// forwarded verbatim in both directions; frames sent before the upstream opens
-// are buffered briefly.
-function relayVoiceStream(client, voiceHttpUrl, search, upstreamPath = "/stream") {
-  const upstreamUrl = voiceHttpUrl.replace(/^http/, "ws").replace(/\/+$/, "") + upstreamPath + (search || "");
-  const upstream = new WebSocket(upstreamUrl);
-  const pending = [];
-  // Cap the pre-open buffer: the client streams ~50 mic frames/s, so if the
-  // upstream is slow to connect (or never does) this would grow without bound.
-  // ~256 frames ≈ a few seconds; past that, drop the oldest.
-  const MAX_PENDING = 256;
-
-  upstream.on("open", () => {
-    for (const { data, isBinary } of pending) upstream.send(data, { binary: isBinary });
-    pending.length = 0;
-  });
-  upstream.on("message", (data, isBinary) => {
-    if (client.readyState === WebSocket.OPEN) client.send(data, { binary: isBinary });
-  });
-  upstream.on("close", () => { pending.length = 0; try { client.close(); } catch {} });
-  upstream.on("error", () => { pending.length = 0; try { client.close(); } catch {} });
-
-  client.on("message", (data, isBinary) => {
-    if (upstream.readyState === WebSocket.OPEN) upstream.send(data, { binary: isBinary });
-    else { pending.push({ data, isBinary }); if (pending.length > MAX_PENDING) pending.shift(); }
-  });
-  client.on("close", () => { try { upstream.close(); } catch {} });
-  client.on("error", () => { try { upstream.close(); } catch {} });
-}
-
-function readRawBody(req, limit = 25 * 1024 * 1024) {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    const chunks = [];
-    req.on("data", (chunk) => {
-      size += chunk.length;
-      if (size > limit) {
-        reject(new Error("payload too large"));
-        try { req.destroy(); } catch {}
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on("end", () => resolve(Buffer.concat(chunks)));
-    req.on("error", reject);
-  });
-}
-
 function pipeUpstreamSse(req, res, upstreamOpts, upstreamBody) {
-  res.statusCode = 200;
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  res.setHeader("X-Accel-Buffering", "no");
-
-  const upstream = http.request(upstreamOpts, (up) => {
-    if (up.statusCode && up.statusCode >= 400) {
-      res.write(`event: error\ndata: ${JSON.stringify({ error: `upstream ${up.statusCode}` })}\n\n`);
-      up.resume();
-      res.end();
-      return;
-    }
-    up.on("data", (chunk) => {
-      try { res.write(chunk); } catch {}
-    });
-    up.on("end", () => {
-      try { res.end(); } catch {}
-    });
-    up.on("error", (err) => {
-      try { res.write(`event: error\ndata: ${JSON.stringify({ error: err.message })}\n\n`); } catch {}
-      try { res.end(); } catch {}
-    });
-  });
-  upstream.on("error", (err) => {
-    try {
-      res.write(`event: error\ndata: ${JSON.stringify({ error: err.message })}\n\n`);
-      res.end();
-    } catch {}
-  });
-  req.on("close", () => {
-    try { upstream.destroy(); } catch {}
-  });
-  if (upstreamBody !== undefined) {
-    upstream.write(upstreamBody);
-  }
-  upstream.end();
+  const target = new URL(`${upstreamOpts.protocol || "http:"}//${upstreamOpts.hostname}${upstreamOpts.port ? `:${upstreamOpts.port}` : ""}${upstreamOpts.path}`);
+  return proxyResponse(res, target, { ...upstreamOpts, body: upstreamBody,
+    sse: true, timeoutMs: 30 * 60_000, maxBytes: 64 * 1024 * 1024 });
 }
 
 function handleStream(req, res, opts) {
-  // live=1: the voice UI speaks each Soul reply as it lands, so it must NOT get
+  // live=1: the voice UI speaks each session reply as it lands, so it must NOT get
   // the ring-buffer replay (no re-speaking old replies on connect/reconnect).
   const target = new URL(`/channels/${CHANNEL_ID}/stream?live=1`, opts.gatewayUrl);
-  pipeUpstreamSse(req, res, {
+  return pipeUpstreamSse(req, res, {
     method: "GET",
+    protocol: target.protocol,
     hostname: target.hostname,
     port: target.port,
     path: target.pathname + target.search, // keep ?live=1
@@ -1170,8 +838,9 @@ function handleWhatsappEvents(req, res) {
   let target;
   try { target = new URL("/events", info.url); }
   catch { res.statusCode = 200; res.setHeader("Content-Type", "text/event-stream"); res.end(); return; }
-  pipeUpstreamSse(req, res, {
+  return pipeUpstreamSse(req, res, {
     method: "GET",
+    protocol: target.protocol,
     hostname: target.hostname,
     port: target.port,
     path: target.pathname,
@@ -1183,8 +852,9 @@ function handleWhatsappEvents(req, res) {
 // stream uses pipeUpstreamSse; the JSON actions buffer + forward.
 function handleClaudeStream(req, res, opts) {
   const target = new URL("/claude/stream", opts.gatewayUrl);
-  pipeUpstreamSse(req, res, {
+  return pipeUpstreamSse(req, res, {
     method: "GET",
+    protocol: target.protocol,
     hostname: target.hostname,
     port: target.port,
     path: target.pathname,
@@ -1193,58 +863,9 @@ function handleClaudeStream(req, res, opts) {
 }
 
 async function handleClaudeProxy(req, res, opts, subpath, method) {
-  let payload;
-  if (method === "POST") {
-    try {
-      payload = JSON.stringify(await readJsonBody(req));
-    } catch (err) {
-      return jsonRes(res, 400, { error: `invalid json: ${err.message}` });
-    }
-  }
-  const target = new URL(`/claude/${subpath}`, opts.gatewayUrl);
-  const headers = { Accept: "application/json" };
-  if (payload !== undefined) {
-    headers["Content-Type"] = "application/json";
-    headers["Content-Length"] = Buffer.byteLength(payload);
-  }
-  const upstream = http.request(
-    { method, hostname: target.hostname, port: target.port, path: target.pathname + (target.search || ""), headers, timeout: 15_000 },
-    (up) => {
-      res.statusCode = up.statusCode || 502;
-      res.setHeader("Content-Type", up.headers["content-type"] || "application/json");
-      up.pipe(res);
-    }
-  );
-  upstream.on("error", (err) => {
-    if (res.headersSent) { try { res.destroy(err); } catch {} return; }
-    try { jsonRes(res, 502, { error: `gateway: ${err.message}` }); } catch {}
-  });
-  upstream.on("timeout", () => { try { upstream.destroy(new Error("gateway timeout")); } catch {} });
-  req.on("close", () => { try { upstream.destroy(); } catch {} });
-  if (payload !== undefined) upstream.write(payload);
-  upstream.end();
-}
-
-async function readJsonBody(req, limit = 256 * 1024) {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    const chunks = [];
-    req.on("data", (chunk) => {
-      size += chunk.length;
-      if (size > limit) {
-        reject(new Error("payload too large"));
-        try { req.destroy(); } catch {}
-        return;
-      }
-      chunks.push(chunk);
-    });
-    req.on("end", () => {
-      const raw = Buffer.concat(chunks).toString("utf8");
-      if (!raw) { resolve({}); return; }
-      try { resolve(JSON.parse(raw)); } catch (err) { reject(err); }
-    });
-    req.on("error", reject);
-  });
+  const payload = method === "POST" ? JSON.stringify(await readJsonBody(req)) : undefined;
+  return proxyResponse(res, new URL(`/claude/${subpath}`, opts.gatewayUrl), {
+    method, body: payload, headers: { Accept: "application/json", "Content-Type": "application/json" }, timeoutMs: 15_000 });
 }
 
 async function handleChat(req, res, opts) {
@@ -1262,8 +883,9 @@ async function handleChat(req, res, opts) {
   }
   const payload = JSON.stringify({ message, channel: CHANNEL_ID });
   const target = new URL("/chat/stream", opts.gatewayUrl);
-  pipeUpstreamSse(req, res, {
+  return pipeUpstreamSse(req, res, {
     method: "POST",
+    protocol: target.protocol,
     hostname: target.hostname,
     port: target.port,
     path: target.pathname,
@@ -1293,31 +915,9 @@ function readDevEnvUrl(opts) {
 // Buffered JSON POST proxy to an arbitrary upstream (dev-env). Mirrors postJson
 // but forwards a caller-built object and carries the upstream status through.
 function proxyJson(res, baseUrl, subpath, method, payload, timeoutMs = 8000) {
-  let target;
-  try { target = new URL(subpath, baseUrl); } catch { jsonRes(res, 502, { error: "bad dev-env target" }); return; }
-  const headers = { Accept: "application/json" };
-  let body;
-  if (payload !== undefined) {
-    body = Buffer.from(JSON.stringify(payload));
-    headers["Content-Type"] = "application/json";
-    headers["Content-Length"] = body.length;
-  }
-  const upstream = http.request(
-    { method, hostname: target.hostname, port: target.port, path: target.pathname + (target.search || ""), headers, timeout: timeoutMs },
-    (up) => {
-      let raw = "";
-      up.on("data", (c) => { raw += c; });
-      up.on("end", () => {
-        res.statusCode = up.statusCode || 502;
-        res.setHeader("Content-Type", up.headers["content-type"] || "application/json");
-        res.end(raw || "{}");
-      });
-    }
-  );
-  upstream.on("error", (err) => { try { jsonRes(res, 502, { error: `dev-env: ${err.message}` }); } catch {} });
-  upstream.on("timeout", () => { try { upstream.destroy(); jsonRes(res, 504, { error: "dev-env timeout" }); } catch {} });
-  if (body !== undefined) upstream.write(body);
-  upstream.end();
+  return proxyResponse(res, new URL(subpath, baseUrl), { method,
+    body: payload === undefined ? undefined : JSON.stringify(payload),
+    headers: { Accept: "application/json", "Content-Type": "application/json" }, timeoutMs });
 }
 
 // GET /api/dev-sessions → dev-env GET /sessions, annotated with `available` so
@@ -1348,7 +948,7 @@ async function handleDevCreate(req, res, opts) {
     ...(typeof body?.mode === "string" ? { mode: body.mode } : {}),
     ...(body?.continue === true ? { continue: true } : {})
   };
-  proxyJson(res, base, "/sessions", "POST", payload, 20000);
+  return proxyJson(res, base, "/sessions", "POST", payload, 20000);
 }
 
 // POST /api/dev-sessions/:id/instruct → dev-env /sessions/:id/instruct. Writes the
@@ -1361,7 +961,7 @@ async function handleDevInstruct(req, res, opts, sessionId) {
   const text = typeof body?.text === "string" ? body.text : typeof body?.message === "string" ? body.message : "";
   if (!text.trim()) { jsonRes(res, 400, { error: "text required" }); return; }
   const payload = { text, ...(Number.isFinite(body?.delayMs) ? { delayMs: body.delayMs } : {}) };
-  proxyJson(res, base, `/sessions/${encodeURIComponent(sessionId)}/instruct`, "POST", payload, 10000);
+  return proxyJson(res, base, `/sessions/${encodeURIComponent(sessionId)}/instruct`, "POST", payload, 10000);
 }
 
 // GET /api/dev-sessions/:id/stream → dev-env /sessions/:id/claude/stream (rich SSE:
@@ -1378,8 +978,9 @@ function handleDevStream(req, res, opts, sessionId) {
     return;
   }
   const target = new URL(`/sessions/${encodeURIComponent(sessionId)}/claude/stream`, base);
-  pipeUpstreamSse(req, res, {
+  return pipeUpstreamSse(req, res, {
     method: "GET",
+    protocol: target.protocol,
     hostname: target.hostname,
     port: target.port,
     path: target.pathname,
@@ -1392,141 +993,113 @@ function handleDevStream(req, res, opts, sessionId) {
 function handleDevInterrupt(req, res, opts, sessionId) {
   const base = readDevEnvUrl(opts);
   if (!base) { jsonRes(res, 503, { error: "dev-env not available" }); return; }
-  proxyJson(res, base, `/sessions/${encodeURIComponent(sessionId)}/claude/interrupt`, "POST", {}, 5000);
+  return proxyJson(res, base, `/sessions/${encodeURIComponent(sessionId)}/claude/interrupt`, "POST", {}, 5000);
 }
 
-function serveStatic(req, res, distDir) {
-  let pathname = url.parse(req.url).pathname || "/";
-  if (pathname === "/") pathname = "/index.html";
-  const filePath = path.join(distDir, pathname.replace(/^\/+/, ""));
-  // Confine to distDir with a separator boundary — a bare startsWith(distDir)
-  // would also admit a sibling `dist-secrets/…` directory.
-  if (filePath !== distDir && !filePath.startsWith(distDir + path.sep)) {
-    res.statusCode = 403;
-    res.end("forbidden");
-    return;
+async function serveStatic(req, res, distDir) {
+  let pathname;
+  try { pathname = decodeURIComponent(url.parse(req.url || "/").pathname || "/"); }
+  catch { throw new RequestError(400, "invalid path"); }
+  if (pathname.includes("\0")) throw new RequestError(400, "invalid path");
+  let root;
+  try { root = await realpath(distDir); } catch { throw new RequestError(404, "Jarvis view has not been built"); }
+  let requested = path.resolve(root, pathname === "/" ? "index.html" : `.${pathname}`);
+  if (!requested.startsWith(root + path.sep)) throw new RequestError(404, "not found");
+  let file;
+  try { file = await realpath(requested); }
+  catch {
+    if (path.extname(pathname)) throw new RequestError(404, "not found");
+    file = await realpath(path.join(root, "index.html"));
   }
-  if (!existsSync(filePath)) {
-    const indexFallback = path.join(distDir, "index.html");
-    if (existsSync(indexFallback)) {
-      const data = readFileSync(indexFallback);
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "text/html");
-      res.setHeader("Cache-Control", "no-cache");
-      res.end(data);
-      return;
-    }
-    res.statusCode = 404;
-    res.setHeader("Content-Type", "text/plain");
-    res.end("web-channel: dist/ not built yet — run `node ui/build.mjs` in the Fitting directory.");
-    return;
-  }
-  const ext = path.extname(filePath).toLowerCase();
-  const ctMap = {
-    ".html": "text/html",
-    ".js": "application/javascript",
-    ".mjs": "text/javascript",
-    ".css": "text/css",
-    ".json": "application/json",
-    ".svg": "image/svg+xml",
-    ".map": "application/json",
-    // Silero VAD runtime: the WASM binary must be application/wasm for
-    // WebAssembly streaming compilation; the .onnx model is an opaque blob.
-    ".wasm": "application/wasm",
-    ".onnx": "application/octet-stream"
-  };
-  res.statusCode = 200;
-  res.setHeader("Content-Type", ctMap[ext] ?? "application/octet-stream");
-  // HTML/JS/CSS keep a static filename but change on every rebuild, so force
-  // revalidation — otherwise the browser serves a stale HUD from disk cache and
-  // updates stay invisible (there's no content hash / ETag to bust it). The big
-  // immutable VAD assets (.wasm/.onnx) stay long-cacheable.
-  if (ext === ".html" || ext === ".js" || ext === ".mjs" || ext === ".css") {
-    res.setHeader("Cache-Control", "no-cache");
-  } else if (ext === ".wasm" || ext === ".onnx") {
-    res.setHeader("Cache-Control", "public, max-age=604800, immutable");
-  }
-  createReadStream(filePath).pipe(res);
+  if (!file.startsWith(root + path.sep) || !(await stat(file)).isFile()) throw new RequestError(404, "not found");
+  const ext = path.extname(file);
+  const mime = { ".html": "text/html", ".js": "application/javascript", ".mjs": "text/javascript", ".css": "text/css",
+    ".json": "application/json", ".svg": "image/svg+xml", ".map": "application/json", ".wasm": "application/wasm", ".onnx": "application/octet-stream" };
+  res.writeHead(200, { "Content-Type": mime[ext] || "application/octet-stream", "Cache-Control": [".wasm", ".onnx"].includes(ext) ? "public, max-age=604800, immutable" : "no-cache" });
+  if (req.method === "HEAD") return res.end();
+  const stream = createReadStream(file);
+  stream.once("error", () => res.destroy());
+  res.once("close", () => stream.destroy());
+  stream.pipe(res);
 }
 
-async function writeStatusFile(opts) {
-  await mkdir(STATUS_ROOT, { recursive: true });
-  await writeFile(STATUS_FILE, JSON.stringify({
-    fittingId: "jarvis-os",
-    port: opts.port,
-    url: `${opts.scheme ?? "http"}://${opts.host === "0.0.0.0" ? "localhost" : opts.host}:${opts.port}`,
-    pid: process.pid,
-    startedAt: new Date().toISOString()
-  }, null, 2));
+export async function writeStatusFile(opts, { statusFile = STATUS_FILE, pid = process.pid } = {}) {
+  await mkdir(path.dirname(statusFile), { recursive: true });
+  const temporary = `${statusFile}.${pid}.${randomUUID()}.tmp`;
+  const host = opts.host === "0.0.0.0" || opts.host === "::" ? "localhost" : opts.host;
+  const address = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+  const record = { fittingId: "jarvis-os", port: opts.port, url: `${opts.scheme || "http"}://${address}:${opts.port}`,
+    pid, startedAt: new Date().toISOString() };
+  try { await writeFile(temporary, JSON.stringify(record) + "\n", { flag: "wx", mode: 0o600 }); await rename(temporary, statusFile); }
+  finally { await unlink(temporary).catch(() => {}); }
+}
+export async function clearStatusFile({ statusFile = STATUS_FILE, pid = process.pid } = {}) {
+  try { if (JSON.parse(await readFile(statusFile, "utf8"))?.pid === pid) await unlink(statusFile); } catch {}
 }
 
-async function clearStatusFile() {
-  try { await unlink(STATUS_FILE); } catch {}
-}
-
-export async function startServer(opts = parseArgs(process.argv.slice(2))) {
-  const distDir = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..", "dist");
-
-  // The configured port is CANONICAL: bind it or exit. Never scan for a free
-  // one — a silent shift makes this instance answer for another and orphans the
-  // status-file slot the HUD is discovered through.
-  const port = opts.port;
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    console.error(`[jarvis-os] invalid port ${opts.port}`);
-    process.exit(1);
-  }
-  // Optional TLS so mobile browsers get a secure context (getUserMedia / mic
-  // capture is blocked on plain http over a LAN IP). When tls_cert/tls_key are
-  // configured and readable, serve https; otherwise plain http (localhost is a
-  // secure context, so desktop dev and Playwright are unaffected).
-  let tls = null;
-  if (opts.tlsCert && opts.tlsKey && existsSync(opts.tlsCert) && existsSync(opts.tlsKey)) {
-    try {
-      tls = { cert: readFileSync(opts.tlsCert), key: readFileSync(opts.tlsKey) };
-    } catch (err) {
-      console.error(`[jarvis-os] failed to read TLS cert/key, falling back to http: ${err.message}`);
-      tls = null;
-    }
-  }
-  const liveOpts = { ...opts, port, scheme: tls ? "https" : "http" };
-
-  const requestHandler = async (req, res) => {
+export function createRequestHandler(opts = parseArgs(), deps = {}) {
+  const distDir = deps.distDir || path.resolve(HERE_DIR, "..", "dist");
+  const liveOpts = { ...opts, configRoots: deps.configRoots,
+    voice: deps.voice || createVoiceClient({ statusRoot: deps.statusRoot || STATUS_ROOT,
+      fittingId: deps.voiceFittingId, token: deps.voiceToken, timeoutMs: deps.voiceTimeoutMs, maxResponseBytes: deps.voiceMaxResponseBytes }) };
+  const settings = settingsStore(deps);
+  let activeRequests = 0;
+  return async (req, res) => {
+    if (activeRequests >= (deps.maxRequests || 32)) { req.resume(); return jsonRes(res, 429, { error: "Jarvis request capacity reached" }); }
+    activeRequests++;
+    let released = false;
+    const release = () => { if (!released) { released = true; activeRequests--; res.off("close", release); res.off("finish", release); } };
+    res.once("close", release); res.once("finish", release);
     try {
       const parsed = url.parse(req.url || "/", true);
       const pathname = parsed.pathname || "/";
       const method = req.method || "GET";
-      if (pathname === "/health" || pathname === "/api/health") return handleHealth(req, res, liveOpts);
-      if (pathname === "/api/monitor" && method === "GET") return handleMonitor(req, res);
-      if (pathname === "/api/voice" && method === "GET") return handleVoiceInfo(res);
-      if (pathname === "/api/endpointing" && method === "GET") return handleEndpointing(res);
-      if (pathname === "/api/project" && method === "GET") return handleProject(res, liveOpts);
-      if (pathname === "/api/diff" && method === "GET") return handleDiff(res, liveOpts);
-      if (pathname === "/api/ambient" && method === "GET") return handleAmbient(res);
-      if (pathname === "/api/ui-config" && method === "GET") return jsonRes(res, 200, { ambient_after_s: Math.max(0, Number(cfg("AMBIENT_AFTER_S") || 180) || 0) });
-      if (pathname === "/api/hud-settings" && method === "GET") return handleHudSettingsGet(res);
-      if (pathname === "/api/hud-settings" && method === "POST") return handleHudSettingsPost(req, res);
-      if (pathname === "/api/music" && method === "GET") return handleMusic(res);
-      if (pathname === "/api/music/cmd" && method === "POST") return handleMusicCmd(req, res);
-      if (pathname === "/api/kanban" && method === "GET") return handleKanban(res);
-      if (pathname === "/api/kanban/cards" && method === "POST") return handleKanbanCreate(req, res);
+      if (!["GET", "HEAD", "POST"].includes(method)) throw new RequestError(405, "method not supported");
+      if (method === "POST") {
+        validatePost(req, pathname === "/api/voice/stt");
+        const raw = await readBody(req, { limit: pathname === "/api/voice/stt" ? 8 * 1024 * 1024 : 256 * 1024, timeoutMs: deps.bodyTimeoutMs });
+        req.jarvisRaw = raw;
+        if (pathname !== "/api/voice/stt") {
+          try { req.jarvisJson = JSON.parse(raw.toString("utf8")); } catch { throw new RequestError(400, "invalid JSON"); }
+          if (!req.jarvisJson || typeof req.jarvisJson !== "object" || Array.isArray(req.jarvisJson)) throw new RequestError(400, "JSON object required");
+        }
+        if (req.aborted || res.destroyed) return;
+      }
+      if (pathname === "/api/voice/tts" && method === "GET" && !originAllowed(req)) throw new RequestError(403, "same-host Origin required");
+      if ((pathname === "/api/chat" || pathname === "/api/stream" || pathname.startsWith("/api/claude/")) && !liveOpts.gatewayUrl) throw new RequestError(503, "gateway is not configured");
+      if (method === "HEAD" && pathname.startsWith("/api/")) throw new RequestError(405, "method not supported");
+      if (pathname === "/health" || pathname === "/api/health") return await handleHealth(req, res, liveOpts);
+      if (pathname === "/api/monitor" && method === "GET") return await handleMonitor(req, res);
+      if (pathname === "/api/voice" && method === "GET") return await handleVoiceInfo(res, liveOpts);
+      if (pathname === "/api/endpointing" && method === "GET") return await handleEndpointing(res);
+      if (pathname === "/api/project" && method === "GET") return await handleProject(res, liveOpts);
+      if (pathname === "/api/diff" && method === "GET") return await handleDiff(res, liveOpts);
+      if (pathname === "/api/ambient" && method === "GET") return await handleAmbient(res);
+      if (pathname === "/api/ui-config" && method === "GET") return jsonRes(res, 200, { ambient_after_s: Math.max(0, Number(cfg("AMBIENT_AFTER_S") || 180) || 0), instanceProfile: ["node", "prod", "dev", "codex"].includes(process.env.GARRISON_INSTANCE_ID) ? process.env.GARRISON_INSTANCE_ID : "node" });
+      if (pathname === "/api/hud-settings" && method === "GET") return await handleHudSettingsGet(res, settings);
+      if (pathname === "/api/hud-settings" && method === "POST") return await handleHudSettingsPost(req, res, settings);
+      if (pathname === "/api/music" && method === "GET") return await handleMusic(res);
+      if (pathname === "/api/music/cmd" && method === "POST") return await handleMusicCmd(req, res);
+      if (pathname === "/api/kanban" && method === "GET") return await handleKanban(res);
+      if (pathname === "/api/kanban/cards" && method === "POST") return await handleKanbanCreate(req, res);
       const kbStart = pathname.match(/^\/api\/kanban\/cards\/([0-9A-HJKMNP-TV-Z]{26})\/start$/i);
-      if (kbStart && method === "POST") return handleKanbanStart(res, kbStart[1]);
-      if (pathname === "/api/session" && method === "GET") return handleOperative(res, liveOpts);
-      if (pathname === "/api/sessions" && method === "GET") return handleGatewayGet(req, res, liveOpts, "/sessions", { sessions: [] });
+      if (kbStart && method === "POST") return await handleKanbanStart(res, kbStart[1]);
+      if (pathname === "/api/runtime" && method === "GET") return await handleRuntime(res, liveOpts);
+      if (pathname === "/api/sessions" && method === "GET") return await handleSessions(res, liveOpts);
       // Real multi-session engine (dev-env) — the HUD's session switcher.
-      if (pathname === "/api/dev-sessions" && method === "GET") return handleDevSessions(req, res, liveOpts);
-      if (pathname === "/api/dev-sessions" && method === "POST") return handleDevCreate(req, res, liveOpts);
+      if (pathname === "/api/dev-sessions" && method === "GET") return await handleDevSessions(req, res, liveOpts);
+      if (pathname === "/api/dev-sessions" && method === "POST") return await handleDevCreate(req, res, liveOpts);
       {
         const m = pathname.match(/^\/api\/dev-sessions\/([^/]+)\/instruct$/);
-        if (m && method === "POST") return handleDevInstruct(req, res, liveOpts, decodeURIComponent(m[1]));
+        if (m && method === "POST") return await handleDevInstruct(req, res, liveOpts, decodeURIComponent(m[1]));
       }
       {
         const m = pathname.match(/^\/api\/dev-sessions\/([^/]+)\/stream$/);
-        if (m && method === "GET") return handleDevStream(req, res, liveOpts, decodeURIComponent(m[1]));
+        if (m && method === "GET") return await handleDevStream(req, res, liveOpts, decodeURIComponent(m[1]));
       }
       {
         const m = pathname.match(/^\/api\/dev-sessions\/([^/]+)\/interrupt$/);
-        if (m && method === "POST") return handleDevInterrupt(req, res, liveOpts, decodeURIComponent(m[1]));
+        if (m && method === "POST") return await handleDevInterrupt(req, res, liveOpts, decodeURIComponent(m[1]));
       }
       if (pathname === "/api/worktrees" && method === "GET") {
         // Scope the worktrees list to the active project so it actually
@@ -1534,108 +1107,94 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
         // dev-env proxy 400s and we degrade to the empty fallback).
         const wsRoot = (await resolveWorkspaceRoot(liveOpts)).root;
         const sub = wsRoot ? `/worktrees?project=${encodeURIComponent(wsRoot)}` : "/worktrees";
-        return handleGatewayGet(req, res, liveOpts, sub, { worktrees: [] });
+        return await handleGatewayGet(req, res, liveOpts, sub, { worktrees: [] });
       }
-      if (pathname === "/api/voice/stt" && method === "POST") return handleVoiceProxy(req, res, "/stt");
-      if (pathname === "/api/voice/tts" && method === "POST") return handleVoiceProxy(req, res, "/tts");
-      if (pathname === "/api/voice/tts" && method === "GET") return handleVoiceTtsGet(req, res);
-      if (pathname === "/api/stream" && method === "GET") return handleStream(req, res, liveOpts);
-      if (pathname === "/api/whatsapp/events" && method === "GET") return handleWhatsappEvents(req, res);
-      if (pathname === "/api/chat" && method === "POST") return handleChat(req, res, liveOpts);
-      if (pathname === "/api/claude/stream" && method === "GET") return handleClaudeStream(req, res, liveOpts);
-      if (pathname === "/api/claude/status" && method === "GET") return handleClaudeProxy(req, res, liveOpts, "status", "GET");
-      if (pathname === "/api/claude/commands" && method === "GET") return handleClaudeProxy(req, res, liveOpts, "commands", "GET");
-      if (pathname === "/api/claude/message" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "message", "POST");
-      if (pathname === "/api/claude/keys" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "keys", "POST");
-      if (pathname === "/api/claude/mode" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "mode", "POST");
-      if (pathname === "/api/claude/interrupt" && method === "POST") return handleClaudeProxy(req, res, liveOpts, "interrupt", "POST");
+      if (pathname === "/api/voice/stt" && method === "POST") return await handleVoiceProxy(req, res, "/stt", liveOpts);
+      if (pathname === "/api/voice/tts" && method === "POST") return await handleVoiceProxy(req, res, "/tts", liveOpts);
+      if (pathname === "/api/voice/tts" && method === "GET") return await handleVoiceTtsGet(req, res, liveOpts);
+      if (pathname === "/api/stream" && method === "GET") return await handleStream(req, res, liveOpts);
+      if (pathname === "/api/whatsapp/events" && method === "GET") return await handleWhatsappEvents(req, res);
+      if (pathname === "/api/chat" && method === "POST") return await handleChat(req, res, liveOpts);
+      if (pathname === "/api/claude/stream" && method === "GET") return await handleClaudeStream(req, res, liveOpts);
+      if (pathname === "/api/claude/status" && method === "GET") return await handleClaudeProxy(req, res, liveOpts, "status", "GET");
+      if (pathname === "/api/claude/commands" && method === "GET") return await handleClaudeProxy(req, res, liveOpts, "commands", "GET");
+      if (pathname === "/api/claude/message" && method === "POST") return await handleClaudeProxy(req, res, liveOpts, "message", "POST");
+      if (pathname === "/api/claude/keys" && method === "POST") return await handleClaudeProxy(req, res, liveOpts, "keys", "POST");
+      if (pathname === "/api/claude/mode" && method === "POST") return await handleClaudeProxy(req, res, liveOpts, "mode", "POST");
+      if (pathname === "/api/claude/interrupt" && method === "POST") return await handleClaudeProxy(req, res, liveOpts, "interrupt", "POST");
       if (pathname.startsWith("/api/")) {
         jsonRes(res, 404, { error: "not found", path: pathname });
         return;
       }
-      return serveStatic(req, res, distDir);
+      if (!["GET", "HEAD"].includes(method)) throw new RequestError(405, "method not supported");
+      return await serveStatic(req, res, distDir);
     } catch (err) {
-      console.error("[jarvis-os] handler error:", err);
-      jsonRes(res, 500, { error: err.message });
+      req.resume();
+      if (!(err instanceof RequestError)) console.error("[jarvis-os] handler failed:", err?.code || err?.name || "error");
+      jsonRes(res, err instanceof RequestError ? err.status : 500, { error: err instanceof RequestError ? err.message : "request failed" });
     }
   };
 
-  const server = tls
-    ? https.createServer(tls, requestHandler)
-    : http.createServer(requestHandler);
+}
 
-  // Streaming voice: pure passthrough WS relay browser ⇄ voice Fitting /stream.
-  // No parsing — all Deepgram logic stays in the voice Fitting; the key never
-  // reaches the browser. The page connects to /api/voice/stream (wss when this
-  // server is TLS), and we forward the query (sample_rate) verbatim.
-  const wss = new WebSocketServer({ noServer: true });
-  const WS_PATHS = { "/api/voice/stream": "/stream", "/api/voice/events": "/events" };
+export async function startServer(opts = parseArgs(process.argv.slice(2)), deps = {}) {
+  if (!Number.isInteger(opts.port) || opts.port < 0 || opts.port > 65535) throw new Error("invalid Jarvis port");
+  let tls = null;
+  if (opts.tlsCert || opts.tlsKey) {
+    if (!opts.tlsCert || !opts.tlsKey) throw new Error("both TLS certificate and key are required");
+    tls = { cert: await readFile(opts.tlsCert), key: await readFile(opts.tlsKey) };
+  }
+  const liveOpts = { ...opts, scheme: tls ? "https" : "http" };
+  const voice = deps.voice || createVoiceClient({ statusRoot: deps.statusRoot || STATUS_ROOT,
+    fittingId: deps.voiceFittingId, token: deps.voiceToken, timeoutMs: deps.voiceTimeoutMs });
+  const handler = createRequestHandler(liveOpts, { ...deps, voice });
+  const server = tls ? https.createServer(tls, handler) : http.createServer(handler);
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 256 * 1024 });
   server.on("upgrade", (request, socket, head) => {
-    // WebSocket is NOT covered by the same-origin policy, so a malicious page in
-    // the user's browser could open this voice relay (cross-site WS hijacking).
-    // Reject a browser Origin that isn't same-host / loopback / tailnet. Native
-    // clients send no Origin and pass.
-    if (!wsOriginAllowed(request)) {
-      socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
-      socket.destroy();
-      return;
-    }
-    const parsed = url.parse(request.url || "/", true);
-    const upstreamPath = WS_PATHS[parsed.pathname || ""];
-    if (!upstreamPath) {
-      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
-      socket.destroy();
-      return;
-    }
-    const info = readVoiceInfo();
-    if (!info?.url) {
-      socket.write("HTTP/1.1 503 Service Unavailable\r\n\r\n");
-      socket.destroy();
-      return;
-    }
-    wss.handleUpgrade(request, socket, head, (client) => relayVoiceStream(client, info.url, parsed.search || "", upstreamPath));
+    const refuse = (status) => { socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`); };
+    void (async () => {
+      if (!originAllowed(request)) return refuse("403 Forbidden");
+      const parsed = new URL(request.url || "/", "http://jarvis.invalid");
+      const key = { "/api/voice/stream": "stream", "/api/voice/events": "wakeEvents" }[parsed.pathname];
+      if (!key) return refuse("404 Not Found");
+      const upstream = await voice.websocket(key);
+      if (!upstream) return refuse("503 Service Unavailable");
+      if (socket.destroyed) return;
+      if (wss.clients.size >= 16) return refuse("503 Service Unavailable");
+      wss.handleUpgrade(request, socket, head, (client) => relayVoiceStream(client, upstream, parsed.search));
+    })().catch(() => refuse("502 Bad Gateway"));
   });
-
-  // Canonical-port contract: refuse to start when the port is taken. Do NOT
-  // touch the status file here — it belongs to whoever already owns the port.
-  server.once("error", (err) => {
-    if (err?.code === "EADDRINUSE") {
-      console.error(
-        `[jarvis-os] port ${liveOpts.port} is already in use - refusing to start on a shifted port (the configured port is canonical)`
-      );
-      process.exit(1);
-    }
-    throw err;
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(liveOpts.port, liveOpts.host, () => { server.off("error", reject); resolve(); });
   });
-  server.listen(liveOpts.port, liveOpts.host, async () => {
-    await writeStatusFile(liveOpts);
-    console.log(`[jarvis-os] listening on ${liveOpts.scheme}://${liveOpts.host}:${liveOpts.port} (gateway=${liveOpts.gatewayUrl})`);
-  });
-
-  const shutdown = async (signal) => {
-    console.log(`[jarvis-os] shutdown (${signal})`);
-    await clearStatusFile();
+  liveOpts.port = server.address().port;
+  const statusFile = deps.statusFile || STATUS_FILE;
+  try { await writeStatusFile(liveOpts, { statusFile }); }
+  catch (err) { await new Promise((resolve) => server.close(resolve)); throw err; }
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    const timeout = setTimeout(() => process.exit(1), 3000); timeout.unref();
+    for (const client of wss.clients) client.terminate();
+    await flushInstanceWrites();
+    await clearStatusFile({ statusFile });
     server.close(() => process.exit(0));
-    setTimeout(() => process.exit(1), 3000);
+    server.closeAllConnections();
   };
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-
+  const onSignal = () => { void shutdown(); };
+  process.on("SIGTERM", onSignal); process.on("SIGINT", onSignal);
+  server.once("close", () => {
+    process.off("SIGTERM", onSignal); process.off("SIGINT", onSignal);
+    for (const client of wss.clients) client.terminate();
+    wss.close();
+    void clearStatusFile({ statusFile });
+  });
+  console.log(`[jarvis-os] listening on ${liveOpts.scheme}://${liveOpts.host}:${liveOpts.port}`);
   return { server, options: liveOpts };
 }
 
-const isDirect = (() => {
-  if (!import.meta.url) return false;
-  try {
-    return path.resolve(url.fileURLToPath(import.meta.url)) === path.resolve(process.argv[1] || "");
-  } catch {
-    return false;
-  }
-})();
-
-if (isDirect) {
-  startServer().catch((err) => {
-    console.error("[jarvis-os] failed to start:", err);
-    process.exit(1);
-  });
+if (process.argv[1] && path.resolve(url.fileURLToPath(import.meta.url)) === path.resolve(process.argv[1])) {
+  startServer().catch((err) => { console.error("[jarvis-os] failed to start:", err.message); process.exit(1); });
 }

@@ -17,11 +17,13 @@ import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { parse as parseToml } from "smol-toml";
+import yaml from "js-yaml";
 import { writeFileAtomic } from "./atomic-write";
 import { assertClaudeWritable } from "./install-state";
 import { readComposition } from "./compositions";
 import { readLibrary } from "./library";
-import type { QuartersDescriptor, QuartersSettingsFile } from "./types";
+import { isRestrictedQuartersGlob } from "./metadata";
+import type { QuartersDescriptor, QuartersFileSet, QuartersSettingsFile } from "./types";
 
 // tier "deep" descriptors map to a REGISTERED implementation by id. The only
 // deep implementation is the existing claude-code Quarters surface at
@@ -42,12 +44,35 @@ export interface RuntimeQuartersEntry {
   homeDirExists?: boolean;
   /** Explicit problems (nonexistent home, unregistered deep id) — shown, never swallowed. */
   warnings: string[];
+  /** G5: one summary row per declared file_sets entry, home-scoped sets pre-counted. */
+  fileSets?: FileSetAvailability[];
 }
 
-export function expandHome(p: string): string {
-  if (p === "~") return os.homedir();
-  if (p.startsWith("~/")) return path.join(os.homedir(), p.slice(2));
+export interface FileSetAvailability {
+  id: string;
+  label: string;
+  available: boolean;
+  reason?: string;
+  /** Home-scoped sets only - a project-scoped set's count depends on which
+   *  project the caller picks, resolved lazily by listFileSet instead. */
+  count?: number;
+}
+
+export function expandHome(p: string, homeDir: string = os.homedir()): string {
+  if (p === "~") return homeDir;
+  if (p.startsWith("~/")) return path.join(homeDir, p.slice(2));
   return p;
+}
+
+// The env var a test (or an operator isolating a machine's own real config
+// from an experiment) uses to redirect a runtime's home dir without touching
+// the real one - GARRISON_CURSOR_HOME for descriptor id "cursor", etc. Mirrors
+// the identical convention the Shells listers already use for this same
+// runtime (fittings/seed/remote-shell-runtime/lib/listers/cursor.mjs).
+export function runtimeHome(descriptorId: string, env: NodeJS.ProcessEnv = process.env): string {
+  const key = `GARRISON_${descriptorId.toUpperCase().replace(/-/g, "_")}_HOME`;
+  const override = env[key];
+  return override && override.trim() ? override : os.homedir();
 }
 
 // Resolve the selected runtimes of the composition to their Quarters entries.
@@ -98,6 +123,24 @@ export async function resolveRuntimeQuarters(compositionId?: string): Promise<Ru
           `declared home_dir ${descriptor.home_dir} does not exist — is the ${engine} CLI installed? Its native config appears after first run`
         );
       }
+    }
+    if (descriptor.file_sets?.length) {
+      item.fileSets = await Promise.all(
+        descriptor.file_sets.map(async (decl): Promise<FileSetAvailability> => {
+          if (decl.platform && decl.platform !== process.platform) {
+            return { id: decl.id, label: decl.label, available: false, reason: `only available on ${decl.platform}` };
+          }
+          if (decl.scope === "project") {
+            return { id: decl.id, label: decl.label, available: true };
+          }
+          try {
+            const rows = await listFileSet(descriptor, decl.id);
+            return { id: decl.id, label: decl.label, available: true, count: rows.length };
+          } catch (err) {
+            return { id: decl.id, label: decl.label, available: false, reason: err instanceof Error ? err.message : String(err) };
+          }
+        })
+      );
     }
     out.push(item);
   }
@@ -231,6 +274,331 @@ export async function writeRuntimeFile(
   // native config (review minor — matches the repo-wide write discipline).
   await writeFileAtomic(abs, content);
   return readRuntimeFile(descriptor, declaredPath);
+}
+
+// ── Generic-tier file SETS (G5) ─────────────────────────────────────────────
+// A file_sets entry is a DIRECTORY of files (Cursor's rules/skills/agents/
+// hooks/desktop settings/project rules), unlike settings_files/context_file/
+// mcp_config above which are each exactly one file. The safety model is the
+// same shape as the log tail below: containment by path.resolve prefix match
+// AND a realpath re-check (a symlink planted inside the set's root must not
+// walk the read/write out of it), plus the glob itself is the second gate - a
+// `rel` that is lexically inside the root but does not match the declared
+// glob is refused just as loudly as one that escapes it.
+
+export { isRestrictedQuartersGlob as isRestrictedGlob };
+
+/** Does `rel` (POSIX-joined, relative to a file set's root) match `glob`? Both
+ *  sides are compared segment-by-segment, so segment COUNT must match too -
+ *  "*.mdc" (1 segment) never matches "sub/thing.mdc" (2 segments). */
+export function matchRestrictedGlob(glob: string, rel: string): boolean {
+  const globSegs = glob.split("/");
+  const relSegs = rel.split("/");
+  if (globSegs.length !== relSegs.length) return false;
+  return globSegs.every((g, i) => matchGlobSegment(g, relSegs[i]));
+}
+
+function matchGlobSegment(g: string, seg: string): boolean {
+  if (!seg) return false;
+  if (g === "*") return true;
+  const extWildcard = /^\*\.([A-Za-z0-9]+)$/.exec(g);
+  if (extWildcard) {
+    const ext = `.${extWildcard[1]}`;
+    return seg.endsWith(ext) && seg.length > ext.length;
+  }
+  const brace = /^\{([A-Za-z0-9_-]+(?:,[A-Za-z0-9_-]+)+)\}\.([A-Za-z0-9]+)$/.exec(g);
+  if (brace) {
+    const names = brace[1].split(",");
+    const ext = brace[2];
+    return names.some((n) => seg === `${n}.${ext}`);
+  }
+  return seg === g;
+}
+
+// Children of the composition's global_config.projects_root (default ~/dev) -
+// the candidate roots a project-scoped file set (Cursor's project rules) can
+// browse. SCOPED DOWN from the fuller design (which also folds in cwds the
+// local Shells fitting already knows about via its live index): that would
+// add a same-machine HTTP round trip to a path Quarters needs to stay fast
+// and dependency-free, for a marginal discovery win the manual "type a path"
+// fallback already covers. Revisit if project-scoped sets turn out hard to
+// find in practice.
+export async function knownProjectRoots(compositionId?: string): Promise<string[]> {
+  const composition = await readComposition(compositionId);
+  const projectsRootDecl = composition.globalConfig?.projects_root ?? "~/dev";
+  const projectsRoot = expandHome(projectsRootDecl);
+  const roots: string[] = [];
+  try {
+    const entries = await fs.readdir(projectsRoot, { withFileTypes: true });
+    for (const e of entries) {
+      if (e.isDirectory() && !e.name.startsWith(".")) roots.push(path.join(projectsRoot, e.name));
+    }
+  } catch {
+    /* projects_root absent on this machine - no candidates, not an error */
+  }
+  return roots.sort();
+}
+
+function findFileSet(descriptor: QuartersDescriptor, setId: string): QuartersFileSet {
+  const found = (descriptor.file_sets ?? []).find((f) => f.id === setId);
+  if (!found) {
+    throw new Error(`file set ${JSON.stringify(setId)} is not declared by the ${descriptor.id} quarters descriptor`);
+  }
+  return found;
+}
+
+async function fileSetRootAbs(decl: QuartersFileSet, descriptorId: string, project?: string): Promise<string> {
+  if (decl.scope === "project") {
+    if (!project) throw new Error(`file set "${decl.id}" is project-scoped; a project root is required`);
+    const roots = await knownProjectRoots();
+    if (!roots.includes(project)) throw new Error(`${JSON.stringify(project)} is not a known project root`);
+    return path.resolve(project, decl.root);
+  }
+  return path.resolve(expandHome(decl.root, runtimeHome(descriptorId)));
+}
+
+async function fileSetEntryAbs(
+  decl: QuartersFileSet,
+  descriptorId: string,
+  rel: string,
+  project?: string
+): Promise<{ rootAbs: string; abs: string }> {
+  if (!rel || rel.includes("..") || path.isAbsolute(rel)) {
+    throw new Error(`path ${JSON.stringify(rel)} is not a relative path inside the file set`);
+  }
+  if (!matchRestrictedGlob(decl.glob, rel)) {
+    throw new Error(`path ${JSON.stringify(rel)} does not match the ${decl.id} file set's glob (${decl.glob})`);
+  }
+  const rootAbs = path.resolve(await fileSetRootAbs(decl, descriptorId, project));
+  const abs = path.resolve(rootAbs, rel);
+  if (abs !== rootAbs && !abs.startsWith(rootAbs + path.sep)) {
+    throw new Error(`path ${JSON.stringify(rel)} escapes the ${decl.id} file set's root`);
+  }
+  return { rootAbs, abs };
+}
+
+// Symlink-safe containment, meaningful only once the target exists (a
+// not-yet-created path has nothing to resolve) - same discipline as
+// tailRuntimeLog below.
+async function assertRealpathContained(rootAbs: string, abs: string, rel: string, setId: string): Promise<string> {
+  const [realRoot, realAbs] = await Promise.all([fs.realpath(rootAbs), fs.realpath(abs)]);
+  if (realAbs !== realRoot && !realAbs.startsWith(realRoot + path.sep)) {
+    throw new Error(`path ${JSON.stringify(rel)} resolves outside the ${setId} file set's root (symlink)`);
+  }
+  return realAbs;
+}
+
+export interface FileSetRow {
+  rel: string;
+  bytes: number;
+  mtime: string;
+}
+
+export async function listFileSet(
+  descriptor: QuartersDescriptor,
+  setId: string,
+  project?: string
+): Promise<FileSetRow[]> {
+  const decl = findFileSet(descriptor, setId);
+  if (decl.platform && decl.platform !== process.platform) return [];
+  // A bad SCOPE (project-scoped with no/unknown project) is a caller mistake
+  // and must throw; only a validly-resolved root that simply has no directory
+  // on disk YET (normal pre-first-use state) reads as an empty list.
+  const rootAbs = await fileSetRootAbs(decl, descriptor.id, project);
+  let realRoot: string;
+  try {
+    realRoot = await fs.realpath(rootAbs);
+  } catch {
+    return [];
+  }
+  const maxDepth = decl.glob.split("/").length - 1;
+  const out: FileSetRow[] = [];
+  const walk = async (dir: string, depth: number, prefix: string) => {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const rel = prefix ? `${prefix}/${e.name}` : e.name;
+      const abs = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        if (depth < maxDepth) await walk(abs, depth + 1, rel);
+      } else if (e.isFile() && matchRestrictedGlob(decl.glob, rel)) {
+        try {
+          const st = await fs.stat(abs);
+          out.push({ rel, bytes: st.size, mtime: st.mtime.toISOString() });
+        } catch {
+          /* raced deletion - skip */
+        }
+      }
+    }
+  };
+  await walk(realRoot, 0, "");
+  return out.sort((a, b) => a.rel.localeCompare(b.rel));
+}
+
+export interface FileSetFileView {
+  rel: string;
+  format: "markdown" | "json";
+  exists: boolean;
+  content: string;
+  sha: string | null;
+  frontmatter?: Record<string, unknown> | null;
+  projected: boolean;
+}
+
+// Non-throwing: malformed YAML in a frontmatter block reads as "no
+// frontmatter" rather than blowing up the whole file view, since the body is
+// still perfectly readable/editable either way.
+export function parseFrontmatter(content: string): { frontmatter: Record<string, unknown> | null; body: string } {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(content);
+  if (!m) return { frontmatter: null, body: content };
+  try {
+    const parsed = yaml.load(m[1]);
+    const frontmatter = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+    return { frontmatter, body: content.slice(m[0].length) };
+  } catch {
+    return { frontmatter: null, body: content };
+  }
+}
+
+export async function readFileSetEntry(
+  descriptor: QuartersDescriptor,
+  setId: string,
+  rel: string,
+  project?: string
+): Promise<FileSetFileView> {
+  const decl = findFileSet(descriptor, setId);
+  const { rootAbs, abs } = await fileSetEntryAbs(decl, descriptor.id, rel, project);
+  let content = "";
+  let exists = true;
+  try {
+    const realAbs = await assertRealpathContained(rootAbs, abs, rel, decl.id);
+    content = await fs.readFile(realAbs, "utf8");
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("resolves outside")) throw err;
+    exists = false;
+  }
+  const fm = decl.format === "markdown" && exists ? parseFrontmatter(content).frontmatter : undefined;
+  return {
+    rel,
+    format: decl.format,
+    exists,
+    content,
+    sha: exists ? sha256(content) : null,
+    frontmatter: fm,
+    projected: exists && content.includes(PROJECTION_MARKER)
+  };
+}
+
+function isPlainObj(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+// merge semantics for write:"merge" json file sets (Cursor's hooks.json,
+// merged with whatever the operator hand-authored): objects merge key by key,
+// arrays are unioned (dedup by deep-equal JSON), keys are never removed, and
+// on a genuine shape clash (e.g. base has an object where incoming has a
+// scalar) incoming wins for that one key rather than the merge failing.
+function deepMergeJson(base: unknown, incoming: unknown): unknown {
+  if (Array.isArray(base) && Array.isArray(incoming)) {
+    const seen = new Set(base.map((v) => JSON.stringify(v)));
+    const merged = [...base];
+    for (const item of incoming) {
+      const key = JSON.stringify(item);
+      if (!seen.has(key)) {
+        merged.push(item);
+        seen.add(key);
+      }
+    }
+    return merged;
+  }
+  if (isPlainObj(base) && isPlainObj(incoming)) {
+    const out: Record<string, unknown> = { ...base };
+    for (const [k, v] of Object.entries(incoming)) {
+      out[k] = k in out ? deepMergeJson(out[k], v) : v;
+    }
+    return out;
+  }
+  return incoming;
+}
+
+// Sha-guarded, format-validated write to an EXISTING file set entry - the
+// same discipline as writeRuntimeFile above (projection refusal, baseline-sha
+// guard), plus the merge semantics write:"merge" json sets need.
+export async function writeFileSetEntry(
+  descriptor: QuartersDescriptor,
+  setId: string,
+  rel: string,
+  content: string,
+  baselineSha: string | null,
+  project?: string
+): Promise<FileSetFileView> {
+  await assertClaudeWritable(`write the quarters file ${rel}`);
+  const decl = findFileSet(descriptor, setId);
+  const invalid = decl.format === "json" ? validateRuntimeFileContent("json", content) : null;
+  if (invalid) throw new Error(invalid);
+  const current = await readFileSetEntry(descriptor, setId, rel, project);
+  if (!current.exists) {
+    throw new Error(`${rel} does not exist in the ${decl.id} file set - use createFileSetEntry to add a new file`);
+  }
+  if (current.projected) {
+    throw new Error(
+      `${rel} is a Garrison-managed projection (${PROJECTION_MARKER}) — edit the source it is projected from, not the projection`
+    );
+  }
+  if (current.sha !== baselineSha) {
+    throw new Error(`${rel} changed on disk since it was loaded — reload before editing (sha mismatch)`);
+  }
+  const { abs } = await fileSetEntryAbs(decl, descriptor.id, rel, project);
+  let finalContent = content;
+  if (decl.write === "merge" && decl.format === "json") {
+    const onDisk = current.content.trim() ? JSON.parse(current.content) : {};
+    const incoming = JSON.parse(content);
+    finalContent = `${JSON.stringify(deepMergeJson(onDisk, incoming), null, 2)}\n`;
+  }
+  await fs.mkdir(path.dirname(abs), { recursive: true });
+  await writeFileAtomic(abs, finalContent);
+  return readFileSetEntry(descriptor, setId, rel, project);
+}
+
+export async function createFileSetEntry(
+  descriptor: QuartersDescriptor,
+  setId: string,
+  rel: string,
+  content: string,
+  project?: string
+): Promise<FileSetFileView> {
+  await assertClaudeWritable(`create the quarters file ${rel}`);
+  const decl = findFileSet(descriptor, setId);
+  if (!decl.create) throw new Error(`the ${decl.id} file set does not allow creating new files`);
+  const invalid = decl.format === "json" ? validateRuntimeFileContent("json", content) : null;
+  if (invalid) throw new Error(invalid);
+  const { abs } = await fileSetEntryAbs(decl, descriptor.id, rel, project);
+  if (existsSync(abs)) throw new Error(`${rel} already exists in the ${decl.id} file set`);
+  await fs.mkdir(path.dirname(abs), { recursive: true });
+  await writeFileAtomic(abs, content);
+  return readFileSetEntry(descriptor, setId, rel, project);
+}
+
+export async function deleteFileSetEntry(
+  descriptor: QuartersDescriptor,
+  setId: string,
+  rel: string,
+  project?: string
+): Promise<void> {
+  await assertClaudeWritable(`delete the quarters file ${rel}`);
+  const decl = findFileSet(descriptor, setId);
+  if (!decl.create) throw new Error(`the ${decl.id} file set does not allow deleting files`);
+  const current = await readFileSetEntry(descriptor, setId, rel, project);
+  if (!current.exists) throw new Error(`${rel} does not exist in the ${decl.id} file set`);
+  if (current.projected) {
+    throw new Error(`${rel} is a Garrison-managed projection (${PROJECTION_MARKER}) — it cannot be deleted here`);
+  }
+  const { abs } = await fileSetEntryAbs(decl, descriptor.id, rel, project);
+  await fs.unlink(abs);
 }
 
 // ── Generic-tier log tails (descriptor log_paths only) ──────────────────────

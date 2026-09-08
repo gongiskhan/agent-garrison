@@ -2,8 +2,8 @@
 // enqueue (I7), and the serialized normalization worker with dedupe (I6).
 //
 // Privacy (I5): realtime transcript payloads are NEVER enqueued, persisted, or
-// logged with content - they are handled in memory only (the wake gate lands
-// in M4); this module only counts them in M1.
+// logged with content - they are parsed in memory, counted, and handed to the
+// realtime forwarder (lib/forward.mjs), which carries them to the voice layer.
 
 import crypto from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -21,15 +21,13 @@ export function secretMatches(presented, expected) {
 }
 
 export class Ingress {
-  constructor({ cfg, store, counters, wakeBus = null, echoGuard = null, log = console }) {
+  constructor({ cfg, store, counters, forwarder = null, log = console }) {
     this.cfg = cfg;
     this.store = store;
     this.counters = counters;
-    this.wakeBus = wakeBus;
-    // Knows what Garrison just said out loud, so its own voice coming back
-    // through the pendant is dropped before it can reach the wake gate or be
-    // counted as conversation. See lib/echo-guard.mjs.
-    this.echoGuard = echoGuard;
+    // The voice layer's door (D24). The wake gate and the echo guard run in
+    // capture-service; this side only forwards. See lib/forward.mjs.
+    this.forwarder = forwarder;
     this.log = log;
     this.chain = Promise.resolve();
   }
@@ -200,9 +198,9 @@ export class Ingress {
   }
 
   // Realtime pipe: content is parsed in memory and discarded - never
-  // persisted, never logged (I5). When the wake flag is on, segments pass
-  // through the in-memory wake gate (lib/wake.mjs); non-hits still only touch
-  // counters.
+  // persisted, never logged (I5). When the wake flag is on, segments are
+  // forwarded to the voice layer (capture-service) fire-and-forget; the webhook
+  // ack never waits on that hop. Off, they only touch counters.
   acceptRealtime({ bodyText, sessionId = null }) {
     this.counters.bump("realtime_calls");
     try {
@@ -222,25 +220,17 @@ export class Ingress {
               ? payload.data.segments
               : null;
       // A session id can arrive on the query OR in the body; without one the
-      // wake gate is skipped entirely, so a mangled URL that drops session_id
-      // would silently disable the wake bus even once auth is repaired.
+      // segments cannot be forwarded (the voice layer keys its session on it),
+      // so a mangled URL that drops session_id would silently disable the
+      // whole spoken path even once auth is repaired.
       const session =
         sessionId || payload?.session_id || payload?.sessionId || payload?.data?.session_id || null;
       if (segments) {
         this.counters.bump("realtime_segments", segments.length);
         if (!Array.isArray(payload)) this.counters.bump("realtime_enveloped");
-        // Drop our own spoken acknowledgements BEFORE the wake gate sees them.
-        // Filtered here rather than inside the wake bus because a returning ack
-        // is not conversation either - it must not reach the pre-wake context
-        // ring, where it would become "evidence" for the next command the
-        // operator actually issues.
-        const heard = this.echoGuard
-          ? segments.filter((seg) => !this.echoGuard.shouldSuppress(seg?.text))
-          : segments;
-        if (heard.length === 0) return;
-        if (this.cfg.wakeEnabled && this.wakeBus && session) {
-          this.wakeBus.handleSegments({ sessionId: session, segments: heard });
-        } else if (this.cfg.wakeEnabled && this.wakeBus && !session) {
+        if (this.cfg.wakeEnabled && this.forwarder && session) {
+          void this.forwarder.push({ sessionId: session, segments });
+        } else if (this.cfg.wakeEnabled && this.forwarder && !session) {
           this.counters.bump("realtime_no_session_id");
         }
       } else {

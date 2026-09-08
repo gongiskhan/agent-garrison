@@ -121,7 +121,9 @@ describe("dev-env install-hooks.mjs", () => {
       );
       expect(eventGroups, `event ${event} needs exactly one dev-env group`).toHaveLength(1);
       expect(eventGroups[0].hooks?.[0].command).toContain(`/_hook?event=${event}`);
-      expect(eventGroups[0].hooks?.[0].command).toContain("7086");
+      // The manifest's default_port (8086, the committed 8xxx map) when no
+      // DEV_ENV_PORT is projected.
+      expect(eventGroups[0].hooks?.[0].command).toContain("127.0.0.1:8086/");
     }
 
     expect(settings.model).toBe("opus");

@@ -99,6 +99,7 @@ export async function buildFromSpec(repo, spec, { sha } = {}) {
       id: specState.id,
       label: specState.label,
       ...(specState.description ? { description: specState.description } : {}),
+      ...(specState.logic ? { logic: specState.logic } : {}),
       steps,
     });
   }

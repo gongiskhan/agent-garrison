@@ -1,0 +1,58 @@
+# npm run node:redeploy, finished 2026-09-02T09:45:29.878Z (up() stamp), 28a78222 + working tree (final G2 tree), this node (goncalos-macbook-pro)
+# full log: scripts/garrison-redeploy.sh output; phases + result below, build route table elided
+# third and last G2 redeploy: 08:58Z (retirement), 09:18Z (D31 secret ledger), this one (D31 shell token + push-pill inset)
+
+## phases
+[redeploy] building prod bundle (.next-prod)
+ ✓ Compiled successfully
+ ✓ Generating static pages (25/25)
+[redeploy] stopping operative + fittings (default)
+[redeploy] kickstarting io.garrison.node (launchd)
+[redeploy] waiting for http://127.0.0.1:8777
+[redeploy] unlocking the vault (keychain-sealed)
+[redeploy] starting operative + fittings (default)
+[redeploy] publishing own-port views to the tailnet
+[redeploy] done - prod serving http://127.0.0.1:8777 (tailnet: https://goncalos-macbook-pro.tail31efa.ts.net)
+exit=0
+
+## own-port views published to the tailnet (12 listed, all [kept]; the 13th, remote-shell-runtime 8098 -> :8502, wrote its
+## status file at 09:45:30.008Z, ~100 ms after the serve script enumerated ~/.garrison/ui-fittings - its mapping persists from the
+## 08:58Z run: `tailscale serve status --json` shows goncalos-macbook-pro.tail31efa.ts.net:8502 -> http://127.0.0.1:8098)
+Fitting            local   tailnet URL
+-----------------  ------  ------------------------------------------
+screen-share-default  8079    https://goncalos-macbook-pro.tail31efa.ts.net:8480   [kept]
+email-channel      8081    https://goncalos-macbook-pro.tail31efa.ts.net:8481   [kept]
+dev-env            8086    https://goncalos-macbook-pro.tail31efa.ts.net:8503   [kept]
+whatsapp-web       8087    https://goncalos-macbook-pro.tail31efa.ts.net:8507   [kept]
+ports-default      8088    https://goncalos-macbook-pro.tail31efa.ts.net:8504   [kept]
+automations        8090    https://goncalos-macbook-pro.tail31efa.ts.net:8505   [kept]
+file-browser       8091    https://goncalos-macbook-pro.tail31efa.ts.net:8499   [kept]
+power-default      8092    https://goncalos-macbook-pro.tail31efa.ts.net:8492   [kept]
+improver           8093    https://goncalos-macbook-pro.tail31efa.ts.net:8500   [kept]
+omi-channel        8094    https://goncalos-macbook-pro.tail31efa.ts.net:8494   [kept]
+drill              8096    https://goncalos-macbook-pro.tail31efa.ts.net:8501   [kept]
+capture-service    8097    https://goncalos-macbook-pro.tail31efa.ts.net:8497   [kept]
+
+## after up(): compositions/default/.garrison/last-up.json
+at=2026-09-02T09:45:29.878Z ok=True verify hooks=42 ok=42 failed=0
+deepgram-voice among verified fittings: False
+capture-service verify: {"fittingId": "capture-service", "faculty": "channels", "command": "node apm_modules/_local/capture-service/scripts/capture.mjs --probe", "expect": "CAPTURE-OK", "ok": true, "stdout": "CAPTURE-OK port=8097 flags=ingress:false,transcribe:false,wake:false,notify:false,speak:false\n", "stderr": "", "exitCode": 0, "durationMs": 30}
+omi-channel verify: {"fittingId": "omi-channel", "faculty": "channels", "command": "node apm_modules/_local/omi-channel/scripts/omi.mjs --probe", "expect": "OMI-OK", "ok": true, "stdout": "OMI-OK\n", "stderr": "[omi-channel] probe: port=7094 state=/Users/ggomes/.garrison/omi flags=all-off gateway=http://127.0.0.1:5777\n", "exitCode": 0, "durationMs": 31}
+
+## generated artefacts name the one voice layer only
+compositions/default/.garrison/capability-docs.json  deepgram-voice=0  capture-service=3
+compositions/default/.garrison/last-up.json  deepgram-voice=0  capture-service=2
+compositions/default/.garrison/assembled-system-prompt.md  deepgram-voice=0  capture-service=0
+assembled prompt capability lines:
+    116:- connector:voice
+    147:- voice:companion
+
+## ~/.garrison/ui-fittings status files after up() (17; deepgram-voice.json absent)
+automations.json browser-default.json capture-service.json dev-env.json drill.json email-channel.json file-browser.json garrison-assistant.json improver.json kanban-loop.json monitor-default.json omi-channel.json ports-default.json power-default.json remote-shell-runtime.json screen-share-default.json whatsapp-web.json
+capture-service: port 8097 startedAt 2026-09-02T09:45:29.768Z
+
+## lockfiles
+compositions/{default,openai}/apm.lock.yaml are byte-identical to the copies taken before this redeploy
+(the committed shape minus the _local/deepgram-voice block, 6 lines per composition). The 08:58Z run had
+the Mac's APM 0.11.0 rewrite them during apm install and they were restored; the APM upgrade on this Mac
+is a handoff item.

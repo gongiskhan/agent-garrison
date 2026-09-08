@@ -13,106 +13,12 @@
 //
 // Usage:  node scripts/tailnet-serve-views.mjs [--dry-run]
 
-import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { tailscale, tailscaleServeWrite, serveStatus, existingMappings } from "./lib/tailnet-serve-cli.mjs";
 
 const DRY = process.argv.includes("--dry-run");
-const TAILSCALE_CANDIDATES = [
-  "tailscale",
-  "/opt/homebrew/bin/tailscale",
-  "/usr/local/bin/tailscale",
-  "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
-];
-
-// The candidate list exists to FIND the binary, so only "this path does not
-// exist" may advance it. Any other failure means we found tailscale and it
-// refused the command, and that error is the answer - continuing past it walks
-// on to paths that cannot exist on this OS and reports THEIR ENOENT instead.
-//
-// That is not hypothetical: publishing capture-service failed with
-// "spawnSync /Applications/Tailscale.app/Contents/MacOS/Tailscale ENOENT" on a
-// Linux box that has a perfectly good /usr/bin/tailscale. The real error was a
-// 401 from the first candidate, discarded three iterations earlier.
-// tailscale >=1.98 requires root (or a sudo-capable operator) for EVERY serve
-// config write - the operator flag alone stopped being enough (this is what
-// silently broke publishes when the daemon upgraded). Serve WRITES try plain
-// first, then `sudo -n` (the sudoers NOPASSWD entry for /usr/bin/tailscale);
-// reads never elevate.
-function tailscaleServeWrite(args) {
-  try {
-    return tailscale(args);
-  } catch (err) {
-    if (!String(err?.message ?? err).includes("401")) throw err;
-    try {
-      return execFileSync("sudo", ["-n", "tailscale", ...args], { encoding: "utf8", timeout: 8000 });
-    } catch (sudoErr) {
-      throw enrich(err, "tailscale");
-    }
-  }
-}
-
-function tailscale(args) {
-  for (const bin of TAILSCALE_CANDIDATES) {
-    try {
-      return execFileSync(bin, args, { encoding: "utf8", timeout: 8000 });
-    } catch (err) {
-      // execFileSync throws on non-zero exit even when stdout is valid (version
-      // skew warning). Prefer captured stdout if it looks like JSON.
-      const out = err?.stdout;
-      if (typeof out === "string" && out.includes("{")) return out;
-      if (err?.code === "ENOENT") continue; // not installed here; try the next path
-      throw enrich(err, bin);
-    }
-  }
-  throw new Error(
-    `tailscale CLI not found (looked in: ${TAILSCALE_CANDIDATES.join(", ")})`
-  );
-}
-
-// `tailscale serve` is privileged. Without this the operator sees a bare 401 and
-// has to go and find out that the fix is a one-time operator grant, which is the
-// difference between a 30-second fix and an afternoon.
-function enrich(err, bin) {
-  const text = `${err?.stderr ?? ""}${err?.message ?? ""}`;
-  if (/must be root|operator|401 Unauthorized/i.test(text)) {
-    const e = new Error(
-      `${bin} refused the command: ${String(err?.stderr ?? err?.message ?? "").trim()}\n` +
-        `    -> \`tailscale serve\` is privileged. Grant it once with:\n` +
-        `         sudo tailscale set --operator=$USER\n` +
-        `       after which redeploys publish new views without sudo.`
-    );
-    e.actionable = true;
-    return e;
-  }
-  const e = new Error(`${bin} failed: ${String(err?.stderr ?? err?.message ?? err).trim()}`);
-  return e;
-}
-
-function serveStatus() {
-  try {
-    const raw = tailscale(["serve", "status", "--json"]);
-    return JSON.parse(raw.slice(raw.indexOf("{")));
-  } catch (err) {
-    console.error("Could not read `tailscale serve status --json`:", err?.message ?? err);
-    return { Web: {}, TCP: {} };
-  }
-}
-
-// localPort -> { servePort, url }  and the set of serve ports already in use.
-function existingMappings(status) {
-  const byLocal = new Map();
-  const usedServePorts = new Set();
-  for (const [hostPort, web] of Object.entries(status.Web ?? {})) {
-    const servePort = Number(hostPort.split(":").pop());
-    if (Number.isFinite(servePort)) usedServePorts.add(servePort);
-    const proxy = web?.Handlers?.["/"]?.Proxy;
-    const m = proxy && /^https?:\/\/(?:127\.0\.0\.1|localhost):(\d+)/.exec(proxy);
-    if (m) byLocal.set(Number(m[1]), { servePort, url: `https://${hostPort}` });
-  }
-  return { byLocal, usedServePorts };
-}
 
 function ownPortViews() {
   const garrisonHome = process.env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison");
@@ -181,6 +87,23 @@ function main() {
     );
     process.exitCode = 2;
     return;
+  }
+  // A TETHERED node (csg) has no tailscale interface of its own - it reaches
+  // the tailnet only through its owner's reverse tunnel, and `tailscale serve`
+  // here would either fail outright or (worse) publish nothing useful. Its
+  // own-port views are published on the OWNER's tailnet host instead, by
+  // scripts/tailnet-serve-tether.mjs running there.
+  if (existsSync(nodeJsonPath)) {
+    try {
+      const identity = JSON.parse(readFileSync(nodeJsonPath, "utf8"));
+      if (identity?.tethered === true) {
+        console.log(`tethered node: views are published by ${identity.tetherHost || "its owner node"}`);
+        return;
+      }
+    } catch {
+      /* malformed node.json - fall through to the normal publish path, which
+         will fail loudly on its own terms if the identity is unusable */
+    }
   }
 
   const status = serveStatus();

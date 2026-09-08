@@ -221,6 +221,7 @@ Connector schema (`connector`, for Fittings that provide `kind: connector`):
 | `auth` | enum | yes | `oauth2`, `api_key`, or `none`. Names HOW the credential is obtained; the credential itself is sealed in the Vault and never inlined here. |
 | `actions` | array | no | The action catalog. Each entry: `name` (the callable action, e.g. `gmail.send`), optional `args` (templated argument names), optional `mutates` (true for write actions), optional `description`. |
 | `triggers` | array | no | Inbound triggers. Each entry: `type` (`webhook` routed through the Gateway, or `listener` polled by the Scheduler daemon), optional `event`, optional `cron` (listener cadence), optional `description`. |
+| `secrets` | array of strings | no | Subset of `secret_scope` a connector call receives; whole scope when absent. Each name must also be in `secret_scope` (a name outside it is ignored). For a Fitting that is also a running service and seals more than its connector needs (capture-service seals the Deepgram, ElevenLabs and APNs keys beside the capture token its connector uses), this keeps an automation child from seeing the rest. The Connectors page reads the connector as sealed when these names are present. |
 
 `secret_scope` (top-level, array of strings, optional): the named Vault secrets
 this Fitting is permitted to read. This is what makes per-connector scoping real —

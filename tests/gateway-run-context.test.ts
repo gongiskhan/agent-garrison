@@ -25,13 +25,17 @@ import { dutyEfforts } from "../src/lib/types";
 import { writeGatewayV4ExecutionModel } from "./helpers/gateway-v4-fixture";
 // @ts-ignore — Web's persistence sanitizer is plain ESM and is exercised here
 // as the receiving half of the gateway's canonical failure-event contract.
-import { sanitizeSessionEvent as sanitizeWebSessionEvent } from "../fittings/seed/web-channel-default/scripts/threads.mjs";
+import { sanitizeSessionEvent as sanitizeWebSessionEvent } from "../packages/talk/src/threads.mjs";
 // @ts-ignore — pure .mjs routing layer, no .d.ts
 import { applyTurnOverride, effortControllable, listVaultAccounts, resolveVaultAccount, readMaterializedSecrets, anthropicAccountEnv, createRoutedGateway, RoutedGateway, TURN_EFFORTS, AGENT_SDK_SESSION_CAP, normalizeFailureInfo } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 // @ts-ignore — pure .mjs adapter assembly resolver
 import { resolveRoutedAgentSdkAssembly } from "../fittings/seed/agent-sdk-runtime/lib/agent-sdk-adapter.mjs";
 // @ts-ignore — shared harness constants prove the gateway has no divergent copy
 import { BUILTIN_TOOLS, LEAN_SYSTEM_PROMPT } from "../fittings/seed/agent-sdk-runtime/lib/harness.mjs";
+// @ts-ignore — the real duty profile is part of the assembled runtime contract.
+import { applyDutyHarnessProfile } from "../fittings/seed/http-gateway/scripts/lib/harness-profiles.mjs";
+// @ts-ignore — configured continuity transport is plain ESM.
+import { continuityMemoryServer } from "../fittings/seed/http-gateway/scripts/lib/stretch-continuity.mjs";
 // @ts-ignore — provider-policy launch helpers are plain ESM.
 import { buildRespawnOpts } from "../fittings/seed/orchestrator/lib/stage-b.mjs";
 // @ts-ignore — provider registry migration helper is plain ESM.
@@ -1777,6 +1781,40 @@ function bareGateway(agentSdk: any) {
 }
 
 describe("agent-sdk lane: conversation identity, liveness and a real stop (§9, §12)", () => {
+  it("mounts configured shared memory in the real working assembly while keeping lean classification tool-free", async () => {
+    const configFile = path.join(compositionDir, "continuity-fixture.json");
+    writeFileSync(configFile, JSON.stringify({ version: 1, basic_memory_command: ["/configured/basic-memory"], ssh_host: "memory-authority" }));
+    const memory = continuityMemoryServer({ env: { GARRISON_AGENT_CONTINUITY_CONFIG: configFile } });
+    const moduleDir = path.join(compositionDir, "apm_modules", "_local", "mcp-gateway", "scripts");
+    mkdirSync(moduleDir, { recursive: true });
+    writeFileSync(path.join(moduleDir, "gateway.mjs"), "// transport fixture, never executed\n");
+    const routed = await gw.writeRoutedMcpConfig({ memoryServer: memory });
+    const stored = JSON.parse(readFileSync(path.join(compositionDir, ".garrison", "mcp.json"), "utf8"));
+    expect(stored.mcpServers["basic-memory"]).toEqual(memory);
+    expect(stored.mcpServers.garrison).toBeDefined();
+    const gateway = bareGateway(new FakeAgentSdk());
+    gateway._agentSdkAppendSystemPrompt = "shared project context";
+    gateway._agentSdkMcpServers = routed.mcpServers;
+    const workRoute = sdkRoute();
+    (workRoute.target as any).promptMode = "coding";
+    const work = applyDutyHarnessProfile(workRoute, "implement");
+    const assembly = gateway.resolveAgentSdkAssembly(work, { cwd: "/work/project" });
+    expect(assembly.config.settingSources).toEqual([]);
+    expect(assembly.config.strictMcpConfig).toBe(true);
+    expect(assembly.config.mcpServers["basic-memory"]).toMatchObject(memory);
+    expect(assembly.config.mcpServers["basic-memory"].args.at(-1)).toBe("'/configured/basic-memory' 'mcp'");
+    expect(assembly.config.disallowedTools.some((name: string) => name.includes("basic-memory"))).toBe(false);
+    const lean = sdkRoute();
+    (lean.target as any).promptMode = "lean";
+    const classifier = gateway.resolveAgentSdkAssembly(lean, { cwd: "/work/project" });
+    expect(classifier.config.tools).toEqual([]);
+    expect(classifier.config.mcpServers).toEqual({});
+    const explicitNoMemory = sdkRoute();
+    (explicitNoMemory.target as any).promptMode = "coding";
+    (explicitNoMemory.target as any).mcpServers = null;
+    expect(gateway.resolveAgentSdkAssembly(explicitNoMemory).config.mcpServers).toEqual({});
+  });
+
   it("signs and retains one immutable prompt/tool/MCP assembly without leaking raw bytes into cache keys", async () => {
     const adapter = new FakeAgentSdk();
     const gateway = bareGateway(adapter);

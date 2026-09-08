@@ -9,10 +9,11 @@
 // believe you would have heard.
 //
 // Means, in the order they are attempted (all attempted, none short-circuits):
-//   1. web-channel  — a message in the PWA chat surface. Lands in the thread
-//                     that ASKED for the work when the card came from one,
-//                     else a dedicated "drill-reports" thread. This is the
-//                     mobile-reachable one.
+//   1. web-channel  - a message in the Conversations thread on the Garrison
+//                     app (or the legacy web-channel fitting when no app is
+//                     named). Lands in the thread that ASKED for the work when
+//                     the card came from one, else a dedicated "drill-reports"
+//                     thread. This is the mobile-reachable one.
 //   2. kanban-card  — stamps the originating card so the board itself shows
 //                     the verdict (the surface the button was pressed on).
 //   3. slack        — via the Garrison `slack` connector's Vault-sealed token,
@@ -34,6 +35,7 @@ import os from "node:os";
 import path from "node:path";
 
 const REPORTS_THREAD = "drill-reports";
+const DELIVERY_TIMEOUT_MS = 10000;
 
 function garrisonHome() {
   return process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
@@ -49,6 +51,17 @@ async function statusFileUrl(fittingId) {
   } catch {
     return null;
   }
+}
+
+// The Conversations host. The Garrison app serves the thread engine at /api/*
+// and the runner projects its loopback base as GARRISON_APP_URL; a node still
+// running the legacy web-channel fitting publishes that host's base through
+// its status file. Both hosts share one thread store, so exactly one is ever
+// posted to - the app whenever it is named.
+async function conversationsBaseUrl() {
+  const app = (process.env.GARRISON_APP_URL || "").trim().replace(/\/+$/, "");
+  if (app) return app;
+  return statusFileUrl("web-channel-default");
 }
 
 function internalToken() {
@@ -93,10 +106,13 @@ export function outcomeText({ card, outcome, links = {} }) {
 // ── means 1: web channel ────────────────────────────────────────────────────
 // Delivered into the ORIGINATING thread when the card came from one, so the
 // conversation that asked for the change hears that the change was tested.
-// Otherwise a stable "drill-reports" thread, ensured idempotently.
+// Otherwise a stable "drill-reports" thread, ensured idempotently. The /api/*
+// paths are served by both hosts conversationsBaseUrl can name.
 async function deliverWebChannel({ card, text, fetchImpl }) {
-  const base = await statusFileUrl("web-channel-default");
-  if (!base) return { means: "web-channel", ok: false, skipped: "web channel fitting is not running" };
+  const base = await conversationsBaseUrl();
+  if (!base) {
+    return { means: "web-channel", ok: false, skipped: "no Conversations host: GARRISON_APP_URL unset and web channel fitting is not running" };
+  }
   const originThread =
     card?.originChannel && String(card.originChannel.channel).toLowerCase() === "web" && card.originChannel.threadId
       ? String(card.originChannel.threadId)
@@ -231,15 +247,46 @@ async function deliverWebhook({ card, outcome, links, text, fetchImpl }) {
  *
  * Returns [{ means, ok, target?, skipped?, error? }, ...].
  */
-export async function broadcastOutcome({ card, outcome, links = {}, jobId = null, fetchImpl = fetch }) {
+export async function broadcastOutcome({ card, outcome, links = {}, jobId = null, fetchImpl = fetch, deliveryTimeoutMs = DELIVERY_TIMEOUT_MS }) {
   const text = outcomeText({ card, outcome, links });
+  const timeoutMs = Number.isFinite(deliveryTimeoutMs) && deliveryTimeoutMs > 0 ? deliveryTimeoutMs : DELIVERY_TIMEOUT_MS;
   const results = await Promise.all([
-    deliverWebChannel({ card, text, fetchImpl }),
-    deliverKanbanCard({ card, outcome, links, jobId, fetchImpl }),
-    deliverSlack({ text, fetchImpl }),
-    deliverWebhook({ card, outcome, links, text, fetchImpl })
+    deliverBounded("web-channel", deliverWebChannel, { card, text }, fetchImpl, timeoutMs),
+    deliverBounded("kanban-card", deliverKanbanCard, { card, outcome, links, jobId }, fetchImpl, timeoutMs),
+    deliverBounded("slack", deliverSlack, { text }, fetchImpl, timeoutMs),
+    deliverBounded("webhook", deliverWebhook, { card, outcome, links, text }, fetchImpl, timeoutMs)
   ]);
   return results;
+}
+
+// Bound the complete delivery, including multi-request flows and response
+// bodies. A stalled channel must leave a failed receipt, not a forever-active
+// card job. Abort real I/O; the race also bounds injected clients that ignore it.
+async function deliverBounded(means, deliver, args, fetchImpl, timeoutMs) {
+  const controller = new AbortController();
+  let timer;
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      const error = `notification timed out after ${timeoutMs}ms`;
+      resolve({ means, ok: false, error });
+      controller.abort(new Error(error));
+    }, timeoutMs);
+  });
+  const boundedFetch = (url, init = {}) => {
+    // A timed-out earlier request may settle later. It must not start the next
+    // request after this means has already returned its failed receipt.
+    controller.signal.throwIfAborted();
+    return fetchImpl(url, { ...init, signal: controller.signal });
+  };
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() => deliver({ ...args, fetchImpl: boundedFetch }))
+        .catch((err) => ({ means, ok: false, error: err?.message || String(err) })),
+      deadline
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** One-line summary of a receipts array, for the job record + server log. */

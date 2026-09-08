@@ -9,7 +9,7 @@ log in [`PROGRESS.md`](./PROGRESS.md).
 ## Where things are
 
 - Server: own-port fitting, port from `GARRISON_CAPTURESERVICE_PORT`
-  (base 7097, prod 8097). Status file
+  (committed map 8097; sandboxes add their profile offset). Status file
   `$GARRISON_HOME/ui-fittings/capture-service.json`; the page at `/` is the
   session list, `/sessions/<id>` the (live) transcript view.
 - State: `$GARRISON_HOME/capture/` (override `GARRISON_CAPTURE_DIR`) —
@@ -23,6 +23,36 @@ log in [`PROGRESS.md`](./PROGRESS.md).
   `POST /capture/devices`, and the authed session read API. `POST /ack` and
   `POST /notify` are the kanban fan-out sinks (loopback/tailnet only; nothing
   here is ever funneled — v1 rides Tailscale).
+- Voice REST (the one voice layer for every surface, D20): `POST /stt`
+  (raw clip bytes in, `{transcript, confidence, language, model}` out) and
+  `POST /tts` (`{text, format?: "mp3"}` in, `audio/mpeg` out with
+  `X-Voice-Backend` and `X-Clip-Id`), both top-level and Bearer
+  `CAPTURE_TOKEN`. The browser reaches them through the shell's voice proxy,
+  automations through `scripts/connector.mjs` (connector "voice", actions
+  `transcribe` / `synthesize`, reads the service url from the status file and
+  the Bearer from `CAPTURE_TOKEN`). A clip rendered by `/tts` is the same clip
+  the phone fetches unauthenticated at `/speak/<id>.mp3`. `GET /health` carries
+  `voice: {stt, tts, ttsBackend, restEnabled}` and `keyConfigured` (= `voice.stt`).
+- Text ingest (D24): omi-channel forwards its realtime segments to
+  `POST /capture/ingest/text` (Bearer `CAPTURE_TOKEN`; `{source: "omi",
+  session_id, segments: [{text, speaker?, is_user?, start?, end?}]}`; 202
+  `{session, accepted}`). Each `<source>:<session_id>` is a socket-less text
+  session in the ingress: no media log, no transcript, no session record on
+  disk and no capture_event when it ends - the idle timer
+  (`text_session_idle_ms`, default 2 min) drops it from memory and bumps
+  `text_sessions_closed`. Segments cross the shared echo guard, then feed the
+  omi wake bus only (source `omi`, memory prefix `omi`, the same
+  speak-first-then-push notifier as the companion and pendant buses), so a
+  spoken "Zeca, ..." picked up by the Omi device dispatches like one heard by
+  the phone.
+- Active conversation (D25): a delegate reply carries the gateway's
+  `session_id`; for `active_conversation_window_ms` (default 5 min) the same
+  bus resumes that conversation instead of its deterministic
+  `<origin>-wake:<session>` key. `POST /capture/conversation/active`
+  `{session_id}` pins one explicitly (200 `{session_id, until}`), `GET` reads
+  the pin, `DELETE` clears it (204). Pin and window are process memory: a
+  restart forgets both, by design. Counters
+  `wake_delegate_resumed_window` / `wake_delegate_resumed_pin` say which won.
 
 ## Kill switches (I9) — all default OFF
 
@@ -33,6 +63,16 @@ log in [`PROGRESS.md`](./PROGRESS.md).
 | `wake_enabled` | wake bus | segments feed transcripts only; mid-capture sessions never dispatch |
 | `notify_enabled` | APNs push | receipts say "notify disabled"; web-channel fallback still used by /notify callers? No — the chain starts at the flag, so delivery is skipped entirely |
 | `speak_enabled` | voice sink | acks fall through to push; toggling off silences within one ack |
+| `tts_enabled` | spoken clips (phone acks AND `POST /tts`) | phone speaks acks in its own voice; `/tts` answers 503 and `/health` reports `voice.tts: false`; no TTS billing |
+| `tts_backend` | which engine speaks (`auto` / `elevenlabs` / `deepgram`) | not a switch but a selector: `auto` takes ElevenLabs when its key is sealed, else Deepgram Aura, else no TTS; an explicit engine without its key means no TTS (503 on `/tts`, phone-voice acks), never a silent swap. Cache ids carry the backend, so switching never replays the other engine's clip |
+
+`POST /capture/ingest/text` follows `enabled` (403) like the websocket; its
+segments only reach the wake bus while `wake_enabled` is on, so the kill switch
+covers the Omi device too.
+
+`POST /stt` has no flag of its own: it is off when `enabled` is off (403), or
+when `DEEPGRAM_API_KEY` is not sealed (503, `voice.stt: false`). Unsealing
+`CAPTURE_TOKEN` closes every authed surface at once (403 "not sealed").
 
 Config changes apply at the next `up` (env-fingerprint heal) or immediately
 via `POST /api/fittings/capture-service/restart`.
@@ -98,8 +138,10 @@ bash scripts/make-fixtures.sh
 
 Test hooks (env-only, never in config_schema):
 `GARRISON_CAPTURESERVICE_DG_URL` redirects the STT socket to
-`scripts/mock-deepgram.mjs`; `GARRISON_CAPTURESERVICE_APNS_URL` redirects
-the push gateway to a local h2c mock.
+`scripts/mock-deepgram.mjs` AND, with its scheme flipped (`wss` -> `https`,
+`ws` -> `http`), the REST lane (`/v1/listen` clips, `/v1/speak` Aura clips),
+so one mock base covers both lanes; `GARRISON_CAPTURESERVICE_APNS_URL`
+redirects the push gateway to a local h2c mock.
 
 ## Key rotation
 

@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // Omi channel Fitting backend — Garrison's ears (and one mouth) on the Omi
 // wearable ecosystem. Bidirectional channel: webhook ingress from Omi's cloud
-// (memory-creation, realtime transcript, day summary, chat tool calls),
-// heartbeat triage into Kanban cards + memories, outbound Omi direct
-// notifications, a wake-word live pipe, and a backfeed into Omi memories.
+// (memory-creation, realtime transcript, day summary), heartbeat triage into
+// Kanban cards + memories, outbound Omi direct notifications, a realtime
+// forward of transcript segments to the voice layer (capture-service, D24 -
+// the wake gate and the spoken replies live there), and a backfeed into Omi
+// memories.
 //
 // M0 scaffold: boot, /health, status file, minimal status page. Every ingress
 // endpoint answers 501 until its milestone lands. Every pipe is behind its own
@@ -23,14 +25,10 @@ import { Ingress } from "../lib/ingress.mjs";
 import { syncTriageJob } from "../lib/scheduler-jobs.mjs";
 import { Notifier } from "../lib/notify.mjs";
 import { OmiApi } from "../lib/omi-api.mjs";
-import { WakeBus } from "../lib/wake.mjs";
-import { ChatTool } from "../lib/chat.mjs";
+import { RealtimeForwarder } from "../lib/forward.mjs";
 import { Backfeed } from "../lib/backfeed.mjs";
 import { boardCardUrl } from "../lib/notify.mjs";
-import { inferenceRunFn, operativeRunFn } from "../lib/gateway-client.mjs";
 import { BoardClient } from "../lib/board-client.mjs";
-import { MemoryWriter } from "../lib/memory-writer.mjs";
-import { EchoGuard } from "../lib/echo-guard.mjs";
 
 const BACKFEED_INTERVAL_MS = 30 * 60 * 1000;
 const BACKFEED_BOOT_DELAY_MS = 2 * 60 * 1000;
@@ -187,7 +185,6 @@ function flagSummary(cfg) {
     triage: cfg.triageEnabled,
     wake: cfg.wakeEnabled,
     notify: cfg.notifyEnabled,
-    chat: cfg.chatEnabled,
     backfeed: cfg.backfeedEnabled,
     tips: cfg.tipsEnabled
   };
@@ -198,7 +195,8 @@ function secretsPresence(cfg) {
     appId: Boolean(cfg.secrets.appId),
     appSecret: Boolean(cfg.secrets.appSecret),
     importApiKey: Boolean(cfg.secrets.importApiKey),
-    webhookSecret: Boolean(cfg.secrets.webhookSecret)
+    webhookSecret: Boolean(cfg.secrets.webhookSecret),
+    captureToken: Boolean(cfg.secrets.captureToken)
   };
 }
 
@@ -261,7 +259,7 @@ export async function probeGateway(cfg, { fetchImpl = fetch, timeoutMs = 1500 } 
   }
 }
 
-export function statusPage(cfg, counters = {}, { pinnedUid = null, gateway = null } = {}) {
+export function statusPage(cfg, counters = {}, { pinnedUid = null, gateway = null, forward = null } = {}) {
   const flags = flagSummary(cfg);
   const secrets = secretsPresence(cfg);
   const enabledCount = Object.values(flags).filter(Boolean).length;
@@ -273,7 +271,7 @@ export function statusPage(cfg, counters = {}, { pinnedUid = null, gateway = nul
   );
   const wearerPinned = Boolean(pinnedUid);
   // Counters per pipe (spec M7) - the always-available metrics surface next
-  // to /health. Wake counters are counts only; no transcript content exists
+  // to /health. Forward counters are counts only; no transcript content exists
   // anywhere in this fitting's observability (I5).
   const counterKeys = Object.keys(counters)
     .filter((k) => k !== "updatedAt")
@@ -281,8 +279,13 @@ export function statusPage(cfg, counters = {}, { pinnedUid = null, gateway = nul
   const counterRows = counterKeys
     .map((k) => `<tr><th scope="row"><code>${escapeHtml(k)}</code></th><td>${escapeHtml(counters[k])}</td></tr>`)
     .join("\n");
-  const row = (k, v) =>
-    `<tr><th scope="row">${escapeHtml(k)}</th><td>${statusBadge(v ? "Enabled" : "Disabled", v ? "ok" : "muted")}</td></tr>`;
+  const row = (k, v, note = null) =>
+    `<tr><th scope="row">${escapeHtml(k)}</th><td>${statusBadge(v ? "Enabled" : "Disabled", v ? "ok" : "muted")}${
+      note ? ` <span class="panel__meta">${escapeHtml(note)}</span>` : ""
+    }</td></tr>`;
+  // The forward row says WHY it is not ready (no token, voice layer down) - a
+  // flag that reads "Enabled" while every segment is dropped would be a lie.
+  const forwardNote = forward ? forward.reason : null;
   const srow = (k, v) =>
     `<tr><th scope="row"><code>${escapeHtml(k)}</code></th><td>${statusBadge(v ? "Sealed" : "Missing", v ? "ok" : "warn")}</td></tr>`;
   return `<!doctype html>
@@ -300,7 +303,7 @@ export function statusPage(cfg, counters = {}, { pinnedUid = null, gateway = nul
       <h1>Omi channel</h1>
       ${statusBadge(cfg.enabled ? "Receiving" : "Standby", cfg.enabled ? "ok" : "muted")}
     </div>
-    <p class="hero__copy">Bidirectional capture, triage, wake commands, and personal notifications. Configuration stays in the Fitting editor; this page reports what is ready now.</p>
+    <p class="hero__copy">Bidirectional capture, triage, realtime forward to the voice layer, and personal notifications. Configuration stays in the Fitting editor; this page reports what is ready now.</p>
   </header>
 
   <main id="main">
@@ -323,9 +326,8 @@ export function statusPage(cfg, counters = {}, { pinnedUid = null, gateway = nul
             <tbody>
               ${row("Ingress webhooks", flags.ingress)}
               ${row("Heartbeat triage", flags.triage)}
-              ${row("Wake bus", flags.wake)}
+              ${row("Realtime forward", flags.wake, forwardNote)}
               ${row("Outbound notifications", flags.notify)}
-              ${row("Chat tool — ask_zeca", flags.chat)}
               ${row("Memory backfeed", flags.backfeed)}
               ${row("Tips", flags.tips)}
             </tbody>
@@ -340,12 +342,13 @@ export function statusPage(cfg, counters = {}, { pinnedUid = null, gateway = nul
         </div>
         <div class="table-wrap">
           <table>
-            <caption>Required Omi credentials</caption>
+            <caption>Omi credentials and the voice-layer token the forward lane speaks with</caption>
             <tbody>
               ${srow("OMI_APP_ID", secrets.appId)}
               ${srow("OMI_APP_SECRET", secrets.appSecret)}
               ${srow("OMI_IMPORT_API_KEY", secrets.importApiKey)}
               ${srow("OMI_WEBHOOK_SECRET", secrets.webhookSecret)}
+              ${srow("CAPTURE_TOKEN", secrets.captureToken)}
             </tbody>
           </table>
         </div>
@@ -376,11 +379,10 @@ export function statusPage(cfg, counters = {}, { pinnedUid = null, gateway = nul
 }
 
 export function makeRequestHandler(ctx) {
-  const { cfg, store, counters, ingress, notifier = null, chatTool = null } = ctx;
-  // The guard the ingress already holds, so /ack registers into the SAME window
-  // the realtime filter reads. A second instance here would register echoes
-  // nothing ever consults.
-  const echoGuard = ctx.echoGuard ?? ingress?.echoGuard ?? null;
+  const { cfg, store, counters, ingress, notifier = null } = ctx;
+  // The forwarder the ingress holds, so /health reports the readiness of the
+  // very object the realtime route pushes through.
+  const forwarder = ctx.forwarder ?? ingress?.forwarder ?? null;
   let gatewayCache = { at: 0, value: null };
   const gatewayStatus = async () => {
     const now = Date.now();
@@ -410,6 +412,7 @@ export function makeRequestHandler(ctx) {
           secrets: secretsPresence(cfg),
           gatewayConfigured: Boolean(cfg.gatewayUrl),
           gateway,
+          forward: forwarder ? forwarder.readiness() : { ok: false, reason: "no forwarder" },
           pinnedUid: pinned ? `${pinned.slice(0, 4)}...` : null,
           counters: mergedCounters(store.root)
         });
@@ -419,7 +422,13 @@ export function makeRequestHandler(ctx) {
         const gateway = await gatewayStatus();
         res.statusCode = 200;
         res.setHeader("Content-Type", "text/html; charset=utf-8");
-        return res.end(statusPage(cfg, mergedCounters(store.root), { pinnedUid: store.pinnedUid(), gateway }));
+        return res.end(
+          statusPage(cfg, mergedCounters(store.root), {
+            pinnedUid: store.pinnedUid(),
+            gateway,
+            forward: forwarder ? forwarder.readiness() : null
+          })
+        );
       }
 
       if (pathname === "/styles.css" && method === "GET") {
@@ -440,26 +449,6 @@ export function makeRequestHandler(ctx) {
       // Deliberately OUTSIDE /omi/ - the public Funnel mounts only that
       // prefix, and the server binds loopback, so this route is never
       // reachable off-box.
-      // The acknowledgement fan-out (kanban-loop fanOutAck) reaches every running
-      // fitting. This one does not SPEAK an ack - the Mac sink does - it listens
-      // for what is about to be said so the pendant hearing it back is dropped
-      // rather than transcribed into a card. Loopback only, outside /omi/ so the
-      // public Funnel can never mount it.
-      if (pathname === "/ack" && method === "POST") {
-        const bodyText = await readBody(req);
-        if (bodyText === null) return jsonRes(res, 413, { error: "body too large" });
-        let ack = null;
-        try {
-          ack = JSON.parse(bodyText);
-        } catch {
-          return jsonRes(res, 400, { error: "invalid JSON" });
-        }
-        const text = typeof ack?.text === "string" ? ack.text : "";
-        if (!text.trim()) return jsonRes(res, 400, { error: "ack has no text" });
-        const registered = echoGuard.register({ text, echo: ack?.echo ?? null });
-        return jsonRes(res, 200, { ok: true, registered });
-      }
-
       if (pathname === "/internal/omi-push" && method === "POST") {
         const bodyText = await readBody(req);
         if (bodyText === null) return jsonRes(res, 413, { error: "body too large" });
@@ -626,25 +615,6 @@ export function makeRequestHandler(ctx) {
         }
       }
 
-      // ---- ask_zeca chat tool (M5). Own auth (chat_enabled + key + app_id +
-      // pinned uid from the BODY - Omi tool calls carry uid in the payload).
-      if (pathname === "/omi/chat" && method === "POST" && chatTool) {
-        const bodyText = await readBody(req);
-        if (bodyText === null) return jsonRes(res, 413, { error: "body too large" });
-        let body = null;
-        try {
-          body = JSON.parse(bodyText);
-        } catch {
-          return jsonRes(res, 400, { error: "Invalid request." });
-        }
-        const outcome = await chatTool.handle(query, body);
-        return jsonRes(res, outcome.status, outcome.body);
-      }
-      if (pathname === "/omi/tools-manifest" && method === "GET" && chatTool) {
-        const outcome = chatTool.manifest(query);
-        return jsonRes(res, outcome.status, outcome.body);
-      }
-
       return jsonRes(res, 404, { error: "not found" });
     } catch (err) {
       console.error(`[omi-channel] request error: ${err?.stack || err}`);
@@ -685,42 +655,15 @@ export async function startServer(cfg = loadConfig()) {
       importApiKey: live.secrets.importApiKey
     })
   });
-  // The full-toolset lane, shared by the wake bus and the chat tool. Nothing
-  // blocks on it: both surfaces acknowledge first and notify when it answers.
-  const operativeFn =
-    live.gatewayUrl && live.delegateEnabled
-      ? operativeRunFn(live.gatewayUrl, { timeoutMs: live.delegateTimeoutMs })
-      : null;
-  const wakeBus = new WakeBus({
-    cfg: live,
-    store,
-    counters,
-    runFn: live.gatewayUrl
-      ? inferenceRunFn(live.gatewayUrl, { target: live.classifyTarget || null })
-      : null,
-    operativeFn,
-    board: new BoardClient(),
-    memoryWriter: new MemoryWriter(),
-    notifier
-  });
-  const echoGuard = new EchoGuard({ counters });
-  const ingress = new Ingress({ cfg: live, store, counters, wakeBus, echoGuard });
-  const chatTool = new ChatTool({
-    cfg: live,
-    store,
-    counters,
-    // Bounded fast path: the fetch aborts just past the answer deadline so a
-    // hung gateway can never hold the Omi chat UI hostage.
-    runFn: live.gatewayUrl
-      ? inferenceRunFn(live.gatewayUrl, { timeoutMs: 9500, target: live.classifyTarget || null })
-      : null,
-    operativeFn,
-    notifier
-  });
+  // The voice layer's door (D24): realtime segments go to capture-service,
+  // which owns the wake gate, the echo guard and the spoken replies. Nothing
+  // here waits on it - the webhook acks first, the forward is fire-and-forget.
+  const forwarder = new RealtimeForwarder({ cfg: live, counters });
+  const ingress = new Ingress({ cfg: live, store, counters, forwarder });
   // Crash recovery: drain any raw payloads a previous process left queued.
   ingress.scheduleDrain();
   const server = createServer(
-    makeRequestHandler({ cfg: live, store, counters, ingress, notifier, chatTool, echoGuard })
+    makeRequestHandler({ cfg: live, store, counters, ingress, notifier, forwarder })
   );
 
   server.on("error", (err) => {
@@ -744,11 +687,9 @@ export async function startServer(cfg = loadConfig()) {
   if (!cfg.gatewayUrl) {
     console.log("[omi-channel] no gateway URL in env; gateway-dependent pipes will skip with a reason");
   }
-  if (cfg.wakeVariantsRetiredFallback) {
-    console.log(
-      `[omi-channel] wake_variants is set to the retired name and was ignored; ` +
-        `using ${JSON.stringify(cfg.wakeVariants.join(","))}. Clear the config key to silence this.`
-    );
+  if (cfg.wakeEnabled) {
+    const ready = forwarder.readiness();
+    console.log(`[omi-channel] realtime forward: ${ready.reason}`);
   }
 
   // Boot-time scheduler-job sync (kanban server precedent: the server has the

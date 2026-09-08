@@ -32,12 +32,14 @@ import {
   Plug,
   Pin,
   PinOff,
+  X,
   type LucideIcon
 } from "lucide-react";
 import { useAppShell } from "./AppShell";
 import { GarrisonMark } from "./GarrisonMark";
-import { JARVIS_FITTING_ID, JARVIS_EMBED_PATH } from "./JarvisPersistentFrame";
-import { NodeBadge, useBuildSha, useNodeChrome } from "./NodeBadge";
+import { useBuildSha, useNodeChrome } from "./NodeBadge";
+import { NodeSwitcher } from "./NodeSwitcher";
+import { useNativeBridge } from "@/components/capture/BridgeGate";
 import { faculties, isOwnPortFitting } from "@/lib/faculties";
 import { useFittingViewStatus, type FittingViewStatus } from "@/components/fitting-views/useFittingViewStatus";
 import { resolveViewUrl } from "@/components/fitting-views/browser-view-url";
@@ -53,8 +55,7 @@ export function Sidebar() {
     toggleSidebar,
     narrowViewport,
     switching,
-    switchError,
-    jarvisActive
+    switchError
   } = useAppShell();
   const { entries: viewStatuses } = useFittingViewStatus();
   // Which machine in the mesh this window is. Null until the mount effect has
@@ -113,19 +114,24 @@ export function Sidebar() {
     };
   }, [overlay, toggleSidebar]);
 
-  if (sidebarCollapsed) {
+  if (sidebarCollapsed && !narrowViewport) {
     return (
       <CollapsedRail onExpand={toggleSidebar} switching={switching} switchError={switchError} />
     );
   }
 
+  // Phone width: the drawer stays mounted so it can slide in and out (the
+  // transition needs the element on both sides of the toggle); closed, it is
+  // translated off-screen and visibility-hidden, so nothing in it can take focus.
+  const phone = narrowViewport;
   const expanded = (
     <aside
       ref={drawerRef}
-      className={clsx("side", overlay && "side-overlay")}
-      role={overlay ? "dialog" : undefined}
+      className={clsx("side", phone && "side-overlay", phone && overlay && "is-open")}
+      role={phone ? "dialog" : undefined}
       aria-modal={overlay ? true : undefined}
-      aria-label={overlay ? "Garrison menu" : "Primary navigation"}
+      aria-hidden={phone && !overlay ? true : undefined}
+      aria-label={phone ? "Garrison menu" : "Primary navigation"}
       onClick={
         overlay
           ? (event) => {
@@ -165,21 +171,21 @@ export function Sidebar() {
           </span>
           <span className="brand-text">
             <span className="name">Agent Garrison</span>
-            <span className="sub">{node ? `v1 · ${node.name}` : "v1 · localhost"}</span>
+            <span className="sub">{node ? `v1 · ${node.name}` : "v1"}</span>
           </span>
         </Link>
         <button
           type="button"
           onClick={toggleSidebar}
-          title="Collapse sidebar"
+          title={phone ? "Close menu" : "Collapse sidebar"}
           className="side-collapse"
           aria-label="Collapse sidebar"
         >
-          <ChevronLeft size={14} aria-hidden />
+          {phone ? <X size={18} aria-hidden /> : <ChevronLeft size={14} aria-hidden />}
         </button>
       </div>
 
-      <NodeBadge />
+      <NodeSwitcher />
 
       <nav className="tabs" aria-label="Garrison">
         <SidebarMenu
@@ -187,7 +193,6 @@ export function Sidebar() {
           library={library}
           pathname={pathname}
           viewStatuses={viewStatuses}
-          jarvisActive={jarvisActive}
           commandBadges={{ "nav:composition": `${stationedCount}/${totalFaculties}` }}
         />
       </nav>
@@ -228,15 +233,17 @@ export function Sidebar() {
     </aside>
   );
 
-  if (!overlay) return expanded;
-  // The 48px grid column sits empty behind the drawer - rendering the rail
-  // there would leave invisible controls in the tab order under the scrim.
+  if (!phone) return expanded;
+  // The scrim fades with the drawer; closed, it is visibility-hidden too, so it
+  // neither catches taps nor sits in the tab order.
   return (
     <>
       <button
         type="button"
-        className="side-scrim"
+        className={clsx("side-scrim", overlay && "is-open")}
         aria-label="Close menu"
+        aria-hidden={overlay ? undefined : true}
+        tabIndex={overlay ? undefined : -1}
         onClick={toggleSidebar}
       />
       {expanded}
@@ -293,9 +300,9 @@ function CollapsedRail({
   );
 }
 
-// Matches NARROW_BREAKPOINT in AppShell — below this width the sidebar
-// auto-collapses, and own-port views open in a new tab instead of the
-// in-app iframe (which would be unusable next to the collapsed sidebar).
+// Matches NARROW_BREAKPOINT in AppShell - below this width the sidebar
+// auto-collapses, and in a browser own-port views open in a new tab instead
+// of the in-app iframe (in the app they embed full-bleed; see the row render).
 const MOBILE_BREAKPOINT = 720;
 
 function useIsMobileViewport(): boolean {
@@ -324,7 +331,9 @@ const VIEW_ICON_BY_ID: Record<string, LucideIcon> = {
   drill: Drill,
   "monitor-default": Activity,
   "screen-share-default": ScreenShare,
-  "deepgram-voice": Mic,
+  // capture-service lists `channel` first in its provides, so the kind fallback
+  // below would hand it the chat bubble; it is the voice layer, so the mic.
+  "capture-service": Mic,
   "web-channel-default": MessagesSquare,
   "slack-channel": MessagesSquare,
   roadmaps: Milestone
@@ -448,6 +457,14 @@ export const COMMAND_ITEMS: CommandItem[] = [
     isActive: (p) => p === "/connectors" || p.startsWith("/connectors")
   },
   {
+    id: "nav:conversations",
+    href: "/talk",
+    label: "Conversations",
+    Icon: MessagesSquare,
+    // /mesh/talk/<node>/<id> is a conversation too, framed from its home node.
+    isActive: (p) => p === "/talk" || p.startsWith("/talk/") || p.startsWith("/mesh/talk/")
+  },
+  {
     id: "nav:coordination",
     href: "/coordination",
     label: "Coordination",
@@ -460,7 +477,7 @@ export const COMMAND_ITEMS: CommandItem[] = [
     href: "/mesh",
     label: "Mesh",
     Icon: Boxes,
-    isActive: (p) => p === "/mesh" || p.startsWith("/mesh/")
+    isActive: (p) => (p === "/mesh" || p.startsWith("/mesh/")) && !p.startsWith("/mesh/talk/")
   },
   {
     id: "nav:quarters",
@@ -471,6 +488,19 @@ export const COMMAND_ITEMS: CommandItem[] = [
   },
   { id: "nav:vault", href: "/vault", label: "Vault", Icon: Lock, isActive: (p) => p === "/vault" }
 ];
+
+// The one route that exists only inside the Garrison iOS app: the capture page
+// drives the native microphone, the screen broadcast and the pendant through
+// the bridge, and a browser has none of those. It joins the Command group when
+// the bridge is present (BridgeGate decides) and is never pinnable from a
+// browser, which is why it is not in COMMAND_ITEMS.
+export const CAPTURE_ITEM: CommandItem = {
+  id: "nav:capture",
+  href: "/capture",
+  label: "Capture",
+  Icon: Mic,
+  isActive: (p) => p === "/capture" || p.startsWith("/capture/")
+};
 
 type MenuRow =
   | { kind: "command"; id: string; label: string; item: CommandItem }
@@ -488,17 +518,16 @@ function SidebarMenu({
   library,
   pathname,
   viewStatuses,
-  jarvisActive,
   commandBadges
 }: {
   composition: Composition | null;
   library: LibraryEntry[];
   pathname: string;
   viewStatuses: FittingViewStatus[];
-  jarvisActive: boolean;
   commandBadges: Record<string, string>;
 }) {
   const isMobile = useIsMobileViewport();
+  const nativeBridge = useNativeBridge() === true;
   const [pinned, setPinned] = useState<string[]>([]);
   // Pins arrive from the server, so an empty list means "not known yet", not
   // "nothing pinned". The auto-expand below has to tell those apart or it fires
@@ -583,7 +612,7 @@ function SidebarMenu({
   const activeFittingId = activeMatch ? activeMatch[1] : null;
   const activeCommand = activeFittingId
     ? null
-    : (COMMAND_ITEMS.find((item) => item.isActive(pathname)) ?? null);
+    : ([...COMMAND_ITEMS, ...(nativeBridge ? [CAPTURE_ITEM] : [])].find((item) => item.isActive(pathname)) ?? null);
   const activeId = activeFittingId ?? activeCommand?.id ?? null;
   const activeGroupId = activeFittingId ? "fittings" : activeCommand ? "command" : null;
   // The dashboard row counts as reachable: the brand link above the menu is the
@@ -605,7 +634,7 @@ function SidebarMenu({
 
   // Command: alphabetical by label, sorted HERE rather than trusted to the
   // declaration order, so a route added to the list lands in the right place.
-  const commandRows: MenuRow[] = [...COMMAND_ITEMS]
+  const commandRows: MenuRow[] = [...COMMAND_ITEMS, ...(nativeBridge ? [CAPTURE_ITEM] : [])]
     .sort((a, b) => a.label.localeCompare(b.label))
     .map((item) => ({ kind: "command", id: item.id, label: item.label, item }));
   for (const row of commandRows) rowById.set(row.id, row);
@@ -840,19 +869,12 @@ function SidebarMenu({
     }
     const status = row.status;
     const healthy = status?.healthy === true;
-    // Jarvis activity dot: something is happening in the persistent jarvis-os
-    // iframe (see JarvisPersistentFrame) while the user is on a different
-    // route. Never lit while already on /embed/jarvis-os - the HUD itself is
-    // the indicator there.
-    const jarvisPulsing = id === JARVIS_FITTING_ID && jarvisActive && pathname !== JARVIS_EMBED_PATH;
     const icon = (
       <span
         className={clsx(
           "ic",
-          healthy ? "view-live" : status?.healthy === false ? "view-down" : "view-off",
-          jarvisPulsing && "jarvis-active"
+          healthy ? "view-live" : status?.healthy === false ? "view-down" : "view-off"
         )}
-        title={jarvisPulsing ? "Jarvis is active" : undefined}
       >
         <Icon aria-hidden />
       </span>
@@ -861,7 +883,13 @@ function SidebarMenu({
       // Pick the URL reachable from where the browser is: loopback locally,
       // the HTTPS tailnet endpoint over Tailscale, else a host rebind.
       const openUrl = resolveViewUrl(status);
-      if (isMobile) {
+      // A phone BROWSER gets a new tab: the iframe next to the rail is cramped
+      // and a browser tab is a fine surface. The app has no tabs - a
+      // target="_blank" there navigates the one webview to the fitting's own
+      // origin and strands the user outside the shell - so in the app every
+      // own-port view embeds at /embed/<id>, which at phone width drops the
+      // rail and carries its own back bar (G6).
+      if (isMobile && !nativeBridge) {
         return (
           <a
             href={openUrl}

@@ -1,6 +1,6 @@
 name: remote-shell-runtime
-version: 0.1.0
-description: General remote-shell runtime (Runtimes Faculty) — attaches to a live tmux session on a remote machine over ssh (optionally through a Microsoft Dev Tunnel), streams the terminal two-way into Garrison, and drives running/idle lifecycle from the remote agent's own stop hook via an events file read over the same ssh channel. First transport config; the CSG VM over the existing VS Code Dev Tunnel.
+version: 0.2.0
+description: Shells (Runtimes Faculty) — attaches to a live tmux session on THIS machine or a remote one over ssh (optionally through a Microsoft Dev Tunnel), streams the terminal two-way into Garrison, and drives running/idle lifecycle from the agent's own hooks via an events file. A runtime catalog (claude/codex/cursor/gemini/shell) can start or resume any of them in a pane; a node-wide session index (owned shells + every listed CLI/desktop session on the box) is served at GET /index and published to the mesh so any node's Conversations can show what is running here.
 target: claude
 type: hybrid
 includes: auto
@@ -14,16 +14,23 @@ x-garrison:
   platforms:
     - all
   summary: >-
-    One general attach-and-stream runtime, many transports. A transport names a
-    reachable remote (ssh target + optional devtunnel to ride through) and a
-    tmux session there; the fitting's own-port server keeps the devtunnel
-    client alive, attaches `ssh -tt ... tmux attach` under node-pty, streams
-    the real TUI over the dev-env /io WebSocket protocol (xterm.js pane), and
-    follows the remote's ~/.garrison/events.jsonl over ssh for hook-driven
-    running/idle state, turn settlement, and channel notifications. The
-    RuntimeAdapter face makes any transport a routable delegate target: a
-    turn = inject the instruction into the remote agent's TUI, complete on the
-    stop-hook event. Connections are strictly outbound-from-Garrison; the
+    One general attach-and-stream runtime, many transports - including a
+    `local` transport for THIS machine, behind the exact same seams as every
+    ssh transport (its own dedicated tmux socket, never the user's). A
+    transport names a reachable machine (ssh target + optional devtunnel to
+    ride through, or nothing for local) and a tmux session there; the
+    fitting's own-port server keeps the devtunnel client alive, attaches
+    under node-pty, streams the real TUI over the dev-env /io WebSocket
+    protocol (xterm.js pane), and follows an events file for hook-driven
+    running/idle state, turn settlement, and channel notifications. A runtime
+    catalog (claude/codex/cursor/gemini/shell) can start a fresh session or
+    resume/attach an existing one in a pane; a login-shell probe reports which
+    of those CLIs exist on a transport. The RuntimeAdapter face makes any
+    transport a routable delegate target. GET /index (and the mesh's
+    shells.sessions/node:<name> config doc) lists every owned shell PLUS every
+    external claude/codex/cursor/gemini session this node can see on disk, one
+    honest status each (hooks > pane > transcript-recency, never a guess).
+    Connections to a remote transport are strictly outbound-from-Garrison; the
     remote never dials us.
   config_schema:
     - key: port
@@ -110,6 +117,38 @@ x-garrison:
         empty on every restart, so a client orphaned by a previous process is
         otherwise invisible to every check and keeps holding the loopback port.
         Only ever runs on the repair path — a healthy port is never touched.
+    - key: local_shells
+      type: boolean
+      default: true
+      description: >-
+        Synthesize a `local` transport for this machine (a dedicated tmux
+        socket, never the user's own) when tmux is on PATH. Env override:
+        GARRISON_REMOTESHELLRUNTIME_LOCAL_SHELLS=false.
+    - key: local_projects_root
+      type: string
+      default: "~/dev"
+      description: Root the project picker lists folders under, for every transport (local included) unless a transport sets its own `projectsRoot`.
+    - key: local_login_shell
+      type: string
+      default: ""
+      description: Login shell for the local transport's own commands (bash or zsh; anything else falls back to bash). Empty = $SHELL, then bash.
+    - key: install_hooks
+      type: boolean
+      default: true
+      description: >-
+        On start, merge (never replace) the agent lifecycle hook into
+        Cursor/Codex/Gemini's own config on this box, so hook-driven status
+        works for sessions started directly in a terminal too. Claude Code's
+        own hooks are untouched (dev-env owns those). Env override:
+        GARRISON_REMOTESHELLRUNTIME_INSTALL_HOOKS=false.
+    - key: session_window_days
+      type: integer
+      default: 5
+      description: How far back GET /index and the published state-service doc look for a session (live/owned rows are always included regardless of age).
+    - key: index_publish_seconds
+      type: integer
+      default: 10
+      description: How often the session index is rebuilt and (re)published to the mesh.
   provides:
     - kind: runtime
       name: remote-shell
@@ -117,8 +156,10 @@ x-garrison:
   setup:
     # link-devtunnel-home: the instance XDG redirect hides the box's devtunnel
     # login (same trap as Cursor's auth under XDG_CONFIG_HOME) — link the real
-    # token store in before anything needs the tunnel.
-    command: node scripts/link-devtunnel-home.mjs && node ui/build.mjs
+    # token store in before anything needs the tunnel. install-hooks: merge
+    # the lifecycle hook into Cursor/Codex/Gemini's own config (idempotent,
+    # never under a test runner - see server.mjs's VITEST guard).
+    command: node scripts/link-devtunnel-home.mjs && node ui/build.mjs && node scripts/install-hooks.mjs
     idempotent: true
     timeout_ms: 120000
   verify:
@@ -142,8 +183,43 @@ x-garrison:
     Discovery: ~/.garrison/ui-fittings/remote-shell-runtime.json
     ({fittingId, port, url, pid, startedAt}), then GET <url>/health.
 
-    HTTP endpoints (loopback):
-      GET  /health, /transports, /sessions
+    Reachable CROSS-ORIGIN, on purpose: a browser on another node's page must
+    call this fitting directly (Next cannot upgrade WebSockets, so a same-
+    origin relay does not exist for /io). Every REST route and the /io
+    upgrade go through an Origin/Host guard (lib/origin-guard.mjs, the same
+    isTrustedHost rule as src/lib/mesh/peer-auth.ts): loopback/RFC1918/
+    tailnet-CGNAT/*.ts.net origins are answered with CORS headers, anything
+    else gets 403. /exec and /agent-turns are the one exception - loopback
+    tools only, refused outright when a request carries an Origin header at
+    all (a same-origin fetch never sends one).
+
+    HTTP endpoints (loopback + trusted-origin browsers):
+      GET  /health, /transports, /sessions, /index
+      GET  /runtimes?transport=<name>           - {id, label, bin, available,
+                                                  path, resumable, attachable,
+                                                  checkedAt} per claude/codex/
+                                                  cursor/gemini, one login-
+                                                  shell probe, cached 5 min
+      GET  /index                               - {node, shellOrigin:
+                                                  {loopback, public}, updatedAt,
+                                                  rows}. Same body this node
+                                                  publishes to the state
+                                                  service's shells.sessions /
+                                                  node:<name> config doc. Row:
+                                                  {id, runtime, kind: shell|
+                                                  cli|desktop|bg, cwd, project,
+                                                  title, status: working|idle|
+                                                  ended|unknown, statusSource:
+                                                  hooks|pane|transcript|
+                                                  registry|none, startedAt,
+                                                  lastActivityAt, resumable,
+                                                  attachable, resumeRef,
+                                                  resumeCommand, shell?
+                                                  {transport, tmuxSession,
+                                                  label, sessionId}, threadId?,
+                                                  claimedBy? {kind: thread|
+                                                  card, id}, transcript?
+                                                  {format, path}}
       GET  /tunnels                             - per-tunnel health. Reports
                                                   `carrying` (the forward
                                                   answered as ssh), never a
@@ -156,8 +232,14 @@ x-garrison:
                                                   now, bypassing hysteresis and
                                                   backoff (but not the
                                                   one-repair-at-a-time lock)
-      POST /sessions {transport, label?}        - start/attach (idempotent per
-                                                  transport+tmux session)
+      POST /sessions {transport, label?,
+        runtime?, resume?, attach?}             - start/attach (idempotent per
+                                                  transport+tmux session).
+                                                  `runtime` picks the catalog
+                                                  (new/resume/attach argv);
+                                                  omitted, the transport's own
+                                                  standing agentCommand types
+                                                  as before
       POST /sessions/:id/input {text}           - type a line + Enter
       POST /sessions/:id/keys {keys}            - named key (Escape, C-c, ...)
       POST /sessions/:id/turn {text}            - start a tracked turn
@@ -186,3 +268,19 @@ x-garrison:
     tmux session, agent start/stop hooks appending to ~/.garrison/events.jsonl
     there). The remote opens no connection to Garrison, ever: the events file
     is followed over the same inbound ssh transport.
+
+    Setup on THIS machine (the local transport) is scripts/install-hooks.mjs,
+    run at fitting start: it merges (never replaces) the same lifecycle hook
+    into Cursor's hooks.json (stop/beforeSubmitPrompt), Codex's hooks.json
+    (UserPromptSubmit/Stop/SessionStart/SessionEnd), and Gemini's
+    settings.json (BeforeAgent/AfterAgent/SessionStart/SessionEnd), matched
+    idempotently by exact command string; every unrelated entry in each file
+    is left untouched, and each file is snapshotted once under
+    ~/.garrison/snapshots/shells-<name>.before.json before its first edit.
+    scripts/uninstall-hooks.mjs removes only what this fitting added. Codex
+    trusts a new hook interactively on its NEXT launch after install (this
+    writer never touches ~/.codex/config.toml's [hooks.state] trust hashes -
+    the hash algorithm is Codex's own and not reproducible here). Claude
+    Code's own hooks are never touched by this fitting; its status comes
+    straight from the live registry (~/.claude/sessions/<pid>.json), which
+    needs no hook at all.

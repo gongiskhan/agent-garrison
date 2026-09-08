@@ -16,10 +16,18 @@
 // slack-channel, which has existed and can post, was invisible to notifications
 // for months. We ask every RUNNING own-port Fitting whether it accepts the
 // channel notify contract; the ones that do not simply 404 and are skipped.
+// The one target that is not an own-port Fitting is the web channel: the shell
+// hosts Conversations at /talk, so when the runner projected GARRISON_APP_URL
+// the app is a target at its /api/notify route, riding under the web channel's
+// id so receipts and skip lists keep one name for that surface whichever host
+// serves it. Any ui-fittings entry named web-channel* is dropped then - the
+// legacy own-port host shares the app's thread store and push subscriptions,
+// so notifying both would land twice on the same surface.
 //
-// COPIED, not imported: `runningFittingBases` and the fan-out shape come from
-// fittings/seed/kanban-loop/lib/notify-origin.mjs:64 (`runningFittingBases` /
-// `fanOutNotification`), and the tailnet resolution from
+// COPIED, not imported: `runningFittingBases`, `notifyTargets` and the fan-out
+// shape come from fittings/seed/kanban-loop/lib/notify-origin.mjs
+// (`runningFittingBases` / `notifyTargets` / `fanOutNotification`), and the
+// tailnet resolution from
 // fittings/seed/drill/lib/tailnet-serve.mjs. Cross-fitting imports are forbidden
 // (each own-port Fitting installs independently), so copying with the source
 // named is the house pattern.
@@ -55,10 +63,27 @@ function underTestRunner() {
   return Boolean(process.env.VITEST || process.env.VITEST_WORKER_ID) || process.env.NODE_ENV === "test";
 }
 
+// The home discovery reads from; null when a test runner would otherwise
+// inherit the real one. Guards the app entry too: an inherited GARRISON_APP_URL
+// is the same silent road to a live surface that the home fallback was.
+function discoveryHome() {
+  const explicitHome = process.env.GARRISON_HOME?.trim();
+  if (!explicitHome && underTestRunner()) return null;
+  return explicitHome || garrisonHome();
+}
+
+function appBaseUrl() {
+  const raw = process.env.GARRISON_APP_URL?.trim();
+  return raw ? raw.replace(/\/+$/, "") : null;
+}
+
+const WEB_CHANNEL_ID = "web-channel-default";
+
 export function runningFittingBases() {
   try {
-    if (!process.env.GARRISON_HOME?.trim() && underTestRunner()) return [];
-    const dir = path.join(garrisonHome(), "ui-fittings");
+    const home = discoveryHome();
+    if (!home) return [];
+    const dir = path.join(home, "ui-fittings");
     if (!existsSync(dir)) return [];
     return readdirSync(dir)
       .filter((f) => f.endsWith(".json"))
@@ -70,6 +95,18 @@ export function runningFittingBases() {
   } catch {
     return [];
   }
+}
+
+/** Every notify target of one fan-out, each with the exact URL to POST. Own-port
+ *  fittings take the bare /notify the channel contract names; the app takes
+ *  /api/notify, the form its catch-all mounts. */
+export function notifyTargets() {
+  if (!discoveryHome()) return [];
+  const app = appBaseUrl();
+  const fittings = runningFittingBases()
+    .filter(({ id }) => !(app && id.startsWith("web-channel")))
+    .map(({ id, base }) => ({ id, url: `${base}/notify` }));
+  return app ? [{ id: WEB_CHANNEL_ID, url: `${app}/api/notify` }, ...fittings] : fittings;
 }
 
 // ── Tailnet resolution ───────────────────────────────────────────────────────
@@ -186,7 +223,8 @@ export function probeNotificationText(pending) {
 }
 
 /**
- * Push one pending probe to every running Fitting that accepts /notify.
+ * Push one pending probe to every notify target: the shell's Conversations
+ * engine plus every running own-port Fitting that accepts /notify.
  *
  * Fire-and-forget in spirit — a channel being down must never cost the operator
  * a Stop — but awaited here so the caller can record WHICH surfaces took it, and
@@ -213,11 +251,11 @@ export async function deliverProbeQuestion(
   const skip = new Set(skipFittingIds.filter(Boolean));
   const results = [];
   await Promise.all(
-    runningFittingBases()
+    notifyTargets()
       .filter((e) => !skip.has(e.id))
-      .map(async ({ id, base: fittingBase }) => {
+      .map(async ({ id, url }) => {
         try {
-          const res = await fetchImpl(`${fittingBase}/notify`, {
+          const res = await fetchImpl(url, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({

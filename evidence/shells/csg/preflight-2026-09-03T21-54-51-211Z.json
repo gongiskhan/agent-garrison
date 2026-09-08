@@ -1,0 +1,44 @@
+{
+  "at": "2026-09-03T21:54:49.254Z",
+  "tunnelId": "swift-book-df6tw47.eun1",
+  "verdict": "NO-GO",
+  "fixes": [
+    "csg is not hosting swift-book-df6tw47.eun1 (hostConnections: 0) - on csg, run: DEVTUNNEL_BIN=~/.local/bin/devtunnel sh ~/.garrison/host-tunnel.sh swift-book-df6tw47.eun1 --detach"
+  ],
+  "repoSource": "github",
+  "supervisor": "systemd-user",
+  "tunnelPlan": "swift-book",
+  "unstationSuggested": [
+    "codex-runtime",
+    "gemini-runtime",
+    "opencode-runtime",
+    "browser-default",
+    "screen-share-default",
+    "snapshots-default",
+    "basic-memory",
+    "vault-git-sync",
+    "improver",
+    "improver-nightly",
+    "slack-channel",
+    "email-channel",
+    "omi-channel",
+    "whatsapp-web",
+    "capture-service",
+    "trello",
+    "google",
+    "cortex-automations",
+    "cortex-client"
+  ],
+  "checks": {
+    "tunnel": {
+      "ok": true,
+      "hostConnections": 0,
+      "ports": [
+        2222,
+        31545,
+        31546
+      ]
+    },
+    "stoppedAt": "host-not-connected"
+  }
+}

@@ -147,6 +147,63 @@ export async function callCreateContinuation(input) {
   return { id, url, moved: movedOk, list: movedOk ? "plan" : "backlog" };
 }
 
+// POST <board>/cards then POST <board>/cards/:id/start - the escalation door for a
+// conversation that is NOT the place to do the work (D62). The spoken `dialogue`
+// duty answers the person in one pass; when what they asked for is a project, a
+// bug, a feature or an automation, it makes a card here instead of opening the
+// delivery loop inside a conversation someone is listening to. The card starts
+// its own conversation (id == card id) and runs there from triage.
+//
+// `origin_id` is the idempotency key the board does NOT enforce: it has no dedupe
+// of its own, so a repeated ask with the same key is looked up and returned
+// rather than created twice.
+export async function callCreateCard(input) {
+  const base = kanbanBaseUrl();
+  if (!base) throw new Error("kanban board not running");
+  const title = typeof input?.title === "string" ? input.title.trim() : "";
+  if (!title) throw new Error("create_card requires title");
+  const originId = typeof input?.origin_id === "string" && input.origin_id.trim() ? input.origin_id.trim() : null;
+  if (originId) {
+    const found = await fetch(`${base}/cards?origin_id=${encodeURIComponent(originId)}`).catch(() => null);
+    if (found?.ok) {
+      const doc = await found.json().catch(() => null);
+      const existing = Array.isArray(doc?.cards) ? doc.cards[0] : doc?.card;
+      if (existing?.id) return { id: existing.id, url: `${base}/#/cards/${existing.id}`, started: true, existing: true };
+    }
+  }
+  // `todo` is a manual list: `running` is launcher-only and 400s here.
+  const payload = {
+    title,
+    description: typeof input?.description === "string" ? input.description : "",
+    list: typeof input?.list === "string" && input.list === "backlog" ? "backlog" : "todo",
+    origin: "dialogue",
+    ...(originId ? { origin_id: originId } : {}),
+    ...(typeof input?.project === "string" && input.project.trim() ? { project: input.project.trim() } : {})
+  };
+  const created = await fetch(`${base}/cards`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!created.ok) {
+    const t = await created.text().catch(() => "");
+    throw new Error(`create_card create ${created.status}: ${t.slice(0, 200)}`);
+  }
+  const doc = await created.json();
+  const id = doc.id || doc.card?.id;
+  if (!id) throw new Error("create_card: board returned no id");
+  // A card nobody started is a card nobody runs. `start` is what makes the board
+  // kick the gateway, which opens the conversation at this id and runs triage.
+  let started = false;
+  let startNote = null;
+  if (input?.start !== false && payload.list !== "backlog") {
+    const kicked = await fetch(`${base}/cards/${encodeURIComponent(id)}/start`, { method: "POST" });
+    started = kicked.ok || kicked.status === 409;
+    if (!started) startNote = `start ${kicked.status}`;
+  }
+  return { id, url: `${base}/#/cards/${id}`, started, list: payload.list, ...(startNote ? { note: startNote } : {}) };
+}
+
 // GET <board>/origins/:origin_id/events?since=... - the PULL delivery a skill/terminal
 // session polls for lifecycle + duty-summary events (S3e origin parity). The board
 // serves JSON; we render compact lines the operative reads. `since` is a line offset

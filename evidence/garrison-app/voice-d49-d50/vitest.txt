@@ -1,0 +1,9 @@
+   ✓ capture-service ingress > registers devices idempotently over authed HTTP 594ms
+   ✓ capture-service ingress > times out an idle session with reason timeout 581ms
+   ✓ screen_audio transcription gate > does not skip an audio session, whatever the flag says 383ms
+
+ Test Files  4 passed (4)
+      Tests  55 passed (55)
+   Start at  16:40:40
+   Duration  24.77s (transform 22.94s, setup 1.55s, collect 42.04s, tests 6.16s, environment 5ms, prepare 6.36s)
+

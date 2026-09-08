@@ -25,10 +25,11 @@ import {
   conversationMessageUrl,
   createConversationTransport,
   postConversationMessage,
-} from "../fittings/seed/web-channel-default/ui/conversation-transport";
+  postConversationCancel,
+} from "../packages/talk/ui/conversation-transport";
 
 const ROOT = path.resolve(__dirname, "..");
-const MAIN = readFileSync(path.join(ROOT, "fittings/seed/web-channel-default/ui/main.tsx"), "utf8");
+const MAIN = readFileSync(path.join(ROOT, "packages/talk/ui/app.tsx"), "utf8");
 
 type Call = { url: string; body: Record<string, unknown> };
 
@@ -68,6 +69,19 @@ afterEach(() => {
 });
 
 describe("web channel — the conversation send door", () => {
+  it("stops a normal conversation through its own same-origin control", async () => {
+    const calls = stubFetch(() => json(202, { cancelled: true }));
+    await postConversationCancel("01CONV");
+    expect(calls).toEqual([{ url: "/api/conversation/01CONV/cancel", body: {} }]);
+  });
+
+  it("accepts an already-finished stop but surfaces a rejected cancellation", async () => {
+    stubFetch(() => json(404, { error: "no advancing conversation" }));
+    await expect(postConversationCancel("01CONV")).resolves.toBeUndefined();
+    stubFetch(() => json(502, { error: "gateway unavailable" }));
+    await expect(postConversationCancel("01CONV")).rejects.toBeInstanceOf(ChatTransportError);
+  });
+
   it("posts to a RELATIVE per-conversation door", () => {
     expect(CONVERSATION_BASE).toBe("/api/conversation");
     expect(conversationMessageUrl("01CONV")).toBe("/api/conversation/01CONV/message");
@@ -77,20 +91,61 @@ describe("web channel — the conversation send door", () => {
     expect(conversationMessageUrl("a b/../c")).toBe("/api/conversation/a%20b%2F..%2Fc/message");
   });
 
-  it("sends exactly the three fields the router's gate allows", async () => {
+  it("forwards context and routing through the conversation door's allowed fields", async () => {
     const calls = stubFetch(() => json(202, { accepted: true, recordedBy: "responder", seq: null }));
     const transport = createConversationTransport(inner, { conversationId: "01CONV" });
     await transport.sendMessage("ship the ladder", {
       clientRequestId: "req-1",
-      // Deliberately offered and deliberately NOT forwarded: the door refuses
-      // unknown fields with a 400, so carrying these would break every send.
       context: { card: "01CARD" },
       routing: { duty: "implement" },
+      mode: "plan",
+      autonomous: true,
     } as never);
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe("/api/conversation/01CONV/message");
-    expect(Object.keys(calls[0].body).sort()).toEqual(["clientRequestId", "message", "origin"]);
-    expect(calls[0].body).toMatchObject({ message: "ship the ladder", clientRequestId: "req-1", origin: "web" });
+    expect(Object.keys(calls[0].body).sort()).toEqual(["clientRequestId", "context", "message", "origin", "routing"]);
+    expect(calls[0].body).toMatchObject({
+      message: "ship the ladder", clientRequestId: "req-1", origin: "web",
+      context: JSON.stringify({ card: "01CARD" }), routing: { duty: "implement" },
+    });
+  });
+
+  it("keeps an unpinned message unchanged", async () => {
+    const calls = stubFetch(() => json(202, { accepted: true }));
+    await createConversationTransport(inner, { conversationId: "01CONV" })
+      .sendMessage("hello", { clientRequestId: "plain" });
+    expect(calls[0].body).toEqual({ message: "hello", clientRequestId: "plain", origin: "web" });
+  });
+
+  it("restores host context and pins, with per-send overrides and native effort taking precedence", async () => {
+    const calls = stubFetch(() => json(202, { accepted: true }));
+    const transport = createConversationTransport(inner, {
+      conversationId: "01CONV",
+      context: { project: "garrison" },
+      routing: { project: "garrison", target: "astra", effort: "medium", duty: "plan" },
+    });
+    await transport.sendMessage("continue", { clientRequestId: "saved" });
+    await transport.sendMessage("review", {
+      clientRequestId: "override", context: "review the current diff", effort: "high",
+      routing: { target: "sol", duty: null, effort: "low" },
+    });
+    await transport.sendMessage("without context", { clientRequestId: "clear", context: null });
+    expect(calls[0].body).toMatchObject({ context: '{"project":"garrison"}', routing: {
+      project: "garrison", target: "astra", effort: "medium", duty: "plan",
+    } });
+    expect(calls[1].body).toMatchObject({ context: "review the current diff", routing: {
+      project: "garrison", target: "sol", effort: "high", duty: null,
+    } });
+    expect(calls[2].body).not.toHaveProperty("context");
+  });
+
+  it("carries bounded Discuss context and pins through the same post helper", async () => {
+    const calls = stubFetch(() => json(202, { accepted: true }));
+    await postConversationMessage("01CONV", "start discussing", {
+      origin: "discuss", context: "x".repeat(9000), routing: { duty: "discuss", target: "astra" },
+    });
+    expect(calls[0].body.context).toBe("x".repeat(8000));
+    expect(calls[0].body.routing).toEqual({ duty: "discuss", target: "astra" });
   });
 
   it("receipts the ADMISSION and settles it, because no generation follows a message", async () => {
@@ -104,12 +159,12 @@ describe("web channel — the conversation send door", () => {
     expect(typeof (receipt as { acceptedAt?: string }).acceptedAt).toBe("string");
   });
 
-  it("never dresses a client coordinate up as a ledger one", async () => {
-    stubFetch((call) => json(202, call.body.message === "routed" ? { seq: 7, recordedBy: "router" } : { seq: null, recordedBy: "responder" }));
+  it("keeps admissions distinct when the gateway repeats a writer-local sequence", async () => {
+    stubFetch(() => json(202, { seq: 0, recordedBy: "responder" }));
     const transport = createConversationTransport(inner, { conversationId: "01CONV" });
     const routed = await transport.sendMessage("routed", { clientRequestId: "req-3" } as never);
     const forwarded = await transport.sendMessage("forwarded", { clientRequestId: "req-4" } as never);
-    expect((routed as { inputId: string }).inputId).toBe("conv:01CONV#7");
+    expect((routed as { inputId: string }).inputId).toBe("conv:req-3");
     expect((forwarded as { inputId: string }).inputId).toBe("conv:req-4");
   });
 
@@ -181,7 +236,7 @@ describe("web channel — the conversation surface", () => {
   });
 
   it("polls the record faster than the router's default, because this is the typed-into mount", () => {
-    const server = readFileSync(path.join(ROOT, "fittings/seed/web-channel-default/scripts/server.mjs"), "utf8");
+    const server = readFileSync(path.join(ROOT, "packages/talk/src/router.mjs"), "utf8");
     const mount = server.slice(server.indexOf("handleConversationRequest(req, res, {"));
     expect(mount.slice(0, mount.indexOf("});"))).toContain("pollMs: 300");
     // Measured on the real server: 293ms from POST to the sender seeing their own
@@ -190,7 +245,15 @@ describe("web channel — the conversation surface", () => {
   });
 
   it("exempts remote-shell threads, whose turns are delegated off this machine", () => {
-    expect(MAIN).toContain("const conversationId = activeRshTransport ? null : (activeThread?.conversationId ?? null);");
+    // Matched on the CONTRACT, not the exact expression: the exemption started
+    // as `activeRshTransport ? null : ...` and has since grown to cover
+    // shell-bound threads too (`activeRshTransport || activeShellBinding`),
+    // which is a superset - the remote-shell case is still exempted. Pinning
+    // the literal string meant a legitimate widening read as a regression.
+    const line = MAIN.split("\n").find((l) => l.includes("const conversationId ="));
+    expect(line, "app.tsx must still derive conversationId").toBeTruthy();
+    expect(line).toContain("activeRshTransport");
+    expect(line).toMatch(/\?\s*null\s*:\s*\(activeThread\?\.conversationId \?\? null\)/);
     // The chat lane survives for exactly that case - including the exchange
     // reduction that seeds it.
     expect(MAIN).toContain("initialHistory={history}");

@@ -72,5 +72,5 @@ const statusOut = execFileSync("tailscale", ["funnel", "status"], { encoding: "u
 console.log(statusOut.trim());
 console.log(
   `[omi-funnel] public webhook base: https://<this-node-dns-name>:${FUNNEL_PORT}/omi ` +
-    `(set it as public_base_url in the fitting config and in the Omi app's webhook URLs, with ?key=<OMI_WEBHOOK_SECRET>)`
+    `(use it in the Omi app's webhook URLs, with ?key=<OMI_WEBHOOK_SECRET>)`
 );

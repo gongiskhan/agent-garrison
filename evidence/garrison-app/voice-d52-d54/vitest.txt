@@ -1,0 +1,15 @@
+   ✓ ClaudeChat generated input lifecycle in real Chromium > lets typed turn_end fence Stop, question, and permission in the same task for the exact generation 358ms
+   ✓ ClaudeChat generated input lifecycle in real Chromium > drops a turn_end whose input and generation coordinates point at different turns 308ms
+   ✓ ClaudeChat generated input lifecycle in real Chromium > preserves every Enter submission during upload and keeps a newer draft 489ms
+   ✓ ClaudeChat generated input lifecycle in real Chromium > Stop restores the sent text without auto-resending or reordering the queue 397ms
+   ✓ ClaudeChat generated input lifecycle in real Chromium > exposes the exact earlier voice reply even when a later admission failed 336ms
+   ✓ ClaudeChat generated input lifecycle in real Chromium > rolls back a rejected async pin save and exposes a keyboard-retryable nonblocking error 700ms
+ ✓ |browser-fixtures| tests/claude-chat-session-events-browser.test.ts (17 tests) 6183ms
+   ✓ claude-chat canonical timeline in a real browser > preserves the stable outer Markdown node while a revision completes its fence 432ms
+   ✓ claude-chat canonical timeline in a real browser > uses a modal dialog, keeps keyboard focus inside, and restores the image opener 489ms
+   ✓ claude-chat canonical timeline in a real browser > reconnects a parked transcript when its queued producer starts without a live-prop change 1073ms
+   ✓ claude-chat canonical timeline in a real browser > answers permission prompts independently with 44px controls, safe errors, and retry 854ms
+ Test Files  13 passed (13)
+      Tests  258 passed (258)
+   Start at  19:34:06
+   Duration  21.11s (transform 7.28s, setup 1.01s, collect 16.59s, tests 16.35s, environment 4ms, prepare 5.09s)

@@ -50,7 +50,7 @@ beforeAll(async () => {
   await new Promise<void>((resolve) => gateway.listen(gwPort, "127.0.0.1", resolve));
 
   const { startServer } = await import(
-    pathToFileURL(path.join(ROOT, "fittings/seed/web-channel-default/scripts/server.mjs")).href
+    pathToFileURL(path.join(ROOT, "packages/talk/src/server.mjs")).href
   );
   const port = await freePort();
   webHandle = await startServer({

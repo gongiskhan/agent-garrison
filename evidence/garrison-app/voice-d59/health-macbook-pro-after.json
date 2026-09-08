@@ -1,0 +1,22 @@
+{
+  "voice": {
+    "stt": true,
+    "tts": true,
+    "ttsBackend": "deepgram",
+    "ttsFallback": {
+      "since": 1788509358349,
+      "until": 1788510258349,
+      "reason": "elevenlabs 401: {\"detail\":{\"type\":\"invalid_request\",\"code\":\"quota_exceeded\",\"message\":\"This request exceeds your quota of 30212. You have 0 credits remaining, while 2 credits are required for this req"
+    },
+    "restEnabled": true,
+    "maxTextChars": 600
+  },
+  "secrets": {
+    "deepgramApiKey": true,
+    "elevenLabsApiKey": true,
+    "captureToken": true,
+    "apnsTeamId": true,
+    "apnsKeyId": true,
+    "apnsP8": true
+  }
+}

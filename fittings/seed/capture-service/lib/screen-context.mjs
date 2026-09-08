@@ -66,4 +66,27 @@ export class ScreenContextIndex {
     this.counters?.observe?.("screen_context_age_ms", ageMs);
     return { stale: false, sessionId: best.sessionId, seq: best.frame.seq, file: best.frame.file, ageMs };
   }
+
+  // -> { stale, sessionId, frames: [{ seq, file, ageMs }] } | null
+  //
+  // The still the wearer was looking at plus the moments before it: a spoken
+  // command sent into a conversation carries these, newest first, so the
+  // operative sees the screen as a short sequence rather than one frame.
+  // Freshness is judged on the newest frame exactly as latest() does.
+  recent({ atMs = null, max = 3, spacingMs = 2000 } = {}) {
+    const newest = this.latest({ atMs });
+    if (!newest) return null;
+    const anchor = typeof atMs === "number" ? atMs : this.now();
+    let session = null;
+    for (const s of this.ingress?.sessions?.values?.() ?? []) {
+      if (s?.record?.id === newest.sessionId) session = s;
+    }
+    const frames = session?.media?.recentFrames?.({ beforeMs: anchor + spacingMs, max, spacingMs }) ?? [];
+    const list = frames.length > 0 ? frames : [{ seq: newest.seq, file: newest.file, atMs: anchor - newest.ageMs }];
+    return {
+      stale: newest.stale,
+      sessionId: newest.sessionId,
+      frames: list.map((f) => ({ seq: f.seq, file: f.file, ageMs: Math.max(0, anchor - f.atMs) }))
+    };
+  }
 }

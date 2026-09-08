@@ -12,7 +12,9 @@ import path from "node:path";
 
 export const FITTING_ID = "capture-service";
 export const CHANNEL_ID = "companion";
-export const DEFAULT_PORT = 7097; // base-family (dev); prod arrives shifted via GARRISON_CAPTURESERVICE_PORT
+// The committed 8xxx-family map (2026-08-24 mesh re-axis): node at offset 0
+// serves this port as-is; sandboxes arrive shifted via GARRISON_CAPTURESERVICE_PORT.
+export const DEFAULT_PORT = 8097;
 
 // Mirrors garrisonDir() in src/lib/claude-home.ts: GARRISON_HOME (when set) IS
 // the .garrison root, else ~/.garrison. Sandboxed tests set it so state and
@@ -45,11 +47,33 @@ function parseIntOr(raw, fallback) {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+// For knobs where 0 is a meaningful value ("off"), not a typo to paper over.
+function parseNonNegativeIntOr(raw, fallback) {
+  const n = Number.parseInt(String(raw ?? "").trim(), 10);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
 function parseCsv(raw) {
   return String(raw ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
+}
+
+// "CANONICAL:variant1|variant2,CANONICAL2:variant1" -> { CANONICAL: [...] }.
+// An unparseable or empty override falls back to fallback rather than to {},
+// since {} would silently turn the alias layer off.
+function parseAliasMap(raw, fallback) {
+  const s = String(raw ?? "").trim();
+  if (!s) return fallback;
+  const map = {};
+  for (const entry of s.split(",")) {
+    const [canonical, variantsRaw] = entry.split(":");
+    if (!canonical?.trim() || !variantsRaw) continue;
+    const variants = variantsRaw.split("|").map((v) => v.trim()).filter(Boolean);
+    if (variants.length > 0) map[canonical.trim()] = variants;
+  }
+  return Object.keys(map).length > 0 ? map : fallback;
 }
 
 // Same default set as omi-channel's config (the operative answers to Zeca);
@@ -61,6 +85,16 @@ function parseCsv(raw) {
 // wake word as German "Zecke" (2026-08-13). language=pt makes that unlikely
 // to recur, but the variant is cheap insurance against relapses.
 export const DEFAULT_WAKE_VARIANTS = ["zeca", "zeka", "zecca", "zéca", "ze ca", "zecke"];
+
+// Post-ASR pronunciation fixes (lib/pronunciation-aliases.mjs), applied AFTER
+// stt_keyterms bias rather than instead of it - keyterm prompting lifts the
+// odds Deepgram gets a word right, this catches the misheard renderings when
+// it still doesn't. "EKOA" is the operator's company name, spoken often
+// enough that a nova-3 pt-pinned stream (see sttLanguage below) mishears it as
+// a similar-sounding PT word; these are the phonetically nearest ones.
+export const DEFAULT_STT_ALIASES = {
+  EKOA: ["eco a", "eco-a", "ecoa", "e coa", "eqoa", "ecoá", "êcoa"]
+};
 
 // Gateway URL resolution — GARRISON_GATEWAY_URL, else HOST/PORT pair when the
 // port is explicitly numeric. NEVER a baked port literal. null = the
@@ -76,7 +110,22 @@ export function resolveGatewayUrl(env = process.env) {
   return null;
 }
 
+// The REST half of Deepgram (POST /v1/listen for a whole clip, POST /v1/speak
+// for Aura) lives on the same host as the live socket, so the ONE test hook
+// GARRISON_CAPTURESERVICE_DG_URL (a wss:// base) redirects both: the scheme
+// is flipped to http(s) and every other part of the URL is kept, letting a
+// sandboxed run point the live lane and the REST paths at a single mock.
+export const DEEPGRAM_REST_BASE = "https://api.deepgram.com";
+
+export function deepgramRestBase(dgBaseUrl) {
+  const raw = String(dgBaseUrl ?? "").trim().replace(/\/$/, "");
+  if (!raw) return DEEPGRAM_REST_BASE;
+  return raw.replace(/^wss:/i, "https:").replace(/^ws:/i, "http:");
+}
+
 export function loadConfig(env = process.env) {
+  const dgBaseUrl = (env.GARRISON_CAPTURESERVICE_DG_URL || "").trim() || null;
+  const sttLanguage = (env.GARRISON_CAPTURESERVICE_STT_LANGUAGE || "").trim() || "pt";
   return {
     port: parseIntOr(env.GARRISON_CAPTURESERVICE_PORT, DEFAULT_PORT),
     bindHost:
@@ -122,13 +171,28 @@ export function loadConfig(env = process.env) {
     // packets pinned to pt transcribe near-perfectly. English words inside a
     // PT-pinned stream still come out usable (helped by stt_keyterms).
     sttModel: (env.GARRISON_CAPTURESERVICE_STT_MODEL || "").trim() || "nova-3",
-    sttLanguage: (env.GARRISON_CAPTURESERVICE_STT_LANGUAGE || "").trim() || "pt",
+    sttLanguage,
+    // Language for the whole-clip REST lane (POST /stt: the browser's
+    // push-to-talk, the phone's clip fallback, automations). Empty = follow
+    // stt_language, so the one pin above covers both lanes unless a caller
+    // deliberately splits them.
+    sttRestLanguage: (env.GARRISON_CAPTURESERVICE_STT_REST_LANGUAGE || "").trim() || sttLanguage,
+    // Language for the screen broadcast's live stream (the app's Record
+    // button). The pin above is the household's; the broadcast is the phone
+    // held up to a coding session, which the user runs in English, and an
+    // English request after "Zeca" through a pt-pinned stream came out as
+    // Portuguese nonsense (2026-09-03). The wake word survives the switch
+    // through stt_keyterms. Empty = follow stt_language.
+    screenSttLanguage: (env.GARRISON_CAPTURESERVICE_SCREEN_STT_LANGUAGE || "").trim() || "en",
     // Keyterm prompting (nova-3): lifts the wake word from conf ~0.74 to
     // 0.99-1.0 on real captures and rescues embedded English product words.
     sttKeyterms: (() => {
       const v = parseCsv(env.GARRISON_CAPTURESERVICE_STT_KEYTERMS);
-      return v.length > 0 ? v : ["Zeca", "companion"];
+      return v.length > 0 ? v : ["Zeca", "companion", "EKOA"];
     })(),
+    // Post-ASR corrections for renderings the keyterm bias above still misses
+    // (lib/pronunciation-aliases.mjs). Applied on both the live and REST lanes.
+    sttAliases: parseAliasMap(env.GARRISON_CAPTURESERVICE_STT_ALIASES, DEFAULT_STT_ALIASES),
     // Zeca's voice (ADR: ElevenLabs over iOS AVSpeechSynthesizer). OFF by
     // default like every other pipe (I9); with it off, or with no key, the
     // phone keeps speaking in its own synthesizer and nothing else changes.
@@ -142,6 +206,18 @@ export function loadConfig(env = process.env) {
     // unspoken pt-PT anchors are the accent fix.
     ttsModel: (env.GARRISON_CAPTURESERVICE_TTS_MODEL || "").trim() || "eleven_multilingual_v2",
     ttsCacheMaxClips: parseIntOr(env.GARRISON_CAPTURESERVICE_TTS_CACHE_MAX_CLIPS, 500),
+    // Which engine renders the clip. "auto" prefers ElevenLabs (the accent
+    // work above) when its key is sealed, else Deepgram Aura when
+    // DEEPGRAM_API_KEY is, else no TTS at all - the phone keeps its own voice
+    // and the browser hides the speaker. Resolution lives in tts.mjs.
+    ttsBackend: (() => {
+      const v = (env.GARRISON_CAPTURESERVICE_TTS_BACKEND || "").trim().toLowerCase();
+      return v === "elevenlabs" || v === "deepgram" ? v : "auto";
+    })(),
+    // Aura voice for the Deepgram backend. The model IS the voice there; Aura's
+    // Portuguese coverage is Deepgram's, not ours (ELEVENLABS_API_KEY is the
+    // credential that buys pt-PT read-aloud).
+    ttsDeepgramModel: (env.GARRISON_CAPTURESERVICE_TTS_DEEPGRAM_MODEL || "").trim() || "aura-asteria-en",
     // The two spoken cues ("Sim?" at the wake word, "Ok." when the window
     // closes). OFF by default like every other pipe (I9); the composition turns
     // it on. With it off the wearer gets exactly today's haptics and silence.
@@ -196,22 +272,23 @@ export function loadConfig(env = process.env) {
     // exactly as before.
     screenContextEnabled: parseBool(env.GARRISON_CAPTURESERVICE_SCREEN_CONTEXT_ENABLED, false),
     screenContextMaxAgeMs: parseIntOr(env.GARRISON_CAPTURESERVICE_SCREEN_CONTEXT_MAX_AGE_MS, 30000),
-    // Whether a screen_audio session ALSO transcribes. Defaults true to
-    // preserve the documented behaviour; the composition sets it false, because
-    // with a pendant on, one sentence otherwise reaches two microphones and
-    // dispatches twice.
-    screenAudioTranscribe: parseBool(env.GARRISON_CAPTURESERVICE_SCREEN_AUDIO_TRANSCRIBE, true),
+    // Whether an explicitly started screen_audio recording also supplies mic
+    // audio. Off for an unconfigured installation; the default composition
+    // enables phone fallback. Fresh pendant audio takes priority, then Listen,
+    // then Record, and the selection follows disconnects during a recording.
+    screenAudioTranscribe: parseBool(env.GARRISON_CAPTURESERVICE_SCREEN_AUDIO_TRANSCRIBE, false),
     // Zombie-socket watchdog: reconnect the STT socket when we have been
     // feeding it audio this recently and NOTHING has come back for this long.
     // Generous on purpose - Deepgram is legitimately silent through a quiet
     // room, and the KeepAlive we send when audio goes quiet means a healthy far
     // end is never mute for minutes. 0 disables.
-    transcribeMuteTimeoutMs: parseIntOr(env.GARRISON_CAPTURESERVICE_TRANSCRIBE_MUTE_TIMEOUT_MS, 120000),
+    transcribeMuteTimeoutMs: parseNonNegativeIntOr(env.GARRISON_CAPTURESERVICE_TRANSCRIBE_MUTE_TIMEOUT_MS, 120000),
     // Test hooks (omi's OMI_API_BASE_URL precedent): redirect the live STT
-    // socket / the APNs gateway to local mocks so sandboxed E2E runs never
-    // need real keys. Env-only, never in config_schema — production always
-    // talks to the real endpoints.
-    dgBaseUrl: (env.GARRISON_CAPTURESERVICE_DG_URL || "").trim() || null,
+    // socket (and, scheme-flipped, the REST clip lane) / the APNs gateway to
+    // local mocks so sandboxed E2E runs never need real keys. Env-only, never
+    // in config_schema - production always talks to the real endpoints.
+    dgBaseUrl,
+    dgRestBaseUrl: deepgramRestBase(dgBaseUrl),
     apnsBaseUrl: (env.GARRISON_CAPTURESERVICE_APNS_URL || "").trim() || null,
 
     // Classification pin (the 82-second lesson) and delegation budget — same
@@ -248,13 +325,21 @@ export function loadConfig(env = process.env) {
     // always-on mic must not stay promiscuous), and rounds are capped so a
     // model that keeps asking stops being answered.
     wakeFollowupWindowMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_FOLLOWUP_WINDOW_MS, 12000),
+    wakeRepromptWindowMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_REPROMPT_WINDOW_MS, 20000),
     wakeFollowupMaxRounds: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_FOLLOWUP_MAX_ROUNDS, 3),
     // "Ainda estou a tratar disso." while a delegated turn runs - spoken only,
     // never pushed. 0 disables.
-    wakeProgressIntervalMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_PROGRESS_INTERVAL_MS, 60000),
+    wakeProgressIntervalMs: parseNonNegativeIntOr(env.GARRISON_CAPTURESERVICE_WAKE_PROGRESS_INTERVAL_MS, 60000),
     // Say "Não percebi - repete?" when a wake window closes with nothing
     // usable, rather than leaving the wearer in silence after two cues.
     wakeUnheardEnabled: parseBool(env.GARRISON_CAPTURESERVICE_WAKE_UNHEARD_ENABLED, true),
+    // The answer to a spoken conversation turn (D56) is the last text of the
+    // first stretch that ends with one of these duties; it is pushed to the
+    // phone and spoken in the app. The loop's triage/test stretches talk to the
+    // loop, not to the person. The watch gives up after the timeout.
+    wakeReplyDuties: parseCsv(env.GARRISON_CAPTURESERVICE_WAKE_REPLY_DUTIES ?? "dialogue,discuss,responder"),
+    wakeReplyTimeoutMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_REPLY_TIMEOUT_MS, 300000),
+    wakeReplyPollMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_REPLY_POLL_MS, 3000),
     // Which language the wake path confirms in. "auto" (the default) reads it
     // off what the user actually said; an explicit pt/en pins it.
     wakeLanguage: (() => {
@@ -264,7 +349,7 @@ export function loadConfig(env = process.env) {
     // The revision pass (byte-identical wake module): keep listening after a
     // card is created for a spoken correction; one model call, once, at the
     // end. 0 disables.
-    wakeReviseAfterMs: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_REVISE_AFTER_MS, 600000),
+    wakeReviseAfterMs: parseNonNegativeIntOr(env.GARRISON_CAPTURESERVICE_WAKE_REVISE_AFTER_MS, 600000),
     wakeReviseMaxSegments: parseIntOr(env.GARRISON_CAPTURESERVICE_WAKE_REVISE_MAX_SEGMENTS, 50),
 
     // Outbound push (M5)
@@ -280,6 +365,14 @@ export function loadConfig(env = process.env) {
 
     // Session lifecycle (M1)
     sessionIdleTimeoutMs: parseIntOr(env.GARRISON_CAPTURESERVICE_SESSION_IDLE_TIMEOUT_MS, 300000),
+    // Text sessions (D24): a forwarded segment stream (omi) with no new
+    // segments for this long is closed. Shorter than the media idle timeout on
+    // purpose - there is no socket to keep warm and nothing to resume.
+    textSessionIdleMs: parseIntOr(env.GARRISON_CAPTURESERVICE_TEXT_SESSION_IDLE_MS, 120000),
+    // The active-conversation window (D25): how long after a delegate reply
+    // the next spoken request resumes that gateway session, and how long an
+    // explicit pin through /capture/conversation/active lasts.
+    activeConversationWindowMs: parseNonNegativeIntOr(env.GARRISON_CAPTURESERVICE_ACTIVE_CONVERSATION_WINDOW_MS, 300000),
 
     // Triage wait-for-context floor (M4): a session ending under this many
     // transcript words is held as a thin fragment, not carded alone.

@@ -1,0 +1,34 @@
+# G2 live voice lane on https://goncalos-macbook-pro.tail31efa.ts.net, 2026-09-02T09:47:07Z, 28a78222 + working tree
+# Every request leaves a non-localhost origin (the tailnet HTTPS address); the shell proxies to capture-service on the box.
+
+## GET /api/voice/health (shell -> talk router -> capture-service /health)
+{"available":true,"keyConfigured":true,"tts":true,"backend":"deepgram","maxTextChars":600,"fitting":"capture-service"}
+HTTP 200  content-type=application/json
+
+## POST /api/voice/stt  (16 kHz mono WAV, 34260 bytes, spoken: "one voice layer")
+{"transcript":"One Voice Layer","confidence":0.88500977,"language":"pt","model":"nova-3"}
+HTTP 200  content-type=application/json  time=2.566402s
+
+## POST /api/voice/tts  {text:"One voice layer.", format:"mp3"}  (audio bytes not kept)
+HTTP 200  content-type=audio/mpeg  bytes=5956  time=0.243984s
+content-type: audio/mpeg
+MPEG ADTS, layer III, v2,  48 kbps, 22.05 kHz, Monaural
+
+## capture-service own-port view over the tailnet: GET :8497/health .voice
+{"ok": true, "port": 8097, "voice": {"stt": true, "tts": true, "ttsBackend": "deepgram", "restEnabled": true, "maxTextChars": 600}}
+
+## omi-channel over the tailnet: GET :8494/health (forwarding to the one voice layer)
+{"ok": true, "forward": {"ok": true, "reason": "forwarding to capture-service"}}
+
+## deepgram-voice: no status file, no listener
+~/.garrison/ui-fittings/deepgram-voice.json: absent (retired; not stationed, nothing spawned it)
+
+## spawn records for the voice consumers (secretsDelivered per D31)
+capture-service  secretsDelivered=True startedAt=2026-09-02T09:45:29.690Z
+omi-channel      secretsDelivered=True startedAt=2026-09-02T09:45:29.808Z
+dev-env          secretsDelivered=True startedAt=2026-09-02T09:45:29.727Z
+
+## vault audit, the deliveries behind those spawns (key NAMES only, values never logged)
+2026-09-02T09:45:29.689Z capture-service  deliver  ok     ['DEEPGRAM_API_KEY', 'CAPTURE_TOKEN', 'APNS_TEAM_ID', 'APNS_KEY_ID', 'APNS_P8'] authority; missing: ELEVENLABS_API_KEY
+2026-09-02T09:45:29.726Z dev-env          deliver  ok     ['CAPTURE_TOKEN'] authority
+2026-09-02T09:45:29.799Z omi-channel      deliver  ok     ['OMI_APP_ID', 'OMI_APP_SECRET', 'OMI_IMPORT_API_KEY', 'OMI_WEBHOOK_SECRET', 'CAPTURE_TOKEN'] authority

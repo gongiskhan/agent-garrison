@@ -39,7 +39,7 @@ import {
   type StateColors,
   type ThemeKey,
 } from "./core-colors";
-import { DEFAULT_ORB_CORNER, DEFAULT_ORB_MODE, isValidOrbCorner, type OrbCorner } from "./orb-settings";
+import { normalizeVoiceInfo, splitSpeechText, type VoiceInfo } from "./voice-provider";
 import { parseKanbanIntent, type KanbanIntent } from "./kanban-intent";
 import { parseSessionIntent, type SessionIntent } from "./session-intent";
 import { resolveKanbanCardUrl } from "./deep-link";
@@ -49,7 +49,7 @@ import { EP_DEFAULTS, graceWindowMs, coerceEpCfg, type EpCfg } from "./endpointi
 
 marked.setOptions({ gfm: true, breaks: true });
 // Render an assistant reply's markdown to HTML for the transcript. Content is the
-// local operative's own output (single-user, localhost), so we render directly.
+// local runtime's own output (single-user, localhost), so we render directly.
 function renderMarkdown(s: string): string {
   // Assistant replies can relay untrusted external content (fetched pages, email
   // via connectors); marked v14 doesn't sanitize, so DOMPurify the HTML before it
@@ -226,10 +226,7 @@ function stripMarkers(s: string): string {
 // Speakable form: strip everything that reads terribly aloud — markdown
 // formatting, fenced code / file-trees, emojis, citation lists, URLs — leaving
 // just the prose. The on-screen text (stripMarkers) keeps the full markdown.
-// Long answers are capped to a sentence boundary with a spoken pointer to the
-// screen, so structured replies (a file tree, a code dump) become a short spoken
-// summary instead of Jarvis reading every "#", "/" and "*".
-const SPEAK_CAP = 700;
+// Provider-sized chunks preserve all remaining prose after formatting is removed.
 function toSpeakable(s: string): string {
   let t = stripMarkers(s)
     .replace(/```[\s\S]*?```/g, " ")                      // fenced code / file trees → drop
@@ -254,11 +251,6 @@ function toSpeakable(s: string): string {
   // Amounts and separator-grouped numbers → PT words ("€100.000" would be read
   // "cem, zero, zero, zero" by the local TTS; it becomes "cem mil euros").
   t = normalizeNumbersPt(t);
-  if (t.length > SPEAK_CAP) {
-    const cut = t.slice(0, SPEAK_CAP);
-    const stop = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "), cut.lastIndexOf("\n"));
-    t = (stop > 200 ? cut.slice(0, stop + 1) : cut).trim() + " … o resto está no ecrã.";
-  }
   return t;
 }
 
@@ -382,7 +374,7 @@ type ProjectState = {
   ahead?: number | null; behind?: number | null; remoteUrl?: string | null;
   commits?: Commit[]; prs?: Pr[]; branches?: string[]; changed?: number;
 };
-type SessionRow = { session_id: string; soul: string; status: string; mode?: string };
+type SessionRow = { id: string; node: string; title?: string; runtime?: string; status: "working" | "idle" | "ended" | "unknown" };
 type WorktreeRow = { id?: string; branch?: string; title?: string; path?: string };
 // The dev-env Fitting's real, independently-running Claude Code sessions — the
 // ones the switcher lists, creates, and commands by id (see /api/dev-sessions).
@@ -404,10 +396,10 @@ type DevSession = {
   openedInDevEnv?: boolean;
   source?: string;
 };
-type OperativeState = {
+type RuntimeState = {
   gateway: { ok: boolean; mode?: string | null; uptimeMs?: number | null; sessions?: number | null; channels?: number | null };
-  voice: { ok: boolean; ready?: boolean };
-  souls: string[]; skills: string[]; commands: string[];
+  voice: VoiceInfo;
+  skills: string[]; commands: string[];
 };
 const WORKSPACE_POLL_MS = 25_000;
 
@@ -432,7 +424,7 @@ const KANBAN_POLL_MS = 10_000;
 const cardHref = (k: KanbanState | null, cardId: string) =>
   resolveKanbanCardUrl(k, cardId, typeof window !== "undefined" ? window.location.hostname : "");
 
-// Dev action dock — canned prompts fired at the Operative through the normal
+// Dev action dock — canned prompts fired at the Runtime through the normal
 // /api/chat path (spoken + written like any turn). The label is what shows in
 // the transcript; the prompt is what the orchestrator actually receives.
 const DOCK_ACTIONS: { label: string; prompt: string }[] = [
@@ -452,12 +444,6 @@ function fmtUptime(ms: number | null | undefined): string {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ${m % 60}m`;
   return `${Math.floor(h / 24)}d ${h % 24}h`;
-}
-
-// A soul with a running gateway session is live (sessions register as
-// "engineer" or "soul-engineer" depending on the spawn path).
-function soulIsLive(name: string, sessions: SessionRow[]): boolean {
-  return sessions.some((s) => s.soul === name || s.soul === `soul-${name}`);
 }
 
 // The dev-session switcher polls faster than the workspace panel: the whole
@@ -583,20 +569,12 @@ function hostOf(urlish: string): string {
 
 // ── component ────────────────────────────────────────────────────────────────
 
-// DEV vs NODE at a glance. The HUD binds the offset-shifted fitting port
-// (node 8082 / dev 18082 / codex 28082), so the port the page was LOADED from
-// already carries the instance - no server round-trip needed. Only the dev
-// sandbox is badged: the node is the always-on wall surface and stays clean.
-// The offset is the ten-thousands digit: a node sits at offset 0, so any port
-// below 10000 is the node itself.
-const IS_DEV_INSTANCE = (() => {
-  const port = Number(window.location.port);
-  return Number.isInteger(port) && Math.floor(port / 10000) === 1;
-})();
-
 function App() {
   const [mode, setModeRaw] = useState<CoreMode>("idle");
-  const [voiceAvailable, setVoiceAvailable] = useState(false);
+  const [voiceInfo, setVoiceInfo] = useState<VoiceInfo>(() => normalizeVoiceInfo(null));
+  const voiceInfoRef = useRef(voiceInfo);
+  const voiceAvailable = voiceInfo.available && voiceInfo.stt;
+  const [instanceProfile, setInstanceProfile] = useState("node");
   // Wake word armed server-side (from the /api/voice/events hello) — extra
   // signal only; the browser-side standby wake (WAKE_RE) works regardless.
   const [wakeArmed, setWakeArmed] = useState(false);
@@ -640,6 +618,7 @@ function App() {
   const ambientAfterMsRef = useRef(3 * 60_000);
   useEffect(() => {
     fetch("/api/ui-config").then((r) => (r.ok ? r.json() : null)).then((c) => {
+      if (["node", "prod", "dev", "codex"].includes(c?.instanceProfile)) setInstanceProfile(c.instanceProfile);
       if (c && typeof c.ambient_after_s === "number") {
         ambientAfterMsRef.current = c.ambient_after_s * 1000;
       }
@@ -658,25 +637,12 @@ function App() {
   // path as hudColor — it is one more key in the same view-state document, and
   // it starts at the shipped defaults for the same no-flash reason.
   const [stateColors, setStateColorsRaw] = useState<StateColors>(DEFAULT_STATE_COLORS);
-  // Orb mode (Phase 3): the "shrink into a corner over the rest of Garrison"
-  // preference + the corner it's last docked to. `?mode=orb` is the deep-link
-  // override called for in the brief (e.g. opening jarvis-os standalone
-  // straight into orb framing) — read once at mount, wins over the persisted
-  // default until the fetch below lands, and is then merged the same way a
-  // live settings-panel change would be.
-  const orbQueryOverride = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mode") === "orb";
-  const [orbMode, setOrbModeRaw] = useState(orbQueryOverride || DEFAULT_ORB_MODE);
-  const [orbCorner, setOrbCornerRaw] = useState<OrbCorner>(DEFAULT_ORB_CORNER);
   useEffect(() => {
     fetch("/api/hud-settings").then((r) => (r.ok ? r.json() : null)).then((s) => {
       if (!s) return;
       if (isValidHudColor(s.color)) setHudColorRaw(s.color);
       if (s.stateColors) setStateColorsRaw(normalizeStateColors(s.stateColors));
-      if (!orbQueryOverride && typeof s.orbMode === "boolean") setOrbModeRaw(s.orbMode);
-      if (isValidOrbCorner(s.orbCorner)) setOrbCornerRaw(s.orbCorner);
     }).catch(() => {});
-    // orbQueryOverride is derived from location.search at first render and
-    // deliberately not re-read — a mount-only effect, same as the fetch itself.
   }, []);
   // Re-derive the CSS custom properties every time the color changes (mount
   // fetch above, or a live edit from the settings panel below).
@@ -741,27 +707,6 @@ function App() {
   // Derive the six-mode palette set once per pick, not once per frame — the
   // core holds it in a ref and its tick eases the live uniforms toward it.
   const orbPalette = useMemo(() => orbPalettes(stateColors), [stateColors]);
-  // Orb mode / corner: no drag-frame debounce needed (these are discrete
-  // toggle/pick actions, not a continuously-dragged input like the color
-  // swatch), so persist immediately. Both also broadcast to the parent shell
-  // — see the postMessage effect below — since the shell (not this document)
-  // owns the actual iframe framing.
-  const setOrbMode = useCallback((next: boolean) => {
-    setOrbModeRaw(next);
-    fetch("/api/hud-settings", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ orbMode: next }),
-    }).catch(() => {});
-  }, []);
-  const setOrbCorner = useCallback((next: OrbCorner) => {
-    setOrbCornerRaw(next);
-    fetch("/api/hud-settings", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ orbCorner: next }),
-    }).catch(() => {});
-  }, []);
   useEffect(() => {
     const bump = () => {
       lastActivityRef.current = Date.now();
@@ -910,15 +855,15 @@ function App() {
   const sessionReplyTextRef = useRef<string>("");
   const awaitingSessionReplyRef = useRef<boolean>(false);
   const [wsOpen, setWsOpen] = useState(true);
-  // Operative panel (left flank): runtime health + agents/skills surface.
-  const [operative, setOperative] = useState<OperativeState | null>(null);
+  // Runtime panel (left flank): runtime health + agents/skills surface.
+  const [runtime, setRuntime] = useState<RuntimeState | null>(null);
   const [opOpen, setOpOpen] = useState(true);
   // Tasks panel (right flank): the kanban board, mirrored via /api/kanban. A ref
   // shadows it so the voice handler can read the latest board without being
   // re-created (and re-wiring finalizeTurn) on every poll.
   const [kanban, setKanban] = useState<KanbanState | null>(null);
   const [tasksOpen, setTasksOpen] = useState(true);
-  // On a phone the flank rails cover the orb, so the sessions/actions/operative/
+  // On a phone the flank rails cover the orb, so the sessions/actions/runtime/
   // reports all live behind the ☰ toggle in a left-sliding drawer (the
   // .jarvis-drawer, mobile-only via CSS). Desktop ignores this — the rails there
   // are always shown by the media query. `closeDrawer` snaps it shut after any
@@ -938,11 +883,20 @@ function App() {
   useEffect(() => {
     const el = transcriptRef.current;
     if (!el) return;
+    let userScrollingUntil = 0;
+    const onGesture = () => { userScrollingUntil = performance.now() + 1000; };
     const onScroll = () => {
-      stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      if (nearBottom || performance.now() < userScrollingUntil) stickToBottomRef.current = nearBottom;
     };
+    for (const event of ["wheel", "touchmove", "pointerdown", "keydown"]) el.addEventListener(event, onGesture, { passive: true });
     el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
+    const resize = new ResizeObserver(() => { if (stickToBottomRef.current) el.scrollTop = el.scrollHeight; });
+    resize.observe(el);
+    return () => {
+      resize.disconnect(); el.removeEventListener("scroll", onScroll);
+      for (const event of ["wheel", "touchmove", "pointerdown", "keydown"]) el.removeEventListener(event, onGesture);
+    };
   }, []);
   useEffect(() => {
     const el = transcriptRef.current;
@@ -951,21 +905,9 @@ function App() {
   }, [turns]);
 
   const modeRef = useRef<CoreMode>("idle");
-  // Garrison shell persistent-HUD activity signal (Phase 1): the shell keeps
-  // this HUD in one never-unmounted iframe and lights up its sidebar entry
-  // while the user is elsewhere - see src/components/chrome/
-  // JarvisPersistentFrame.tsx, which listens for this message. "*" because
-  // the parent's origin varies (loopback vs tailnet); harmless to broadcast -
-  // the payload carries no secret, just a boolean mode transition.
   const setMode = useCallback((m: CoreMode) => {
     modeRef.current = m;
     setModeRaw(m);
-    try {
-      window.parent.postMessage(
-        { type: "garrison:jarvis-activity", active: m !== "idle" && m !== "muted" },
-        "*"
-      );
-    } catch {}
   }, []);
   // Whether the hands-free voice session is armed (mirrored to a ref so the
   // VAD callbacks and key handlers read the live value without stale closures).
@@ -974,78 +916,6 @@ function App() {
   const micMutedRef = useRef(false);
   const setMicMuted = useCallback((v: boolean) => { micMutedRef.current = v; setMicMutedRaw(v); }, []);
 
-  // ── Orb mode (Phase 3): shell <-> HUD postMessage contract ────────────────
-  // The shell (JarvisPersistentFrame.tsx) is the ONLY thing that knows this
-  // HUD's on-screen framing (full-size on /embed/jarvis-os, parked off-screen
-  // elsewhere, or shrunk to the orb elsewhere-with-orb-mode-on) — this
-  // document has no visibility into the parent's route. So framing is a
-  // handshake: this HUD tells the shell its orb PREFERENCE
-  // (garrison:jarvis-orb-pref) and the shell tells it back which framing
-  // actually applied (garrison:jarvis-display-mode) — only THAT drives the
-  // transparent-background / hide-chrome CSS below, not the raw preference
-  // (which stays "on" even while this same tab is showing full-size on its
-  // own route). Mute + expand-to-full controls live shell-side, not here —
-  // see JarvisPersistentFrame.tsx for why keeping them outside the iframe's
-  // rectangle sidesteps the clip-path union problem entirely; this document
-  // only needs to REACT to a mute command posted in from that shell-side
-  // button, via toggleMuteRef (toggleMute itself isn't defined until further
-  // down, past every VAD/session helper it depends on).
-  const [isOrbDisplay, setIsOrbDisplay] = useState(false);
-  const toggleMuteRef = useRef<() => void>(() => {});
-
-  useEffect(() => {
-    try {
-      window.parent.postMessage(
-        { type: "garrison:jarvis-orb-pref", active: orbMode, corner: orbCorner },
-        "*"
-      );
-    } catch {}
-  }, [orbMode, orbCorner]);
-
-  // Announce this document is mounted and the message listener (below) is live.
-  // The shell responds immediately with the current display-mode so we never
-  // stay stuck at isOrbDisplay=false when the shell already had orbActive=true
-  // but the previous garrison:jarvis-display-mode message arrived before this
-  // listener was attached.
-  useEffect(() => {
-    try {
-      window.parent.postMessage({ type: "garrison:jarvis-ready" }, "*");
-    } catch {}
-  }, []);
-
-  // Shell-side mute button (rendered next to the orb, not inside this
-  // document) needs to know whether to show muted/unmuted and whether a
-  // session even exists to mute — mirrors the jarvis-mute button's own
-  // {sessionOn && …} guard below.
-  useEffect(() => {
-    try {
-      window.parent.postMessage({ type: "garrison:jarvis-mic-state", micMuted, sessionOn }, "*");
-    } catch {}
-  }, [micMuted, sessionOn]);
-
-  useEffect(() => {
-    function onMessage(event: MessageEvent) {
-      const data = event.data;
-      if (!data || typeof data !== "object") return;
-      if (data.type === "garrison:jarvis-display-mode") {
-        setIsOrbDisplay(data.mode === "orb");
-      } else if (data.type === "garrison:jarvis-mute-toggle") {
-        toggleMuteRef.current();
-      } else if (data.type === "garrison:jarvis-set-orb-corner" && isValidOrbCorner(data.corner)) {
-        setOrbCorner(data.corner);
-      }
-    }
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [setOrbCorner]);
-
-  // html/body/#root (styles.css) go transparent only while the shell is
-  // actually showing this HUD AS the orb — an iframe whose document paints no
-  // background is what lets "just the orb, floating over Garrison" work once
-  // the shell clips the iframe box to a circle.
-  useEffect(() => {
-    document.documentElement.classList.toggle("jarvis-orb-active", isOrbDisplay);
-  }, [isOrbDisplay]);
   // True only inside a push-to-talk window: muted, but the user deliberately
   // opened the mic for ONE utterance (Space/tap while muted). It's the ONLY
   // thing that distinguishes a wanted capture from the room being overheard, so
@@ -1086,12 +956,15 @@ function App() {
   // ttsWiredRef guards the one-time analyser→destination connection.
   const ttsBufSrcRef = useRef<AudioBufferSourceNode | null>(null);
   const ttsGenRef = useRef(0);
+  const ttsAbortRef = useRef<AbortController | null>(null);
   const ttsWiredRef = useRef(false);
   // (audioUrlRef removed — TTS plays via /api/voice/tts URLs, never an object URL.)
   // Silero VAD instance + whether it is currently feeding frames to the model.
   // We pause it during a turn (think + speak) so it never captures Jarvis's own
   // TTS, and resume it when we return to idle.
   const vadRef = useRef<MicVAD | null>(null);
+  const sessionGenerationRef = useRef(0);
+  const sttAbortRefs = useRef(new Set<AbortController>());
   const vadRunningRef = useRef(false);
   const micStreamRef = useRef<MediaStream | null>(null);
   const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
@@ -1136,7 +1009,7 @@ function App() {
   // sentence, so a multi-part answer doesn't run together.
   const speakQueueRef = useRef<{ text: string; gapMs: number }[]>([]);
   const speakingRef = useRef(false);
-  // Delegated Soul replies arrive asynchronously on the channel stream. The
+  // Asynchronous replies arrive asynchronously on the channel stream. The
   // stream is subscribed live (?live=1, no ring replay), so the only guard needed
   // is to not speak anything before the user has actually engaged.
   const hasInteractedRef = useRef(false);
@@ -1173,12 +1046,26 @@ function App() {
     return Math.min(1, Math.sqrt(sum / data.length) * 1.8);
   }, []);
 
-  // discover the voice Fitting (local-voice / deepgram-voice) via the proxy
+  // Rediscover the selected provider after restarts or readiness changes.
   useEffect(() => {
-    fetch("/api/voice")
-      .then((r) => r.json())
-      .then((info) => setVoiceAvailable(Boolean(info?.available)))
-      .catch(() => setVoiceAvailable(false));
+    let alive = true;
+    let pending: AbortController | null = null;
+    const refresh = async () => {
+      if (pending) return;
+      const ctrl = new AbortController();
+      pending = ctrl;
+      const timeout = window.setTimeout(() => ctrl.abort(), 5000);
+      try {
+        const response = await fetch("/api/voice", { signal: ctrl.signal });
+        const info = normalizeVoiceInfo(response.ok ? await response.json() : null);
+        if (alive) { voiceInfoRef.current = info; setVoiceInfo(info); }
+      } catch {
+        if (alive) { const info = normalizeVoiceInfo(null); voiceInfoRef.current = info; setVoiceInfo(info); }
+      } finally { window.clearTimeout(timeout); pending = null; }
+    };
+    void refresh();
+    const timer = window.setInterval(refresh, 5000);
+    return () => { alive = false; window.clearInterval(timer); pending?.abort(); };
   }, []);
 
   // Workspace panel poll: repo state + gateway lists, on mount then every
@@ -1190,22 +1077,40 @@ function App() {
         .then((r) => r.json())
         .then((d) => { if (alive && d && typeof d.available === "boolean") setProject(d); })
         .catch(() => {});
-      fetch("/api/sessions")
-        .then((r) => r.json())
-        .then((d) => { if (alive && Array.isArray(d?.sessions)) setSessions(d.sessions); })
-        .catch(() => {});
       fetch("/api/worktrees")
         .then((r) => r.json())
         .then((d) => { if (alive) setWorktrees(normalizeWorktrees(d)); })
         .catch(() => {});
-      fetch("/api/session")
+      fetch("/api/runtime")
         .then((r) => r.json())
-        .then((d) => { if (alive && d && typeof d === "object" && d.gateway) setOperative(d); })
+        .then((d) => { if (alive && d && typeof d === "object" && d.gateway) setRuntime(d); })
         .catch(() => {});
     };
     tick();
     const timer = window.setInterval(tick, WORKSPACE_POLL_MS);
     return () => { alive = false; window.clearInterval(timer); };
+  }, []);
+
+  // Use the same mesh inventory and working status as Conversations.
+  useEffect(() => {
+    let alive = true;
+    let pending: AbortController | null = null;
+    const refresh = async () => {
+      if (pending) return;
+      const controller = new AbortController();
+      pending = controller;
+      const timeout = window.setTimeout(() => controller.abort(), 10_000);
+      try {
+        const response = await fetch("/api/sessions", { signal: controller.signal });
+        if (!response.ok) throw new Error("Session inventory unavailable");
+        const data = await response.json();
+        if (alive && Array.isArray(data?.rows)) setSessions(data.rows);
+      } catch { if (alive) setSessions([]); }
+      finally { window.clearTimeout(timeout); pending = null; }
+    };
+    void refresh();
+    const timer = window.setInterval(refresh, 4000);
+    return () => { alive = false; window.clearInterval(timer); pending?.abort(); };
   }, []);
 
   // One-shot dev-session refresh — shared by the fast poll and the create/switch
@@ -1299,10 +1204,11 @@ function App() {
 
   // TTS: ask the voice Fitting (same-origin proxy) to speak, route it through
   // the analyser so the core pulses, and return to idle when playback ends.
-  // Play the next queued sentence. Each sentence streams progressively from the
-  // GET TTS endpoint (one growing WAV → browser starts after the first audio
-  // bytes). When the queue drains, return to idle.
+  // Fetch and decode each provider-sized MP3 or WAV chunk. When the queue
+  // drains, return to the session's current listening or idle state.
   const playNextInQueue = useCallback(() => {
+    const provider = voiceInfoRef.current;
+    if (!provider.available || !provider.tts) speakQueueRef.current = [];
     const next = speakQueueRef.current.shift();
     if (next === undefined) {
       speakingRef.current = false;
@@ -1310,6 +1216,14 @@ function App() {
       endTurnIfDone(); // re-arm only if the whole turn is done (not between sentences)
       return;
     }
+    // A provider may have changed while this reply was queued.
+    const parts = splitSpeechText(next.text, provider.maxTextChars);
+    if (parts.length > 1) {
+      speakQueueRef.current.unshift(...parts.slice(1).map((text, i) => ({ text, gapMs: i === parts.length - 2 ? next.gapMs : 0 })));
+      next.text = parts[0];
+      next.gapMs = 0;
+    }
+    const myGen = ++ttsGenRef.current;
     speakingRef.current = true;
     speakingNowRef.current = next.text; // for the [interrupted] note on barge-in
     setMode("speaking");
@@ -1318,28 +1232,34 @@ function App() {
     // gap) from a failure.
     let advanced = false;
     const proceed = (heard: boolean) => {
-      if (advanced) return;
+      if (advanced || myGen !== ttsGenRef.current) return;
       advanced = true;
       speakingNowRef.current = "";
       if (heard) {
         spokenTextRef.current += (spokenTextRef.current ? " " : "") + next.text;
-        if (next.gapMs > 0) { window.setTimeout(playNextInQueue, next.gapMs); return; }
+        if (next.gapMs > 0) { window.setTimeout(() => { if (myGen === ttsGenRef.current) playNextInQueue(); }, next.gapMs); return; }
       }
       playNextInQueue();
     };
-    // Decode the whole sentence WAV and play it through an AudioBufferSourceNode.
+    // Decode the whole audio chunk and play it through an AudioBufferSourceNode.
     // This is the iOS-reliable path: on mobile Safari an <audio> routed through
     // createMediaElementSource plays SILENT and the context re-suspends; a
     // decoded BufferSource on a gesture-resumed context actually reaches the
     // speaker. Sentences are short, so buffering the whole clip is fine. A
     // generation counter (bumped by stopSpeech) drops a fetch/decode that a
     // barge-in cancelled mid-flight.
-    const myGen = ++ttsGenRef.current;
+    const ctrl = new AbortController();
+    ttsAbortRef.current = ctrl;
+    const timeout = window.setTimeout(() => ctrl.abort(), 120_000);
     (async () => {
       try {
         const ctx = getCtx();
         await ctx.resume(); // iOS re-suspends aggressively — ensure running each time
-        const resp = await fetch("/api/voice/tts?text=" + encodeURIComponent(next.text));
+        if (myGen !== ttsGenRef.current) return;
+        const resp = await fetch("/api/voice/tts", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text: next.text, format: provider.ttsFormat }), signal: ctrl.signal
+        });
         if (!resp.ok) throw new Error("tts http " + resp.status);
         const bytes = await resp.arrayBuffer();
         if (myGen !== ttsGenRef.current) return; // stopped/barged while fetching
@@ -1355,9 +1275,13 @@ function App() {
         src.onended = () => { if (ttsBufSrcRef.current === src) ttsBufSrcRef.current = null; proceed(true); };
         src.start();
       } catch (e) {
+        if (myGen !== ttsGenRef.current) return;
         vadDbgRef.current.ttsErr++;
         console.error("[tts] play failed", e);
         proceed(false);
+      } finally {
+        window.clearTimeout(timeout);
+        if (ttsAbortRef.current === ctrl) ttsAbortRef.current = null;
       }
     })();
   }, [setMode, getCtx, ensureAnalyser, endTurnIfDone]);
@@ -1366,10 +1290,12 @@ function App() {
   // after this sentence (paragraph/topic change → longer beat).
   const enqueueSpeech = useCallback((text: string, gapMs = 0) => {
     const clean = toSpeakable(text || "");
-    if (!clean || !voiceAvailable) return;
-    speakQueueRef.current.push({ text: clean, gapMs });
+    const provider = voiceInfoRef.current;
+    if (!clean || !provider.available || !provider.tts) return;
+    const parts = splitSpeechText(clean, provider.maxTextChars);
+    speakQueueRef.current.push(...parts.map((text, i) => ({ text, gapMs: i === parts.length - 1 ? gapMs : 0 })));
     if (!speakingRef.current) playNextInQueue();
-  }, [voiceAvailable, playNextInQueue]);
+  }, [playNextInQueue]);
 
   // Stop any in-flight speech and clear the queue (new turn interrupts the old).
   const stopSpeech = useCallback(() => {
@@ -1377,6 +1303,8 @@ function App() {
     speakingRef.current = false;
     speakingNowRef.current = "";
     ttsGenRef.current++; // invalidate any in-flight fetch/decode so it won't start
+    ttsAbortRef.current?.abort();
+    ttsAbortRef.current = null;
     const src = ttsBufSrcRef.current;
     if (src) { try { src.onended = null; src.stop(); } catch {} ttsBufSrcRef.current = null; }
     // legacy gesture-unlock element, if any — pause it too
@@ -1400,7 +1328,7 @@ function App() {
     if (sendingRef.current) {
       bargedRef.current = true; // tells send()'s AbortError path this was a barge-in, not the timeout
       try { chatAbortRef.current?.abort(); } catch {}
-      void fetch("/api/claude/interrupt", { method: "POST" }).catch(() => {});
+      void fetch("/api/claude/interrupt", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).catch(() => {});
     }
     // Mark the visible reply as interrupted (display only).
     setTurns((prev) => {
@@ -1412,7 +1340,7 @@ function App() {
     return true;
   }, [stopSpeech]);
 
-  // Send a turn to the Operative through the gateway, stream the reply, then
+  // Send a turn to the Runtime through the gateway, stream the reply, then
   // read it aloud. Mirrors web-channel's /api/chat SSE handling.
   // shownAs (dock actions): what the transcript displays for the user turn —
   // the short button label instead of the full canned prompt.
@@ -1468,16 +1396,12 @@ function App() {
     // spoken via the channel stream). Because the marker leads, it is known before
     // the first sentence boundary, so a real direct answer never waits on it.
     let spokenCursor = 0;        // chars of `assembled` already handed to TTS
-    let spokenChars = 0;         // total spoken length this turn (SPEAK_CAP guard)
     let delegated = false;       // turn is a delegation ack → never spoken
-    let capped = false;          // SPEAK_CAP hit → pointer to screen spoken once
-    // Safety net: if the orchestrator turn hangs (the PTY screen-scrape can miss a
-    // turn's completion on tool-call turns), don't keep the UI stuck — abort after
-    // 60s and recover. A delegated soul's reply still arrives on the channel
-    // stream and is spoken independently.
+    // Match the server's bounded SSE lifetime while allowing quiet tool work.
+    // The user can interrupt immediately at any point.
     const ac = new AbortController();
     chatAbortRef.current = ac; // cutAssistant aborts this on barge-in
-    const killer = window.setTimeout(() => ac.abort(), 60_000);
+    const killer = window.setTimeout(() => ac.abort(), 30 * 60_000);
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
@@ -1485,8 +1409,10 @@ function App() {
         body: JSON.stringify({ message: payload }),
         signal: ac.signal
       });
+      if (chatAbortRef.current !== ac) return;
       if (!res.ok || !res.body) {
         const text = res.body ? await res.text() : "";
+        if (chatAbortRef.current !== ac) return;
         setTurns((prev) => prev.map((t) => t.id === bubbleId
           ? { ...t, role: "error", content: `gateway ${res.status}: ${text}` } : t));
         errored = true;
@@ -1500,6 +1426,7 @@ function App() {
       let buf = "";
       while (true) {
         const { value, done } = await reader.read();
+        if (chatAbortRef.current !== ac) { await reader.cancel(); return; }
         if (done) break;
         buf += decoder.decode(value, { stream: true });
         let sep;
@@ -1527,19 +1454,16 @@ function App() {
               delegated = true;
               stopSpeech();
             }
-            // Speak each newly-completed sentence, up to the spoken-length cap.
-            if (!delegated && spokenChars < SPEAK_CAP) {
+            // Speak each newly completed sentence; provider limits are handled by chunks.
+            if (!delegated) {
               const { sentences, cursor } = takeSentences(assembled, spokenCursor);
               spokenCursor = cursor;
               for (const s of sentences) {
-                if (spokenChars >= SPEAK_CAP) break;
-                spokenChars += s.text.length;
                 enqueueSpeech(s.text, s.gapMs);
               }
-              if (spokenChars >= SPEAK_CAP && !capped) { capped = true; enqueueSpeech("O resto está no ecrã."); }
             }
           } else if (ev.event === "activity" && typeof ev.data?.tool === "string") {
-            // a tool call from the Operative — show it live in the "now" feed.
+            // a tool call from the Runtime — show it live in the "now" feed.
             // ToolSearch is harness plumbing (loading tool schemas), not a
             // content action, so it's filtered out as noise.
             const tool = ev.data.tool as string;
@@ -1626,9 +1550,9 @@ function App() {
             // Flush the tail not yet spoken incrementally: the final sentence (no
             // trailing whitespace to fire a boundary) or, on the chunkless path, the
             // whole reply. Delegation acks are shown, never spoken.
-            if (!delegated && spokenChars < SPEAK_CAP) {
+            if (!delegated) {
               const tail = assembled.slice(spokenCursor).trim();
-              if (tail) { enqueueSpeech(tail); spokenChars += tail.length; }
+              if (tail) enqueueSpeech(tail);
               spokenCursor = assembled.length;
             }
             // re-arm is handled by `finally` (no TTS) or by playNextInQueue when
@@ -1637,6 +1561,7 @@ function App() {
         }
       }
     } catch (err: any) {
+      if (chatAbortRef.current !== ac) return;
       errored = true;
       sendingRef.current = false;
       if (err?.name === "AbortError" && bargedRef.current) {
@@ -1661,6 +1586,7 @@ function App() {
       }
     } finally {
       clearTimeout(killer);
+      if (chatAbortRef.current !== ac) return;
       chatAbortRef.current = null;
       sendingRef.current = false;
       // Re-arm for the no-TTS success path; TTS replies re-arm via playNextInQueue,
@@ -1675,9 +1601,12 @@ function App() {
   // come back as { ok: false, detail } so every caller surfaces them the same
   // way (503 = engines warming, 502 = engine crashed, network = unreachable).
   const sttRequest = useCallback(async (audio: Float32Array): Promise<SttResult> => {
+    const controller = new AbortController();
+    sttAbortRefs.current.add(controller);
+    const timeout = window.setTimeout(() => controller.abort(), 120_000);
     try {
       const blob = float32ToWavBlob(audio, 16000);
-      const res = await fetch("/api/voice/stt", { method: "POST", headers: { "Content-Type": "audio/wav" }, body: blob });
+      const res = await fetch("/api/voice/stt", { method: "POST", headers: { "Content-Type": "audio/wav" }, body: blob, signal: controller.signal });
       if (!res.ok) {
         const detail = res.status === 503
           ? "voice engine still warming up — try again in a second"
@@ -1692,11 +1621,16 @@ function App() {
       };
     } catch (e) {
       return { ok: false, transcript: "", eot: null, detail: `voice unreachable: ${(e as Error)?.message ?? e}` };
+    } finally {
+      window.clearTimeout(timeout);
+      sttAbortRefs.current.delete(controller);
     }
   }, []);
 
   // Drop any half-decided turn (session stop, mute, push-to-talk cancel).
   const resetEndpointer = useCallback(() => {
+    for (const controller of sttAbortRefs.current) controller.abort();
+    sttAbortRefs.current.clear();
     if (graceTimerRef.current !== null) { window.clearTimeout(graceTimerRef.current); graceTimerRef.current = null; }
     pendingSegsRef.current = [];
     speechOpenAtRef.current = null;
@@ -1766,7 +1700,7 @@ function App() {
 
   // Hybrid voice fast-path: a recognised kanban command (create a card / summarise
   // the board) is handled locally instead of going to the orchestrator — faster,
-  // reliable, and works even when the operative isn't running. Speaks a short
+  // reliable, and works even when the runtime isn't running. Speaks a short
   // confirmation and re-arms the session like any turn.
   const handleKanbanIntent = useCallback(async (intent: KanbanIntent) => {
     setMode("working");
@@ -1799,7 +1733,7 @@ function App() {
       } else {
         const card = hits[0];
         try {
-          const res = await fetch(`/api/kanban/cards/${card.id}/start`, { method: "POST" });
+          const res = await fetch(`/api/kanban/cards/${card.id}/start`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
           const data = await res.json().catch(() => null);
           if (res.ok) { enqueueSpeech(`Avancei o card "${card.title}".`); refreshKanban(); }
           else enqueueSpeech(`Não consegui avançar o card: ${data?.error || "erro"}.`);
@@ -1841,6 +1775,11 @@ function App() {
   const sendToSession = useCallback(async (sessionId: string, message: string, shownAs?: string) => {
     const msg = (message || "").trim();
     if (!msg || sendingRef.current) return;
+    const generation = sessionGenerationRef.current;
+    const controller = new AbortController();
+    chatAbortRef.current = controller;
+    const timeout = window.setTimeout(() => controller.abort(), 30_000);
+    const current = () => generation === sessionGenerationRef.current && chatAbortRef.current === controller;
     sendingRef.current = true;
     hasInteractedRef.current = true;
     stopSpeech();
@@ -1860,10 +1799,12 @@ function App() {
       const res = await fetch(`/api/dev-sessions/${encodeURIComponent(sessionId)}/instruct`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: msg })
+        body: JSON.stringify({ text: msg }), signal: controller.signal
       });
+      if (!current()) return;
       if (!res.ok) {
         const d = await res.json().catch(() => null);
+        if (!current()) return;
         awaitingSessionReplyRef.current = false;
         setTurns((prev) => prev.map((t) => t.id === bubbleId
           ? { ...t, role: "error", content: `sessão ${label}: ${d?.error || res.status}` } : t));
@@ -1876,13 +1817,15 @@ function App() {
         refreshDevSessions();
       }
     } catch (err: any) {
+      if (!current()) return;
       awaitingSessionReplyRef.current = false;
       setTurns((prev) => prev.map((t) => t.id === bubbleId
         ? { ...t, role: "error", content: `network: ${err?.message || String(err)}` } : t));
       setMode("error");
       setTimeout(() => { if (modeRef.current === "error") endTurnIfDone(); }, 2000);
     } finally {
-      sendingRef.current = false;
+      window.clearTimeout(timeout);
+      if (current()) { chatAbortRef.current = null; sendingRef.current = false; }
     }
   }, [stopSpeech, setMode, enqueueSpeech, endTurnIfDone, refreshDevSessions]);
 
@@ -2080,7 +2023,10 @@ function App() {
     // thinking and speaking so the user can barge in. Segments captured while
     // busy are dropped by onTentativeEnd unless a barge-in was confirmed.
     setMode("working");
+    const generation = sessionGenerationRef.current;
+    const turnSequence = eagerSeqRef.current;
     const r = eager ? await eager : await sttRequest(concatSegments(segs));
+    if (generation !== sessionGenerationRef.current || turnSequence !== eagerSeqRef.current || !sessionOnRef.current) return;
     if (!r.ok) {
       // A silent drop reads as Jarvis ignoring you — surface it, then re-arm
       // so the next attempt Just Works. This is NOT the empty-transcript case
@@ -2210,15 +2156,18 @@ function App() {
   // Passing our own audioContext (already resumed under user activation) and a
   // pre-opened stream avoids the autoplay/gesture trap: the slow ~13 MB wasm load
   // happens AFTER the mic is live, so it can't consume the user-activation window.
-  const ensureVad = useCallback(async (stream: MediaStream) => {
+  const ensureVad = useCallback(async (stream: MediaStream, generation: number) => {
+    const current = () => generation === sessionGenerationRef.current && sessionOnRef.current;
+    if (!current()) throw new DOMException("Voice session stopped", "AbortError");
     if (vadRef.current) return vadRef.current;
     // Endpointing knobs from the composition (vad_redemption_ms /
     // endpoint_min_ms / endpoint_max_ms), fetched before the VAD is built
     // because redemptionMs is fixed at construction. Failure = defaults.
     try {
-      const r = await fetch("/api/endpointing");
+      const r = await fetch("/api/endpointing", { signal: AbortSignal.timeout(5000) });
       if (r.ok) epCfgRef.current = coerceEpCfg(await r.json());
     } catch {}
+    if (!current()) throw new DOMException("Voice session stopped", "AbortError");
     const vad = await MicVAD.new({
       model: "v5",
       baseAssetPath: "/",
@@ -2256,6 +2205,7 @@ function App() {
       pauseStream: async () => {},
       resumeStream: async (s: MediaStream) => s,
       onSpeechStart: () => {
+        if (!current()) return;
         vadDbgRef.current.starts++;
         console.debug("[vad] speechStart (mode=" + modeRef.current + ")");
         // Barge-in candidate: speech detected while Jarvis is thinking/speaking.
@@ -2280,6 +2230,7 @@ function App() {
           if (graceTimerRef.current !== null) { window.clearTimeout(graceTimerRef.current); graceTimerRef.current = null; }
           eagerSeqRef.current++;
           eagerSttRef.current = null;
+          for (const controller of sttAbortRefs.current) controller.abort();
           console.debug("[endpoint] resumed — merging into open turn");
         }
         // Don't flash "listening" for room audio overheard while muted (only a
@@ -2291,8 +2242,9 @@ function App() {
           speechOpenAtRef.current = performance.now();
         }
       },
-      onSpeechEnd: (audio: Float32Array) => { vadDbgRef.current.ends++; speechOpenAtRef.current = null; console.debug("[vad] speechEnd len=" + audio.length); onTentativeEnd(audio); },
+      onSpeechEnd: (audio: Float32Array) => { if (!current()) return; vadDbgRef.current.ends++; speechOpenAtRef.current = null; console.debug("[vad] speechEnd len=" + audio.length); onTentativeEnd(audio); },
       onVADMisfire: () => {
+        if (!current()) return;
         vadDbgRef.current.misfires++;
         speechOpenAtRef.current = null;
         console.debug("[vad] misfire");
@@ -2304,6 +2256,10 @@ function App() {
         }
       }
     });
+    if (!current()) {
+      try { await vad.destroy(); } catch {}
+      throw new DOMException("Voice session stopped", "AbortError");
+    }
     vadRef.current = vad;
     return vad;
   }, [getCtx, setMode, onTentativeEnd, triggerBargeIn]);
@@ -2313,8 +2269,10 @@ function App() {
   // only then do we load + start the (slow) VAD.
   const startSession = useCallback(async () => {
     if (sessionOnRef.current) return;
-    if (!voiceAvailable) { flashError("voice", "No voice Fitting — station local-voice"); return; }
+    if (!voiceInfoRef.current.stt) { flashError("voice", voiceInfoRef.current.reason || "Voice is unavailable for the selected provider"); return; }
     if (!micCaptureAllowed()) { flashError("mic", "Mic needs https or localhost"); return; }
+    const generation = ++sessionGenerationRef.current;
+    const current = () => generation === sessionGenerationRef.current && sessionOnRef.current;
     setSessionOn(true);
     setMicMuted(false); // fresh sessions start hands-free (unmuted)
     setStandby(false);
@@ -2335,6 +2293,7 @@ function App() {
     let stream: MediaStream;
     try {
       await getCtx().resume(); // must happen under user activation
+      if (!current()) return;
       stream = await navigator.mediaDevices.getUserMedia({
         // autoGainControl OFF: on mobile the AGC ramps gain up during pauses,
         // lifting the room-noise floor back over Silero's negativeSpeechThreshold
@@ -2343,6 +2302,7 @@ function App() {
         // stay on (they HELP end-detection and stop Jarvis hearing its own TTS).
         audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: false }
       });
+      if (!current()) { stream.getTracks().forEach((track) => track.stop()); return; }
       micStreamRef.current = stream;
       try {
         const src = getCtx().createMediaStreamSource(stream);
@@ -2351,30 +2311,47 @@ function App() {
         micSourceRef.current = src;
       } catch {}
     } catch (e: any) {
+      if (!current()) return;
       setSessionOn(false);
       flashError("mic", `Mic blocked: ${e?.message || e}`);
       return;
     }
     try {
-      const vad = await ensureVad(stream);
-      vadRunningRef.current = true;
+      const vad = await ensureVad(stream, generation);
+      if (!current()) return;
       await vad.start();
+      if (!current()) { try { await vad.destroy(); } catch {} return; }
+      vadRunningRef.current = true;
     } catch (e: any) {
-      setSessionOn(false);
       try { stream.getTracks().forEach((t) => t.stop()); } catch {}
+      if (!current()) return;
+      const failedVad = vadRef.current;
+      vadRef.current = null;
+      micStreamRef.current = null;
+      try { micSourceRef.current?.disconnect(); } catch {}
+      micSourceRef.current = null;
+      setSessionOn(false);
+      try { await failedVad?.destroy(); } catch {}
+      if (generation !== sessionGenerationRef.current) return;
       flashError("vad", `VAD load failed: ${e?.message || e}`);
     }
-  }, [voiceAvailable, ensureVad, getCtx, ensureAnalyser, setMode, setSessionOn, setMicMuted, setStandby, flashError]);
+  }, [ensureVad, getCtx, ensureAnalyser, setMode, setSessionOn, setMicMuted, setStandby, flashError]);
 
   // Disarm the session: tear down the VAD and fully release the mic (so the
   // browser's recording indicator goes off). The next start rebuilds it.
   const stopSession = useCallback(async () => {
+    sessionGenerationRef.current++;
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = null;
+    sendingRef.current = false;
+    hasInteractedRef.current = false;
+    awaitingSessionReplyRef.current = false;
     setSessionOn(false);
     setMicMuted(false);
     setStandby(false);
     resetEndpointer(); // drop any turn still inside its grace window
     vadRunningRef.current = false;
-    try { await vadRef.current?.destroy(); } catch {}
+    const stoppedVad = vadRef.current;
     vadRef.current = null;
     try { micSourceRef.current?.disconnect(); } catch {}
     micSourceRef.current = null;
@@ -2383,6 +2360,7 @@ function App() {
     stopSpeech();
     if (idleTimerRef.current !== null) { window.clearTimeout(idleTimerRef.current); idleTimerRef.current = null; }
     setMode("idle");
+    try { await stoppedVad?.destroy(); } catch {}
   }, [setSessionOn, setMicMuted, setStandby, setMode, stopSpeech, resetEndpointer]);
   useEffect(() => { stopSessionRef.current = stopSession; }, [stopSession]);
 
@@ -2410,7 +2388,6 @@ function App() {
       if (!busy) setMode("listening");
     }
   }, [pauseVad, resumeVad, setMicMuted, setMode, resetEndpointer, setStandby]);
-  useEffect(() => { toggleMuteRef.current = toggleMute; }, [toggleMute]);
 
   // Single press = toggle the session. While Jarvis is speaking, a press is a
   // barge-in: cut the reply off but keep the session armed. While MUTED, a press
@@ -2494,7 +2471,7 @@ function App() {
   // standby never plays TTS, so Jarvis can't wake itself). Reconnects while the
   // page is open so a voice-Fitting restart re-arms transparently.
   useEffect(() => {
-    if (!voiceAvailable) return;
+    if (!voiceInfo.wakeEvents) return;
     let closed = false;
     let ws: WebSocket | null = null;
     let retry: number | null = null;
@@ -2537,7 +2514,7 @@ function App() {
       wakeArmedRef.current = false;
       setWakeArmed(false);
     };
-  }, [voiceAvailable, getCtx, startSession, pushCallout, exitStandby]);
+  }, [voiceInfo.wakeEvents, getCtx, startSession, pushCallout, exitStandby]);
 
   // Channel stream: speak a delegated Soul's reply when it lands asynchronously
   // (the orchestrator only acked the delegation, marked [delegated], unspoken).
@@ -2610,6 +2587,19 @@ function App() {
   }, [activeSessionId, setMode, enqueueSpeech, pushCallout, endTurnIfDone]);
 
   useEffect(() => () => {
+    sessionGenerationRef.current++;
+    sessionOnRef.current = false;
+    ttsGenRef.current++;
+    ttsAbortRef.current?.abort();
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = null;
+    hasInteractedRef.current = false;
+    awaitingSessionReplyRef.current = false;
+    for (const controller of sttAbortRefs.current) controller.abort();
+    for (const timer of [graceTimerRef.current, bargeTimerRef.current, idleTimerRef.current]) {
+      if (timer !== null) window.clearTimeout(timer);
+    }
+    try { ttsBufSrcRef.current?.stop(); } catch {}
     try { void vadRef.current?.destroy(); } catch {}
     try { micStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
     try { audioElRef.current?.pause(); } catch {}
@@ -2617,7 +2607,7 @@ function App() {
   }, []);
 
   const statusLabel = !voiceAvailable
-    ? "No voice Fitting — station local-voice"
+    ? (voiceInfo.reason || "Voice is unavailable for the selected provider")
     : sessionOn && standby ? "Standby — diz “hey jarvis” para acordar (Space/tap: falar já)"
     : mode === "muted" ? "Muted — não ouço a sala (Space/tap: falar uma vez · M: sair do mute)"
     : mode === "listening" ? (micMuted
@@ -2631,20 +2621,22 @@ function App() {
       : "Mic needs https or localhost";
 
   return (
-    <div className={`jarvis-root state-${mode}${sessionOn ? " session-on" : ""}${panelsOpen ? " panels-open" : ""}${isOrbDisplay ? " orb-mode" : ""}`}>
-      {IS_DEV_INSTANCE && (
-        <div className="jarvis-instance-badge" aria-label="instancia de desenvolvimento">
-          DEV
+    <div className={`jarvis-root state-${mode}${sessionOn ? " session-on" : ""}${panelsOpen ? " panels-open" : ""}`}>
+      {["dev", "codex"].includes(instanceProfile) && (
+        <div className="jarvis-instance-badge" aria-label={`${instanceProfile} instance`}>
+          {instanceProfile.toUpperCase()}
         </div>
       )}
       <div
         className="jarvis-core"
         onClick={onToggle}
         role="button"
+        tabIndex={0}
+        onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); onToggle(); } }}
         aria-pressed={sessionOn}
         aria-label={sessionOn ? "Stop voice session" : "Start voice session"}
       >
-        <GraphCore mode={mode} getLevel={getLevel} bgMode="flat" orbDisplay={isOrbDisplay} palettes={orbPalette} />
+        <GraphCore mode={mode} getLevel={getLevel} bgMode="flat" orbDisplay={false} palettes={orbPalette} />
       </div>
 
       {waCenter && (
@@ -2713,10 +2705,6 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
         onStateColorChange={setStateColor}
         onStateColorsReset={resetStateColors}
         onThemeChange={applyTheme}
-        orbMode={orbMode}
-        onOrbModeChange={setOrbMode}
-        orbCorner={orbCorner}
-        onOrbCornerChange={setOrbCorner}
       />
 
       {sessionOn && (
@@ -2754,7 +2742,7 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
         <span className="jarvis-verbosity-value">{VERBOSITY[verbosity].label}</span>
       </div>
 
-      {/* Left rail — a single flex column so NOW / Operative / transcript
+      {/* Left rail — a single flex column so NOW / Runtime / transcript
           stack deterministically and can never overlap, however tall each grows. */}
       <div className="jarvis-rail jarvis-rail-left">
         {activity.length > 0 && (
@@ -2770,17 +2758,17 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
           </div>
         )}
 
-        {operative && (
-          <aside className={`jarvis-workspace jarvis-operative${opOpen ? "" : " is-collapsed"}`}>
+        {runtime && (
+          <aside className={`jarvis-workspace jarvis-runtime${opOpen ? "" : " is-collapsed"}`}>
             <button
               className="jarvis-ws-head"
               onClick={() => setOpOpen((v) => !v)}
               aria-expanded={opOpen}
-              title={opOpen ? "Collapse operative panel" : "Expand operative panel"}
+              title={opOpen ? "Collapse runtime panel" : "Expand runtime panel"}
             >
-              <span className="jarvis-ws-title">operative</span>
-              <span className={`jarvis-op-health${operative.gateway.ok ? " is-ok" : ""}`}>
-                {operative.gateway.ok ? "online" : "offline"}
+              <span className="jarvis-ws-title">runtime</span>
+              <span className={`jarvis-op-health${runtime.gateway.ok ? " is-ok" : ""}`}>
+                {runtime.gateway.ok ? "online" : "offline"}
               </span>
               <span className="jarvis-ws-toggle">{opOpen ? "−" : "+"}</span>
             </button>
@@ -2789,23 +2777,23 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
                 <div className="jarvis-ws-section">
                   <span className="jarvis-ws-label">runtime</span>
                   <span className="jarvis-ws-row">
-                    <span className={`jarvis-op-dot${operative.gateway.ok ? " is-ok" : ""}`} />
+                    <span className={`jarvis-op-dot${runtime.gateway.ok ? " is-ok" : ""}`} />
                     <span className="jarvis-ws-key">gateway</span>
                     <span className="jarvis-ws-text">
-                      {operative.gateway.ok
-                        ? `${operative.gateway.mode ?? "?"} · ${operative.gateway.sessions ?? 0} sess · ${operative.gateway.channels ?? 0} ch`
+                      {runtime.gateway.ok
+                        ? `${runtime.gateway.mode ?? "?"} · ${runtime.gateway.sessions ?? 0} sess · ${runtime.gateway.channels ?? 0} ch`
                         : "down"}
                     </span>
-                    {operative.gateway.ok && operative.gateway.uptimeMs
-                      ? <span className="jarvis-ws-when">{fmtUptime(operative.gateway.uptimeMs)}</span>
+                    {runtime.gateway.ok && runtime.gateway.uptimeMs
+                      ? <span className="jarvis-ws-when">{fmtUptime(runtime.gateway.uptimeMs)}</span>
                       : null}
                   </span>
                   <span className="jarvis-ws-row">
-                    <span className={`jarvis-op-dot${operative.voice.ok ? " is-ok" : ""}`} />
+                    <span className={`jarvis-op-dot${voiceInfo.available ? " is-ok" : ""}`} />
                     <span className="jarvis-ws-key">voice</span>
                     <span className="jarvis-ws-text">
-                      {operative.voice.ok
-                        ? `${operative.voice.ready ? "ready" : "warming"}${wakeArmed ? " · wake armado" : ""}`
+                      {voiceInfo.available
+                        ? `${(voiceInfo.stt && voiceInfo.tts) ? "ready" : "warming"}${wakeArmed ? " · wake armado" : ""}`
                         : "down"}
                     </span>
                   </span>
@@ -2901,41 +2889,29 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
                     })()}
                   </div>
                 )}
-                {(operative.souls.length > 0 || sessions.length > 0) && (
+                {sessions.length > 0 && (
                   <div className="jarvis-ws-section">
-                    <span className="jarvis-ws-label">agents</span>
-                    {sessions
-                      .filter((s) => !operative.souls.some((n) => s.soul === n || s.soul === `soul-${n}`))
-                      .slice(0, 4)
-                      .map((s) => (
-                        <span key={s.session_id} className="jarvis-ws-row">
-                          <span className="jarvis-op-dot is-ok" />
-                          <span className="jarvis-ws-key">{s.status}</span>
-                          <span className="jarvis-ws-text">{s.soul}</span>
-                        </span>
-                      ))}
-                    {operative.souls.map((name) => {
-                      const live = soulIsLive(name, sessions);
-                      return (
-                        <span key={name} className={`jarvis-ws-row${live ? "" : " is-standby"}`}>
-                          <span className={`jarvis-op-dot${live ? " is-ok" : ""}`} />
-                          <span className="jarvis-ws-key">{live ? "live" : "standby"}</span>
-                          <span className="jarvis-ws-text">{name}</span>
-                        </span>
-                      );
-                    })}
+                    <span className="jarvis-ws-label">sessions</span>
+                    {sessions.slice(0, 4).map((session) => (
+                      <span key={`${session.node}:${session.id}`} className="jarvis-ws-row">
+                        <span className={`jarvis-op-dot${session.status === "working" ? " is-working" : ""}`} />
+                        <span className="jarvis-ws-key">{session.status}</span>
+                        <span className="jarvis-ws-text">{session.title || session.runtime || session.id}</span>
+                        <span className="jarvis-ws-when">{session.node}</span>
+                      </span>
+                    ))}
                   </div>
                 )}
-                {(operative.skills.length > 0 || operative.commands.length > 0) && (
+                {(runtime.skills.length > 0 || runtime.commands.length > 0) && (
                   <div className="jarvis-ws-section">
                     <span className="jarvis-ws-label">skills</span>
-                    {operative.skills.map((name) => (
+                    {runtime.skills.map((name) => (
                       <span key={`sk-${name}`} className="jarvis-ws-row">
                         <span className="jarvis-ws-key">skill</span>
                         <span className="jarvis-ws-text">{name}</span>
                       </span>
                     ))}
-                    {operative.commands.map((name) => (
+                    {runtime.commands.map((name) => (
                       <span key={`cmd-${name}`} className="jarvis-ws-row">
                         <span className="jarvis-ws-key">cmd</span>
                         <span className="jarvis-ws-text">/{name}</span>
@@ -3186,7 +3162,7 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
       {/* ── Phone drawer (mobile-only via CSS) ────────────────────────────────
           A left-sliding panel (transform-based → GPU-composited, no reflow) that
           owns everything the desktop rails hold: session create/switch, the dev
-          action buttons, operative health, reports and tasks. The scrim + drawer
+          action buttons, runtime health, reports and tasks. The scrim + drawer
           are always mounted so the open/close transition runs both ways; the
           `.panels-open` class on the root drives the slide. Any action closes it
           so the orb + conversation return to view. */}
@@ -3293,29 +3269,29 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
             </div>
           </section>
 
-          {/* operative health */}
-          {operative && (
+          {/* runtime health */}
+          {runtime && (
             <section className="jarvis-drawer-sec">
               <h3 className="jarvis-drawer-head">
-                <span>operative</span>
-                <span className={`jarvis-drawer-health${operative.gateway.ok ? " is-ok" : ""}`}>
-                  {operative.gateway.ok ? "online" : "offline"}
+                <span>runtime</span>
+                <span className={`jarvis-drawer-health${runtime.gateway.ok ? " is-ok" : ""}`}>
+                  {runtime.gateway.ok ? "online" : "offline"}
                 </span>
               </h3>
               <div className="jarvis-drawer-stat">
-                <span className={`jarvis-op-dot${operative.gateway.ok ? " is-ok" : ""}`} />
+                <span className={`jarvis-op-dot${runtime.gateway.ok ? " is-ok" : ""}`} />
                 <span className="jarvis-drawer-stat-k">gateway</span>
                 <span className="jarvis-drawer-stat-v">
-                  {operative.gateway.ok
-                    ? `${operative.gateway.mode ?? "?"} · ${operative.gateway.sessions ?? 0} sess`
+                  {runtime.gateway.ok
+                    ? `${runtime.gateway.mode ?? "?"} · ${runtime.gateway.sessions ?? 0} sess`
                     : "down"}
                 </span>
               </div>
               <div className="jarvis-drawer-stat">
-                <span className={`jarvis-op-dot${operative.voice.ok ? " is-ok" : ""}`} />
+                <span className={`jarvis-op-dot${voiceInfo.available ? " is-ok" : ""}`} />
                 <span className="jarvis-drawer-stat-k">voice</span>
                 <span className="jarvis-drawer-stat-v">
-                  {operative.voice.ok ? (operative.voice.ready ? "ready" : "warming") : "down"}
+                  {voiceInfo.available ? ((voiceInfo.stt && voiceInfo.tts) ? "ready" : "warming") : "down"}
                 </span>
               </div>
             </section>
@@ -3426,7 +3402,7 @@ tts:ok${vadDbgRef.current.ttsOk}/err${vadDbgRef.current.ttsErr}   stt:"${vadDbgR
         <AmbientMode
           data={ambientData}
           music={music}
-          operative={operative}
+          runtime={runtime ? { ...runtime, voice: voiceInfo } : null}
           idleSince={lastActivityRef.current}
           nextTickAt={ambientTickAt}
           onMusicCmd={musicCmd}

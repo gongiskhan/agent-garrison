@@ -3,6 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { garrisonDir } from "@/lib/claude-home";
 import { getTailnetServeMap } from "@/lib/tailnet-serve";
+import { readNodeIdentity } from "@/lib/node-identity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,7 +37,10 @@ export async function GET() {
     return NextResponse.json({ error: e.message ?? String(err) }, { status: 500 });
   }
 
-  const serveMap = await getTailnetServeMap();
+  const identity = readNodeIdentity();
+  // A tethered node has no tailnet listener of its own. Its local Tailscale
+  // config can be stale; only the tether owner's published origin is usable.
+  const serveMap = identity.tetherHost ? new Map<number, string>() : await getTailnetServeMap();
 
   const probes: Promise<ViewEntry | null>[] = names.map(async (name) => {
     try {
@@ -50,7 +54,8 @@ export async function GET() {
         fittingId: parsed.fittingId,
         port: parsed.port,
         url: parsed.url,
-        tailnetUrl: serveMap.get(parsed.port) ?? null,
+        tailnetUrl: identity.tetherHost && parsed.fittingId === "remote-shell-runtime"
+          ? identity.shellOrigin : serveMap.get(parsed.port) ?? null,
         pid: typeof parsed.pid === "number" ? parsed.pid : null,
         startedAt: typeof parsed.startedAt === "string" ? parsed.startedAt : null,
         healthy

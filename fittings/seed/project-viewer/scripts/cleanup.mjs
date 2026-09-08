@@ -6,9 +6,9 @@
 //
 //   node scripts/cleanup.mjs --repo <path> [--apply]
 //
-// The run is all-or-nothing: one entry failing any gate refuses the WHOLE run,
-// because the approved allowlist and the removal set must be exactly equal — a
-// partial sweep is a sweep the approval never described.
+// Every entry is preflighted before the first deletion. A later filesystem error
+// stops immediately and reports the exact partial deletion set; verified copies
+// remain available under viewer/docs.
 //
 // Gates, in order, all of them mechanical:
 //   1. viewer/intake.json recorded cleanupArmed: true.
@@ -24,22 +24,24 @@
 //      sourceSha256, and renders through the same renderer /docs uses.
 
 import { createHash } from "node:crypto";
-import { readFile, unlink } from "node:fs/promises";
+import { readFile, unlink, lstat } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { confinedPath, relativePath } from "../lib/paths.mjs";
 import * as store from "../lib/store.mjs";
 import { renderDoc } from "../lib/render.mjs";
 
-const HARD_EXCLUDED_DIRS = ["fittings/seed", ".codex/skills", "site", "public/icons"];
-const SLIM_ONLY_BASENAMES = new Set(["README.md", "CLAUDE.md", "AGENTS.md", "SKILL.md"]);
+const HARD_EXCLUDED_DIRS = ["fittings", ".codex", ".agents", ".claude", ".git", ".garrison", "viewer", "compositions", "node_modules", "apm_modules", "site", "public/icons"];
+const SLIM_ONLY_BASENAMES = new Set(["README.MD", "CLAUDE.MD", "AGENTS.MD", "SKILL.MD"]);
 const GLOBBISH = /[*?[\]{}]/;
 
 export function isHardExcluded(rel) {
-  const posix = rel.split(path.sep).join("/");
-  if (HARD_EXCLUDED_DIRS.some((d) => posix === d || posix.startsWith(`${d}/`))) return true;
-  if (SLIM_ONLY_BASENAMES.has(path.posix.basename(posix))) return true;
+  const posix = relativePath(rel.split(path.sep).join("/"));
+  const folded = posix.toLowerCase();
+  if (HARD_EXCLUDED_DIRS.some((d) => folded === d || folded.startsWith(`${d}/`))) return true;
+  if (SLIM_ONLY_BASENAMES.has(path.posix.basename(posix).toUpperCase())) return true;
   return false;
 }
 
@@ -81,6 +83,7 @@ export async function runCleanup(root, { apply = false } = {}) {
   const manifest = await store.getDocsManifest(root);
   const docs = manifest.docs ?? [];
   const checked = [];
+  const seen = new Set();
 
   for (const entry of entries) {
     const raw = String(entry?.path ?? "");
@@ -89,7 +92,11 @@ export async function runCleanup(root, { apply = false } = {}) {
       problems.push(`${label}: not a literal path — globs and patterns are never accepted`);
       continue;
     }
-    const rel = path.normalize(raw);
+    let rel;
+    try { rel = relativePath(raw); } catch { problems.push(`${label}: escapes the repo`); continue; }
+    if (seen.has(rel)) { problems.push(`${label}: duplicate deletion entry`); continue; }
+    seen.add(rel);
+    if (!/\.(md|mdx|txt|rst|adoc)$/i.test(rel)) { problems.push(`${label}: only documentation files may be deleted`); continue; }
     if (path.isAbsolute(rel) || rel.split(path.sep).includes("..")) {
       problems.push(`${label}: escapes the repo — entries must be repo-relative`);
       continue;
@@ -100,16 +107,19 @@ export async function runCleanup(root, { apply = false } = {}) {
       continue;
     }
 
-    const abs = path.join(root, rel);
+    let abs, sourceStat;
     let bytes;
     try {
+      abs = confinedPath(root, rel);
+      sourceStat = await lstat(abs);
+      if (!sourceStat.isFile()) throw new Error("not a regular file");
       bytes = await readFile(abs);
     } catch {
       problems.push(`${label}: does not exist in the repo`);
       continue;
     }
 
-    const posix = rel.split(path.sep).join("/");
+    const posix = relativePath(rel.split(path.sep).join("/"));
     const doc = docs.find((d) => d.source === posix);
     if (!doc) {
       problems.push(`${label}: never consolidated — no docs-manifest entry claims this source`);
@@ -124,9 +134,11 @@ export async function runCleanup(root, { apply = false } = {}) {
       continue;
     }
 
-    const storedAbs = path.isAbsolute(doc.storedAt ?? "") ? doc.storedAt : path.join(root, doc.storedAt ?? "");
     let copy;
     try {
+      const storedAbs = store.consolidatedDocPath(root, doc);
+      const copyStat = await lstat(storedAbs);
+      if (!copyStat.isFile() || (sourceStat.dev === copyStat.dev && sourceStat.ino === copyStat.ino)) throw new Error("copy is not independent");
       copy = await readFile(storedAbs);
     } catch {
       problems.push(`${label}: consolidated copy ${doc.storedAt} is missing`);
@@ -148,16 +160,27 @@ export async function runCleanup(root, { apply = false } = {}) {
       continue;
     }
 
-    checked.push({ rel: posix, abs, docId: doc.docId });
+    checked.push({ rel: posix, abs, docId: doc.docId, sourceSha256: currentSha });
   }
 
   if (problems.length) return { ok: false, problems, checked: [], deleted: [] };
 
   const deleted = [];
   if (apply) {
+    // Re-read the approved set and every copy immediately before the destructive phase.
+    const fresh = await runCleanup(root);
+    if (!fresh.ok || JSON.stringify(fresh.checked) !== JSON.stringify(checked)) {
+      return { ok: false, problems: ["cleanup inputs changed during verification"], checked: [], deleted: [] };
+    }
     for (const c of checked) {
-      await unlink(c.abs);
-      deleted.push(c.rel);
+      try {
+        const file = confinedPath(root, c.rel);
+        if (sha256(await readFile(file)) !== c.sourceSha256) throw new Error("source changed");
+        await unlink(file);
+        deleted.push(c.rel);
+      } catch {
+        return { ok: false, problems: [`${c.rel}: deletion stopped; source changed or filesystem refused removal`], checked, deleted };
+      }
     }
   }
   return { ok: true, problems: [], checked, deleted };
@@ -181,7 +204,7 @@ async function main() {
 
   const result = await runCleanup(opts.repo, { apply: opts.apply });
   if (!result.ok) {
-    process.stderr.write("cleanup refused — nothing was deleted:\n");
+    process.stderr.write(`cleanup stopped — ${result.deleted.length} file(s) deleted:\n`);
     for (const p of result.problems) process.stderr.write(`  - ${p}\n`);
     process.exit(1);
   }

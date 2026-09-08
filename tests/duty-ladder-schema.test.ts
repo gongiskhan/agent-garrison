@@ -141,7 +141,7 @@ describe("the shipped default composition", () => {
     const byId = new Map(composition.duties.map((d) => [d.id, d]));
 
     expect(byId.get("implement")).toMatchObject({ default: "middle", ceiling: "top" });
-    expect(byId.get("plan")).toMatchObject({ default: "middle", ceiling: "top" });
+    expect(byId.get("plan")).toMatchObject({ ladder: "codex", default: "deep", ceiling: "deep" });
     expect(byId.get("adversarial-review")).toMatchObject({
       ladder: "adversarial",
       default: "cross",
@@ -167,7 +167,8 @@ describe("the shipped default composition", () => {
     });
     // Untouched duties fall back to their own level-1 cell, so the projection
     // covers everything the board can route without a single extra YAML line.
-    expect(model.dutyLadder?.test).toMatchObject({ ladder: null, defaultIndex: 0, ceilingIndex: 0 });
+    expect(model.dutyLadder?.test).toMatchObject({ ladder: "codex", defaultIndex: 0, ceilingIndex: 1 });
+    expect(model.dutyLadder?.research).toMatchObject({ ladder: null, defaultIndex: 0, ceilingIndex: 0 });
     for (const id of composition.selectedDuties) {
       expect(model.dutyLadder?.[id], `duty "${id}" has no projected ladder`).toBeTruthy();
     }

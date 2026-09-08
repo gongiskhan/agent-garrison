@@ -81,7 +81,16 @@ export function generateViewport(): Viewport {
   return {
     themeColor: readNodeIdentity().accentHex,
     width: "device-width",
-    initialScale: 1
+    initialScale: 1,
+    // A WKWebView zooms the page 16/15 when an input under 16px takes focus
+    // and stays zoomed after blur, so the layout viewport outgrows the screen
+    // and every right- or bottom-anchored control falls off it. Capping the
+    // scale is what stops that zoom; Safari keeps pinch-zoom regardless.
+    maximumScale: 1,
+    userScalable: false,
+    // The iOS shell app sets contentInset "never" and paints under the notch
+    // and home indicator; cover lets env(safe-area-inset-*) report real values.
+    viewportFit: "cover"
   };
 }
 

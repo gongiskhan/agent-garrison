@@ -1,0 +1,21 @@
+# Final TestFlight beta (G8 close)
+
+workflow: gongiskhan/ios-thing garrison-ios.yml, lane=beta, garrison_ref=node/goncalos-macbook-pro
+native code at: 57129034 (G7; nothing under ios/ changed in G8, which is docs, roadmap, patch, handoff, evidence)
+run: https://github.com/gongiskhan/ios-thing/actions/runs/33645788251 (id 33645788251)
+started: 2026-09-02T15:00:52Z
+outcome: success at 2026-09-02T15:03:48Z (checked after the G8 commit); the G7 build of the same native code (run 33638822766) completed success at 2026-09-02T14:00:07Z
+
+--- D47 build (2026-09-03)
+workflow: gongiskhan/ios-thing garrison-ios.yml, lane=beta, garrison_ref=node/goncalos-macbook-pro
+native code at: cbe5d512 (GarrisonNode.select(name, path) + PushRouter.arm(path:))
+run: https://github.com/gongiskhan/ios-thing/actions/runs/33695608972 (id 33695608972)
+started: 2026-09-02T23:33:18Z
+outcome: success (Run fastlane (beta) and Upload IPA artifact green); this is the build phone check 10 needs
+
+--- D57 build (2026-09-04)
+workflow: gongiskhan/ios-thing garrison-ios.yml, lane=beta, garrison_ref=node/goncalos-macbook-pro
+native code at: 6a75549d (bridge leaves the notification center to PushManager; device_name = UIDevice.current.name)
+run: https://github.com/gongiskhan/ios-thing/actions/runs/33846121664 (id 33846121664)
+started: 2026-09-04T06:51:26Z
+outcome: success at 2026-09-04T06:55:20Z; XCTest on the mini at 6a75549d: 101 tests, 0 failures (evidence/garrison-app/voice-d57/xctest.log). This is the build phone check 3e needs.

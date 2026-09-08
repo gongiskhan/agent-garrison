@@ -78,6 +78,10 @@ struct SessionStartMessage: Codable {
     /// Pendant sessions only: which Opus framing the device ships
     /// ("opus" 10 ms / "opus_fs320" 20 ms). Omitted for mic modes.
     var codec: String?
+    /// The Conversations thread the recording was started from, when it was
+    /// started from one; the node posts the digest back into it. Omitted for
+    /// recordings begun on the capture page or from Control Center.
+    var conversationId: String?
 
     enum CodingKeys: String, CodingKey {
         case type
@@ -87,6 +91,7 @@ struct SessionStartMessage: Codable {
         case consent
         case startedAt = "started_at"
         case codec
+        case conversationId = "conversation_id"
     }
 }
 

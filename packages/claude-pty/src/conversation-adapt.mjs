@@ -71,6 +71,9 @@ const LEDGER_KIND_MAP = {
   escalation: "escalation",
   "policy-rewrite": "policy-rewrite",
   "summary-trimmed": "policy-rewrite",
+  // A user steer interrupting the stretch in flight: the platform rewriting
+  // the flow on the person's word, so it lands beside the other rewrites.
+  "stretch-steered": "policy-rewrite",
   // The Autonomous gate's ask — first-class, so the renderer can style the
   // pause and the activity derivation can recognise an unanswered ask.
   "approval-requested": "approval-requested",
@@ -91,7 +94,7 @@ const DETAIL_CAP = 4000;
  *   is per-batch, which is what a one-shot read wants.
  * @returns {Array<object>} SessionEvents, in record order.
  */
-export function ledgerToSessionEvents(events, { conversationId, stretchStarts = null, eventSlots = null, handoffBags = null } = {}) {
+export function ledgerToSessionEvents(events, { conversationId, stretchStarts = null, eventSlots = null, handoffBags = null, replyTexts = null, readReply = null } = {}) {
   const cid = String(conversationId ?? "");
   const starts = stretchStarts ?? new Map();
   // Same continuity contract as stretchStarts, for teed session-events: a
@@ -103,13 +106,53 @@ export function ledgerToSessionEvents(events, { conversationId, stretchStarts = 
   // the renderer can say "needs your input" without parsing ledger prose. A
   // batch boundary between the two must not lose that pairing.
   const bags = handoffBags ?? new Map();
+  // Latest prose per teed event, retained across SSE pages. A progress message
+  // is not proof that the final answer was delivered. Compare complete prose,
+  // including revisions, before deciding a saved reply would be a duplicate.
+  const texts = replyTexts ?? new Map();
   const out = [];
   for (const record of events ?? []) {
     if (!record || typeof record !== "object") continue;
     const adapted = adaptRecord(record, cid, starts, slots, bags);
     if (adapted) out.push(adapted);
+    const stretchId = stretchIdOf(record, record.payload);
+    if (record.kind === "session-event" && adapted?.role === "assistant" && stretchId) {
+      const byId = texts.get(stretchId) ?? new Map();
+      const terminal = adapted.blocks.findLast((block) => block.type === "turn_end" && typeof block.result === "string" && block.result.trim());
+      const prose = terminal?.result ?? adapted.blocks.filter((block) => block.type === "text").map((block) => block.text ?? "").join("\n\n");
+      byId.set(adapted.id, replyProse(prose));
+      texts.set(stretchId, byId);
+    }
+    if (record.kind === "stretch-ended" && adapted && typeof readReply === "function") {
+      const saved = readReply(record.payload?.replyRef);
+      const prose = replyProse(saved);
+      const delivered = [...(texts.get(stretchId)?.values() ?? [])].filter(Boolean);
+      // The settled renderer selects the last textual envelope. Finding the
+      // answer only in an earlier interim, or split across envelopes, is not
+      // sufficient: the complete reply must occupy the final text position.
+      if (prose && delivered.at(-1) !== prose) {
+        out.push({
+          id: `${cid}#reply:${stretchId || record.index}`,
+          ts: recordTs(record),
+          order: record.index,
+          revision: 0,
+          role: "assistant",
+          ...(stretchId ? { turnId: stretchId } : {}),
+          blocks: [{ type: "text", text: saved }],
+        });
+      }
+      texts.delete(stretchId);
+    }
   }
   return out;
+}
+
+function replyProse(value) {
+  if (typeof value !== "string") return "";
+  // Same protocol-tail rule as the renderer's stripHandoffFence. Preserve the
+  // actual saved bytes in the event; normalization is only for deduplication.
+  const fence = value.indexOf("```handoff");
+  return (fence < 0 ? value : value.slice(0, fence)).trim();
 }
 
 function adaptRecord(record, cid, starts, slots = new Map(), bags = new Map()) {
@@ -159,6 +202,15 @@ function adaptRecord(record, cid, starts, slots = new Map(), bags = new Map()) {
     return { ...base, role: "user", blocks: [{ type: "text", text }] };
   }
 
+  // A note (the router's POST /:id/note): prose a machine added without waking
+  // the responder, a recording digest for one. It reads as an assistant turn
+  // of its own, outside any stretch.
+  if (record.kind === "note") {
+    const text = typeof payload.text === "string" ? payload.text : "";
+    if (!text.trim()) return null;
+    return { ...base, role: "assistant", blocks: [{ type: "text", text }] };
+  }
+
   if (record.kind === "stretch-started") {
     const stretchId = stretchIdOf(record, payload);
     if (!stretchId) return null;
@@ -183,6 +235,13 @@ function adaptRecord(record, cid, starts, slots = new Map(), bags = new Map()) {
     };
   }
 
+  if (record.kind === "stretch-routing") {
+    const stretchId = stretchIdOf(record, payload);
+    const started = stretchId ? starts.get(stretchId) : null;
+    if (started) started.attribution = { ...started.attribution, ...attributionFromEnded(payload) };
+    return null;
+  }
+
   if (record.kind === "stretch-ended") {
     const stretchId = stretchIdOf(record, payload);
     // A `started` we have seen makes this a REVISION of that event: same id,
@@ -191,7 +250,10 @@ function adaptRecord(record, cid, starts, slots = new Map(), bags = new Map()) {
     // emitted standalone rather than silently dropped.
     const started = stretchId ? starts.get(stretchId) : null;
     const duty = dutyOf(record, payload) ?? started?.duty ?? null;
-    const attribution = started?.attribution ?? attributionFromEnded(payload);
+    // Settlement is the runtime's measured result. It must override requested
+    // startup settings (including an explicit effortApplied=false), while
+    // retaining dimensions only reported in the earlier routing record.
+    const attribution = { ...started?.attribution, ...attributionFromEnded(payload) };
     // The handoff record that preceded this boundary: its summary and blocker
     // ride the ended block so the terminal banner can quote them.
     const bag = (stretchId ? bags.get(stretchId) : null) ?? {};
@@ -348,6 +410,11 @@ function buildTitleAndDetail(record, payload) {
         title: `Routing rewritten: ${payload.from ?? "?"} -> ${payload.to ?? "?"}`,
         detail: payload.reason ? text(payload.reason) : null,
       };
+    case "stretch-steered":
+      return {
+        title: `Steered: ${record.duty ?? "the stretch"} interrupted to take your message`,
+        detail: text(payload.text) || null,
+      };
     case "summary-trimmed": {
       const dropped = Array.isArray(payload.dropped) ? payload.dropped : [];
       return {
@@ -407,25 +474,21 @@ function normalizePayloadRef(ref) {
   return /^[A-Za-z0-9._-]{1,200}$/.test(bare) && bare !== "." && bare !== ".." ? bare : null;
 }
 
-/** A stretch's attribution is the SAME bag the Turn Rail renders for a normal
- *  turn (route attribution), so a stretch badge and a turn badge cannot drift
- *  into two spellings of the same fact. `account: null` is deliberate: the
- *  launcher does not resolve an account per stretch, and an explicit null reads
- *  as "not reported" rather than being mistaken for a value. */
+/** A missing account is unreported. Only an explicit null from the producer
+ *  means machine login; inventing null would mislabel a named-account turn. */
 function attributionFromTarget(target) {
   const t = target && typeof target === "object" ? target : {};
-  const out = { account: null };
+  const out = {};
   if (label(t.id)) out.route = label(t.id);
   if (label(t.runtime)) out.runtime = label(t.runtime);
   if (label(t.provider)) out.provider = label(t.provider);
   if (label(t.model)) out.model = label(t.model);
   if (label(t.effort)) out.effort = label(t.effort);
+  if (t.account === null || label(t.account)) out.account = t.account === null ? null : label(t.account);
+  if (typeof t.effortApplied === "boolean") out.effortApplied = t.effortApplied;
   return out;
 }
 
 function attributionFromEnded(payload) {
-  const out = { account: null };
-  if (label(payload?.model)) out.model = label(payload.model);
-  if (label(payload?.effortApplied)) out.effort = label(payload.effortApplied);
-  return out;
+  return attributionFromTarget({ ...payload, id: payload?.target });
 }

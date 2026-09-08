@@ -9,9 +9,9 @@ process.env.GARRISON_HOME = TMP_HOME;
 
 // Both modules freeze GARRISON_HOME at import time and must share one store.
 // @ts-ignore dependency-free fitting JavaScript intentionally has no full .d.ts.
-const threads: any = await import("../fittings/seed/web-channel-default/scripts/threads.mjs");
+const threads: any = await import("../packages/talk/src/threads.mjs");
 // @ts-ignore dependency-free fitting JavaScript intentionally has no full .d.ts.
-const server: any = await import("../fittings/seed/web-channel-default/scripts/server.mjs");
+const server: any = await import("../packages/talk/src/server.mjs");
 const {
   startServer,
   agentSdkResumeFromThread,

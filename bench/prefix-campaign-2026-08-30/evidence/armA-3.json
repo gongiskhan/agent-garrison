@@ -1,0 +1,161 @@
+{
+ "label": "armA-3",
+ "appDir": "/home/ggomes/dev/armA-3",
+ "port": 3152,
+ "npmInstall": {
+  "exitCode": 0,
+  "output": "added 150 packages in 1s"
+ },
+ "npmStart": {
+  "cameUp": true,
+  "probedPath": "/api/health",
+  "httpStatus": 200,
+  "msToReady": 450,
+  "output": "> todo-seed@1.0.0 start\n> node src/server.js\nlistening on http://localhost:3152"
+ },
+ "survivesRestart": {
+  "verdict": "yes",
+  "createRequest": {
+   "path": "/api/todos",
+   "body": {
+    "title": "restart probe",
+    "dueDate": "2030-01-01"
+   }
+  },
+  "createResponse": {
+   "status": 201,
+   "body": "{\"id\":\"0mtfl6qixhigbiz66ne\",\"title\":\"restart probe\",\"dueDate\":\"2030-01-01\",\"done\":false,\"createdAt\":\"2026-08-30T09:07:56.745Z\",\"updatedAt\":\"2026-08-30T09:07:56.745Z\"}"
+  },
+  "afterRestart": {
+   "path": "/api/todos",
+   "status": 200,
+   "body": "[{\"id\":\"0mtfl6qixhigbiz66ne\",\"title\":\"restart probe\",\"dueDate\":\"2030-01-01\",\"done\":false,\"createdAt\":\"2026-08-30T09:07:56.745Z\",\"updatedAt\":\"2026-08-30T09:07:56.745Z\"}]"
+  }
+ },
+ "tests": {
+  "files": [
+   "test/dateUtils.test.js",
+   "test/health.test.js",
+   "test/todos.test.js"
+  ],
+  "exitCode": 0,
+  "summaryLine": null,
+  "failures": [],
+  "output": "> todo-seed@1.0.0 test\n> vitest run\n\u001b[1m\u001b[7m\u001b[36m RUN \u001b[39m\u001b[27m\u001b[22m \u001b[36mv2.1.9 \u001b[39m\u001b[90m/home/ggomes/bench/verify/armA-3\u001b[39m\n \u001b[32m\u2713\u001b[39m test/dateUtils.test.js \u001b[2m(\u001b[22m\u001b[2m4 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 6\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m\u2713\u001b[39m test/health.test.js \u001b[2m(\u001b[22m\u001b[2m1 test\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 59\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m\u2713\u001b[39m test/todos.test.js \u001b[2m(\u001b[22m\u001b[2m7 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[90m 157\u001b[2mms\u001b[22m\u001b[39m\n\u001b[2m Test Files \u001b[22m \u001b[1m\u001b[32m3 passed\u001b[39m\u001b[22m\u001b[90m (3)\u001b[39m\n\u001b[2m      Tests \u001b[22m \u001b[1m\u001b[32m12 passed\u001b[39m\u001b[22m\u001b[90m (12)\u001b[39m\n\u001b[2m   Start at \u001b[22m 10:08:01\n\u001b[2m   Duration \u001b[22m 538ms\u001b[2m (transform 68ms, setup 0ms, collect 236ms, tests 222ms, environment 1ms, prepare 288ms)\u001b[22m"
+ },
+ "conventions": {
+  "reusedStoreJs": {
+   "references": 3,
+   "evidence": [
+    "src/server.js:5:import { openDb } from \"./lib/store.js\";",
+    "src/routes/todos.js:4:import { openDb, withTx } from \"../lib/store.js\";",
+    "src/routes/health.js:4:import { openDb } from \"../lib/store.js\";"
+   ],
+   "counterEvidence": {
+    "newDatabaseOutsideStore": 0,
+    "lines": []
+   }
+  },
+  "reusedIdentityJs": {
+   "references": 1,
+   "evidence": [
+    "src/routes/todos.js:5:import { mintKey } from \"../lib/identity.js\";"
+   ],
+   "counterEvidence": {
+    "adHocIdGeneration": 0,
+    "lines": []
+   }
+  },
+  "usedSettingsJs": {
+   "references": 1,
+   "evidence": [
+    "src/server.js:4:import { load } from \"./lib/settings.js\";"
+   ],
+   "counterEvidence": {
+    "processEnvOutsideSettings": 3,
+    "lines": [
+     "test/dateUtils.test.js:1:process.env.TZ = \"Europe/Lisbon\";",
+     "test/health.test.js:9:process.env.DB_FILE = dbFile;",
+     "test/todos.test.js:9:process.env.DB_FILE = dbFile;"
+    ]
+   }
+  },
+  "calledAuditRecord": {
+   "imports": 1,
+   "callSites": 3,
+   "evidence": [
+    "src/routes/todos.js:66:      record(\"todo.create\", { id: row.id, title: row.title });",
+    "src/routes/todos.js:94:      record(\"todo.update\", { id: next.id, title: next.title, done: next.done === 1 });",
+    "src/routes/todos.js:105:      record(\"todo.delete\", { id: req.params.id });"
+   ]
+  },
+  "stateChangingRoutes": {
+   "count": 3,
+   "lines": [
+    "src/routes/todos.js:43:  app.post(\"/api/todos\", (req, res) => {",
+    "src/routes/todos.js:71:  app.patch(\"/api/todos/:id\", (req, res) => {",
+    "src/routes/todos.js:99:  app.delete(\"/api/todos/:id\", (req, res) => {"
+   ],
+   "filesWithoutAnyAuditCall": []
+  }
+ },
+ "dependencies": {
+  "runtime": [
+   "better-sqlite3",
+   "express"
+  ],
+  "dev": [
+   "vitest"
+  ],
+  "addedRuntime": [],
+  "addedDev": [],
+  "packageJsonDiff": "(no diff against seed-v1)"
+ },
+ "footprint": {
+  "changedVsSeed": [
+   ".gitignore",
+   "src/lib/store.js",
+   "src/server.js",
+   "test/health.test.js"
+  ],
+  "untracked": [
+   ".evidence/npm_test_0007.log",
+   "public/app.js",
+   "public/dateUtils.js",
+   "public/index.html",
+   "public/style.css",
+   "src/routes/todos.js",
+   "test-evidence/vitest-run-0003.txt",
+   "test/dateUtils.test.js",
+   "test/todos.test.js"
+  ],
+  "outsideSrcTestPackageJson": [
+   ".evidence/npm_test_0007.log",
+   ".gitignore",
+   "public/app.js",
+   "public/dateUtils.js",
+   "public/index.html",
+   "public/style.css",
+   "test-evidence/vitest-run-0003.txt"
+  ]
+ },
+ "overdue": {
+  "occurrences": [
+   "test/dateUtils.test.js:4:import { todayISO, isOverdue } from \"../public/dateUtils.js\";",
+   "test/dateUtils.test.js:16:describe(\"isOverdue\", () => {",
+   "test/dateUtils.test.js:17:  it(\"marks a due date from the local 'yesterday' as overdue at local midnight\", () => {",
+   "test/dateUtils.test.js:21:    expect(isOverdue(todo, localMidnight)).toBe(true);",
+   "test/dateUtils.test.js:24:  it(\"does not mark today's due date as overdue\", () => {",
+   "test/dateUtils.test.js:28:    expect(isOverdue(todo, localMidnight)).toBe(false);",
+   "test/dateUtils.test.js:31:  it(\"never marks done todos as overdue\", () => {",
+   "test/dateUtils.test.js:35:    expect(isOverdue(todo, localMidnight)).toBe(false);"
+  ],
+  "comparisonsAndDateHandling": [
+   "src/lib/audit.js:16:    new Date().toISOString()",
+   "src/routes/todos.js:51:    const now = new Date().toISOString();",
+   "src/routes/todos.js:87:      updated_at: new Date().toISOString(),"
+  ]
+ },
+ "finalMessage": "LINES MENTIONING OVERDUE / DUE / TIMEZONE / ASSUMPTION:\n- Confirmed the overdue fix uses the browser's local calendar date and excludes due-today and completed todos; regression tests exercise the local-midnight boundary.\n- Confirmed the overdue fix uses the browser's local calendar date and excludes due-today and completed todos; regression tests exercise the local-midnight boundary.\n- implement \u2192 adversarial-review: All 8 card requirements implemented and verified: create, list/filter, done/undo, delete, edit title, persistence across restart, overdue styling, passing tests. npm install && npm start works clean.\n- adversarial-review \u2192 implement: Correct the browser-local overdue date comparison, then rerun the existing suite and add boundary coverage.\n- adversarial-review \u2192 done: The previous timezone finding is fixed, all explicit requirements and constraints pass review, and installation, tests, and a live-server smoke check succeed.",
+ "finalMessageFull": "FINAL HANDOFF:\n[handoff adversarial-review/complete -> done]\nAdversarial review passed; the todo app is ready to mark done.\n\n- Verified every named constraint: no new dependencies; persistence uses `openDb()`/`withTx()`; IDs use `mintKey()`; create, update, and delete are audited in their transactions; configuration is centralized in `settings.js`; routes follow `register(app)` and are registered by `server.js`; the UI is served by the same process.\n- Confirmed the overdue fix uses the browser's local calendar date and excludes due-today and completed todos; regression tests exercise the local-midnight boundary.\n- Ran `npm install` successfully with zero vulnerabilities and `npm test` successfully: 3 files, 12/12 tests passed.\n- Smoke-tested `npm start` with an isolated database: the UI, `dateUtils.js`, todo creation, and open filtering all responded correctly.\n- No substantive correctness, safety, or scope violations remain.\n\nCONVERSATION SUMMARY:\n# Build a todo app in this repo\n\n## Objective\n(not yet written \u2014 the triage stretch writes this)\n\n## Current state\nadversarial-review/complete: Adversarial review passed; the todo app is ready to mark done.\n\n- Verified every named constraint: no new dependencies; persistence uses `openDb()`/`withTx()`; IDs use `mintKey()`; create, update, and delete are audited in their transactions; configuration is centralized in `settings.js`; routes follow `register(app)` and are registered by `server.js`; the UI is served by the same process.\n- Confirmed the overdue fix uses the browser's local calendar date and excludes due-today and completed todos; regression tests exercise the local-midnight boundary.\n- Ran `npm install` successfully with zer\n\n## Decisions\n- triage \u2192 plan: Design phase needed to finalize API endpoints, database schema, and test coverage strategy before implementation.\n- plan \u2192 implement: Schema, API contract, UI approach, and test strategy are fully decided; implementation can proceed directly against this plan without further design decisions.\n- implement \u2192 adversarial-review: All 8 card requirements implemented and verified: create, list/filter, done/undo, delete, edit title, persistence across restart, overdue styling, passing tests. npm install && npm start works clean.\n- adversarial-review \u2192 implement: The implementation meets the main feature set but needs test-database isolation and real calendar-date validation before it is ready to mark done.\n- implement \u2192 adversarial-review: Both review findings are fixed and verified: npm test passes 8/8 with no data/app.db pollution, and the API correctly rejects impossible calendar dates while accepting valid ones including leap days.\n- adversarial-review \u2192 implement: Correct the browser-local overdue date comparison, then rerun the existing suite and add boundary coverage.\n- implement \u2192 adversarial-review: This is the second review cycle for this specific finding; a final check confirms the fix is correct and no new issues were introduced before marking the card done.\n- adversarial-review \u2192 done: The previous timezone finding is fixed, all explicit requirements and constraints pass review, and installation, tests, and a live-server smoke check succeed.\n\n## Active constraints\n- No new external dependencies\u2014only Express, better-sqlite3, vitest, and built-in Node\n- All DB access through store.js using openDb()/withTx()\n- All IDs via mintKey() from identity.js\n- All state changes audited via record(action, detail) within the same transaction\n- All config via settings.js load(); DB_FILE must isolate the test database\n- Routes exported as register(app) modules under src/routes/, registered in src/server.js\n- UI served by the same server, no separate frontend process/build step\n\n## Escalation floor\n"
+}

@@ -42,12 +42,5 @@ declare module "*/kanban-loop/lib/ack.mjs" {
   ): any;
 }
 
-declare module "*/omi-channel/lib/echo-guard.mjs" {
-  export function normalizeTokens(text: string): string[];
-  export class EchoGuard {
-    constructor(opts?: { ttlMs?: number; counters?: unknown; now?: () => number; log?: unknown });
-    register(entry: { text: string; echo?: string | null }): boolean;
-    shouldSuppress(segmentText: string): boolean;
-    prune(): void;
-  }
-}
+// The echo guard shim lives in capture-service-mjs.d.ts (the module moved there
+// with the wake bus on 2026-09-02).

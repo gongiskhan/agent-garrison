@@ -5,9 +5,10 @@
 // Move. This module is the PLUMBING for that hand-off — it does NOT advance the
 // card and writes no brief itself:
 //
-//   buildDiscussUrl — the Discuss-duty web-channel URL carrying the card as an
-//     OPAQUE context blob the GENERIC web channel forwards verbatim to the
-//     gateway. The Operative decodes it and writes the brief to disk.
+//   buildDiscussUrl - the Discuss-duty Conversations URL (the shell's /talk
+//     route) carrying the card as an OPAQUE context blob the GENERIC web channel
+//     forwards verbatim to the gateway. The Operative decodes it and writes the
+//     brief to disk.
 //   briefSlug       — a clean kebab filename stem from the card title.
 //   recordBrief     — CAS-link the resulting brief PATH onto the card (a
 //     pointer, never the brief body — FINDING 10), validated for traversal.
@@ -188,19 +189,20 @@ export function buildDiscussKickoff(card, { briefAbsPath, level } = {}) {
   ].join("\n");
 }
 
-// Build the Discuss-duty web-channel URL for a card. The card is encoded as an
+// Build the Discuss-duty Conversations URL for a card. The card is encoded as an
 // opaque context blob; the channel stores it alongside a duty-pinned thread.
 // { source, cardId, title, project, level, briefsPath, suggestedSlug } and writes the
 // brief under briefsPath. We pass briefsPath + a suggested slug so the brief
 // the Discuss duty writes lands where recordBrief can later link it, and the card's
 // level (when it has one) so the channel pins the discussion at its real depth.
 //
-// webChannelBase defaults to Garrison's embed route for the seed web channel —
-// the fitting id is `web-channel-default` (NOT `web-channel`), so the embed route
-// is /embed/web-channel-default. The board is opened embedded in Garrison
-// (/embed/kanban-loop), so this relative URL + target="_top" navigates Garrison
-// to the web channel. Override webChannelBase for a non-default web channel.
-export function buildDiscussUrl(card, { webChannelBase = "/embed/web-channel-default", cardsAbsDir = null } = {}) {
+// webChannelBase defaults to the shell route hosting Conversations, /talk - a
+// route of the Garrison app itself, not an embedded fitting. The board is opened
+// embedded in Garrison (/embed/kanban-loop), so this relative URL + target="_top"
+// navigates Garrison to Conversations, and relative is the only honest form: the
+// browser is usually on another machine over the tailnet. Override webChannelBase
+// for a host that serves the same query contract somewhere else.
+export function buildDiscussUrl(card, { webChannelBase = "/talk", cardsAbsDir = null } = {}) {
   const stem = briefStem(card);
   // The card-owned brief's ABSOLUTE path: <cardsAbsDir>/<cardId>/brief.md. cardsAbsDir
   // is the board's kanban-store cards dir (from /board/runtime). Deterministic + shared

@@ -10,7 +10,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 // @ts-ignore — pure .mjs
 import { openConversation } from "../packages/claude-pty/src/conversation-store.mjs";
 // @ts-ignore — pure .mjs
-import { resolveRung, tripwires, applyFlowPolicy, buildStretchBrief, runConversation, recordUserMessage, makeStretchEventTee, shouldPauseForApproval, approvalState, TRIPWIRE_NO_PROGRESS, TRIPWIRE_TEST_FAILS } from "../fittings/seed/http-gateway/scripts/lib/stretch.mjs";
+import { resolveRung, tripwires, applyFlowPolicy, buildStretchBrief, runConversation, runStretch, recordUserMessage, makeStretchEventTee, shouldPauseForApproval, approvalState, TRIPWIRE_NO_PROGRESS, TRIPWIRE_TEST_FAILS } from "../fittings/seed/http-gateway/scripts/lib/stretch.mjs";
+// @ts-ignore — the same pure override validator used by the real gateway
+import { applyTurnOverride } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 
 let tmp: string;
 let env: Record<string, string>;
@@ -30,6 +32,37 @@ const LADDER = {
   defaultIndex: 1,
   ceilingIndex: 2,
 };
+
+describe("Stop during runtime admission", () => {
+  const route = { targetId: "codex", target: { runtime: "codex", model: "gpt-6-astra" } };
+  it("does not admit a runtime when already stopped", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let admitted = false;
+    const result = await runStretch({ runSecondaryTurn() { admitted = true; } }, {
+      route, brief: "unused", stretchId: "already-stopped", signal: controller.signal,
+    });
+    expect(admitted).toBe(false);
+    expect(result).toMatchObject({ ok: false, stoppedReason: "cancelled" });
+  });
+  it("delivers a Stop that arrives before the adapter registers its control", async () => {
+    const controller = new AbortController();
+    let cancelled = 0;
+    let register!: () => void;
+    const run = runStretch({ runSecondaryTurn(_route: any, _brief: any, options: any) {
+      return new Promise((resolve) => {
+        register = () => options.registerStop(() => {
+          cancelled += 1;
+          resolve({ reply: "", stoppedReason: "cancelled" });
+        });
+      });
+    } }, { route, brief: "unused", stretchId: "starting", signal: controller.signal, timeoutMs: 1000 });
+    controller.abort();
+    register();
+    expect(await run).toMatchObject({ stoppedReason: "cancelled" });
+    expect(cancelled).toBe(1);
+  });
+});
 
 describe("resolveRung", () => {
   it("default → the duty default; sticky floor wins over default", () => {
@@ -107,6 +140,44 @@ describe("tripwires", () => {
 });
 
 describe("applyFlowPolicy", () => {
+  const answer = () => ({ completion: "answer", status: "complete", synthesized: false, blocker: null,
+    nextSteps: { next: "done", why: "The requested prose evaluation is complete", items: [] } });
+
+  it.each(["plan", "review", "validate", "report"])("allows an explicit cardless %s answer to finish without invented runnable evidence", (duty) => {
+    const store = openConversation(`answer-${duty}`, { role: "gateway", env });
+    store.append({ kind: "stretch-started", duty, payload: {} });
+    expect(applyFlowPolicy("done", { store, duty, handoff: answer(), selectedDuties: [duty, "test"] }))
+      .toMatchObject({ next: "done", rewritten: false });
+  });
+
+  it("retains evidence requirements for cards, declared work, implementation and recorded changes", () => {
+    for (const variant of ["card", "work", "implement", "prior-implement", "parked-implement", "edit", "change-finding", "synthesized"]) {
+      const store = openConversation(`answer-guard-${variant}`, { role: "gateway", env });
+      if (variant === "prior-implement") store.append({ kind: "stretch-started", duty: "implement", payload: {} });
+      if (variant === "parked-implement") {
+        store.append({ kind: "stretch-started", duty: "implement", payload: {} });
+        store.append({ kind: "handoff", duty: "implement", payload: { nextSteps: { next: "needs-input" } } });
+      }
+      if (variant === "edit") store.append({ kind: "session-event", payload: { blocks: [{ type: "tool_use", name: "Edit", input: { file_path: "/project/source.ts" } }] } });
+      if (variant === "change-finding") store.append({ kind: "finding", payload: { kind: "change", claim: "Changed the handler" } });
+      const packet = { ...answer(), ...(variant === "work" ? { completion: "work" } : {}), ...(variant === "synthesized" ? { synthesized: true } : {}) };
+      expect(applyFlowPolicy("done", { store, duty: variant === "implement" ? "implement" : "review", handoff: packet,
+        card: variant === "card" ? { id: "card" } : null, selectedDuties: ["review", "test"] }).next, variant).toBe(variant === "implement" ? "review" : "test");
+    }
+  });
+
+  it("permits read-only support and its mandatory handoff, and scopes old work to its settled response", () => {
+    const store = openConversation("answer-read-only", { role: "gateway", env });
+    store.append({ kind: "stretch-started", duty: "implement", payload: {} });
+    store.append({ kind: "handoff", duty: "implement", payload: { nextSteps: { next: "done" } } });
+    store.append({ kind: "stretch-started", duty: "review", payload: {} });
+    store.append({ kind: "session-event", payload: { blocks: [
+      { type: "tool_use", name: "Read", input: { file_path: "/project/source.ts" } },
+      { type: "tool_use", name: "Write", input: JSON.stringify({ file_path: path.join(store.dir, "handoffs/0002.json") }) },
+    ] } });
+    expect(applyFlowPolicy("done", { store, duty: "review", handoff: answer(), selectedDuties: ["review", "test"] }).next).toBe("done");
+  });
+
   it("implement → done is rewritten to review-before-done", () => {
     const store = openConversation("f1", { role: "gateway", env });
     const res = applyFlowPolicy("done", { store, duty: "implement", selectedDuties: ["implement", "adversarial-review", "test"] });
@@ -154,6 +225,8 @@ describe("buildStretchBrief", () => {
     });
     expect(brief).toContain("## Objective");
     expect(brief).toContain("Exit contract (MANDATORY)");
+    expect(brief).toContain('"completion": "work" | "answer"');
+    expect(brief).toContain('A request to\nimplement, fix, deploy or actually run checks is "work"');
     expect(brief).toContain("handoffPath: /x/conversations/c1/handoffs/0003.json");
     expect(brief).toContain("Your duty: implement (level 2");
     expect(brief).toContain("please also fix the header");
@@ -242,12 +315,12 @@ function fakeGateway(script: Record<string, (brief: string) => any>, opts: { evi
       };
     },
     async runAgentSdkTurn(route: any, brief: string, _onChunk: any, o: any = {}) {
-      calls.push({ lane: "agent-sdk", duty: route.duty, model: route.target.model, sessionKey: o.sessionKey });
+      calls.push({ lane: "agent-sdk", duty: route.duty, level: route.level, model: route.target.model, effort: route.target.effort, cwd: o.cwd, sessionKey: o.sessionKey });
       const reply = writeHandoffFromBrief(brief, route.duty);
       return { reply, session_id: `sid-${calls.length}`, usedTokens: 111, model: route.target.model };
     },
-    async runSecondaryTurn(route: any, brief: string) {
-      calls.push({ lane: "secondary", duty: route.duty, runtime: route.target.runtime, model: route.target.model });
+    async runSecondaryTurn(route: any, brief: string, o: any = {}) {
+      calls.push({ lane: "secondary", duty: route.duty, level: route.level, runtime: route.target.runtime, model: route.target.model, effort: route.target.effort, cwd: o.cwd });
       const reply = writeHandoffFromBrief(brief, route.duty);
       return { reply, session_id: null, model: route.target.model };
     },
@@ -258,6 +331,52 @@ function fakeGateway(script: Record<string, (brief: string) => any>, opts: { evi
   };
   return { gateway, calls, model };
 }
+
+describe("plain conversation run settings", () => {
+  const finish = () => ({
+    status: "complete", summary: "Answered using the requested run settings", evidenceRefs: [],
+    nextSteps: { next: "needs-input", why: "awaiting the next question", items: [] },
+    blocker: { what: "next question", needs: "user input", who: "user" }, activeConstraints: [],
+    failedApproaches: [], surprises: [], forceEscalation: null, synthesized: false,
+  });
+
+  it("executes a configured target outside the default ladder with the requested duty, effort and cwd", async () => {
+    const { gateway, calls } = fakeGateway({ responder: finish });
+    const project = path.join(tmp, "project");
+    mkdirSync(project);
+    (gateway as any)._applyOverride = (route: any, pins: any) => applyTurnOverride({ targets: [
+      { id: "astra", runtime: "codex", provider: "openai", model: "gpt-6-astra", type: "secondary" },
+    ] }, route, pins, { resolveProject: (name: string) => name === "garrison" ? project : null });
+    const store = openConversation("plain-pins", { role: "gateway", env });
+    recordUserMessage(store, { text: "inspect the project", routing: {
+      duty: "responder", level: 2, target: "astra", effort: "xhigh", project: "garrison",
+    } });
+    const result = await runConversation(gateway as any, { conversationId: "plain-pins", env });
+    expect(result.stretches).toBe(1);
+    expect(calls.find((call) => call.lane)).toMatchObject({
+      lane: "secondary", duty: "responder", level: 2, runtime: "codex", model: "gpt-6-astra", effort: "xhigh", cwd: project,
+    });
+    expect(store.tail(10, { kinds: ["stretch-routing"] })[0].payload).toMatchObject({
+      reason: "turn-override", target: "astra", model: "gpt-6-astra",
+    });
+    expect(store.tail(1, { kinds: ["stretch-started"] })[0].payload).toMatchObject({
+      chosenBy: "pin", target: { id: "astra", model: "gpt-6-astra", effort: "xhigh" }, cwd: project,
+    });
+  });
+
+  it.each([
+    { target: "missing" }, { project: "missing" }, { duty: "missing" }, { effort: "unbounded" }, { level: 0 },
+  ])("refuses invalid pins %j visibly without running a model", async (routing) => {
+    const { gateway, calls } = fakeGateway({ triage: finish });
+    (gateway as any)._applyOverride = (route: any, pins: any) => applyTurnOverride({ targets: [] }, route, pins, { resolveProject: () => null });
+    const store = openConversation("bad-pins", { role: "gateway", env });
+    recordUserMessage(store, { text: "use the requested settings", routing });
+    const result = await runConversation(gateway as any, { conversationId: "bad-pins", env });
+    expect(result).toMatchObject({ stretches: 0, terminal: "needs-input" });
+    expect(calls.filter((call) => call.lane)).toHaveLength(0);
+    expect(store.tail(1, { kinds: ["note"] })[0].payload.text).toContain("The conversation did not start:");
+  });
+});
 
 describe("terminal re-assert — the kick heals a wedged card", () => {
   it("a resumed conversation whose last handoff routed needs-input re-writes the park", async () => {

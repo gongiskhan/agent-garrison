@@ -19,7 +19,8 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { capturesDir, projectKey } from "./store.mjs";
+import { confinedPath, pathId, readRegularText } from "./paths.mjs";
+import { capturesDir, projectKey, writeReport } from "./store.mjs";
 
 export const CAPTURE_SCHEMA_VERSION = 1;
 
@@ -38,16 +39,16 @@ export function testKey({ file, title, project }) {
 }
 
 export function runDir(repo, runId, env = process.env) {
-  return path.join(capturesDir(repo, env), runId);
+  return confinedPath(capturesDir(repo, env), pathId(runId));
 }
 
 export function capturePath(repo, runId, key, env = process.env) {
-  return path.join(runDir(repo, runId, env), `${key}.json`);
+  return confinedPath(runDir(repo, runId, env), `${pathId(key)}.json`);
 }
 
 /** The raw directory the Playwright reporter writes into, before enrichment. */
 export function rawDir(repo, runId, env = process.env) {
-  return path.join(runDir(repo, runId, env), "raw");
+  return confinedPath(runDir(repo, runId, env), "raw");
 }
 
 /**
@@ -154,13 +155,13 @@ export function candidatesEvent(seq, { forSeq, files }) {
 export async function writeCapture(repo, runId, key, capture, env = process.env) {
   const file = capturePath(repo, runId, key, env);
   await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, `${JSON.stringify(capture, null, 2)}\n`, "utf8");
+  await writeReport(file, capture);
   return file;
 }
 
 export async function readCapture(repo, runId, key, env = process.env) {
   try {
-    return JSON.parse(await readFile(capturePath(repo, runId, key, env), "utf8"));
+    return JSON.parse(readRegularText(capturePath(repo, runId, key, env)));
   } catch (err) {
     if (err.code === "ENOENT") return null;
     throw err;

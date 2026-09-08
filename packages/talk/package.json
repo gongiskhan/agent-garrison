@@ -1,0 +1,33 @@
+{
+  "name": "@garrison/talk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Conversations engine: the threaded chat over the gateway (threads, live streams, push, voice, mesh threads) as a host-agnostic Node router plus its React UI. Mounted by the Garrison shell at /talk and /api/*; the web-channel-default fitting is the legacy own-port host of the same code.",
+  "main": "src/router.mjs",
+  "exports": {
+    ".": "./src/router.mjs",
+    "./router": "./src/router.mjs",
+    "./server": "./src/server.mjs",
+    "./threads": "./src/threads.mjs",
+    "./sidebar-state": "./src/sidebar-state.mjs",
+    "./live-event-stream": "./src/live-event-stream.mjs",
+    "./thread-registry": "./src/thread-registry.mjs",
+    "./webpush": "./src/webpush.mjs",
+    "./push-store": "./src/push-store.mjs",
+    "./mesh-threads": "./src/mesh-threads.mjs",
+    "./session-transcript": "./src/session-transcript.mjs",
+    "./tailnet-serve": "./src/tailnet-serve.mjs",
+    "./ui": "./ui/index.tsx",
+    "./ui/styles.css": "./ui/styles.css",
+    "./ui/pwa-assets": "./ui/pwa-assets.mjs"
+  },
+  "peerDependencies": {
+    "@garrison/claude-chat": "*",
+    "@garrison/claude-pty": "*",
+    "@garrison/state-client": "*",
+    "react": "*",
+    "react-dom": "*",
+    "ws": "*"
+  }
+}

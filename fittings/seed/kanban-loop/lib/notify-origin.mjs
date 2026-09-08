@@ -9,8 +9,10 @@
 // Design constraints:
 //   - Fire-and-forget, never throws, never awaited on the save path: feedback
 //     is best-effort; a channel being down must never fail a card write.
-//   - Channel discovery follows the URL-link contract (the fitting's status
-//     file under ~/.garrison/ui-fittings/), never a hardcoded port.
+//   - Channel discovery follows the URL-link contract, never a hardcoded port:
+//     the web channel is the Garrison shell (GARRISON_APP_URL, projected by the
+//     runner), every other channel its own status file under
+//     ~/.garrison/ui-fittings/.
 //   - Transition-edge triggered: fires only when the LIST CHANGES into a
 //     terminal state (done / needs-attention), so repeated saves on a parked
 //     card do not spam the thread.
@@ -67,8 +69,11 @@ function statusFileUrl(fittingId) {
 
 // Channel id -> the fitting whose server accepts the thread-append route
 // (POST /api/threads/:id/messages). Adding a channel means adding its fitting
-// id here (the fitting must expose the same route). omi relays the message to
-// the wearer as an Omi direct notification (falling back to the web-channel
+// id here (the fitting must expose the same route). web is hosted by the
+// Garrison shell (see webChannelBase); its entry names the legacy own-port
+// fitting whose status file is the fallback base, and that id stays the web
+// channel's receipt and skip-list key across both hosts. omi relays the message
+// to the wearer as an Omi direct notification (falling back to the web
 // thread); a card only carries the omi transport when the omi-channel fitting
 // created it, so with that fitting absent or off this entry is inert.
 // slack posts into the originating Slack thread via chat.postMessage with the
@@ -76,6 +81,31 @@ function statusFileUrl(fittingId) {
 // only serves this route while it is running, and it is started by hand (it needs
 // a public tunnel), so with it down this entry is inert like the omi one.
 const CHANNEL_FITTINGS = { web: "web-channel-default", omi: "omi-channel", slack: "slack-channel" };
+
+// The web channel's delivery base. Conversations lives in the Garrison shell,
+// whose loopback base the runner projects into every fitting as GARRISON_APP_URL;
+// its HTTP API is mounted under /api/*, the form every web call in this module
+// already uses. The legacy own-port web-channel fitting's status file is the
+// fallback for a process the runner did not start (a hand-run CLI, a test naming
+// its own GARRISON_HOME). Server-to-server on this box, so loopback is right here.
+function appBaseUrl() {
+  const raw = process.env.GARRISON_APP_URL?.trim();
+  return raw ? raw.replace(/\/+$/, "") : null;
+}
+
+function webChannelBase() {
+  return appBaseUrl() ?? statusFileUrl(CHANNEL_FITTINGS.web);
+}
+
+function channelBase(fittingId) {
+  return fittingId === CHANNEL_FITTINGS.web ? webChannelBase() : statusFileUrl(fittingId);
+}
+
+function missingBaseReason(fittingId) {
+  return fittingId === CHANNEL_FITTINGS.web
+    ? `no web channel base (GARRISON_APP_URL unset, ${fittingId} not running)`
+    : `${fittingId} is not running`;
+}
 
 
 // ---- multi-channel fan-out -------------------------------------------------
@@ -91,6 +121,14 @@ const CHANNEL_FITTINGS = { web: "web-channel-default", omi: "omi-channel", slack
 // that do not simply 404 and are skipped. A new channel Fitting is reachable
 // the moment it implements POST /notify, with no change here.
 //
+// The one target that is not an own-port fitting is the web channel: the shell
+// hosts Conversations, so when the runner projected GARRISON_APP_URL the app is
+// a fan-out target at its /api/notify route, and any ui-fittings entry named
+// web-channel* is dropped - a still-running legacy web-channel fitting shares
+// the app's thread store and push subscriptions, so notifying both would land
+// twice on the same surface. Without GARRISON_APP_URL the status-file scan is
+// the whole story.
+//
 // Cost: a handful of 404s per reminder against non-channel fittings. That is
 // cheaper than the failure mode it replaces (a channel silently never used).
 // A test process must never reach a LIVE fitting. On 2026-08-18 a vitest run
@@ -99,20 +137,32 @@ const CHANNEL_FITTINGS = { web: "web-channel-default", omi: "omi-channel", slack
 // back to the REAL ~/.garrison when GARRISON_HOME is unset, and ~30 real push
 // notifications landed on the user's phone. Discovery is the one chokepoint
 // every outbound ack and notification passes through, so the guard lives
-// here: under a test runner there are no running fittings, full stop.
+// here: under a test runner there are no running fittings, full stop, and the
+// app entry rides on the same guard.
 // The guard is on the FALLBACK, not on tests as such: a test that names its
 // own GARRISON_HOME is exercising this discovery honestly and must keep
 // working. What must never happen is a test process silently inheriting the
-// real home and finding the live fittings behind it.
+// real home and finding the live fittings behind it. An inherited
+// GARRISON_APP_URL is the same silent road to a live surface and this guard
+// does not see it once a home is named (the suite setup names one for every
+// test), so the test suite must clear that variable the way it clears
+// GARRISON_STATE_URL.
 function underTestRunner() {
   return Boolean(process.env.VITEST || process.env.VITEST_WORKER_ID) || process.env.NODE_ENV === "test";
 }
 
+// The home discovery reads from; null when a test runner would otherwise
+// inherit the real one.
+function discoveryHome() {
+  const explicitHome = process.env.GARRISON_HOME?.trim();
+  if (!explicitHome && underTestRunner()) return null;
+  return explicitHome || path.join(os.homedir(), ".garrison");
+}
+
 function runningFittingBases() {
   try {
-    const explicitHome = process.env.GARRISON_HOME?.trim();
-    if (!explicitHome && underTestRunner()) return [];
-    const home = explicitHome || path.join(os.homedir(), ".garrison");
+    const home = discoveryHome();
+    if (!home) return [];
     const dir = path.join(home, "ui-fittings");
     if (!existsSync(dir)) return [];
     return readdirSync(dir)
@@ -127,8 +177,24 @@ function runningFittingBases() {
   }
 }
 
+// Every notify target of one fan-out, each with the exact URL to POST. Own-port
+// fittings take the bare /notify the channel contract names (slack-channel and
+// capture-service serve only that form); the app takes /api/notify, the form
+// its catch-all mounts. The app entry rides under the web channel's id so a
+// caller's skip list and the receipts keep one name for that surface whichever
+// host serves it.
+function notifyTargets() {
+  if (!discoveryHome()) return [];
+  const app = appBaseUrl();
+  const fittings = runningFittingBases()
+    .filter(({ id }) => !(app && id.startsWith("web-channel")))
+    .map(({ id, base }) => ({ id, url: `${base}/notify` }));
+  return app ? [{ id: CHANNEL_FITTINGS.web, url: `${app}/api/notify` }, ...fittings] : fittings;
+}
+
 /**
- * POST the channel notify contract to every running fitting that accepts it.
+ * POST the channel notify contract to every target that accepts it: the shell's
+ * Conversations engine plus every running own-port fitting (see notifyTargets).
  * `skipFittingIds` avoids double-delivering to a channel the caller already
  * reached through the origin chain.
  */
@@ -147,11 +213,11 @@ export async function fanOutNotification(
   });
   const results = [];
   await Promise.all(
-    runningFittingBases()
+    notifyTargets()
       .filter((e) => !skip.has(e.id))
-      .map(async ({ id, base }) => {
+      .map(async ({ id, url }) => {
         try {
-          const res = await fetchImpl(`${base}/notify`, {
+          const res = await fetchImpl(url, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({ title, text: reachableText, actions: reachableActions, link: reachableLink, tag, idempotencyKey }),
@@ -251,7 +317,7 @@ export function terminalTransition(prev, next) {
   return (prev?.list ?? null) !== next.list;
 }
 
-// Fire-and-forget: resolve the channel fitting, POST the outcome to its thread
+// Fire-and-forget: resolve the channel's base, POST the outcome to its thread
 // notify endpoint. Every failure path is swallowed (logged to stderr once) —
 // the card write must never depend on a channel being up.
 export function notifyOriginTransition(prev, next) {
@@ -259,7 +325,7 @@ export function notifyOriginTransition(prev, next) {
     if (!terminalTransition(prev, next)) return;
     const fittingId = CHANNEL_FITTINGS[String(next.originChannel.channel).toLowerCase()];
     if (!fittingId) return;
-    const base = statusFileUrl(fittingId);
+    const base = channelBase(fittingId);
     if (!base) return;
     const text = outcomeMessage(next);
     void (async () => {
@@ -405,14 +471,14 @@ export function routeBrief(root, card, { brief, gate } = {}) {
   });
 }
 
-// Fire-and-forget POST of an assistant message to a channel fitting's thread
-// (the shared thread-append contract). Extracted so every channel-transport
-// delivery uses one path; the channel id picks the fitting via CHANNEL_FITTINGS.
+// Fire-and-forget POST of an assistant message to a channel's thread (the shared
+// thread-append contract). Extracted so every channel-transport delivery uses
+// one path; the channel id picks the host via CHANNEL_FITTINGS + channelBase.
 async function postChannelMessage(channel, threadId, text, { idempotencyKey = null, fetchImpl = fetch, serveMap = null } = {}) {
   const fittingId = CHANNEL_FITTINGS[channel];
   if (!fittingId || !threadId || !text) return { ok: false, channel, fittingId, reason: "invalid channel message" };
-  const base = statusFileUrl(fittingId);
-  if (!base) return { ok: false, channel, fittingId, reason: `${fittingId} is not running` };
+  const base = channelBase(fittingId);
+  if (!base) return { ok: false, channel, fittingId, reason: missingBaseReason(fittingId) };
   const { text: reachableText } = await tailnetForChannel({ text, serveMap });
   try {
     const response = await fetchImpl(`${base}/api/threads/${encodeURIComponent(threadId)}/messages`, {
@@ -440,7 +506,7 @@ function deliverChannelMessage(channel, threadId, text) {
 
 // Board-level notice (the weekly review) — not tied to any card or origin, so it
 // cannot ride routeOriginEvent. Reuses the same transport: resolve the web channel
-// via its status file, ensure a fixed well-known thread, post the text there.
+// base (webChannelBase), ensure a fixed well-known thread, post the text there.
 // Awaitable so a CLI caller can finish delivery before exiting, but never throws;
 // resolves false when the channel is down (the report file + stdout still land).
 const BOARD_NOTICE_THREAD = "kanban-board-review";
@@ -448,7 +514,7 @@ const BOARD_NOTICE_THREAD = "kanban-board-review";
 export async function deliverBoardNotice(title, text, { idempotencyKey = null, fetchImpl = fetch } = {}) {
   try {
     if (!text) return false;
-    const base = statusFileUrl(CHANNEL_FITTINGS.web);
+    const base = webChannelBase();
     if (!base) return false;
     const ensured = await fetchImpl(`${base}/api/threads`, {
       method: "POST",

@@ -1,0 +1,32 @@
+# G1 live routes on http://127.0.0.1:8777, 2026-09-02T00:58:45Z, 4bc970a7
+
+## GET /talk (shell route)
+HTTP 200  content-type=text/html; charset=utf-8  bytes=16087
+<title>Conversations - Garrison · goncalos-macbook-pro</title>
+
+## GET /api/threads (talk engine through src/app/api/[[...path]])
+HTTP 200  content-type=application/json
+threads: 6 (ids and titles withheld)
+
+## GET /api/session-stream?session=g1-probe-no-such-session (SSE via the catch-all)
+HTTP/1.1 200 OK
+vary: RSC, Next-Router-State-Tree, Next-Router-Prefetch
+cache-control: no-cache, no-transform
+connection: keep-alive
+content-type: text/event-stream
+x-accel-buffering: no
+Date: Wed, 02 Sep 2026 00:58:45 GMT
+Transfer-Encoding: chunked
+
+data: {"type":"init","available":false,"live":false,"events":[]}
+
+data: {"type":"end"}
+
+## GET /api/health
+{"ok":true,"port":8777,"pid":58122,"host":"127.0.0.1"}
+
+## legacy own-port host status file
+~/.garrison/ui-fittings/web-channel-default.json: absent (unstationed; nothing spawned it)
+
+## /talk in the sidebar manifest (manifest.webmanifest)
+['/talk']

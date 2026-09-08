@@ -1,15 +1,59 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, utimesSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, utimesSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 // @ts-ignore — pure .mjs
 import { findDuplicateNotes, scanRelativeDates, selectStaleCheckpoints, buildDreamProposals, runDreamPhase } from "../fittings/seed/improver/lib/memory-dream.mjs";
 // @ts-ignore — pure .mjs
-import { computeDream } from "../fittings/seed/improver/scripts/improver.mjs";
+import { computeDream, makeBasicMemoryRunner } from "../fittings/seed/improver/scripts/improver.mjs";
 
 const NOW = "2026-06-20T12:00:00Z";
 const DAY = 24 * 60 * 60 * 1000;
+
+describe("dream — shared authority CLI", () => {
+  it("runs real reindex and doctor children through the enrolled authority despite fitting isolation", async () => {
+    const home = mkdtempSync(join(tmpdir(), "dream-authority-"));
+    try {
+      const config = join(home, "continuity.json");
+      const capture = join(home, "calls.jsonl");
+      const leaf = join(home, "memory.mjs");
+      writeFileSync(leaf, `import fs from 'node:fs'; fs.appendFileSync(${JSON.stringify(capture)},JSON.stringify({args:process.argv.slice(2),configDir:process.env.BASIC_MEMORY_CONFIG_DIR})+'\\n');`);
+      writeFileSync(config, JSON.stringify({ version: 1, bridge_command: ["python3", join(__dirname, "../scripts/agent-continuity.py")],
+        basic_memory_command: [process.execPath, leaf], basic_memory_config_dir: join(home, "shared") }));
+      const run = makeBasicMemoryRunner({ userHome: home, env: { ...process.env, GARRISON_AGENT_CONTINUITY_CONFIG: config,
+        BASIC_MEMORY_CONFIG_DIR: join(home, "isolated"), XDG_CONFIG_HOME: join(home, "xdg") } });
+      expect(await run({ cmd: "basic-memory", args: ["reindex"] })).toEqual({ ok: true });
+      expect(await run({ cmd: "basic-memory", args: ["doctor"] })).toEqual({ ok: true });
+      expect(readFileSync(capture, "utf8").trim().split("\n").map((line) => JSON.parse(line))).toEqual([
+        { args: ["reindex"], configDir: join(home, "shared") }, { args: ["doctor"], configDir: join(home, "shared") },
+      ]);
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+
+  it("preserves unenrolled behavior, keeps SSH selection inside the bridge and refuses broken enrollment", async () => {
+    const home = mkdtempSync(join(tmpdir(), "dream-enrollment-"));
+    const calls: any[] = [];
+    const execute = (...args: any[]) => { calls.push(args); };
+    try {
+      const legacy = makeBasicMemoryRunner({ userHome: home, env: {}, execute });
+      expect(await legacy({ cmd: "basic-memory", args: ["doctor"] })).toEqual({ ok: true });
+      expect(calls.pop().slice(0, 2)).toEqual(["basic-memory", ["doctor"]]);
+      const config = join(home, "explicit.json");
+      const registered = makeBasicMemoryRunner({ userHome: home, env: { GARRISON_AGENT_CONTINUITY_CONFIG: config }, execute });
+      expect(await registered({ cmd: "basic-memory", args: ["doctor"] })).toEqual({ ok: false });
+      for (const value of ["{", "null", JSON.stringify({ version: 1, bridge_command: [] })]) {
+        writeFileSync(config, value);
+        expect(await registered({ cmd: "basic-memory", args: ["doctor"] })).toEqual({ ok: false });
+      }
+      expect(calls).toEqual([]);
+      writeFileSync(config, JSON.stringify({ version: 1, bridge_command: ["python3", "/installed/agent-continuity.py"], ssh_host: "memory-authority" }));
+      expect(await registered({ cmd: "basic-memory", args: ["doctor", "literal; $(argument)"] })).toEqual({ ok: true });
+      expect(calls.pop().slice(0, 2)).toEqual(["python3", ["/installed/agent-continuity.py", "--config", config, "memory-cli", "--", "doctor", "literal; $(argument)"]]);
+      expect(makeBasicMemoryRunner({ env: { IMPROVER_DREAM_NO_INDEX: "1" } })).toBeNull();
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+});
 
 describe("dream — pure scans", () => {
   it("findDuplicateNotes groups same-title and near-identical-content notes", () => {

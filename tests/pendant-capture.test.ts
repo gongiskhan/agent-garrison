@@ -500,6 +500,12 @@ describe("pendant capture path", () => {
     const closing = session.feedback.find((e: any) => e.name === "window_closed");
     expect(closing?.empty).toBe(true);
     expect(closing?.speak ?? null).toBeNull();
+
+    // ...and the microphone stays open (D61). The line means "say it again", so
+    // the phone's spoken receipt arms a window and the repeat needs no second
+    // "Zeca". This is the server wiring, not the bus's: the notifier used to
+    // arm only on a trailing "?" and to disqualify anything speakOnly.
+    await waitFor(() => (handle.counters.read().wake_followup_windows_armed ?? 0) >= 1, 8000);
     session.ws.close();
   });
 
@@ -538,10 +544,15 @@ describe("pendant capture path", () => {
 
     const pendant = await streamPendant(base, "01PENDANTSESSION1", 8);
     await waitFor(() => (handle.counters.read().wake_screen_fused ?? 0) === 1, 10000);
+    // The counter bumps when the frame is fused, BEFORE the delegate runs: the
+    // operative turn is deliberately deferred until the ack has left (wake.mjs,
+    // `after`). Wait for the request itself, not for the moment it was decided.
+    const isOperative = (r: any) => !String(r.body.message).includes("spoken wake-word command");
+    await waitFor(() => gw.requests.some(isOperative), 10000);
 
     // The operative prompt names the SCREEN session's frame while the turn
     // belongs to the PENDANT session. That single fact is the whole feature.
-    const operative = gw.requests.find((r: any) => !String(r.body.message).includes("spoken wake-word command"));
+    const operative = gw.requests.find(isOperative);
     expect(operative).toBeTruthy();
     expect(String(operative.body.message)).toContain("01SCREENSESSION01");
     expect(String(operative.body.message)).toContain("AT THE MOMENT THEY SPOKE");

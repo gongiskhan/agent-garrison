@@ -14,7 +14,10 @@
 
 import { atomicWriteJSON, ulid } from "./store.mjs";
 import { detectLanguage, isLanguage, t } from "./lang.mjs";
+import { awaitConversationReply, DEFAULT_REPLY_DUTIES } from "./conversation-reply.mjs";
+import { normalizeTokens } from "./echo-guard.mjs";
 import path from "node:path";
+import { readFileSync } from "node:fs";
 
 const SESSION_IDLE_GC_MS = 10 * 60 * 1000;
 
@@ -664,8 +667,62 @@ export const OMI_WAKE_SOURCE = {
   logPrefix: "omi-channel"
 };
 
+// The active-conversation window (D25). A delegate reply comes back with the
+// gateway session that produced it; for a while afterwards the next spoken
+// request belongs to THAT conversation, not to a fresh one keyed on whichever
+// capture session happened to carry the words - a reconnect, or the same
+// person speaking through another source, must not lose the thread. Two
+// inputs, one answer:
+//
+//   - the explicit pin: a client (the app's Conversation screen) names the
+//     gateway session the user is looking at; it wins over everything for one
+//     window from the moment it was set;
+//   - the bus's own last reply {sessionId, at}, resumed while it is younger
+//     than the window.
+//
+// One instance is shared by every bus in the process (the pin is global; each
+// bus keeps its own last reply). Process memory only - a restart forgets it,
+// which is the honest thing, because the gateway it pointed at restarted too.
+export class ActiveConversation {
+  constructor({ windowMs = 300000, now = () => Date.now() } = {}) {
+    this.windowMs = Math.max(0, Number(windowMs) || 0);
+    this.now = now;
+    this.pinned = null; // { sessionId, until }
+  }
+
+  pin(sessionId) {
+    const id = String(sessionId ?? "").trim();
+    if (!id) return null;
+    this.pinned = { sessionId: id, until: this.now() + this.windowMs };
+    return this.current();
+  }
+
+  clear() {
+    this.pinned = null;
+  }
+
+  // The pin as a client sees it: expired pins read as none.
+  current() {
+    if (this.pinned && this.pinned.until <= this.now()) this.pinned = null;
+    return this.pinned
+      ? { session_id: this.pinned.sessionId, until: new Date(this.pinned.until).toISOString() }
+      : { session_id: null, until: null };
+  }
+
+  // Which gateway session a bus should resume, given the bus's own last reply:
+  // { sessionId, via: "pin" | "window" } or null for "start from the key".
+  resumeFor(last) {
+    const pin = this.current();
+    if (pin.session_id) return { sessionId: pin.session_id, via: "pin" };
+    if (last?.sessionId && this.windowMs > 0 && this.now() - last.at < this.windowMs) {
+      return { sessionId: last.sessionId, via: "window" };
+    }
+    return null;
+  }
+}
+
 export class WakeBus {
-  constructor({ cfg, store, counters, runFn, operativeFn = null, board, memoryWriter, notifier, log = console, now = () => Date.now(), source = OMI_WAKE_SOURCE, onLifecycle = null, language = null, speakFn = null, discussFn = null, connectorFn = null, cortexFn = null, screenContextFn = null }) {
+  constructor({ cfg, store, counters, runFn, operativeFn = null, board, memoryWriter, notifier, log = console, now = () => Date.now(), source = OMI_WAKE_SOURCE, onLifecycle = null, language = null, speakFn = null, discussFn = null, connectorFn = null, cortexFn = null, screenContextFn = null, activeConversation = null, conversationFn = null, conversationWaitFn = null, conversationTurnFn = null, screenFramesFn = null, fetchImpl = globalThis.fetch }) {
     this.cfg = cfg;
     this.store = store;
     this.counters = counters;
@@ -692,6 +749,22 @@ export class WakeBus {
     // Resolves the phone screen the user was looking at. Null for omi, which
     // has no broadcast lane - every screen branch below is then unreachable.
     this.screenContextFn = screenContextFn;
+    // The conversation a capture session was started FROM (the REC button in
+    // a conversation's composer), and the door that posts a user turn into it.
+    // Both null for omi and the pendant, whose sessions belong to no
+    // conversation - every conversation branch below is then unreachable.
+    // `screenFramesFn` widens the single screen still to the moments before it.
+    this.conversationFn = conversationFn;
+    // The same resolve, allowed to wait one bounded fetch. Used at dispatch
+    // only: the wake hit needs its answer synchronously.
+    this.conversationWaitFn = conversationWaitFn;
+    this.conversationTurnFn = conversationTurnFn;
+    this.screenFramesFn = screenFramesFn;
+    // The active-conversation window (D25), shared across the buses in a
+    // process. Null keeps the deterministic per-capture-session key, which is
+    // exactly what omi-channel's copy of this module does.
+    this.activeConversation = activeConversation;
+    this.lastDelegate = null; // { sessionId, at } of the last reply, this bus only
     this.discussions = new Map(); // sessionId -> discussion state
     // Open clarifying-question windows: Zeca asked something and the NEXT
     // utterance - no wake word - is the answer. sessionId -> window.
@@ -711,6 +784,122 @@ export class WakeBus {
     this.dispatchChain = Promise.resolve();
     this.recentCards = new Map(); // dedupeKey -> created-at ms (in memory)
     this.revisions = new Map(); // sessionId -> pending revision watch (in memory)
+    // D56: the answer to a spoken conversation turn is watched for in the
+    // ledger and pushed/spoken back. One watch per turn, independent of the
+    // delegate chain (a second wake hit must not wait minutes for the first
+    // answer); `announcedReplies` keeps two watches on one conversation from
+    // announcing the same stretch twice.
+    this.fetchImpl = fetchImpl;
+    this.replyWatches = new Set();
+    this.announcedReplies = new Map(); // conversationId -> Set<stretchId>
+    // conversationId -> { promise, eventIds } - see trackReplyWatch.
+    this.replyWatchByConversation = new Map();
+  }
+
+  // Tests await this so the deferred reply watch has settled.
+  settleReplyWatches() {
+    return Promise.all([...this.replyWatches]);
+  }
+
+  // One watch per CONVERSATION, not per turn (D62). The standing Zeca
+  // conversation takes every spoken sentence, so three sentences used to start
+  // three watchers on one ledger; each found the same stretch and each spoke it,
+  // and the user heard the same answer three times. A turn that arrives while a
+  // watch is already running joins it - it still gets its `reply` block in the
+  // wake-result, it just does not open a second mouth.
+  trackReplyWatch(args) {
+    const key = args?.conversationId ?? null;
+    const joined = key ? this.replyWatchByConversation.get(key) : null;
+    if (joined) {
+      if (args?.eventId) joined.eventIds.add(args.eventId);
+      this.counters.bump("wake_reply_watches_joined");
+      return joined.promise;
+    }
+    const eventIds = new Set(args?.eventId ? [args.eventId] : []);
+    const watch = this.watchConversationReply({ ...args, eventIds }).catch((err) => {
+      this.log.error(`[${this.source.logPrefix}] wake reply watch error: ${err?.message ?? err}`);
+      return null;
+    });
+    this.replyWatches.add(watch);
+    if (key) this.replyWatchByConversation.set(key, { promise: watch, eventIds });
+    watch.finally(() => {
+      this.replyWatches.delete(watch);
+      if (key) this.replyWatchByConversation.delete(key);
+    });
+    return watch;
+  }
+
+  // Waits for the operative's answer to the turn posted by conversationTurn and
+  // hands it to the notifier as `conversation_reply`: spoken first when a mic or
+  // pendant session is live (the speak-first notifier wrapped around this bus),
+  // a push otherwise - the phone owner is in another app and the old companion
+  // never left them without the answer. The reply is also appended to the
+  // wake-results record so the exchange reads back whole.
+  async watchConversationReply({ conversationId, eventId, sessionId = null, lang = "en", base, fromIndex, eventIds = null }) {
+    const announced = this.announcedReplies.get(conversationId) ?? new Set();
+    this.announcedReplies.set(conversationId, announced);
+    if (this.announcedReplies.size > 50) this.announcedReplies.delete(this.announcedReplies.keys().next().value);
+    const startedAt = this.now();
+    const duties = Array.isArray(this.cfg.wakeReplyDuties) && this.cfg.wakeReplyDuties.length > 0 ? this.cfg.wakeReplyDuties : DEFAULT_REPLY_DUTIES;
+    const timeoutMs = this.cfg.wakeReplyTimeoutMs ?? 300000;
+    const reply = await awaitConversationReply({
+      base,
+      conversationId,
+      fromIndex,
+      fetchImpl: this.fetchImpl,
+      duties,
+      timeoutMs,
+      ...(typeof this.cfg.wakeReplyPollMs === "number" ? { pollMs: this.cfg.wakeReplyPollMs } : {}),
+      isFresh: (stretchId) => !announced.has(stretchId),
+      // Test and take in one tick: an async gap between the two is how three
+      // watchers announced one stretch.
+      claim: (stretchId) => {
+        if (announced.has(stretchId)) return false;
+        announced.add(stretchId);
+        if (announced.size > 200) announced.delete(announced.values().next().value);
+        return true;
+      },
+      now: this.now
+    });
+    if (!reply) {
+      this.counters.bump("wake_conversation_reply_timeouts");
+      this.log.log(`[${this.source.logPrefix}] wake reply ${eventId}: no ${duties.join("/")} answer in ${conversationId} within ${Math.round(timeoutMs / 1000)}s`);
+      return null;
+    }
+    this.counters.bump("wake_conversation_replies");
+    this.counters.observe("wake_conversation_reply_ms", this.now() - startedAt);
+    const receipts = await this.notifier.send({
+      template: "conversation_reply",
+      params: {
+        text: reply.text,
+        path: `/talk/${encodeURIComponent(conversationId)}`,
+        lang,
+        sessionId,
+        eventId,
+        conversationId,
+        duty: reply.duty ?? null
+      }
+    });
+    const delivery = receipts.some((r) => r?.means === "companion-speech" && r?.ok)
+      ? "spoken"
+      : receipts.some((r) => r?.means === "companion-push" && r?.ok)
+        ? "push"
+        : "undelivered";
+    this.log.log(`[${this.source.logPrefix}] wake reply ${eventId} -> ${reply.duty ?? "?"} (${reply.text.length} chars, ${delivery})`);
+    // Every turn that joined this watch gets the reply on its own record: one
+    // answer was spoken, and the trail still says which sentences it answered.
+    for (const id of eventIds?.size ? eventIds : [eventId]) {
+      const resultFile = path.join(this.store.root, "wake-results", `${id}.json`);
+      try {
+        const record = JSON.parse(readFileSync(resultFile, "utf8"));
+        record.reply = { text: reply.text, duty: reply.duty ?? null, stretchId: reply.stretchId, at: new Date(this.now()).toISOString(), delivery };
+        atomicWriteJSON(resultFile, record);
+      } catch {
+        // The record is written by dispatch after this turn's confirmation; a
+        // missing one (tests, a reset store) costs the forensic line, not the push.
+      }
+    }
+    return { ...reply, delivery };
   }
 
   emitLifecycle(name, payload) {
@@ -872,7 +1061,7 @@ export class WakeBus {
   // Registered by the capture-service's speak-first notifier; omi-channel has
   // no speak lane and therefore never opens one - the mirror stays inert.
 
-  expectAnswer(sessionId, ackId, { lang = "en", rounds = 0, eventId = null } = {}) {
+  expectAnswer(sessionId, ackId, { lang = "en", rounds = 0, eventId = null, reprompt = false, spoken = null } = {}) {
     if (!sessionId || !ackId) return;
     // Only the bus that actually owns this session may open a window. The
     // capture-service runs two (companion + pendant) and registers on both,
@@ -884,14 +1073,17 @@ export class WakeBus {
       this.counters.bump("wake_followup_rounds_capped");
       return;
     }
-    this.answers.set(sessionId, { ackId, lang, rounds, eventId, armed: false, expiresAt: 0 });
+    this.answers.set(sessionId, { ackId, lang, rounds, eventId, reprompt, spoken, armed: false, expiresAt: 0 });
   }
 
   armAnswerWindow(ackId) {
     for (const [sessionId, w] of this.answers) {
       if (w.ackId !== ackId || w.armed) continue;
       w.armed = true;
-      w.expiresAt = this.now() + (this.cfg.wakeFollowupWindowMs ?? 12000);
+      // A re-prompt window is wider than a clarification one: the user has to
+      // realise they were not understood, think, and say the whole thing again,
+      // where answering a question is a reflex.
+      w.expiresAt = this.now() + (w.reprompt ? (this.cfg.wakeRepromptWindowMs ?? 20000) : (this.cfg.wakeFollowupWindowMs ?? 12000));
       this.counters.bump("wake_followup_windows_armed");
       return sessionId;
     }
@@ -907,6 +1099,26 @@ export class WakeBus {
       return null;
     }
     return w;
+  }
+
+  // -> true when this segment is nothing but words from the line Zeca just
+  // spoke. Deliberately strict (every token must appear in the spoken line, and
+  // a segment as long as the line itself is not a repeat of it): a wearer who
+  // really says "repete" is one token away from being ignored, and eating a
+  // real repeat is worse than answering one echo.
+  isSpokenEcho(text, spoken) {
+    if (!spoken) return false;
+    const said = normalizeTokens(text);
+    if (said.length === 0) return true;
+    const line = new Set(normalizeTokens(spoken));
+    if (line.size === 0) return false;
+    if (said.length > line.size) return false;
+    // Containment, not equality: the microphone hears the line through a
+    // speaker and Deepgram re-renders it - "Não percebi - repete?" came back as
+    // "Não percebi, repito." and, one token off a strict subset, was dispatched
+    // as if the user had said it. Two thirds of a short line is our own voice.
+    const hits = said.filter((tok) => line.has(tok)).length;
+    return hits / said.length >= 0.6;
   }
 
   // ---- spoken discussions --------------------------------------------------
@@ -1077,10 +1289,47 @@ export class WakeBus {
         // still wins - saying the name is always a fresh start.
         const answerWindow = this.openAnswerWindow(sessionId);
         if (answerWindow && !this.regex.test(text)) {
+          // Our own "didn't catch that" coming back through the mic must not be
+          // read as the repeat. The echo guard's containment lane cannot help
+          // here: the line is short and arrives in one- and two-token
+          // fragments, under its floor. A segment made only of words the line
+          // itself contains is the line, so leave the window open for the
+          // wearer, who has not spoken yet.
+          if (answerWindow.reprompt && this.isSpokenEcho(text, answerWindow.spoken)) {
+            this.counters.bump("wake_reprompt_echo_ignored");
+            continue;
+          }
           this.answers.delete(sessionId);
           this.counters.bump("wake_followup_answers");
           this.emitLifecycle("segment_captured", { sessionId, at: this.now() });
           const answer = text.trim();
+          // Two different windows share this seat. A clarification window was
+          // opened by a question the operative asked, so its answer belongs to
+          // that turn. A re-prompt window was opened because nothing was
+          // understood, so what follows is the ORIGINAL command said again -
+          // it goes through the ordinary command lane (classifier, conversation
+          // turn, card, note) exactly as if the wake word had preceded it.
+          if (answerWindow.reprompt) {
+            this.counters.bump("wake_reprompt_answers");
+            const s2 = this.sessions.get(sessionId);
+            if (s2) s2.repromptRounds = answerWindow.rounds + 1;
+            this.dispatchChain = this.dispatchChain
+              .then(() =>
+                this.dispatch({
+                  sessionId,
+                  command: answer,
+                  wakeHitAt: this.now(),
+                  reason: "reprompt",
+                  context: [],
+                  trailing: "",
+                  screen: this.screenContextFn?.({ sessionId, atMs: this.now() }) ?? null,
+                  conversationId: this.conversationFn?.(sessionId) ?? null,
+                  repromptRounds: answerWindow.rounds + 1
+                })
+              )
+              .catch((err) => this.log.error(`[${this.source.logPrefix}] wake reprompt error: ${err?.message ?? err}`));
+            continue;
+          }
           this.delegateChain = (this.delegateChain ?? Promise.resolve())
             .then(() =>
               this.runDelegate({
@@ -1144,7 +1393,16 @@ export class WakeBus {
         if (s.contextUsed.length > 0) this.counters.bump("wake_context_used");
         s.wakeHitAt = this.now();
         s.screen = this.screenContextFn?.({ sessionId, atMs: s.wakeHitAt }) ?? null;
-        this.emitLifecycle("wake_detected", { sessionId, at: s.wakeHitAt });
+        // Bound NOW, not at dispatch: the capture window plus the command take
+        // long enough that the user has often stopped the broadcast by then,
+        // and a stopped session is gone from the ingress. Resolving late made
+        // a REC wake hit fall through to the classifier and become a card.
+        s.conversationId = this.conversationFn?.(sessionId) ?? null;
+        // Saying the name is a fresh start, so the re-prompt cap starts over
+        // with it. The cap only exists to stop Zeca and the wearer trading
+        // "didn't catch that" forever inside ONE attempt.
+        s.repromptRounds = 0;
+        this.emitLifecycle("wake_detected", { sessionId, at: s.wakeHitAt, conversationId: s.conversationId });
         const after = text.slice(m.index + m[0].length).replace(/^[\s,.:;!?-]+/u, "").trim();
         if (after) s.parts.push({ text: after, at: s.wakeHitAt });
         // Only a wake segment that itself carries a complete command settles
@@ -1241,9 +1499,11 @@ export class WakeBus {
     const context = s.contextUsed;
     // Pinned at the wake hit and cleared with the rest of the capture state.
     const screen = s.screen;
+    const conversationId = s.conversationId ?? null;
     s.parts = [];
     s.contextUsed = [];
     s.screen = null;
+    s.conversationId = null;
     // `empty` rides the event so the closing cue can stay honest: promising
     // "Deixa comigo." and then admitting you heard nothing is worse than one
     // clean "Não percebi".
@@ -1267,6 +1527,12 @@ export class WakeBus {
       // speak-only: an unheard capture is not worth a banner.
       if (this.cfg.wakeUnheardEnabled) {
         this.counters.bump("wake_unheard_spoken");
+        // ...and keep listening. Telling the wearer you did not catch it and
+        // then closing the mic makes them say the name again for no reason:
+        // the line IS the invitation to repeat, so it opens a window the way a
+        // question does. `reprompt` says so explicitly - the notifier used to
+        // infer it from a trailing "?", which this line only has by accident
+        // and the unknown-intent line does not have at all.
         void this.notifier
           .send({
             template: "wake_confirmation",
@@ -1274,7 +1540,9 @@ export class WakeBus {
               text: t("wake.unheard", {}, this.resolveLanguage("")),
               lang: this.resolveLanguage(""),
               sessionId,
-              speakOnly: true
+              speakOnly: true,
+              reprompt: true,
+              followupRounds: s.repromptRounds ?? 0
             }
           })
           .catch(() => []);
@@ -1282,12 +1550,12 @@ export class WakeBus {
       return this.dispatchChain;
     }
     this.dispatchChain = this.dispatchChain
-      .then(() => this.dispatch({ sessionId, command, wakeHitAt, reason, context, trailing, screen }))
+      .then(() => this.dispatch({ sessionId, command, wakeHitAt, reason, context, trailing, screen, conversationId }))
       .catch((err) => this.log.error(`[${this.source.logPrefix}] wake dispatch error: ${err?.message ?? err}`));
     return this.dispatchChain;
   }
 
-  async dispatch({ sessionId, command, wakeHitAt, context = [], trailing = "", screen = null }) {
+  async dispatch({ sessionId, command, wakeHitAt, context = [], trailing = "", screen = null, conversationId = null, repromptRounds = 0 }) {
     this.counters.bump("wake_dispatches");
     // The ONLY persistence from the wake bus: the assembled command text.
     const eventId = ulid();
@@ -1322,6 +1590,8 @@ export class WakeBus {
         trailing,
         sessionId,
         screen,
+        wakeHitAt,
+        conversationId,
         onLanguage: (l) => {
           lang = l;
         }
@@ -1362,7 +1632,20 @@ export class WakeBus {
       ? []
       : await this.notifier.send({
           template: "wake_confirmation",
-          params: { text: outcome.confirmation, cardUrl: outcome.cardUrl ?? null, lang, sessionId, eventId }
+          // `path` is the in-app destination the push opens (the conversation a
+          // broadcast wake hit landed in); cardUrl stays the card line.
+          params: {
+            text: outcome.confirmation,
+            cardUrl: outcome.cardUrl ?? null,
+            path: outcome.path ?? null,
+            lang,
+            sessionId,
+            eventId,
+            // An outcome that admits it did not understand keeps the mic open
+            // for the repeat (see close()).
+            reprompt: outcome.reprompt === true,
+            followupRounds: repromptRounds
+          }
         });
     if (!outcome.silent) this.counters.observe("wake_notify_ms", this.now() - commandDoneAt);
     // Persisted AFTER delivery so the record can say HOW it reached the user.
@@ -1404,10 +1687,29 @@ export class WakeBus {
     return { ...outcome, receipts, latencyMs };
   }
 
-  async handleCommand({ command, eventId, context = [], trailing = "", sessionId = null, screen = null, onLanguage = null }) {
+  async handleCommand({ command, eventId, context = [], trailing = "", sessionId = null, screen = null, wakeHitAt = null, conversationId: boundConversationId = null, onLanguage = null }) {
     // Nothing has been classified yet, so the only evidence is the transcript.
     let lang = this.resolveLanguage(command);
     onLanguage?.(lang);
+    // A capture started FROM a conversation (the REC button) is that
+    // conversation's microphone: the words after the wake word are the user's
+    // next turn there, with the screen as it stood when the name was said, and
+    // no classifier in between. Cards, notes and delegation are the lanes for
+    // a wearer with no conversation open. The id was bound at the wake hit
+    // (see handleSegments); the late lookup is only for direct callers.
+    let conversationId = boundConversationId ?? this.conversationFn?.(sessionId) ?? null;
+    // Nothing bound and nothing cached: ask once, and WAIT this time. A
+    // capture-service whose first GET /api/zeca has not landed yet (or landed
+    // on a timeout) otherwise sends every spoken command down the classifier
+    // lane for the rest of its life, with the user watching an empty
+    // conversation and no counter admitting it.
+    if (!conversationId && this.conversationWaitFn) {
+      conversationId = await this.conversationWaitFn(sessionId).catch(() => null);
+    }
+    if (!conversationId && this.conversationTurnFn) this.counters.bump("wake_conversation_unresolved");
+    if (conversationId && this.conversationTurnFn) {
+      return this.conversationTurn({ conversationId, command, eventId, sessionId, screen, wakeHitAt, lang });
+    }
     if (!this.cfg.gatewayUrl || !this.runFn) {
       return this.fallbackNote({
         command,
@@ -1595,6 +1897,7 @@ export class WakeBus {
           return {
             confirmation: this.cfg.wakeUnheardEnabled ? t("wake.unheard", {}, lang) : null,
             silent: !this.cfg.wakeUnheardEnabled,
+            reprompt: true,
             result: { intent: "discarded", reason: "unknown intent, too short to keep" }
           };
         }
@@ -1906,8 +2209,21 @@ export class WakeBus {
       }, progressEveryMs);
       progressTimer.unref?.();
     }
+    // Which gateway session this turn joins. The deterministic per-capture
+    // key ("<prefix>-wake:<capture session>") is the floor: one gateway
+    // session per capture session keeps a follow-up ("send that to Ana too")
+    // attached to the context that produced it. The active-conversation window
+    // sits above it: while the last reply is fresh, or a client pinned a
+    // conversation, the turn resumes THAT gateway session instead, so a
+    // reconnect does not start Zeca over. A follow-up round rides whichever of
+    // the two its parent used, because the parent's reply is what refreshed
+    // the window.
+    const deterministicKey = sessionId ? `${this.source.originPrefix}-wake:${sessionId}` : null;
+    const resume = this.activeConversation?.resumeFor(this.lastDelegate) ?? null;
+    const gatewaySessionId = resume?.sessionId ?? deterministicKey;
+    if (resume) this.counters.bump(resume.via === "pin" ? "wake_delegate_resumed_pin" : "wake_delegate_resumed_window");
     try {
-      const { reply } = await this.operativeFn({
+      const { reply, sessionId: replySessionId = null } = await this.operativeFn({
         // Resolved at call time from the board's status file, exactly like every
         // other board call here - never a baked port. A follow-up rides the SAME
         // gateway session (the sessionId below), so the thin continuation prompt
@@ -1919,11 +2235,15 @@ export class WakeBus {
               screen: screen && !screen.stale ? screen : null,
               lang
             }),
-        // One gateway session per Omi capture session keeps a follow-up request
-        // ("send that to Ana too") attached to the context that produced it.
-        sessionId: sessionId ? `${this.source.originPrefix}-wake:${sessionId}` : null,
+        sessionId: gatewaySessionId,
         sessionTitle: "Omi spoken request"
       });
+      // The gateway names the session that answered; that is what the window
+      // resumes next time. A gateway that returns none leaves the last reply
+      // alone, and the deterministic key keeps doing its job.
+      if (typeof replySessionId === "string" && replySessionId.trim()) {
+        this.lastDelegate = { sessionId: replySessionId.trim(), at: this.now() };
+      }
       text = WakeBus.stripRoutingFooter(reply);
       ok = text.length > 0;
     } catch (err) {
@@ -2115,6 +2435,83 @@ export class WakeBus {
     return words.length === 0;
   }
 
+  // Post the spoken command as a USER turn in the conversation the session was
+  // started from, carrying up to three recent screen stills as attachments
+  // (the same "Attached file" convention the composer's paperclip uses, so
+  // the operative reads them with the tools it already has). Frames are
+  // anchored on the wake hit: what the user was looking at when they said
+  // the name, not whatever is on screen by the time the command finishes.
+  async conversationTurn({ conversationId, command, eventId, sessionId, screen = null, wakeHitAt = null, lang = "en" }) {
+    if (this.isNothingSaid(command)) {
+      this.counters.bump("wake_unrecoverable_captures");
+      return {
+        confirmation: this.cfg.wakeUnheardEnabled ? t("wake.unheard", {}, lang) : null,
+        silent: !this.cfg.wakeUnheardEnabled,
+        reprompt: true,
+        result: { intent: "discarded", reason: "nothing said (conversation)", conversation_id: conversationId }
+      };
+    }
+    const anchor = typeof wakeHitAt === "number" ? wakeHitAt : this.now();
+    let frames = [];
+    try {
+      const recent = this.screenFramesFn?.({ sessionId, atMs: anchor, max: 3 }) ?? null;
+      if (recent && !recent.stale) frames = recent.frames;
+      else if (screen && !screen.stale) frames = [{ seq: screen.seq, file: screen.file, ageMs: screen.ageMs }];
+    } catch (err) {
+      this.log.error(`[${this.source.logPrefix}] screen frames lookup failed: ${err?.message ?? err}`);
+    }
+    let posted;
+    try {
+      posted = await this.conversationTurnFn({ conversationId, command, eventId, sessionId, frames, lang });
+    } catch (err) {
+      posted = { ok: false, reason: err?.message ?? String(err) };
+    }
+    // One retry: the app restarting under a redeploy is the common case, and
+    // turning a spoken sentence into a memory note because of a 502 loses it
+    // from the one place the user is looking.
+    if (!posted?.ok) {
+      this.counters.bump("wake_conversation_turn_retried");
+      try {
+        posted = await this.conversationTurnFn({ conversationId, command, eventId, sessionId, frames, lang });
+      } catch (err) {
+        posted = { ok: false, reason: err?.message ?? String(err) };
+      }
+    }
+    if (!posted?.ok) {
+      this.counters.bump("wake_conversation_turn_failed");
+      return this.fallbackNote({
+        command,
+        eventId,
+        key: "wake.conversation_failed",
+        lang,
+        reason: `conversation turn failed: ${posted?.reason ?? "unknown"}`
+      });
+    }
+    this.counters.bump("wake_conversation_turns");
+    const shown = command.length > 80 ? `${command.slice(0, 77)}...` : command;
+    // The answer comes later, in the conversation; watch for it and push/speak
+    // it back (D56). Runs after the confirmation went out, off the delegate
+    // chain, and never blocks the next wake hit.
+    const canWatch = typeof posted.base === "string" && posted.base && typeof posted.fromIndex === "number";
+    const after = canWatch
+      ? () => {
+          this.trackReplyWatch({ conversationId, eventId, sessionId, lang, base: posted.base, fromIndex: posted.fromIndex });
+        }
+      : null;
+    return {
+      confirmation: t("wake.conversation_sent", { text: shown }, lang),
+      // The push opens the conversation itself; no card was made.
+      path: `/talk/${encodeURIComponent(conversationId)}`,
+      ...(after ? { after } : {}),
+      result: {
+        intent: "conversation_turn",
+        conversation_id: conversationId,
+        frames: frames.map((f) => f.file),
+        input_id: posted.inputId ?? null
+      }
+    };
+  }
+
   fallbackNote({ command, eventId, key, lang = "en", reason }) {
     // An empty capture that nothing could be made of is not a note - it is
     // nothing. The note here IS the command ("content: command"), so an empty
@@ -2140,6 +2537,7 @@ export class WakeBus {
       return {
         confirmation: this.cfg.wakeUnheardEnabled ? t("wake.unheard", {}, lang) : null,
         silent: !this.cfg.wakeUnheardEnabled,
+        reprompt: true,
         result: { intent: "discarded", reason: `nothing said (${reason})` }
       };
     }
@@ -2154,6 +2552,11 @@ export class WakeBus {
       confirmation: written.ok
         ? t(key, {}, lang)
         : t("wake.not_saved", { text: t(key, {}, lang) }, lang),
+      // Saving a note is what Zeca does when it did not understand - so it too
+      // keeps the mic open for a rephrase. The unreachable/not-saved keys are
+      // NOT re-prompts: repeating yourself at a gateway that is down only
+      // wastes the wearer's breath.
+      reprompt: key === "wake.unknown_intent" || key === "wake.unparseable",
       result: { intent: "note_fallback", saved: written.ok, reason }
     };
   }

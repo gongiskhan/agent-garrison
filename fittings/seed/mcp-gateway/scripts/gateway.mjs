@@ -31,6 +31,7 @@ import {
   callRecordImproverFeedback,
   kanbanAvailable,
   callFetchEvidence,
+  callCreateCard,
   callCreateContinuation,
   callPollOriginEvents,
   callScheduleCard,
@@ -123,6 +124,23 @@ async function discoverTools() {
             description: { type: "string", description: "Optional description / the next work to do." }
           },
           required: ["card_id"]
+        }
+      },
+      {
+        name: "garrison_create_card",
+        description:
+          "Put real work on the Kanban board and START it, from a conversation that is not the place to do it. The card opens its own conversation and runs there from triage; this conversation just says it is on the board. Use it for anything that needs building, fixing, investigating or automating - never for a question you can answer, a note, a memory or a reminder. Returns { id, url, started }.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            title: { type: "string", description: "One line naming the work, as the person asked for it." },
+            description: { type: "string", description: "What they actually said, plus anything you know that the work needs." },
+            project: { type: "string", description: "Optional project id when they named one." },
+            list: { type: "string", description: "'todo' (default, starts now) or 'backlog' (for later; not started)." },
+            origin_id: { type: "string", description: "Idempotency key, e.g. 'dialogue:<utterance or turn id>'. The same key returns the existing card instead of a duplicate." },
+            start: { type: "boolean", description: "Default true. False creates the card without running it." }
+          },
+          required: ["title"]
         }
       },
       {
@@ -389,6 +407,7 @@ async function dispatchTool(name, input) {
   if (name === "run_automation") return callRunAutomation(input);
   if (name === "fetch_evidence") return callFetchEvidence(input);
   if (name === "create_continuation") return callCreateContinuation(input);
+  if (name === "garrison_create_card") return callCreateCard(input);
   if (name === "poll_origin_events") return callPollOriginEvents(input);
   if (name === "schedule_card") return callScheduleCard(input);
   if (name === "run_card") return callRunCard(input);

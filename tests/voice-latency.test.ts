@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   LatencyTracker,
   FIRST_AUDIO_BUDGET_MS
-} from "../fittings/seed/web-channel-default/ui/voice-latency";
+} from "../packages/talk/ui/voice-latency";
 
 // S6b / #28 - unit tests for the end-of-speech -> first-audio latency tracker.
 // Pure + host-agnostic: timestamps are injected, so the 2s budget verdict and

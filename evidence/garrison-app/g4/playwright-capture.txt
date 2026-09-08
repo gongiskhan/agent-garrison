@@ -1,0 +1,4 @@
+  ✓  1 [desktop-chromium] › tests/e2e/capture-page.spec.ts:10:5 › capture page: browser sees the fallback and no menu entry (2.4s)
+  ✓  2 [desktop-chromium] › tests/e2e/capture-page.spec.ts:18:5 › capture page: with the native bridge the controls render and the menu lists Capture (1.8s)
+  ✓  3 [mobile] › tests/e2e/capture-page.spec.ts:10:5 › capture page: browser sees the fallback and no menu entry (924ms)
+  ✓  4 [mobile] › tests/e2e/capture-page.spec.ts:18:5 › capture page: with the native bridge the controls render and the menu lists Capture (675ms)

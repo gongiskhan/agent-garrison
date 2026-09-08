@@ -631,10 +631,17 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 }
 .cc-mic-spin { width: 13px; height: 13px; }
 
-.cc-composer { position: relative; border-top: 1px solid var(--cc-border); background: var(--cc-bg-elev); padding: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
-.cc-composerrow { display: flex; gap: 8px; align-items: flex-end; min-width: 0; }
+.cc-composer { position: relative; flex: 0 0 auto; border-top: 1px solid var(--cc-border); background: var(--cc-bg-elev); padding: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+/* Two rows: the message box alone on top (it grows with its text within the
+   available pane, see the autosize effect), the controls beneath it with
+   Send at the right-hand end. */
+.cc-composerrow { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 0; }
+.cc-composertools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+.cc-composertools > button { flex: 0 0 auto; width: auto; align-self: center; }
+.cc-toolspacer { flex: 1 1 0; min-width: 0; }
+.cc-btnlabel { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; line-height: 1; white-space: nowrap; }
 .cc-input {
-  flex: 1 1 auto; width: 100%; min-width: 0; resize: none; max-height: 160px; min-height: 38px;
+  box-sizing: border-box; flex: 0 0 auto; width: 100%; min-width: 0; resize: none; max-height: min(240px, 32vh); min-height: 38px;
   background: var(--cc-bg); color: var(--cc-fg); border: 1px solid var(--cc-border-strong); border-radius: 8px;
   padding: 9px 12px; font: 14px/1.4 inherit; outline: none;
 }
@@ -647,7 +654,8 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 
 /* ── Mic (push-to-talk) ── */
 .cc-mic {
-  min-height: 38px; min-width: 40px; display: inline-flex; align-items: center; justify-content: center;
+  min-height: 38px; min-width: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 0 10px;
   background: var(--cc-bg); color: var(--cc-fg-dim); border: 1px solid var(--cc-border-strong);
   border-radius: 8px; cursor: pointer; line-height: 0; flex-shrink: 0;
 }
@@ -1099,7 +1107,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-session-md { font-size: 14px; line-height: 1.55; }
 .cc-session-md > :first-child { margin-top: 0; }
 .cc-session-md > :last-child { margin-bottom: 0; }
-.cc-session-longtext > summary { cursor: pointer; color: var(--cc-fg-dim); }
+.cc-session-longtext > summary { cursor: pointer; color: var(--cc-fg-dim); overflow-wrap: anywhere; }
 :is(
   .cc-session-longtext,
   .cc-session-interim,
@@ -1203,7 +1211,11 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-session-tool { border: 0; border-radius: 6px; background: transparent; }
 .cc-session-tool > summary {
   cursor: pointer; display: flex; align-items: center; gap: 8px; min-width: 0;
-  padding: 3px 6px; font-size: 12.5px; list-style: none; border-radius: 6px;
+  /* The hover/open background bleeds 6px past the row on each side for a
+     comfortable hit target, but MARGIN cancels that same 6px so the icon
+     still starts flush with the assistant text column above it - without
+     the negative margin the row read as indented relative to its own text. */
+  margin: 0 -6px; padding: 3px 6px; font-size: 12.5px; list-style: none; border-radius: 6px;
 }
 .cc-session-tool > summary::-webkit-details-marker { display: none; }
 .cc-session-tool > summary:hover { background: var(--cc-bg-sunk); }
@@ -1818,8 +1830,20 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
    one set of affordances rather than a mix of words and icons. */
 .cc-routebtn-active { border-color: var(--cc-fg); color: var(--cc-fg); }
 .cc-send-icon {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: 44px; padding-left: 10px; padding-right: 10px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-width: 44px; min-height: 44px; padding-left: 12px; padding-right: 14px;
+}
+
+/* Familiar secondary actions stay small without losing their accessible name.
+   Explicit dimensions prevent host button rules from turning Attach into a bar. */
+.cc-root .cc-composertools > :is(.cc-attach, .cc-routebtn) {
+  width: 36px; height: 36px; min-width: 36px; min-height: 36px; padding: 0;
+}
+.cc-root :is(.cc-attach, .cc-routebtn) .cc-btnlabel { display: none; }
+@media (max-width: 600px), (any-pointer: coarse) {
+  .cc-root .cc-composertools > :is(.cc-attach, .cc-routebtn) {
+    width: 44px; height: 44px; min-width: 44px; min-height: 44px;
+  }
 }
 
 /* The per-message action bar is a finger target like everything else. Without
@@ -2392,7 +2416,14 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 
 @media (max-width: 600px) {
   .cc-conv-head { flex-wrap: wrap; }
-  .cc-conv-search { flex: 1 1 100%; margin-left: 0; }
+  /* Two rows on a phone, not three. The search takes a row of its own, so it
+     goes LAST: whatever the host appends after it (a channel chip, a Brief
+     control) then shares the title's row. A wrapping row breaks lines on the
+     items' hypothetical sizes BEFORE anything shrinks, so the title's auto
+     basis alone would push that chip onto a line of its own; basis 0 lets the
+     title claim the leftover instead and ellipsise like it already does. */
+  .cc-conv-title { flex: 1 1 0; }
+  .cc-conv-search { flex: 1 1 100%; margin-left: 0; order: 1; }
   .cc-conv-hits { width: 100%; right: auto; left: 0; }
   .cc-paymodal { padding: 0; }
   .cc-paymodal-card { width: 100%; max-height: 100dvh; height: 100dvh; border-radius: 0; border: 0; }
@@ -2467,13 +2498,16 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-session-jumpwrap {
   position: sticky; bottom: 16px; z-index: 4;
   height: 0; overflow: visible;
-  /* flex-start, NOT the default stretch: a stretched item in a 0-height flex
+  /* flex-end, NOT the default stretch: a stretched item in a 0-height flex
      container gets height 0, which squashed the pill to a ~12px hit target
-     that real clicks landed just under. */
-  display: flex; justify-content: center; align-items: flex-start;
+     that real clicks landed just under. flex-end (not flex-start plus a
+     translateY(-100%)) is what lifts the pill above the wrapper's zero-height
+     line: the press feedback every button gets is a `transform`, and it
+     REPLACED the lift, so the pill dropped its own height out from under the
+     finger on pointerdown and the tap's click landed on the transcript. */
+  display: flex; justify-content: center; align-items: flex-end;
 }
 .cc-session-jump {
-  transform: translateY(-100%);
   padding: 6px 16px; border: 1px solid var(--cc-border-strong); border-radius: 999px;
   background: var(--cc-bg-elev); color: var(--cc-fg); font-size: 12px; font-weight: 600;
   cursor: pointer; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
@@ -2586,17 +2620,21 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
    mono micro-labels, Source Serif headlines, sharp (near-zero-radius) chrome.
    ============================================================================ */
 
-* { box-sizing: border-box; }
+.talk-host * { box-sizing: border-box; }
 
-html, body {
-  margin: 0;
+/* .talk-host is the element a HOST hands the UI: the fitting's #root (sized to
+   the document by index.html), or the Garrison shell's /talk page wrapper (sized
+   to the content column). Everything document-level used to sit on html/body;
+   it lives here so the same stylesheet can load inside the shell without
+   restyling every other page. */
+.talk-host {
   background: #fbf8f1; /* paper - fills any area outside the centered column */
   -webkit-text-size-adjust: 100%;
   overscroll-behavior: none;
-  /* Pin the document to the viewport (or, when embedded, to the iframe) and let
-     the shell scroll INTERNALLY. Without this the body grows to its content and
-     the whole page scrolls, which is what pushed the composer off-screen when
-     the channel is opened inside Garrison's frame. */
+  /* Pin the UI to its host box and let the sessions shell scroll INTERNALLY.
+     Without this the box grows to its content and the whole page scrolls,
+     which is what pushed the composer off-screen when the channel was opened
+     inside Garrison's frame. */
   height: 100%;
   overflow: hidden;
 }
@@ -2646,7 +2684,6 @@ html, body {
 .cc-header {
   gap: 10px;
   padding: 12px 16px;
-  padding-top: max(12px, env(safe-area-inset-top));
 }
 .cc-title {
   font-family: var(--cc-serif);
@@ -2828,6 +2865,7 @@ html, body {
   border-radius: 2px;
 }
 .cc-mic:hover:not(:disabled) { color: var(--cc-fg); border-color: var(--cc-fg); }
+.cc-mic .cc-btnlabel { font-family: var(--cc-mono); font-size: 10px; font-weight: 400; letter-spacing: 0.06em; text-transform: uppercase; }
 .cc-mic-rec { border-color: #9b362d; color: #9b362d; }
 .cc-mic-dot { background: #9b362d; }
 
@@ -3109,9 +3147,14 @@ html, body {
   display: flex;
   align-items: center;
   padding: 8px 12px 8px 50px;
+  /* When present this bar, not the conversation head, is what sits under the
+     iOS status bar (viewport-fit=cover), so it takes the top inset and the head
+     below it gives the inset up. */
+  padding-top: max(8px, env(safe-area-inset-top));
   border-bottom: 1px solid var(--wc-border, #e2ddcf);
   background: var(--wc-bg-raise, #f4f1e8);
 }
+.wc-backbar ~ .cc-conversation .cc-conv-head { padding-top: 8px; }
 .wc-back {
   display: inline-flex;
   align-items: center;
@@ -3209,9 +3252,23 @@ html, body {
   .wc-sidebar { transition: width .16s ease; }
   .wc-shell--rail .wc-sidebar { width: 42px; }
   /* Hidden, not merely narrow: leaving them in a 42px column produces clipped
-     text rather than a clean rail. */
+     text rather than a clean rail.
+     .wc-shells-btn and .wc-new-wrap are hidden for a sharper reason than tidiness:
+     the head is a flex row (gap 8px) whose children do not shrink, so leaving them
+     in stacked 20 + 8 + (26 + 6 margin) + 8 + 0 = 68px of content into a 42px
+     column. .wc-sidebar does not clip, and the head centres its overflow, so the
+     spill lands on BOTH sides - pushing the collapse chevron out under the shell
+     sidebar, where it cannot be seen or clicked. The rail then had no way back to
+     the list: Conversations looked broken on every wide screen. Hiding them keeps
+     the chevron alone and centred, which is the whole job of a collapsed rail -
+     `+ New` was already hidden on the same reasoning, and both are one click away
+     again the moment the rail is expanded. */
   .wc-shell--rail .wc-sidebar-title,
   .wc-shell--rail .wc-new,
+  .wc-shell--rail .wc-shells-btn,
+  .wc-shell--rail .wc-new-wrap,
+  .wc-shell--rail .wc-drawer-close,
+  .wc-shell--rail .wc-find,
   .wc-shell--rail .wc-side-scroll,
   .wc-shell--rail .wc-thread-list { display: none; }
   .wc-shell--rail .wc-sidebar-head {
@@ -3373,7 +3430,8 @@ html, body {
   font-family: var(--cc-mono); font-size: 10px; letter-spacing: 0.06em;
   text-transform: uppercase; cursor: pointer;
 }
-.wcv-mic { min-width: 44px; justify-content: center; padding: 0 8px; }
+.wcv-mic { min-width: 44px; justify-content: center; padding: 0 10px; }
+.wcv-mic-label { white-space: nowrap; }
 .wcv-convo:hover:not(:disabled), .wcv-mic:hover:not(:disabled) { color: var(--cc-fg); border-color: var(--cc-fg); }
 .wcv-convo:disabled, .wcv-mic:disabled { opacity: 0.4; cursor: default; }
 .wcv-convo.wcv-on {
@@ -3411,21 +3469,102 @@ html, body {
   color: var(--cc-fg-dim); cursor: pointer; font-size: 15px;
 }
 .wcv-stop:hover { color: var(--cc-fg); border-color: var(--cc-fg); }
+
+/* Dictation actions (D49): Stop keeps the text, Discard removes it. No close
+   button - the panel leaves when either is pressed. */
+.wcv-dict-actions { display: inline-flex; gap: 6px; margin-left: auto; flex-shrink: 0; }
+.wcv-dict-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 26px; padding: 0 9px; border-radius: 2px;
+  border: 1px solid var(--cc-border); background: transparent;
+  color: var(--cc-fg-dim); cursor: pointer;
+  font-family: var(--cc-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.wcv-dict-btn:hover:not(:disabled) { color: var(--cc-fg); border-color: var(--cc-fg); }
+.wcv-dict-btn:disabled { opacity: 0.5; cursor: default; }
+.wcv-dict-stop { border-color: var(--cc-accent); color: var(--cc-accent); }
+.wcv-dict-stop:hover:not(:disabled) { background: var(--cc-accent); color: var(--cc-accent-fg); border-color: var(--cc-accent); }
+.wcv-dict-trash { color: var(--cc-danger-bg); }
+.wcv-dict-trash:hover:not(:disabled) { color: var(--cc-danger-bg); border-color: var(--cc-danger-bg); }
+/* Transcription language (D52): a segmented EN / PT / Auto switch; the choice
+   is per browser and reaches the next clip. */
+.wcv-dict-lang { display: inline-flex; border: 1px solid var(--cc-border); border-radius: 2px; overflow: hidden; }
+.wcv-dict-lang-opt {
+  height: 24px; padding: 0 7px; border: 0; background: transparent; cursor: pointer;
+  color: var(--cc-fg-dim); font-family: var(--cc-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+}
+.wcv-dict-lang-opt + .wcv-dict-lang-opt { border-left: 1px solid var(--cc-border); }
+.wcv-dict-lang-opt:hover { color: var(--cc-fg); }
+.wcv-dict-lang-on, .wcv-dict-lang-opt.wcv-dict-lang-on:hover { background: var(--cc-fg); color: var(--cc-bg); }
+.wcv-panel-dictation .wcv-level { flex: 1; width: auto; min-width: 40px; max-width: 220px; }
+.wcv-panel-finishing .wcv-dot { background: var(--cc-brass, #b4862a); }
+@media (max-width: 600px) {
+  .wcv-dict-btn span { display: none; }
+  .wcv-dict-btn { padding: 0 8px; min-width: 32px; justify-content: center; }
+}
 .wcv-transcript { line-height: 1.45; min-height: 1.2em; word-break: break-word; }
 .wcv-final { color: var(--cc-fg); }
 .wcv-interim { color: var(--cc-fg-faint); font-style: italic; }
 .wcv-hint { color: var(--cc-fg-faint); }
 .wcv-err { color: var(--cc-danger-bg); font-size: 12.5px; }
 @media (max-width: 600px) {
-  .wcv-convo-label { display: none; }
   .wcv-convo { padding: 0 8px; }
   .wcv-panel { left: 10px; right: 10px; }
+}
+
+/* The record button (Garrison app only): same footing as the mic. */
+/* Not positioned on purpose: the hint and the error anchor to the composer
+   (the nearest positioned ancestor), gutter to gutter, the same as the
+   dictation panel - a bubble anchored to the button ran off a phone screen. */
+.wc-rec { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.wc-rec-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 42px; padding: 0 10px;
+  background: #fff; color: var(--cc-fg-dim);
+  border: 1px solid var(--cc-border); border-radius: 2px;
+  font-family: var(--cc-mono); font-size: 10px; letter-spacing: 0.06em;
+  text-transform: uppercase; cursor: pointer; white-space: nowrap;
+}
+.wc-rec-btn:hover:not(:disabled) { color: var(--cc-fg); border-color: var(--cc-fg); }
+.wc-rec-btn:disabled { opacity: 0.6; cursor: default; }
+.wc-rec-btn.wc-rec-live { border-color: var(--cc-danger-bg); color: var(--cc-danger-bg); }
+.wc-rec-dot { width: 9px; height: 9px; background: var(--cc-danger-bg); border-radius: 50%; animation: wcv-pulse 1.1s ease-in-out infinite; }
+.wc-rec-ic { flex-shrink: 0; }
+/* One stack above the composer for everything the button has to say: the
+   hint / heard / error line and, under it, the notifications line. Stacked,
+   not two anchored bubbles, so they never paint over each other. */
+.wc-rec-notes {
+  position: absolute; left: var(--cc-gutter, 14px); right: var(--cc-gutter, 14px); bottom: calc(100% + 6px);
+  display: flex; flex-direction: column; gap: 4px; z-index: 5;
+}
+.wc-rec-err,
+.wc-rec-heard,
+.wc-rec-hint,
+.wc-rec-push {
+  display: block; padding: 6px 8px; background: var(--cc-bg-elev); border: 1px solid var(--cc-border-strong); border-radius: 2px;
+  font-size: 12px; line-height: 1.35; overflow-wrap: anywhere;
+}
+.wc-rec-err { color: var(--cc-danger-bg); }
+.wc-rec-hint { color: var(--cc-fg-dim); }
+.wc-rec-heard { color: var(--cc-fg); }
+.wc-rec-push { color: var(--cc-fg-dim); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.wc-rec-push-btn {
+  min-height: 28px; padding: 0 10px;
+  background: #fff; color: var(--cc-fg);
+  border: 1px solid var(--cc-border-strong); border-radius: 2px;
+  font-family: var(--cc-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+  cursor: pointer; white-space: nowrap;
+}
+.wc-rec-push-btn:hover:not(:disabled) { border-color: var(--cc-fg); }
+.wc-rec-push-btn:disabled { opacity: 0.6; cursor: default; }
+@media (max-width: 600px) {
+  .wc-rec-btn { justify-content: center; padding: 0 8px; }
 }
 
 /* ==========================================================================
    Fortress operations-room refit
    ========================================================================== */
-:root {
+.talk-host {
   --wc-olive-950: #141a15;
   --wc-olive-900: #202920;
   --wc-olive-800: #2b372c;
@@ -3454,8 +3593,7 @@ html, body {
   --wc-mono: "SFMono-Regular", "Cascadia Code", "Roboto Mono", Consolas, monospace;
 }
 
-html,
-body {
+.talk-host {
   background: var(--wc-olive-950);
   font-family: var(--wc-sans);
 }
@@ -3715,7 +3853,8 @@ body {
 
 .cc-mic,
 .wcv-convo,
-.wcv-mic {
+.wcv-mic,
+.wc-rec-btn {
   min-height: 46px;
   border-radius: 2px;
   background: #f8f4eb;
@@ -3740,7 +3879,13 @@ body {
    The conversation's own bar sits ABOVE the chat's status row: it carries the
    record's name and the search over it, in the same dossier chrome as the back
    bar, so the two read as one stack rather than two competing headers. */
-.cc-conv-head { min-height: 44px; padding: 8px 12px; }
+.cc-conv-head {
+  min-height: 44px;
+  padding: 8px 12px;
+  /* Top of the column: inside the iOS app (viewport-fit=cover) this bar is
+     what sits under the status bar, so it carries the top inset. */
+  padding-top: max(8px, env(safe-area-inset-top));
+}
 .cc-conv-title {
   font: 650 15px/1.25 var(--wc-serif);
   color: var(--wc-ink);
@@ -3761,10 +3906,33 @@ body {
 .cc-conv-hitkind,
 .cc-conv-hitseq { font-family: var(--wc-mono); }
 
+/* The past-conversations toggle INSIDE the conversation bar: first in the row,
+   in flow, so the bar needs no clearance for a floating button. Wide layouts
+   show the sidebar inline and hide it, like the floating toggle. */
+.wc-threads-toggle { display: none; }
+
 @media (max-width: 899px) {
-  /* The floating sidebar toggle now overlaps the CONVERSATION bar, so the
-     clearance moves with it and the chat header below goes back to its gutter. */
-  .cc-conv-head { padding-left: 50px; }
+  /* Specific enough to hold its 34px against the coarse-pointer 44px button
+     minimum below: the row stays one compact line, the search beside it is
+     the same height. */
+  .wc-shell .cc-conv-head .wc-threads-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    min-height: 34px;
+    padding: 0;
+    margin-left: -4px;
+    background: #f4ede0;
+    border: 1px solid #c4b89f;
+    border-radius: 3px;
+    color: #18211c;
+    cursor: pointer;
+  }
+  /* The floating toggle is gone from the conversation lane; the chat header
+     below the bar goes back to its gutter. */
   .wc-main .cc-conversation .cc-header { padding-left: var(--cc-gutter); }
 }
 
@@ -3880,16 +4048,20 @@ body {
    Every pill rides ABOVE the composer (--wc-composer-inset, measured by
    PushEnroller). Pinned to the raw viewport bottom they sat ON the composer:
    at phone width that hid the message box and its Send button entirely, so the
-   app could not be used until the notice was dismissed. */
+   app could not be used until the notice was dismissed. The inset also clears
+   the voice panel and the menus that float above the composer's top edge
+   (composer-inset.ts). And the pill starts at the composer's LEFT edge
+   (--wc-composer-left): the conversation is a pane inside the shell, and a
+   viewport-left pill sat over the sidebar's composition selector. */
 .wc-push-notice,
 .wc-push-toast,
 .wc-push-pill {
-  position: fixed; left: 12px; z-index: 41; display: flex; align-items: center; gap: 10px;
+  position: fixed; left: calc(var(--wc-composer-left, 0px) + 12px); z-index: 41; display: flex; align-items: center; gap: 10px;
   padding: 8px 9px 8px 12px; border: 1px solid rgba(255,255,255,.18); border-radius: 999px;
   background: rgba(20,24,28,.94); color: #d7dde3; font: 500 12px/1.25 system-ui, sans-serif;
   box-shadow: 0 8px 26px rgba(0,0,0,.22);
   bottom: calc(var(--wc-composer-inset, 0px) + 12px);
-  max-width: calc(100vw - 24px);
+  max-width: calc(100vw - var(--wc-composer-left, 0px) - 24px);
   /* Informational and dismissible: it may OVERLAP the transcript, but it must
      never intercept a click meant for what is underneath. Moving it clear of the
      composer only relocated the problem onto the message action bar that now
@@ -3923,20 +4095,20 @@ body {
 /* ── Scrollbars — near-invisible, still scrollable ────────────────────────
    Dark ink thumb by default (the app's scrollable panes are warm stone); the
    light variant is re-declared on the olive sidebar and the ink code cards. */
-:root {
+.talk-host {
   --sb-thumb: rgba(32, 40, 32, 0.16);
   --sb-thumb-hover: rgba(32, 40, 32, 0.34);
 }
-* { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) transparent; }
-::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
+.talk-host * { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) transparent; }
+.talk-host ::-webkit-scrollbar { width: 8px; height: 8px; background: transparent; }
+.talk-host ::-webkit-scrollbar-track { background: transparent; }
+.talk-host ::-webkit-scrollbar-thumb {
   background: var(--sb-thumb);
   border: 2px solid transparent;
   background-clip: padding-box;
 }
-*::-webkit-scrollbar-thumb:hover { background-color: var(--sb-thumb-hover); }
-::-webkit-scrollbar-corner { background: transparent; }
+.talk-host *::-webkit-scrollbar-thumb:hover { background-color: var(--sb-thumb-hover); }
+.talk-host ::-webkit-scrollbar-corner { background: transparent; }
 
 .wc-sidebar,
 .wc-side-scroll,
@@ -4119,11 +4291,14 @@ body {
    place. Tighten the buttons so the field keeps the majority of the row. */
 @media (max-width: 600px) {
   .wcv { gap: 4px; }
-  .wcv-convo, .wcv-mic { min-height: 40px; padding: 0 7px; }
-  .wcv-mic { min-width: 36px; padding: 0 6px; }
-  .cc-attach { min-width: 36px; padding: 0 6px; }
+  .wcv-convo, .wcv-mic { min-height: 40px; padding: 0 8px; }
+  .wcv-mic { min-width: 36px; }
+  .cc-attach { min-width: 36px; padding: 0 8px; }
+  .cc-mic { padding: 0 8px; }
   .cc-send, .cc-stop { padding: 0 11px; }
-  .cc-composerrow { gap: 5px; }
+  .cc-composerrow, .cc-composertools { gap: 5px; }
+  /* 16px is the size below which iOS zooms the page into a focused field. */
+  .cc-input, .cc-conv-searchinput, .wc-prompt input, .wc-brief-editor { font-size: 16px; }
 }
 
 /* ── Remote-shell terminal pane + sidebar entries ────────────────────────── */
@@ -4202,6 +4377,10 @@ body {
    rail head without doubling its rule. */
 .wc-group { border-top: 1px solid #3c4a3f; margin-top: 8px; padding-top: 2px; }
 .wc-side-scroll > .wc-group:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+/* The pinned Zeca conversation (D60) sits above every group with its own
+   rule below, so the list reads "Zeca, then everything else". */
+.wc-group--pinned { border-top: 0; margin-top: 0; padding-top: 0; padding-bottom: 4px; }
+.wc-group--pinned .wc-thread-title { font-weight: 600; }
 
 /* Group headers: collapsible, right-clickable, drop targets. */
 .wc-group-head {
@@ -4784,4 +4963,322 @@ body {
   font: 10.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .wc-conv-id:hover { color: var(--cc-fg, #18211c); border-color: var(--cc-fg, #18211c); }
+@media (max-width: 600px) {
+  /* Shares the title's row on a phone (claude-chat wraps the search under it).
+     The id yields before the name does: it may shrink, capped so the title
+     keeps the larger share, and a long id ellipsises the same way it does at
+     26ch on the desktop - the click still copies the whole id. */
+  .wc-conv-id { flex: 0 1 auto; min-width: 0; max-width: 45%; }
+}
+
+/* ── Sessions rail: runtime/node/project badges + the auto Sessions section ─
+   Session rows reuse .wc-thread/.wc-thread-open/.wc-row-dot; these are the
+   extra chips a plain conversation row never carries. ─────────────────────── */
+.wc-thread-rt { color: var(--wc-brass-bright); border-color: var(--wc-brass-deep); }
+.wc-thread-proj {
+  padding: 2px 5px;
+  border: 1px solid #576358;
+  border-radius: 1px;
+  color: #9fa69a;
+  font: 9px/1.2 var(--wc-mono);
+  max-width: 14ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wc-thread-when {
+  margin-left: auto;
+  color: #6a746b;
+  font: 9px/1.3 var(--wc-mono);
+  white-space: nowrap;
+}
+.wc-thread--ended { opacity: 0.62; }
+.wc-thread--ended .wc-row-dot { background: transparent; border-color: #576358; }
+
+.wc-group--sessions { border-top: 0; margin-top: 0; padding-top: 0; }
+.wc-group--sessions .wc-group-head { border-left: 2px solid var(--wc-brass, #b1954e); }
+.wc-sessions-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px 0 20px;
+  color: #9fa69a;
+  font: 10px/1.3 var(--wc-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.wc-show-ended {
+  display: block;
+  width: 100%;
+  padding: 6px 20px;
+  border: 0;
+  background: transparent;
+  color: #7d8578;
+  font-family: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.wc-show-ended:hover { color: #eef0e8; }
+@media (any-pointer: coarse) {
+  .wc-show-ended { min-height: 44px; }
+}
+
+/* ── Owned-shell workbench (deck reused; no seam/ledger) and external session
+   view share the delegate workbench's deck header shape. ──────────────────── */
+.wc-wb, .wc-sess {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.wc-wb-sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #7d8578;
+  font: 11px/1.3 var(--wc-serif);
+}
+@media (max-width: 480px) {
+  /* Keep the 52px left clearance the narrow rule above gives this deck: the
+     floating sidebar toggle overlays its left edge, and a `padding: 8px 12px`
+     shorthand here silently dropped it - the toggle then sat on top of the
+     lamp and the state word. These lanes have no conversation row to put the
+     toggle in, so the deck IS what it overlaps. */
+  .wc-sess .wc-wb-head, .wc-wb--shell .wc-wb-head { height: auto; flex-wrap: wrap; padding: 8px 12px 8px 52px; gap: 6px; }
+  .wc-wb-sub { flex-basis: 100%; white-space: normal; }
+}
+
+.wc-wb-composer {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px 12px;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom));
+  background: var(--wc-olive-900);
+  border-top: 1px solid #4b584d;
+}
+.wc-wb-composer-input {
+  flex: 1;
+  min-width: 0;
+  max-height: 96px;
+  padding: 8px 10px;
+  border: 1px solid #4b584d;
+  border-radius: 6px;
+  background: #1d2620;
+  color: #eef0e8;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  resize: none;
+}
+.wc-wb-composer-input:focus { outline: 2px solid var(--wc-brass, #b1954e); outline-offset: 0; }
+.wc-wb-composer-send {
+  flex: none;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--wc-brass, #b1954e);
+  border-radius: 6px;
+  background: var(--wc-brass, #b1954e);
+  color: #1d2620;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 620;
+  cursor: pointer;
+}
+.wc-wb-composer-send:disabled { opacity: 0.5; cursor: default; }
+.wc-wb-keys {
+  display: flex;
+  gap: 6px;
+  padding: 0 12px 8px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.wc-wb-key {
+  flex: none;
+  padding: 4px 10px;
+  border: 1px solid #4b584d;
+  border-radius: 6px;
+  background: #1d2620;
+  color: #cfd4c9;
+  font-family: var(--wc-mono);
+  font-size: 11px;
+  cursor: pointer;
+}
+.wc-wb-key:hover { background: #2b372c; color: #eef0e8; }
+.wc-wb-keys-toggle {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border: 1px solid #4b584d;
+  border-radius: 6px;
+  background: transparent;
+  color: #cfd4c9;
+  font-size: 15px;
+  cursor: pointer;
+}
+.wc-wb-keys-toggle[aria-pressed="true"] { background: var(--wc-brass, #b1954e); color: #1d2620; border-color: var(--wc-brass, #b1954e); }
+@media (max-width: 600px) {
+  .wc-wb-composer-input { font-size: 16px; } /* iOS: a smaller size zooms the viewport on focus */
+}
+@media (any-pointer: coarse) {
+  .wc-wb-composer-send, .wc-wb-key, .wc-wb-keys-toggle { min-height: 44px; }
+}
+
+/* ── External session view: transcript + the honest actions a row's kind
+   actually supports. ────────────────────────────────────────────────────── */
+.wc-sess-actions {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #4b584d;
+}
+.wc-sess-body { flex: 1; min-height: 0; overflow-y: auto; }
+.wc-sess-note {
+  padding: 16px 14px;
+  color: #9fa69a;
+  font: 400 13px/1.5 var(--wc-serif);
+}
+.wc-sess-note strong { color: #eef0e8; font-weight: 600; }
+
+/* ── New shell modal: node / runtime segmented controls + project picker ──── */
+.wc-newshell-seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.wc-newshell-seg button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid #4b584d;
+  border-radius: 999px;
+  background: transparent;
+  color: #cfd4c9;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.wc-newshell-seg button:hover:not(:disabled) { background: #2b372c; color: #eef0e8; }
+.wc-newshell-seg button:disabled { color: #576358; cursor: default; }
+.wc-newshell-seg-active { background: var(--wc-brass, #b1954e) !important; border-color: var(--wc-brass, #b1954e) !important; color: #1d2620 !important; }
+.wc-newshell-select, .wc-newshell-input {
+  width: 100%;
+  padding: 7px 9px;
+  margin-top: 4px;
+  border: 1px solid #4b584d;
+  border-radius: 6px;
+  background: #1d2620;
+  color: #eef0e8;
+  font-family: inherit;
+  font-size: 13px;
+}
+.wc-newshell-select:focus, .wc-newshell-input:focus { outline: 2px solid var(--wc-brass, #b1954e); outline-offset: 0; }
+@media (any-pointer: coarse) {
+  .wc-newshell-seg button { min-height: 44px; }
+}
+
+/* Conversations: readable messages, discoverable history, and a drawer sized
+   to the available pane instead of the surrounding browser window. */
+.talk-host .wc-shell,
+.talk-host .wc-main { height: 100%; min-height: 0; }
+.talk-host .cc-root { --cc-measure: 920px; }
+.talk-host .cc-conversation .cc-header { min-height: 32px; padding-top: 5px; padding-bottom: 5px; }
+/* Conversations report activity in their transcript. The separate PTY status
+   and empty Raw terminal controls only belong to shell sessions. */
+.talk-host .cc-conversation .cc-root > .cc-header,
+.talk-host .cc-conversation .cc-statusstrip { display: none; }
+.talk-host .cc-conv-head { min-width: 0; gap: 12px; }
+.talk-host .cc-conv-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.talk-host .cc-conv-search { min-width: 0; }
+.talk-host .cc-conv-searchinput { min-height: 40px; }
+.talk-host .cc-conv-welcome { display: grid; gap: 12px; max-width: 440px; margin: clamp(24px, 10vh, 100px) auto; text-align: left; padding: 0 8px; }
+.talk-host .cc-conv-welcome strong { font: 600 clamp(23px, 3vw, 30px)/1.2 var(--wc-serif, Georgia, serif); color: var(--wc-ink, #18211c); }
+.talk-host .cc-conv-welcome span { font-size: 15px; line-height: 1.6; color: #565a50; }
+.talk-host .cc-session-head:has(+ .cc-session-scroll > .cc-session-empty .cc-conv-welcome) { display: none; }
+.talk-host .cc-composer { padding: 8px 12px; padding-bottom: max(8px, env(safe-area-inset-bottom)); box-shadow: none; }
+.talk-host .cc-input { border-radius: 8px; padding: 9px 12px; min-height: 42px; }
+.talk-host .cc-composerrow { gap: 5px; }
+.talk-host .cc-composertools { gap: 5px; }
+.talk-host .cc-composertools :is(.cc-send, .cc-stop, .wcv-mic, .wc-rec-btn) { min-height: 36px; }
+.talk-host .cc-composertools :is(.cc-send, .cc-stop) { min-height: 44px; }
+.talk-host .cc-input:focus { outline: 2px solid #6f8f6a; outline-offset: 1px; }
+.talk-host .cc-send { background: #3d6249; border-color: #3d6249; border-radius: 6px; }
+.talk-host .cc-send:disabled { opacity: .48; }
+.talk-host button:focus-visible,
+.talk-host input:focus-visible { outline: 2px solid #bca263; outline-offset: 2px; }
+.wc-find { position: relative; flex: 0 0 auto; padding: 10px 12px; border-bottom: 1px solid #4b584d; }
+.wc-find input { width: 100%; min-width: 0; min-height: 42px; padding: 8px 32px 8px 10px; border: 1px solid #64705e; border-radius: 6px; background: #1f291f; color: #f4ede0; font: 14px var(--wc-sans, sans-serif); }
+.wc-find input::placeholder { color: #bec4b7; }
+.wc-find button { position: absolute; right: 13px; top: 10px; width: 38px; height: 42px; background: transparent; border: 0; color: #f4ede0; cursor: pointer; font-size: 20px; }
+.wc-thread-options { flex: 0 0 auto; width: 32px; min-height: 40px; color: #bec4b7; border: 0; border-radius: 4px; background: transparent; font-size: 21px; cursor: pointer; }
+.wc-thread-options:hover { color: #fff; background: #394637; }
+.wc-group--pinned { border-bottom: 1px solid #64705e; }
+.wc-group--pinned .wc-thread { min-height: 64px; }
+.wc-group--pinned .wc-thread-title { font: 600 19px var(--wc-serif, Georgia, serif); }
+.wc-drawer-close { display: none; }
+.wc-shell--compact { position: relative; }
+.wc-shell--compact .wc-sidebar,
+.wc-shell--compact.wc-shell--rail .wc-sidebar { position: absolute; inset: 0 auto 0 0; height: 100%; width: min(320px, calc(100% - 48px)); z-index: 60; transform: translateX(-110%); visibility: hidden; transition: transform .18s ease, visibility .18s; box-shadow: 12px 0 40px #18211c40; }
+.wc-shell--compact.wc-shell--open .wc-sidebar { transform: translateX(0); visibility: visible; }
+.wc-shell--compact .wc-sidebar-scrim { display: block; position: absolute; inset: 0; z-index: 59; background: #18211c52; opacity: 0; pointer-events: none; }
+.wc-shell--compact.wc-shell--open .wc-sidebar-scrim { opacity: 1; pointer-events: auto; }
+.wc-shell--compact .wc-sidebar-head { padding: 10px 12px; justify-content: flex-start; }
+.wc-shell--compact .wc-sidebar-collapse { display: none; }
+.wc-shell--compact .wc-sidebar-title,
+.wc-shell--compact .wc-new,
+.wc-shell--compact .wc-shells-btn,
+.wc-shell--compact .wc-new-wrap,
+.wc-shell--compact .wc-find,
+.wc-shell--compact .wc-side-scroll { display: block; }
+.wc-shell--compact .wc-sidebar-title { flex: 1; }
+.wc-shell--compact .wc-drawer-close { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; color: #eee8db; background: transparent; border: 1px solid #64705e; border-radius: 5px; font-size: 23px; cursor: pointer; }
+.wc-shell--compact .wc-sidebar-toggle,
+.wc-shell--compact .cc-conv-head .wc-threads-toggle { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 44px; height: 44px; min-height: 44px; padding: 0; margin-left: 0; background: #f4ede0; border: 1px solid #c4b89f; border-radius: 6px; color: #18211c; cursor: pointer; }
+.wc-shell--compact .wc-sidebar-toggle { position: absolute; left: 8px; top: 8px; z-index: 50; }
+.wc-shell--compact .wc-main > .cc-root .cc-header { padding-left: 60px; }
+.wc-shell--compact .wc-conv-id { display: none; }
+.wc-shell--compact .cc-composer button { min-height: 44px; }
+@media (max-width: 600px) {
+  .talk-host .wc-find input { font-size: 16px; }
+  .talk-host .cc-conv-head { gap: 8px; }
+  .talk-host .cc-conv-searchinput { min-height: 44px; }
+  .talk-host .cc-composertools { gap: 6px; }
+  .talk-host .cc-composer { padding-bottom: max(10px, env(safe-area-inset-bottom)); }
+  .talk-host .cc-composer button { min-width: 44px; }
+  .talk-host .cc-conv-welcome { margin-top: 8vh; padding: 0 6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wc-shell--compact .wc-sidebar, .wc-shell--compact .wc-sidebar-scrim { transition: none; }
+}
+.wc-conversation-stop { display: inline-flex; align-items: center; gap: 7px; flex: 0 0 auto; min-height: 44px; padding: 0 12px; border: 1px solid #9b362d; border-radius: 6px; color: #9b362d; background: #fbf8f1; font: 600 13px var(--wc-sans, sans-serif); cursor: pointer; }
+.wc-conversation-stop:disabled { opacity: .65; cursor: wait; }
+.wc-conversation-error { max-width: 260px; font: 12px/1.4 var(--wc-sans, sans-serif); color: #9b362d; }
+@media (max-width: 600px), (any-pointer: coarse) {
+  .talk-host .cc-composertools :is(.cc-send, .cc-stop, .wcv-mic, .wc-rec-btn) { min-height: 44px; }
+}
+
+.wc-thread-spinner {
+  box-sizing: border-box; display: inline-block; flex: 0 0 12px; width: 12px; height: 12px;
+  border: 1.5px solid currentColor; border-top-color: transparent; border-radius: 50%;
+  animation: wc-thread-spin .8s linear infinite;
+}
+@keyframes wc-thread-spin { to { transform: rotate(360deg); } }
+.wc-native-terminal { position: relative; display: flex; flex: 1 1 auto; min-height: 0; overflow: hidden; background: #10140f; }
+.wc-sess-body:has(> .wc-native-terminal) { display: flex; flex-direction: column; overflow: hidden; }
+.wc-native-terminal-mount { width: 100%; height: 100%; min-width: 0; padding: 8px; }
+.wc-native-terminal-state { position: absolute; bottom: 8px; right: 10px; max-width: calc(100% - 20px); padding: 5px 8px; border-radius: 4px; background: #18211ce8; color: #d2dbc9; font: 12px/1.4 var(--wc-sans, sans-serif); }
+@media (prefers-reduced-motion: reduce) {
+  .wc-thread-spinner { animation: none; }
+}
+@media (max-width: 600px) {
+  .talk-host .cc-conv-head:has(.wc-conversation-stop) .cc-conv-search { flex-basis: 36%; }
+  .talk-host .wc-conversation-error { position: absolute; top: 100%; left: 12px; right: 12px; max-width: none; padding: 10px; z-index: 10; background: #fff0eb; border: 1px solid #9b362d; }
+}
 

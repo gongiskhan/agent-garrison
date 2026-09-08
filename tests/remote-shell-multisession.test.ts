@@ -22,7 +22,7 @@ import { loadTransports } from "../fittings/seed/remote-shell-runtime/lib/transp
 // @ts-ignore - dependency-free fitting JavaScript
 import { SessionManager } from "../fittings/seed/remote-shell-runtime/lib/sessions.mjs";
 // @ts-ignore - dependency-free fitting JavaScript
-import { matchRemoteShellSession } from "../fittings/seed/web-channel-default/scripts/server.mjs";
+import { matchRemoteShellSession } from "../packages/talk/src/server.mjs";
 
 let tmpHome: string;
 let priorHome: string | undefined;

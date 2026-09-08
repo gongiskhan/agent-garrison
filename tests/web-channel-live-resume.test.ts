@@ -16,12 +16,12 @@ process.env.GARRISON_HOME = TMP_HOME;
 
 // These modules freeze GARRISON_HOME at import time.
 // @ts-ignore - plain ESM .mjs server
-const server: any = await import("../fittings/seed/web-channel-default/scripts/server.mjs");
+const server: any = await import("../packages/talk/src/server.mjs");
 const { startServer } = server;
 // @ts-ignore - plain ESM .mjs store
-const threads = await import("../fittings/seed/web-channel-default/scripts/threads.mjs");
+const threads = await import("../packages/talk/src/threads.mjs");
 // @ts-ignore - plain ESM .mjs parser
-const transcript = await import("../fittings/seed/web-channel-default/lib/session-transcript.mjs");
+const transcript = await import("../packages/talk/src/session-transcript.mjs");
 
 const sse = (event: string, data: unknown) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 

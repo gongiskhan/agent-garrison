@@ -229,3 +229,236 @@ describe("projection never clobbers hand-authored files (S8 ratchet)", () => {
     expect(readFileSync(join(dir2, "AGENTS.md"), "utf8")).toContain("v2");
   });
 });
+
+// G5: directory-of-files "file sets" (Cursor's rules/skills/agents/hooks/
+// desktop settings/project rules) - list/read/write/create/delete confined to
+// the declared root + glob, the same containment discipline as the log tail
+// above, plus glob matching, merge-write semantics, and platform gating.
+import { homedir } from "node:os";
+import {
+  listFileSet,
+  readFileSetEntry,
+  writeFileSetEntry,
+  createFileSetEntry,
+  deleteFileSetEntry,
+  matchRestrictedGlob,
+  parseFrontmatter,
+  knownProjectRoots,
+  runtimeHome
+} from "@/lib/quarters-runtimes";
+
+function sandboxFileSetDescriptor(): { home: string; d: QuartersDescriptor } {
+  const home = mkdtempSync(join(tmpdir(), "gar-qfs-"));
+  mkdirSync(join(home, "rules"), { recursive: true });
+  mkdirSync(join(home, "skills", "my-skill"), { recursive: true });
+  writeFileSync(join(home, "rules", "always.mdc"), "---\ndescription: Always\nalwaysApply: true\n---\nBody text\n");
+  writeFileSync(join(home, "rules", "not-a-rule.txt"), "should never be listed\n");
+  writeFileSync(join(home, "skills", "my-skill", "SKILL.md"), "# my-skill\n");
+  writeFileSync(join(home, "hooks.json"), JSON.stringify({ version: 1, hooks: { stop: [{ command: "existing-hook" }] } }, null, 2) + "\n");
+  const d: QuartersDescriptor = {
+    tier: "generic",
+    id: "cursor",
+    home_dir: home,
+    file_sets: [
+      { id: "rules", label: "Rules", root: join(home, "rules"), glob: "*.mdc", format: "markdown", frontmatter: ["description", "alwaysApply"], create: true },
+      { id: "skills", label: "Skills", root: join(home, "skills"), glob: "*/SKILL.md", format: "markdown", create: true },
+      { id: "hooks", label: "Hooks", root: home, glob: "hooks.json", format: "json", write: "merge" },
+      { id: "desktop", label: "Desktop", root: join(home, "desktop"), glob: "settings.json", format: "json", platform: "win32" }
+    ]
+  };
+  return { home, d };
+}
+
+describe("matchRestrictedGlob: segment-by-segment, count must match too", () => {
+  it.each([
+    ["*.mdc", "always.mdc", true],
+    ["*.mdc", "sub/always.mdc", false],
+    ["*/SKILL.md", "my-skill/SKILL.md", true],
+    ["*/SKILL.md", "SKILL.md", false],
+    ["{settings,keybindings}.json", "settings.json", true],
+    ["{settings,keybindings}.json", "other.json", false],
+    ["hooks.json", "hooks.json", true],
+    ["hooks.json", "hooks.json.bak", false]
+  ])("glob %s vs rel %s -> %s", (glob, rel, expected) => {
+    expect(matchRestrictedGlob(glob, rel)).toBe(expected);
+  });
+});
+
+describe("parseFrontmatter", () => {
+  it("splits a leading --- block from the body, non-throwing on malformed YAML", () => {
+    const { frontmatter, body } = parseFrontmatter("---\ndescription: hi\nalwaysApply: true\n---\nBody\n");
+    expect(frontmatter).toEqual({ description: "hi", alwaysApply: true });
+    expect(body).toBe("Body\n");
+    const noFm = parseFrontmatter("just a body\n");
+    expect(noFm.frontmatter).toBeNull();
+    const bad = parseFrontmatter("---\n: not: valid: yaml: [\n---\nBody\n");
+    expect(bad.frontmatter).toBeNull();
+    expect(bad.body).toContain("not: valid");
+  });
+});
+
+describe("file sets: list + read (G5)", () => {
+  it("lists only glob-matching files, ignoring siblings that do not match", async () => {
+    const { d } = sandboxFileSetDescriptor();
+    const rows = await listFileSet(d, "rules");
+    expect(rows.map((r) => r.rel)).toEqual(["always.mdc"]);
+  });
+
+  it("lists a two-segment glob (dir wildcard + literal file)", async () => {
+    const { d } = sandboxFileSetDescriptor();
+    const rows = await listFileSet(d, "skills");
+    expect(rows.map((r) => r.rel)).toEqual(["my-skill/SKILL.md"]);
+  });
+
+  it("returns an empty list for a root that does not exist yet (not an error)", async () => {
+    const { d } = sandboxFileSetDescriptor();
+    expect(await listFileSet(d, "desktop")).toEqual([]);
+  });
+
+  it("reads a markdown entry with parsed frontmatter", async () => {
+    const { d } = sandboxFileSetDescriptor();
+    const v = await readFileSetEntry(d, "rules", "always.mdc");
+    expect(v.exists).toBe(true);
+    expect(v.frontmatter).toEqual({ description: "Always", alwaysApply: true });
+    expect(v.content).toContain("Body text");
+  });
+
+  it("refuses a rel that does not match the declared glob", async () => {
+    const { d } = sandboxFileSetDescriptor();
+    await expect(readFileSetEntry(d, "rules", "not-a-rule.txt")).rejects.toThrow(/does not match the rules file set's glob/);
+  });
+
+  it("refuses an unknown file set id", async () => {
+    const { d } = sandboxFileSetDescriptor();
+    await expect(listFileSet(d, "nope")).rejects.toThrow(/not declared by the cursor quarters descriptor/);
+  });
+
+  it("PROPERTY: no rel path escapes the file set's root", async () => {
+    const { d } = sandboxFileSetDescriptor();
+    await fc.assert(
+      fc.asyncProperty(fc.string({ minLength: 1, maxLength: 40 }), async (rel) => {
+        try {
+          await readFileSetEntry(d, "rules", rel);
+          return true; // resolved inside the root - fine
+        } catch (err) {
+          const s = String(err);
+          return /escapes the .* file set's root|does not match the .* file set's glob|is not a relative path/.test(s);
+        }
+      }),
+      { numRuns: 40 }
+    );
+  });
+});
+
+describe("file sets: write (sha guard + projection + merge) (G5)", () => {
+  it("refuses to write a file that does not exist yet", async () => {
+    const { d } = sandboxFileSetDescriptor();
+    await expect(writeFileSetEntry(d, "rules", "brand-new.mdc", "x", null)).rejects.toThrow(/does not exist in the rules file set/);
+  });
+
+  it("sha-guards a write against a stale baseline", async () => {
+    const { home, d } = sandboxFileSetDescriptor();
+    const before = await readFileSetEntry(d, "rules", "always.mdc");
+    writeFileSync(join(home, "rules", "always.mdc"), "changed behind your back\n");
+    await expect(writeFileSetEntry(d, "rules", "always.mdc", "new content\n", before.sha)).rejects.toThrow(/changed on disk/);
+  });
+
+  it("refuses to clobber a Garrison-projected entry", async () => {
+    const { home, d } = sandboxFileSetDescriptor();
+    writeFileSync(join(home, "rules", "always.mdc"), `<!-- ${PROJECTION_MARKER} -->\nprojected\n`);
+    const v = await readFileSetEntry(d, "rules", "always.mdc");
+    expect(v.projected).toBe(true);
+    await expect(writeFileSetEntry(d, "rules", "always.mdc", "clobber", v.sha)).rejects.toThrow(/Garrison-managed projection/);
+  });
+
+  it("write:'merge' on a json set unions arrays and never removes an existing key", async () => {
+    const { d } = sandboxFileSetDescriptor();
+    const before = await readFileSetEntry(d, "hooks", "hooks.json");
+    const incoming = JSON.stringify({ version: 1, hooks: { stop: [{ command: "our-new-hook" }], start: [{ command: "start-hook" }] } });
+    const after = await writeFileSetEntry(d, "hooks", "hooks.json", incoming, before.sha);
+    const parsed = JSON.parse(after.content);
+    expect(parsed.hooks.stop).toEqual(expect.arrayContaining([{ command: "existing-hook" }, { command: "our-new-hook" }]));
+    expect(parsed.hooks.start).toEqual([{ command: "start-hook" }]);
+  });
+
+  it("rejects malformed json before touching the file", async () => {
+    const { d } = sandboxFileSetDescriptor();
+    const before = await readFileSetEntry(d, "hooks", "hooks.json");
+    await expect(writeFileSetEntry(d, "hooks", "hooks.json", "{not json", before.sha)).rejects.toThrow(/json invalid/);
+  });
+});
+
+describe("file sets: create + delete gated by 'create' (G5)", () => {
+  it("creates a new markdown file when create:true, refuses a duplicate", async () => {
+    const { d } = sandboxFileSetDescriptor();
+    const created = await createFileSetEntry(d, "rules", "fresh.mdc", "---\ndescription: fresh\n---\nnew\n");
+    expect(created.exists).toBe(true);
+    await expect(createFileSetEntry(d, "rules", "fresh.mdc", "again")).rejects.toThrow(/already exists/);
+  });
+
+  it("refuses to create on a set with no create:true", async () => {
+    const { d } = sandboxFileSetDescriptor();
+    await expect(createFileSetEntry(d, "hooks", "extra.json", "{}")).rejects.toThrow(/does not allow creating/);
+  });
+
+  it("deletes an existing file on a create:true set; refuses on a set without it", async () => {
+    const { d } = sandboxFileSetDescriptor();
+    await createFileSetEntry(d, "rules", "to-delete.mdc", "temp\n");
+    await deleteFileSetEntry(d, "rules", "to-delete.mdc");
+    await expect(readFileSetEntry(d, "rules", "to-delete.mdc")).resolves.toMatchObject({ exists: false });
+    await expect(deleteFileSetEntry(d, "hooks", "hooks.json")).rejects.toThrow(/does not allow deleting/);
+  });
+
+  it("refuses to delete a Garrison-projected file", async () => {
+    const { home, d } = sandboxFileSetDescriptor();
+    await createFileSetEntry(d, "rules", "proj.mdc", `<!-- ${PROJECTION_MARKER} -->\nx\n`);
+    await expect(deleteFileSetEntry(d, "rules", "proj.mdc")).rejects.toThrow(/Garrison-managed projection/);
+  });
+});
+
+describe("file sets: platform gating (G5)", () => {
+  it("a file set declared for another platform lists empty and is skipped by writes", async () => {
+    const { d } = sandboxFileSetDescriptor();
+    // sandboxFileSetDescriptor's "desktop" set is pinned to win32; this
+    // process is never win32 in CI/dev, so it must read as unavailable.
+    expect(process.platform).not.toBe("win32");
+    expect(await listFileSet(d, "desktop")).toEqual([]);
+  });
+});
+
+describe("project-scoped file sets + knownProjectRoots (G5)", () => {
+  it("refuses a project-scoped file set operation against an unknown project root", async () => {
+    const d: QuartersDescriptor = {
+      tier: "generic",
+      id: "cursor",
+      home_dir: "/nonexistent",
+      file_sets: [{ id: "project-rules", label: "Project rules", root: ".cursor/rules", glob: "*.mdc", format: "markdown", scope: "project" }]
+    };
+    await expect(listFileSet(d, "project-rules", "/definitely/not/a/known/project/root")).rejects.toThrow(/is not a known project root/);
+  });
+
+  it("refuses a project-scoped operation with no project root given at all", async () => {
+    const d: QuartersDescriptor = {
+      tier: "generic",
+      id: "cursor",
+      home_dir: "/nonexistent",
+      file_sets: [{ id: "project-rules", label: "Project rules", root: ".cursor/rules", glob: "*.mdc", format: "markdown", scope: "project" }]
+    };
+    await expect(listFileSet(d, "project-rules")).rejects.toThrow(/is project-scoped/);
+  });
+
+  it("knownProjectRoots reads the real default composition's projects_root read-only (no mutation)", async () => {
+    // Read-only against the SHIPPED default composition, mirroring how
+    // tests/duty-ladder-schema.test.ts already reads it directly - this never
+    // writes, so it cannot leave anything behind on the machine.
+    const roots = await knownProjectRoots("default");
+    expect(Array.isArray(roots)).toBe(true);
+  });
+});
+
+describe("runtimeHome: the GARRISON_<ID>_HOME test-isolation override (G5)", () => {
+  it("uses the override when set, falls back to the real machine home otherwise", () => {
+    expect(runtimeHome("cursor", { GARRISON_CURSOR_HOME: "/sandbox/home" } as unknown as NodeJS.ProcessEnv)).toBe("/sandbox/home");
+    expect(runtimeHome("cursor", {} as unknown as NodeJS.ProcessEnv)).toBe(homedir());
+  });
+});

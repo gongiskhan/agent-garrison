@@ -1,0 +1,7 @@
+playwright shell-overhaul.spec.ts (two stale tests repaired: searchbox label, folded Fittings group)
+  12 passed (55.6s)
+
+playwright capture-page.spec.ts + embed-in-app.spec.ts (run with shell-overhaul before its repair; the 6 failures were shell-overhaul's two stale tests x 3 projects)
+  6 failed
+  5 skipped
+  19 passed (5.1m)

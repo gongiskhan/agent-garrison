@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  envFingerprintForExtraEnv,
   isValidFittingId,
   logFilePath,
   ownPortConfigEnv,
@@ -22,7 +23,8 @@ import type { CapabilityConsumption, GarrisonMetadata, LibraryEntry } from "@/li
 vi.mock("@/lib/vault", () => ({
   scopedSecrets: vi.fn(async (scope: string[]) =>
     scope.includes("DEEPGRAM_API_KEY") ? [{ key: "DEEPGRAM_API_KEY", value: "dg-secret" }] : []
-  )
+  ),
+  vaultStatus: vi.fn(() => ({ unlocked: true }))
 }));
 vi.mock("@/lib/vault-audit", () => ({
   recordVaultAccess: vi.fn(async () => {})
@@ -164,6 +166,26 @@ describe("ownPortEnvKey / guaranteed port projection", () => {
   });
 });
 
+describe("heal fingerprint covers the voice provider projection (D23)", () => {
+  it("GARRISON_VOICE_FITTING_ID appearing, changing or vanishing changes the fingerprint", () => {
+    // The runner projects the voice provider's id into every fitting that
+    // consumes `kind: voice`; swapping the provider must read as env drift so
+    // up() heals (restarts) the consumers instead of leaving them pointed at the
+    // old status file. No change to own-port-lifecycle.ts is needed for that -
+    // the key matches PROJECTED_CONFIG_ENV_PATTERN - but this pins it.
+    const base = { GARRISON_GATEWAY_URL: "http://127.0.0.1:1", GARRISON_COMPOSITION_ID: "default" };
+    const none = envFingerprintForExtraEnv(base);
+    const capture = envFingerprintForExtraEnv({ ...base, GARRISON_VOICE_FITTING_ID: "capture-service" });
+    const other = envFingerprintForExtraEnv({ ...base, GARRISON_VOICE_FITTING_ID: "other-voice" });
+    expect(capture).not.toBe(none);
+    expect(other).not.toBe(capture);
+    expect(envFingerprintForExtraEnv({ ...base, GARRISON_VOICE_FITTING_ID: "capture-service" })).toBe(capture);
+    // The token itself is a vault secret, not a projected config key: it must
+    // NOT move the fingerprint (a vault unlock heals through the spawn record).
+    expect(envFingerprintForExtraEnv({ ...base, CAPTURE_TOKEN: "x" })).toBe(none);
+  });
+});
+
 describe("vaultEnvForEntry (own-port secret injection gating)", () => {
   it("injects ONLY the scoped vault secrets when the Fitting declares secret_scope", async () => {
     const withScope = makeEntry(true, [{ kind: "vault", cardinality: "one" }], ["DEEPGRAM_API_KEY"]);
@@ -200,25 +222,25 @@ describe("spawn record placement", () => {
   });
 
   it("lives in a spawn/ SUBDIR of the status dir, honouring GARRISON_HOME", () => {
-    expect(spawnRecordPath("deepgram-voice")).toBe(
-      path.join("/tmp/garrison-spawn-record-test", "ui-fittings", "spawn", "deepgram-voice.json")
+    expect(spawnRecordPath("capture-service")).toBe(
+      path.join("/tmp/garrison-spawn-record-test", "ui-fittings", "spawn", "capture-service.json")
     );
     // Never a sibling of the flat <id>.json status files — the *.json status
     // enumeration must be unable to mistake a spawn record for a status file.
-    expect(path.dirname(spawnRecordPath("deepgram-voice"))).not.toBe(
-      path.dirname(statusFilePath("deepgram-voice"))
+    expect(path.dirname(spawnRecordPath("capture-service"))).not.toBe(
+      path.dirname(statusFilePath("capture-service"))
     );
-    expect(path.dirname(path.dirname(spawnRecordPath("deepgram-voice")))).toBe(
-      path.dirname(statusFilePath("deepgram-voice"))
+    expect(path.dirname(path.dirname(spawnRecordPath("capture-service")))).toBe(
+      path.dirname(statusFilePath("capture-service"))
     );
   });
 
   it("logFilePath sits beside the status file, honouring GARRISON_HOME (the logs route reads it)", () => {
-    expect(logFilePath("deepgram-voice")).toBe(
-      path.join("/tmp/garrison-spawn-record-test", "ui-fittings", "deepgram-voice.log")
+    expect(logFilePath("capture-service")).toBe(
+      path.join("/tmp/garrison-spawn-record-test", "ui-fittings", "capture-service.log")
     );
-    expect(path.dirname(logFilePath("deepgram-voice"))).toBe(
-      path.dirname(statusFilePath("deepgram-voice"))
+    expect(path.dirname(logFilePath("capture-service"))).toBe(
+      path.dirname(statusFilePath("capture-service"))
     );
   });
 });

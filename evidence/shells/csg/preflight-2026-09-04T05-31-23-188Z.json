@@ -1,0 +1,278 @@
+{
+  "at": "2026-09-04T05:31:13.870Z",
+  "tunnelId": "swift-book-df6tw47.eun1",
+  "verdict": "GO-WITH-FIXES",
+  "fixes": [
+    "node on csg is <20.11 (found: none) but nvm is available - install-node.sh will need an nvm install step",
+    "npm ping failed on csg - registry access may be degraded or proxied",
+    "sqlite3 is not installed on csg",
+    "cursor-agent is not installed on csg",
+    "systemd --user is not usable on csg (common on WSL2) - install-node.sh will use node-supervisor.sh instead",
+    "csg is WSL2 but the `code` CLI was not found - the VS Code Remote Tunnel this whole path depends on may not be set up the way expected"
+  ],
+  "repoSource": "github",
+  "supervisor": "node-supervisor",
+  "tunnelPlan": "swift-book",
+  "unstationSuggested": [
+    "codex-runtime",
+    "gemini-runtime",
+    "opencode-runtime",
+    "browser-default",
+    "screen-share-default",
+    "snapshots-default",
+    "basic-memory",
+    "vault-git-sync",
+    "improver",
+    "improver-nightly",
+    "slack-channel",
+    "email-channel",
+    "omi-channel",
+    "whatsapp-web",
+    "capture-service",
+    "trello",
+    "google",
+    "cortex-automations",
+    "cortex-client"
+  ],
+  "checks": {
+    "tunnel": {
+      "ok": true,
+      "hostConnections": 1,
+      "ports": [
+        2222,
+        31545,
+        31546
+      ]
+    },
+    "sshBanner": {
+      "state": "up",
+      "banner": "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.13",
+      "ms": 89
+    },
+    "roundTrips": {
+      "samples": [
+        885,
+        881,
+        929,
+        891,
+        889
+      ],
+      "p50Ms": 889,
+      "p95Ms": 929
+    },
+    "remote": {
+      "wsl2": true,
+      "pid1Comm": "init(Ubuntu)",
+      "systemdSystem": false,
+      "systemdUserOk": false,
+      "nodeVersion": null,
+      "nodeOk": false,
+      "nvmAvailable": true,
+      "npmPingOk": false,
+      "gitVersion": "2.34.1",
+      "gitOk": true,
+      "githubReachable": true,
+      "diskAvailGb": 892.3,
+      "memTotalGb": 15.4,
+      "nproc": 20,
+      "tools": {
+        "tmux": true,
+        "python3": true,
+        "curl": true,
+        "ssh": true,
+        "gcc": true,
+        "make": true,
+        "g++": true,
+        "sqlite3": false,
+        "claude": false,
+        "codex": false,
+        "gemini": false,
+        "cursor-agent": false,
+        "devtunnel": false,
+        "code": false
+      },
+      "sudoPresent": true,
+      "sudoNopasswd": false,
+      "sshdAllowTcpForwarding": "unknown",
+      "proxyEnv": {},
+      "remoteTimeIso": "2026-09-04T05:31:22Z",
+      "codeTunnelPresent": false,
+      "peacefulOceanHostRunning": false,
+      "repoDirExists": false,
+      "repoDirIsSymlink": false,
+      "cursorInventory": {
+        "hooksJsonSha256": "9874b6933c4784a851bfc0303f312adbe4fd278fa5870646a2faf0bb55af23cf",
+        "cliConfigJsonSha256": "989cf5c69eff658580a00964d317b26327c61eb11e229417c79e0a1cbe818815",
+        "mcpJsonSha256": "2597e5525b4deab868c71bd8599fade4fdae5bde8836ec0278dd6e83f39f5259",
+        "cursorrulesSha256": null,
+        "pnmuiAgentsMdPresent": true,
+        "ruleAndSkillFiles": [
+          {
+            "path": "/home/ggomes/.cursor/rules/ado-access.mdc",
+            "sha256": "32a755b9a6569f68352f32db611e48fc888d7369412b25d37d8d3c61ea78d21e"
+          },
+          {
+            "path": "/home/ggomes/.cursor/rules/agent-mail.mdc",
+            "sha256": "2b7c75f268cf4f84dc188ba3932c7ac329e8f28440f7f2c5fdcec410f62cdab4"
+          },
+          {
+            "path": "/home/ggomes/.cursor/rules/tunnel-healing.mdc",
+            "sha256": "9b29e987501099c58ec8b839183fae475ba7afae154774e80787d5f1dc681c9d"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/automate/SKILL.md",
+            "sha256": "7dfe00c001ea24ac2ed7f6172a0d528718039c673d9382f39c36221d7f1ef4bf"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/autopilot/SKILL.md",
+            "sha256": "2f0fd7aebbcacfa81afb8ead8107b44e4202e45e23ad20e3778c9123cadb9589"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/canvas/SKILL.md",
+            "sha256": "7cb326c37644bcc0b9a1cd5b9aa3469774a51c17e38ac2ad50003399a53f4793"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/create-hook/SKILL.md",
+            "sha256": "28bfa0c6cd13fa0167c72512fca0da2c6fc24b6eea67c5307bf1ef2bedca61a6"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/create-rule/SKILL.md",
+            "sha256": "fe8499dfe93edbf8306df70498a7ea3572e0c8b340607137cbc836051520263c"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/create-skill/SKILL.md",
+            "sha256": "f3df382ea9cf2119ee8f121143b2ec0cacbd8bbc6dc3a15fd981ea547cef42f8"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/create-subagent/SKILL.md",
+            "sha256": "ab46a80f90cb3810c3182a55b975b13bcf72e00e7fa907cf49fb3a30a02a3922"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/cursor-blame/SKILL.md",
+            "sha256": "0cea702912dd3f486ffba20d7cd29bc99b06184fc7c9d319c7ac03290cd038d7"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/goal/SKILL.md",
+            "sha256": "95d2b1b1fbf9803f78b4d21e1b9ae4ed569f1581b7f07797f96aa751762b55a9"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/loop/SKILL.md",
+            "sha256": "fa195d01ca95def6f8e6ca1902d35470d153b49472ba4e60ea5224485f192a05"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/migrate-to-skills/SKILL.md",
+            "sha256": "78c0483cc96ea3dc833f344ed928d425aff0c64cfcb02759fe5efe4a913a5b6b"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/new-repo/SKILL.md",
+            "sha256": "2d08d7daea091b8877cfe1e3b6af7097cacdc141807cb90c05c1fe939541ba3b"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/onboard/SKILL.md",
+            "sha256": "ad68425f9ae8124b829d839a68cd8d0f9f519e83d651b4ab9986cb092f66fb3b"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/origin/SKILL.md",
+            "sha256": "bbdbd1ecef636cfa7223ce76410f1ce52a159a4c36bf6fca3c315d64adfd5468"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/rename-chat/SKILL.md",
+            "sha256": "618b6d42cacec9b77ebadc5ca0f564f42e1e592499b01cfc22595a608f3ceb31"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/review-bugbot/SKILL.md",
+            "sha256": "24bb0b36844583c5a1ffe2dc11f861c85d68a281cc61ceda35966bbf60c08e7a"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/review-security/SKILL.md",
+            "sha256": "d007ec5a617e9caeef03055cd9c5dad762d80acb4ae1b20377bde4b3b41c46fd"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/review/SKILL.md",
+            "sha256": "bd00601823f73cce6a20acc3996e7d2ea3c2a366143da12eafd0d94b98d88ece"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/sdk/SKILL.md",
+            "sha256": "0db41158a6b4fd16983ee178649204e98c2f57d182cdec30941a22d866e27435"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/share/SKILL.md",
+            "sha256": "c334e042588946c1cbf7e4bae6626c45dd24bed191583aff06d50e8ba8b19acd"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/shell/SKILL.md",
+            "sha256": "b354ce28c70af1d5c05bb6bf070a1823fadd470530993ab271a1cfcbe57ad4fe"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/split-to-prs/SKILL.md",
+            "sha256": "61e3b94b54457e0f8a850cccf64936a0f5a686f6ad22016d17d30958d2f2b328"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/statusline/SKILL.md",
+            "sha256": "9ce07cefc16faf737ad58fb8f09ac6d34ff457382daf90ff6a06d402f4688d73"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/update-cli-config/SKILL.md",
+            "sha256": "4c784e4e26cc3c8b0fbec5db2ced62c2d4500c11850871bc92c88c7c98268e34"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills-cursor/update-cursor-settings/SKILL.md",
+            "sha256": "8b5ee1a74dc964f5c240a18e0b7402051e0d1f688e7db3037048207213a0e78d"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills/frontend-design/SKILL.md",
+            "sha256": "1608ea77fbb6fc30d13a97d12cfa8ebf31358d40f0dd97beed24829d6b3f45dd"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills/goal-dev-servers/SKILL.md",
+            "sha256": "7dcbfae015db9b48c462de9503bf1d3b10bf3661fcf344144d36903f7e3f6e7e"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills/goal-pipeline/SKILL.md",
+            "sha256": "795a7b091f380d19f28bef84e64bddf47318c60aa3d4596721723c675afa83b0"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills/goal-ui-verify/SKILL.md",
+            "sha256": "421435d78639c5dc1967aaf6ff5c447dd95d9743928e392c63bd732f08588944"
+          },
+          {
+            "path": "/home/ggomes/.cursor/skills/walkthrough/SKILL.md",
+            "sha256": "ecdcefe06499f495066e43e66fa2fff33ce24e220e3b837a83ed7bfeeb6029d7"
+          }
+        ],
+        "pnmuiRuleFiles": [
+          {
+            "path": "/home/ggomes/dev/pnmui-monorepo/.cursor/rules/10-pnmui-conventions.mdc",
+            "sha256": "4ccfeff170e3fbcbb1e0b6745e101e6b3a808dc8a6899e007f64686441bf3ab5"
+          },
+          {
+            "path": "/home/ggomes/dev/pnmui-monorepo/.cursor/rules/11-architecture.mdc",
+            "sha256": "a898591366c92b04ef754b9661362e6c1aa7ce714437211db9fbd2747367c6cf"
+          },
+          {
+            "path": "/home/ggomes/dev/pnmui-monorepo/.cursor/rules/12-run-local.mdc",
+            "sha256": "d605294e8177f29ba31e777373eef903aa60c1fe15430ec1209ee84be8e57fc5"
+          },
+          {
+            "path": "/home/ggomes/dev/pnmui-monorepo/.cursor/rules/13-form-pages.mdc",
+            "sha256": "54fbc1aa8c29a315776144e52a8b4b18e80830265a8926575de1c75101758c92"
+          },
+          {
+            "path": "/home/ggomes/dev/pnmui-monorepo/.cursor/rules/20-verification.mdc",
+            "sha256": "22fb5a11ae0740dcda5cc67c0be8253e87b6f1302eb364a88aa71ed80725231e"
+          },
+          {
+            "path": "/home/ggomes/dev/pnmui-monorepo/.cursor/rules/30-memory.mdc",
+            "sha256": "51230a596cfaa030a4571e6a16152897b2316c7267467df264f58bfbbd4d6e25"
+          },
+          {
+            "path": "/home/ggomes/dev/pnmui-monorepo/.cursor/rules/40-deployment.mdc",
+            "sha256": "e762251f5be601935d233ceaa941b81c5e964f71c2bfa270c0e15a4be2d5a59d"
+          }
+        ]
+      }
+    },
+    "clockSkewMs": 1188,
+    "blocking": []
+  }
+}

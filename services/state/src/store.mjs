@@ -771,16 +771,23 @@ function promotedFromBody(db, body) {
   };
 }
 
+// A card id is minted by the client, and on every node that mirrors the card it
+// becomes a FILESYSTEM key - cards/<id>/ for the card's docs and logs, and
+// .card-locks/<id>.lock for its lifecycle lock. So the store, the one door every
+// card enters the mesh through, refuses any id that is not a single safe path
+// segment: no separators and no dots, hence no `..` and no traversal on any node.
+// The shape is deliberately wider than a ULID - a peer or an external harness may
+// mint its own id and that is allowed - but never wider than what a node can
+// safely put on disk and, in turn, delete.
+export function isSafeCardId(id) {
+  return typeof id === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(id);
+}
+
 export function createCard(db, authNode, input) {
   const id = input.id;
   if (!id || typeof id !== "string") throw new StoreError(422, "invalid-card", "client-minted id required");
-  // Fail closed AT THE DOOR on id shape: every node's board mirrors cards to
-  // disk under cards/<id>/ and routes /cards/:id, so an id with a separator,
-  // dot, or other path metacharacter would be un-openable everywhere and a
-  // traversal hazard on the mirror write. Shape only — no ULID mandate; the
-  // contract stays "client-minted id required".
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(id)) {
-    throw new StoreError(422, "invalid-card", "id must be a path-safe token (letters, digits, dash, underscore; max 64 chars)");
+  if (!isSafeCardId(id)) {
+    throw new StoreError(422, "invalid-card", "card id must be a safe path segment: 1-64 chars of [A-Za-z0-9_-], starting alphanumeric");
   }
   if (!input.list) throw new StoreError(422, "invalid-card", "list required");
   if (input.placement?.target === "host") {

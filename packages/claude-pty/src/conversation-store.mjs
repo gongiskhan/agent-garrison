@@ -29,7 +29,7 @@
 // vocabulary can grow without redeploying every writer):
 //   conversation-opened, stretch-started, stretch-ended, handoff,
 //   delegation-dispatched, delegation-returned, delegation-failed,
-//   user-message, card-materialized, card-state-changed, policy-rewrite,
+//   user-message, note, card-materialized, card-state-changed, policy-rewrite,
 //   escalation, summary-trimmed, dig
 import {
   appendFileSync,
@@ -61,6 +61,7 @@ export const CONVERSATION_EVENT_KINDS = [
   "delegation-returned",
   "delegation-failed",
   "user-message",
+  "note",
   "card-materialized",
   "card-state-changed",
   "policy-rewrite",
@@ -664,6 +665,10 @@ export function validateHandoff(obj, { selectedDuties = [], resolveEvidence = nu
   if (!HANDOFF_STATUSES.includes(obj.status)) {
     errors.push(`status must be one of ${HANDOFF_STATUSES.join("|")}`);
   }
+  // Optional for persisted pre-contract handoffs; omission retains work gates.
+  if (obj.completion !== undefined && !["work", "answer"].includes(obj.completion)) {
+    errors.push("completion must be work|answer when present");
+  }
   if (typeof obj.summary !== "string" || !obj.summary.trim()) {
     errors.push("summary must be a non-empty string");
   } else if (obj.summary.length > 4000) {
@@ -729,6 +734,10 @@ export function validateHandoff(obj, { selectedDuties = [], resolveEvidence = nu
   }
   if (obj.nextSteps?.next === "done" && obj.status !== "complete") {
     errors.push("next done requires status complete");
+  }
+  if (obj.completion === "answer" && (obj.status !== "complete" || obj.nextSteps?.next !== "done"
+    || obj.nextSteps?.items?.length !== 0 || obj.blocker !== null)) {
+    errors.push("completion answer requires complete/done with no blocker or remaining items");
   }
 
   // Rule 10 — evidence resolution on disk.

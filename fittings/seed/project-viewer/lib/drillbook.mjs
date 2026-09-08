@@ -124,6 +124,7 @@ export async function readDrillbook(repo, { readFile }) {
   const missing = [];
   for (const entry of book.pages) {
     if (!entry.selected) continue;
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,239}$/.test(entry.id)) throw new Error("invalid drillbook page identifier");
     const file = path.join(repo, PAGES_DIR, `${entry.id}.yml`);
     const text = await readFile(file);
     if (text === null) {

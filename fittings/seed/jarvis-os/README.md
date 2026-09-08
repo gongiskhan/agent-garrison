@@ -1,66 +1,56 @@
 # Jarvis Agentic OS
 
-A **voice-first, Jarvis-style HUD** for Agent Garrison — a central audio-reactive
-core you talk to. Hold to talk, it sends to the Operative through the gateway,
-streams the reply, and reads it aloud while the core pulses to the audio.
+An optional voice HUD for Garrison. It serves a dedicated React view with an
+audio-reactive Three.js core, transcript, workspace panels and colour settings.
+It sends turns through the configured HTTP gateway on its own `jarvis` channel.
 
-It is an own-port channel Fitting: it serves its own React HUD and talks to the
-Operative through the **http-gateway** (the same proven path as
-`web-channel-default`) and to a **kind:voice** Fitting for STT/TTS. It never
-spawns Claude itself.
+Tap the core or press Space to start a hands-free session. Speech detection runs
+in the browser; completed segments go to the composition's selected voice
+provider for transcription. Space interrupts a reply; M mutes the microphone.
+Stopping the session releases the microphone. Esc closes an open report.
 
-## Architecture
+## Voice contract
 
-```
-  browser HUD ──/api/chat──▶ jarvis-os (Node, :8082) ──▶ http-gateway ──▶ Operative
-   DitherCore                 clone of web-channel server         (Orchestrator)
-   push-to-talk  ──/api/voice/{stt,tts}──▶ kind:voice Fitting (local-voice / deepgram-voice)
-```
+The runner supplies `GARRISON_VOICE_FITTING_ID`. The server checks that provider's
+readiness and advertises its actual STT, TTS and wake-event capabilities through
+`GET /api/voice`. The HUD refreshes readiness after a provider restart.
 
-- **`scripts/server.mjs`** — cloned from `web-channel-default`. Proxies
-  `/api/chat` → gateway `/chat/stream`, discovers the voice Fitting
-  (`local-voice.json` → `deepgram-voice.json`), and proxies `/api/voice/*`.
-  Reuses the gateway's `"web"` channel ring buffer, so station **either**
-  `jarvis-os` **or** `web-channel-default`, not both.
-- **`ui/`** — the HUD. Visual layer reused from the Fable jarvis-hud reference;
-  voice + transport logic is the Garrison-native path from web-channel.
+Capture Service uses authenticated REST STT and MP3 TTS. Its `CAPTURE_TOKEN` is
+delivered through the fitting's secret scope and stays on the server. Optional
+Local Voice supplies WAV TTS and may advertise wake events. The HUD connects to
+wake events only when supported; it does not assume an audio streaming endpoint.
 
-### The core (audio-reactive)
+Replies are divided at the provider's advertised text limit without dropping
+the remaining text. TTS uses JSON POST requests and plays decoded audio through
+the browser AudioContext. Interrupting aborts pending synthesis and prevents a
+late response from restarting playback. STT requests have bounded deadlines.
 
-`ui/cores/DitherCore.tsx` + `ui/cores/dithering-shader.tsx` render a dithered
-sphere on **WebGL2 (no three.js)**, so the bundle stays light. The host passes a
-real `getLevel` — an `AnalyserNode` RMS over the mic while listening and over
-the TTS `<audio>` while speaking — so the sphere mouths the live audio. Modes
-(`idle` / `listening` / `working` / `speaking` / `error`) drive colour + speed.
+## Runtime and sessions
 
-**Stable Core boundary:** the HUD renders `<DitherCore mode getLevel />`.
-Swapping to the heavier, more "Jarvis" `GraphCore` later is just changing that
-import and adding `three` to the build — `getLevel`/`mode` stay identical.
+`/api/runtime` describes gateway and voice health plus current skills and
+commands. `/api/sessions` uses the shell's canonical mesh inventory, including
+recent native shell sessions and their working state. The separate dev-session
+controls operate only on sessions owned by Dev Env; observed sessions remain
+read-only.
 
-### Interaction (v1)
+## Build and stationing
 
-Push-to-talk: **hold Space** (or press-and-hold the core) to record, release to
-send. STT is the batch `/stt` path (works with `local-voice`, which has no
-streaming `/stream` in v1). Esc closes the report overlay. Replies pop a callout
-and are read aloud.
+The fitting is available in the registry and is not stationed automatically.
+Select it in a composition with an HTTP gateway and a voice provider. Its port
+comes from the composition and instance profile, and deployment publishes its
+view through the normal tailnet mapping.
 
-## Build
+Setup runs `ui/build.mjs` using the root lockfile's React, Three.js, VAD and ONNX
+dependencies. It builds the JavaScript bundle and copies the browser VAD model,
+worklet and WASM assets into `dist/`; generated assets are not committed. The
+tracked `dist/index.html` is the entry point. No model assets are fetched by the
+browser from an external CDN.
 
-`ui/build.mjs` (esbuild) runs on every `up` (the Fitting's `setup`), resolving
-`react`/`react-dom` from the Garrison root and writing `dist/`. There is no
-three.js dependency.
-
-## Compose
-
-See `compositions/jarvis/apm.yml`: `jarvis-os` + `local-voice` + `http-gateway`
-+ `garrison-orchestrator` + `memory`. `voice` is a singleton, so exactly one
-voice Fitting is stationed (`local-voice` here).
+The HUD is a dedicated fitting view. Colour preferences autosave; it does not
+install a floating overlay in the Garrison shell.
 
 ## Provenance
 
-The visual layer (`ui/cores/DitherCore.tsx`, `ui/cores/dithering-shader.tsx`,
-`ui/ReportOverlay.tsx`, and the report-overlay CSS) is reused from the Fable
-`jarvis-hud` reference project. The Garrison adaptations: the Core's `getLevel`
-is wired to a real AnalyserNode, the import path was localised, and the
-transport/voice loop is the web-channel Garrison-native path rather than the
-Fable Next.js API routes.
+The original visual work came from the Fable `jarvis-hud` reference, including
+the dithered core and report overlay. The current default is `GraphCore`.
+Garrison owns the transport, provider selection and session integration.

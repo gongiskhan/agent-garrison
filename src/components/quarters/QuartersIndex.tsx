@@ -48,7 +48,14 @@ const GENERIC_CATEGORY_META: Record<string, { label: string; blurb: string; icon
   settings: { label: "Settings", blurb: "The engine's native settings file(s), edited raw with format validation.", icon: "SlidersHorizontal" },
   context: { label: "Context", blurb: "The engine's context-file convention, ownership-aware.", icon: "NotebookText" },
   mcps: { label: "MCPs", blurb: "MCP servers as the engine's native config declares them.", icon: "Plug" },
-  logs: { label: "Logs", blurb: "Tail the engine's log output, read-only.", icon: "FileText" }
+  logs: { label: "Logs", blurb: "Tail the engine's log output, read-only.", icon: "FileText" },
+  // G5: file_sets categories - a directory of files, not a single one.
+  rules: { label: "Rules", blurb: "Always-apply and glob-matched rule files.", icon: "ScrollText" },
+  skills: { label: "Skills", blurb: "One SKILL.md per skill directory.", icon: "Sparkles" },
+  agents: { label: "Agents", blurb: "Custom agent definitions.", icon: "Bot" },
+  hooks: { label: "Hooks", blurb: "Lifecycle hooks, merged (not replaced) on save.", icon: "Webhook" },
+  desktop: { label: "Desktop", blurb: "The desktop app's own settings, where it runs on this machine.", icon: "Monitor" },
+  "project-rules": { label: "Project rules", blurb: "Rules scoped to one project, not the whole machine.", icon: "FolderCog" }
 };
 
 export function QuartersIndex() {
@@ -200,6 +207,12 @@ export function QuartersIndex() {
                         {(entry.descriptor.categories ?? ["settings", "context", "mcps", "logs"]).map((cat) => {
                           const meta = GENERIC_CATEGORY_META[cat] ?? { label: cat, blurb: "", icon: "Square" };
                           const Icon = icon(meta.icon);
+                          // A category that IS a file_sets id carries its own
+                          // per-node availability (platform gating, e.g.
+                          // "desktop" only on darwin) - everything else is
+                          // "native file" the way it always was.
+                          const fsInfo = entry.fileSets?.find((f) => f.id === cat);
+                          const unavailable = fsInfo && !fsInfo.available;
                           return (
                             <Link
                               key={cat}
@@ -211,13 +224,22 @@ export function QuartersIndex() {
                                 background: "white",
                                 padding: "14px 16px",
                                 textDecoration: "none",
-                                color: "inherit"
+                                color: "inherit",
+                                opacity: unavailable ? 0.6 : 1
                               }}
                             >
                               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
                                 <span className="glyph"><Icon size={16} aria-hidden /></span>
                                 <h3 className="font-display" style={{ fontWeight: 600, fontSize: 15, margin: 0, flex: 1 }}>{meta.label}</h3>
-                                <span className="pill idle" style={{ fontSize: 10 }}>native file</span>
+                                {unavailable ? (
+                                  <span className="pill warn" style={{ fontSize: 10 }} title={fsInfo?.reason} data-testid={`quarters-card-${entry.fittingId}-${cat}-unavailable`}>
+                                    unavailable
+                                  </span>
+                                ) : (
+                                  <span className="pill idle" style={{ fontSize: 10 }}>
+                                    {fsInfo ? (typeof fsInfo.count === "number" ? `${fsInfo.count} file${fsInfo.count === 1 ? "" : "s"}` : "files") : "native file"}
+                                  </span>
+                                )}
                               </div>
                               <p style={{ margin: 0, color: "var(--mute)", fontSize: 12 }}>{meta.blurb}</p>
                             </Link>

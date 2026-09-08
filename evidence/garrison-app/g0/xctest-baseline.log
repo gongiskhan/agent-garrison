@@ -1,0 +1,117 @@
+Test Suite 'All tests' started at 2026-09-01 19:30:04.091.
+Test Suite 'GarrisonTests.xctest' started at 2026-09-01 19:30:04.091.
+Test Suite 'CaptureProtocolTests' started at 2026-09-01 19:30:04.091.
+Test Case '-[GarrisonTests.CaptureProtocolTests testControlMessageWireShapes]' passed (0.005 seconds).
+Test Case '-[GarrisonTests.CaptureProtocolTests testDecodesAFeedbackEventCarryingASpokenCue]' passed (0.003 seconds).
+Test Case '-[GarrisonTests.CaptureProtocolTests testDecodesAFeedbackEventWithLanguage]' passed (0.000 seconds).
+Test Case '-[GarrisonTests.CaptureProtocolTests testDecodesAFeedbackEventWithNoCue]' passed (0.000 seconds).
+Test Case '-[GarrisonTests.CaptureProtocolTests testDecodesAnAckWithAndWithoutLanguage]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.CaptureProtocolTests testDecodesTheExchangesTranscript]' passed (0.005 seconds).
+Test Case '-[GarrisonTests.CaptureProtocolTests testFramingRejectsGarbage]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.CaptureProtocolTests testFramingRoundTrip]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.CaptureProtocolTests testServerMessageParsing]' passed (0.027 seconds).
+Test Case '-[GarrisonTests.CaptureProtocolTests testSessionIdMatchesServerCharset]' passed (0.013 seconds).
+Test Suite 'CaptureProtocolTests' passed at 2026-09-01 19:30:04.150.
+	 Executed 10 tests, with 0 failures (0 unexpected) in 0.056 (0.059) seconds
+Test Suite 'MockPendantTransportTests' started at 2026-09-01 19:30:04.150.
+Test Case '-[GarrisonTests.MockPendantTransportTests testDroppedPacketCountsOneLoss]' passed (0.005 seconds).
+Test Case '-[GarrisonTests.MockPendantTransportTests testHapticUnsupportedFailsWrite]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.MockPendantTransportTests testLowBatteryEventFires]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.MockPendantTransportTests testMalformedInjectionCountsWithoutBreakingStream]' passed (0.008 seconds).
+Test Case '-[GarrisonTests.MockPendantTransportTests testOutOfOrderDeliveryCountsLoss]' passed (0.002 seconds).
+Test Case '-[GarrisonTests.MockPendantTransportTests testReadsCodecFeaturesBattery]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.MockPendantTransportTests testRecordsHapticWritesWithTimestamps]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.MockPendantTransportTests testScriptedDisconnectAndReconnectResumesLive]' passed (0.003 seconds).
+Test Case '-[GarrisonTests.MockPendantTransportTests testStreamsFixtureFramesInOrder]' passed (0.011 seconds).
+Test Suite 'MockPendantTransportTests' passed at 2026-09-01 19:30:04.183.
+	 Executed 9 tests, with 0 failures (0 unexpected) in 0.031 (0.033) seconds
+Test Suite 'OpusEncoderTests' started at 2026-09-01 19:30:04.183.
+Test Case '-[GarrisonTests.OpusEncoderTests testEncodeProducesPackets]' passed (0.092 seconds).
+Test Case '-[GarrisonTests.OpusEncoderTests testFlushDrainsTailAndFinishesEncoder]' passed (0.005 seconds).
+Test Case '-[GarrisonTests.OpusEncoderTests testGainAdaptsToSpeechOnlyAndNeverPumpsNoise]' passed (0.105 seconds).
+Test Case '-[GarrisonTests.OpusEncoderTests testInputFormatExposedForChangeDetection]' passed (0.002 seconds).
+Test Suite 'OpusEncoderTests' passed at 2026-09-01 19:30:04.389.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.205 (0.206) seconds
+Test Suite 'PendantBLETransportMockTests' started at 2026-09-01 19:30:04.389.
+Test Case '-[GarrisonTests.PendantBLETransportMockTests testDiscoversConnectsAndReadsTheProfile]' passed (0.202 seconds).
+Test Case '-[GarrisonTests.PendantBLETransportMockTests testFailedServiceDiscoveryStillReachesConnected]' passed (0.193 seconds).
+Test Case '-[GarrisonTests.PendantBLETransportMockTests testHapticWriteReachesThePeripheral]' passed (0.195 seconds).
+Test Case '-[GarrisonTests.PendantBLETransportMockTests testStreamsFramedAudioThroughTheRealReassembler]' passed (0.211 seconds).
+Test Case '-[GarrisonTests.PendantBLETransportMockTests testUnexpectedDisconnectEntersReconnectingAndRecovers]' passed (4.582 seconds).
+Test Case '-[GarrisonTests.PendantBLETransportMockTests testUnreachableStoredIdentifierFallsBackToScanning]' passed (8.179 seconds).
+Test Suite 'PendantBLETransportMockTests' passed at 2026-09-01 19:30:17.955.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 13.563 (13.566) seconds
+Test Suite 'PendantFeedbackMappingTests' started at 2026-09-01 19:30:17.955.
+Test Case '-[GarrisonTests.PendantFeedbackMappingTests testEveryTierHasAPattern]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.PendantFeedbackMappingTests testFailureIsALowTriple]' passed (0.000 seconds).
+Test Case '-[GarrisonTests.PendantFeedbackMappingTests testPendantIsOwnedByTheAppNotByAView]' passed (0.040 seconds).
+Test Case '-[GarrisonTests.PendantFeedbackMappingTests testSegmentCapturedIsNotMistakableForAWake]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.PendantFeedbackMappingTests testWakeLapsedIsDistinctFromEveryOtherTier]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.PendantFeedbackMappingTests testWindowClosedAndTaskCreatedAreDistinguishable]' passed (0.000 seconds).
+Test Suite 'PendantFeedbackMappingTests' passed at 2026-09-01 19:30:17.999.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.042 (0.044) seconds
+Test Suite 'PendantFixtureTests' started at 2026-09-01 19:30:17.999.
+Test Case '-[GarrisonTests.PendantFixtureTests testBadLineThrows]' passed (0.008 seconds).
+Test Case '-[GarrisonTests.PendantFixtureTests testParsesJsonlPackets]' passed (0.008 seconds).
+Test Suite 'PendantFixtureTests' passed at 2026-09-01 19:30:18.015.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.016 (0.016) seconds
+Test Suite 'PendantFramingTests' started at 2026-09-01 19:30:18.015.
+Test Case '-[GarrisonTests.PendantFramingTests testDecodeRejectsRunt]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.PendantFramingTests testEncodeDecodeRoundTrip]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.PendantFramingTests testFragmentedFrameReassembles]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.PendantFramingTests testFrameIndexGapDropsPendingFrame]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.PendantFramingTests testMalformedPacketCountedAndIgnored]' passed (0.000 seconds).
+Test Case '-[GarrisonTests.PendantFramingTests testPacketIdGapDropsPendingFrame]' passed (0.000 seconds).
+Test Case '-[GarrisonTests.PendantFramingTests testPacketIdWrapsAt65536WithoutLoss]' passed (0.000 seconds).
+Test Case '-[GarrisonTests.PendantFramingTests testSingleNotificationFramesCloseOnNextIndexZero]' passed (0.001 seconds).
+Test Suite 'PendantFramingTests' passed at 2026-09-01 19:30:18.023.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.005 (0.007) seconds
+Test Suite 'SessionSpoolTests' started at 2026-09-01 19:30:18.025.
+Test Case '-[GarrisonTests.SessionSpoolTests testAppendScanAndResumeFilter]' passed (0.045 seconds).
+Test Case '-[GarrisonTests.SessionSpoolTests testRingRotationBoundsDiskAndDropsOldest]' passed (0.011 seconds).
+Test Case '-[GarrisonTests.SessionSpoolTests testSurvivesReopenAndSkipsTruncatedTail]' passed (0.007 seconds).
+Test Suite 'SessionSpoolTests' passed at 2026-09-01 19:30:18.089.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.063 (0.064) seconds
+Test Suite 'SettingsAndConsentTests' started at 2026-09-01 19:30:18.089.
+Test Case '-[GarrisonTests.SettingsAndConsentTests testAckLogAppendsBoundedNewestFirst]' passed (0.019 seconds).
+Test Case '-[GarrisonTests.SettingsAndConsentTests testAuthedRequestCarriesBearerAndPath]' passed (0.009 seconds).
+Test Case '-[GarrisonTests.SettingsAndConsentTests testBroadcastLivenessIsAHeartbeatNotAFlag]' passed (0.007 seconds).
+Test Case '-[GarrisonTests.SettingsAndConsentTests testConsentSuppressionPersists]' passed (0.005 seconds).
+Test Case '-[GarrisonTests.SettingsAndConsentTests testEndpointSettingsRoundTrip]' passed (0.003 seconds).
+Test Case '-[GarrisonTests.SettingsAndConsentTests testTheExtensionCanExplainWhyItRefusedToStart]' passed (0.009 seconds).
+Test Case '-[GarrisonTests.SettingsAndConsentTests testUnsetEndpointYieldsNilNotGarbage]' passed (0.003 seconds).
+Test Suite 'SettingsAndConsentTests' passed at 2026-09-01 19:30:18.146.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.055 (0.057) seconds
+Test Suite 'SpeechSinkTests' started at 2026-09-01 19:30:18.146.
+Test Case '-[GarrisonTests.SpeechSinkTests testACueNeverQueuesAndNeverDisturbsTheAckQueue]' passed (0.224 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testCeilingNeverSacrificesAnError]' passed (0.002 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testCuesSpeakEvenWhenInfoAcksAreMuted]' passed (0.055 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testDropsAStaleCue]' passed (0.014 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testFallsBackToTheOnDeviceVoiceWhenTheClipFails]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testFallsBackToTheSynthesizerWhenTheCueClipFails]' passed (0.013 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testMasterAndInfoTogglesWithErrorOverride]' passed (0.003 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testMasterSwitchAndMuteSilenceCues]' passed (0.004 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testMuteForMinutesAndQuietHours]' passed (0.003 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testNeverSettlesForABrazilianVoiceSilently]' passed (0.023 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testPicksAVoiceMatchingTheLanguage]' passed (0.025 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testPlaysTheRenderedClipInsteadOfSynthesizing]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testPrefersTheRenderedClipForACue]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testReceiptSaysWhichVoiceSpoke]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testSpeaksAWakeCue]' passed (0.013 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testSpeaksTextVerbatimAndReportsReceipt]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testStaleAcksAreDroppedHonestly]' passed (0.006 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testSynthesizesWhenNoClipWasRendered]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testTenAcksInFiveSecondsDoNotProduceTenSentences]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testTheCueToggleSilencesCuesOnly]' passed (0.002 seconds).
+Test Suite 'SpeechSinkTests' passed at 2026-09-01 19:30:18.544.
+	 Executed 20 tests, with 0 failures (0 unexpected) in 0.394 (0.398) seconds
+Test Suite 'UploaderResumeTests' started at 2026-09-01 19:30:18.544.
+Test Case '-[GarrisonTests.UploaderResumeTests testResumesFromLastAckedSeqAfterDrop]' passed (1.191 seconds).
+Test Case '-[GarrisonTests.UploaderResumeTests testSpeakReachesHandlerAndReceiptRidesBack]' passed (0.106 seconds).
+Test Case '-[GarrisonTests.UploaderResumeTests testStreamsFramesAndReceivesContiguousAcks]' passed (0.106 seconds).
+Test Suite 'UploaderResumeTests' passed at 2026-09-01 19:30:19.949.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 1.403 (1.405) seconds
+Test Suite 'GarrisonTests.xctest' passed at 2026-09-01 19:30:19.949.
+	 Executed 78 tests, with 0 failures (0 unexpected) in 15.834 (15.858) seconds
+Test Suite 'All tests' passed at 2026-09-01 19:30:19.949.
+	 Executed 78 tests, with 0 failures (0 unexpected) in 15.834 (15.858) seconds

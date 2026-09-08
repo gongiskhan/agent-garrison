@@ -22,6 +22,7 @@ import path from "node:path";
 
 export const AUDIO_RECORD_HEADER = 16; // u32 seq + f64 ts + u32 len
 export const REORDER_WINDOW = 256; // frames held beyond the contiguous edge
+const RECENT_FRAMES = 48; // ~30s of 1.5fps stills kept addressable in memory
 
 function encodeRecord(seq, ts, bytes) {
   const header = Buffer.alloc(AUDIO_RECORD_HEADER);
@@ -140,6 +141,7 @@ export class SessionMedia {
         onAudioFrame?.(seq, ts, bytes);
       }
     });
+    this.recentVideo = [];
     this.video = new OrderedStream({
       lastSeq: this.transient ? 0 : this.scanFrames(),
       counters,
@@ -152,6 +154,10 @@ export class SessionMedia {
         // writeFileSync (not the atomic tmp+rename), so ordering is the only
         // thing guaranteeing that a path handed out names a complete JPEG.
         this.lastVideo = { seq, tsMs: ts, atMs: Date.now() };
+        // A short ring of what was on screen lately, so a spoken command can
+        // carry the moments before it and not just the newest still.
+        this.recentVideo.push(this.lastVideo);
+        if (this.recentVideo.length > RECENT_FRAMES) this.recentVideo.shift();
       }
     });
   }
@@ -182,6 +188,22 @@ export class SessionMedia {
       atMs: this.lastVideo.atMs,
       file: path.join(this.framesDir, `${this.lastVideo.seq}.jpg`)
     };
+  }
+
+  // Up to `max` complete frames written at or before `beforeMs`, newest first,
+  // at least `spacingMs` apart so three stills show three moments rather than
+  // one moment three times. Same server-clock discipline as latestFrame().
+  recentFrames({ beforeMs = Date.now(), max = 3, spacingMs = 2000 } = {}) {
+    const out = [];
+    let lastAt = null;
+    for (let i = this.recentVideo.length - 1; i >= 0 && out.length < max; i -= 1) {
+      const frame = this.recentVideo[i];
+      if (frame.atMs > beforeMs) continue;
+      if (lastAt !== null && lastAt - frame.atMs < spacingMs) continue;
+      lastAt = frame.atMs;
+      out.push({ ...frame, file: path.join(this.framesDir, `${frame.seq}.jpg`) });
+    }
+    return out;
   }
 
   acceptAudio(seq, ts, bytes) {

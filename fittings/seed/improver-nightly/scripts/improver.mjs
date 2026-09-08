@@ -271,22 +271,29 @@ async function collectInputs(rootDir, compositionDir) {
     .filter((f) => f.path.endsWith("gate-status.json"))
     .map((f) => ({ ...f, path: path.relative(rootDir, f.path) }));
 
+  // The nightly Zeca reviews (capture-service, D60) land here at 03:05: what
+  // the voice layer misheard, misrouted or failed at the day before, written
+  // for exactly this sweep.
+  const zecaReviews = path.join(process.env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison"), "zeca", "reviews");
   const telemetryCandidates = [
     path.join(rootDir, "logs"),
     path.join(compositionDir, "logs"),
     path.join(rootDir, ".playwright-cli"),
-    path.join(rootDir, "data")
+    path.join(rootDir, "data"),
+    zecaReviews
   ];
   const telemetry = [];
   for (const dir of telemetryCandidates) {
     const files = await listFiles(dir, { recursive: false, limit: 8 });
     for (const file of files) {
-      if (!/\.(log|json|txt)$/.test(file.path) && !file.path.endsWith("scheduler.log")) continue;
+      const isReview = dir === zecaReviews && file.path.endsWith(".md");
+      if (!isReview && !/\.(log|json|txt)$/.test(file.path) && !file.path.endsWith("scheduler.log")) continue;
       telemetry.push({
         path: path.relative(rootDir, file.path),
         bytes: file.bytes,
         updated: file.updated,
-        tail: await tailLines(file.path)
+        // A review ends with its Learnings section; a log ends with noise.
+        tail: await tailLines(file.path, isReview ? 12 : 3)
       });
     }
   }

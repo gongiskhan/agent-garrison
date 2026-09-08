@@ -52,6 +52,8 @@ final class SampleHandler: RPBroadcastSampleHandler {
             consent: AppGroup.consentSuppressed ? .suppressed : .shown,
             spoolDirectory: AppGroup.spoolDirectory(sessionId: sessionId)
         )
+        // Started from a conversation's record button: the digest goes there.
+        uploader.conversationId = AppGroup.takeBroadcastConversationId()
         self.uploader = uploader
         uploader.connect()
         // Tell the app it has eyes. Read on the main screen, and by the user

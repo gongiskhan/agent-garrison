@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Shared by garrison-redeploy.sh and garrison-reload.sh: make sure the app
+# server we are replacing is really gone once the supervisor has restarted it.
+#
+# `next start` answers SIGTERM by closing its listener and then waiting for
+# every open connection to finish. Fittings keep keep-alive and SSE connections
+# into the shell, so that wait never ends: the old next-server outlives its
+# supervisor as an orphan, keeps serving stale keep-alive clients on the OLD
+# code, keeps every fitting it spawned as its child (so they never pick up new
+# code either), and its handlers keep opening requests into the new server
+# until that one is starved. Seen on the Mac 2026-09-03: 128 hung connections,
+# the new shell silent for an hour, "prod did not come up".
+#
+# Usage, around the supervisor restart:
+#   old_pid="$(app_server_pid_on_port "$PORT")"
+#   ... restart ...
+#   ensure_old_app_server_gone "$old_pid"
+
+app_server_pid_on_port() {
+  lsof -nP -iTCP:"$1" -sTCP:LISTEN -t 2>/dev/null | head -n 1 || true
+}
+
+# Tethered Linux nodes without a user systemd bus use the installer-owned
+# process-group supervisor. Never start an untracked second app process.
+restart_node_supervisor() {
+  local supervisor="$1/node-supervisor.sh"
+  [ -x "$supervisor" ] || return 1
+  "$supervisor" restart
+}
+
+# The tether owner checks the Shells forward as well as the app. Leaving
+# Shells down while setup/verify runs makes it retire the whole SSH tunnel,
+# including the reverse state connection setup needs. Start the real fitting
+# through its recovery API first; up() adopts it through normal lifecycle code.
+start_tether_shells() {
+  local node_home="$1" base="$2"
+  node -e 'try { const n=JSON.parse(require("fs").readFileSync(process.argv[1]+"/node.json","utf8")); process.exit(n.tethered === true ? 0 : 1); } catch { process.exit(1); }' "$node_home" || return 0
+  curl -sf -X POST --max-time 45 -H 'content-type: application/json' -d '{}' \
+    "$base/api/fittings/remote-shell-runtime/start" >/dev/null || return 1
+  local state_url attempt
+  state_url="$(node -e 'const s=JSON.parse(require("fs").readFileSync(process.argv[1]+"/state.json","utf8")); if (!s.url) process.exit(1); process.stdout.write(s.url.replace(/\/$/, ""));' "$node_home")" || return 1
+  # The owner may already be in its reconnect backoff. A running app/Shells
+  # pair lets that settle; setup must not race the reverse listener reopening.
+  for attempt in $(seq 1 45); do
+    if curl -sf --max-time 2 "$state_url/v1/health" >/dev/null; then return 0; fi
+    sleep 2
+  done
+  echo "[app-server] tether state service did not recover; composition startup withheld" >&2
+  return 1
+}
+
+wait_for_exit() {
+  local pid="$1" i
+  for i in $(seq 1 10); do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 1
+  done
+  return 1
+}
+
+# A supervised app server has the launcher's `concurrently` as its parent, so a
+# next-server whose parent is the init/launchd/systemd reaper (or gone) is an
+# orphan by definition. `next dev` children are parented to their `next dev`
+# process and are left alone.
+reap_orphan_app_servers() {
+  local pid ppid pcmd
+  while read -r pid ppid; do
+    [ -n "$pid" ] || continue
+    pcmd="$(ps -o command= -p "$ppid" 2>/dev/null || true)"
+    if [ "$ppid" != "1" ] && [ -n "$pcmd" ]; then
+      case "$pcmd" in
+        *launchd*|*systemd*) ;;
+        *) continue ;;
+      esac
+    fi
+    echo "[app-server] ending orphaned next-server $pid (parent $ppid: ${pcmd:-gone})"
+    kill -KILL "$pid" 2>/dev/null || true
+  done < <(ps -Ao pid=,ppid=,command= | awk '$3 == "next-server" { print $1, $2 }')
+}
+
+ensure_old_app_server_gone() {
+  local old_pid="$1"
+  if [ -n "$old_pid" ] && ! wait_for_exit "$old_pid"; then
+    echo "[app-server] old app server $old_pid still alive after the restart; ending it"
+    kill -KILL "$old_pid" 2>/dev/null || true
+  fi
+  reap_orphan_app_servers
+}

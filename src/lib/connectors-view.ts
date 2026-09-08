@@ -1,3 +1,4 @@
+import { connectorSecretScope } from "@/lib/metadata";
 import type { LibraryEntry } from "@/lib/types";
 import type { OAuthHealth } from "@/lib/vault";
 
@@ -24,7 +25,8 @@ export interface ConnectorView {
   name: string;
   summary: string;
   auth: "oauth2" | "api_key" | "none";
-  /** secret_scope names + whether each is present in the vault (no values). */
+  /** The names a connector call receives (`connector.secrets` when declared,
+   *  else the whole `secret_scope`) + whether each is in the vault (no values). */
   secrets: ConnectorSecretStatus[];
   /** all scoped secrets present (api_key) OR a valid OAuth grant (oauth2). */
   sealed: boolean;
@@ -59,7 +61,10 @@ export function buildConnectorsView(
     const id = connectorIdOf(entry);
     if (!spec || !id) continue;
 
-    const scope = entry.metadata.secret_scope ?? [];
+    // The same subset the auth-env route delivers: a connector whose own
+    // secrets are sealed reads as sealed even while the Fitting's other keys
+    // (its service's, not the connector's) are still unset.
+    const scope = connectorSecretScope(entry.metadata);
     const secrets = scope.map((name) => ({ name, present: present.has(name) }));
     const oauth = healthBy.get(id);
 

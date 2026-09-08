@@ -21,6 +21,9 @@ export default function manifest(): MetadataRoute.Manifest {
     background_color: "#efe8d9",
     theme_color: node.accentHex,
     orientation: "any",
+    // The one deep entry worth a long-press shortcut: Conversations is the
+    // phone's home in the app, the dashboard is the desktop's.
+    shortcuts: [{ name: "Conversations", short_name: "Talk", url: "/talk" }],
     icons: [
       { src: "/icons/node-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
       { src: "/icons/node-512.png", sizes: "512x512", type: "image/png", purpose: "any" },

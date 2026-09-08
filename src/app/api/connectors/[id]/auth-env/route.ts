@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { readLibrary } from "@/lib/library";
+import { connectorSecretScope } from "@/lib/metadata";
 import { scopedSecrets, getAccessToken } from "@/lib/vault";
 import { verifyInternalToken } from "@/lib/internal-token";
 
@@ -9,7 +10,9 @@ export const dynamic = "force-dynamic";
 // Resolve a connector's scoped auth env for the Automations engine. The engine
 // (a separate own-port process) cannot read the Vault directly; it POSTs here
 // and Garrison returns ONLY this connector's auth, freshly materialized:
-//   - api_key  -> the connector's `secret_scope` secrets ({KEY: value})
+//   - api_key  -> the connector's secrets ({KEY: value}): `connector.secrets`
+//                 when the manifest declares that subset, else its whole
+//                 `secret_scope` (connectorSecretScope)
 //   - oauth2   -> a freshly-refreshed { <ID>_ACCESS_TOKEN: token }
 // 409 means "not connected" (the engine then pauses awaiting_connector). The
 // values are never logged; they live only in the one request + the one process.
@@ -48,8 +51,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       return NextResponse.json({ env: {} });
     }
 
-    // api_key: deliver ONLY the connector's scoped secrets.
-    const scope = entry.metadata.secret_scope ?? [];
+    // api_key: deliver ONLY the connector's scoped secrets - the declared
+    // `connector.secrets` subset when there is one, so a Fitting that seals more
+    // for its own service never hands the rest to an automation child.
+    const scope = connectorSecretScope(entry.metadata);
     const secrets = scope.length > 0 ? await scopedSecrets(scope) : [];
     if (secrets.length === 0) {
       return NextResponse.json({ awaiting_connector: true, service: connectorId }, { status: 409 });

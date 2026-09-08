@@ -40,7 +40,7 @@ import {
   subscribeChatTheme,
   type ChatThemeMode,
 } from "./chat-theme";
-import { createVoiceClient, type VoiceClient, type VoiceHealth } from "./voice";
+import { chunkCharsFor, chunkSpeech, createVoiceClient, type VoiceClient, type VoiceHealth } from "./voice";
 import { sanitizeAssistantBadges, sanitizeAssistantText, routeChipLabel, routeChipFromAttribution } from "./sanitize";
 import { rewriteHostUrl, filePathMarkedExtension, type HostContext } from "./host-rewrite";
 import {
@@ -1110,6 +1110,13 @@ export interface ComposerAdornmentApi {
   /** The latest SETTLED assistant reply, or null while streaming/empty. Its `id`
    *  changes once per completed turn, so an adornment can react to each reply. */
   lastReply: { id: string; text: string; clientRequestId?: string } | null;
+  /** The composer's current text. Dictation reads it to know where it started. */
+  draft: string;
+  /** Rewrite the composer text (updater form allowed). Dictation appends each
+   *  transcribed utterance here so the user edits and sends it like typed text. */
+  setDraft: (next: string | ((prev: string) => string)) => void;
+  /** Put the caret back in the composer, e.g. after dictation stops. */
+  focusComposer: () => void;
 }
 
 export interface ClaudeChatProps {
@@ -1235,6 +1242,7 @@ export interface ClaudeChatProps {
    * from events it does not otherwise see.
    */
   transcriptOnActivityChange?: (activity: ConversationActivity) => void;
+  transcriptEmptyMessage?: React.ReactNode;
   /**
    * Stable key for persisting the UNSENT composer draft (typed text + settled
    * attachments) across a re-mount. A multi-thread host re-mounts the component
@@ -1276,7 +1284,7 @@ export interface ClaudeChatProps {
   musterUrl?: string;
 }
 
-export function ClaudeChat({ transport, composerAdornment, title, placeholder, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, autoShowTranscript = false, transcriptOnly = false, transcriptFocusEventId, transcriptLive, transcriptOnActivityChange, draftKey, routing, routeOptions, onPinChange, onOpenTranscript, musterUrl }: ClaudeChatProps) {
+export function ClaudeChat({ transport, composerAdornment, title, placeholder, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, autoShowTranscript = false, transcriptOnly = false, transcriptFocusEventId, transcriptLive, transcriptOnActivityChange, transcriptEmptyMessage, draftKey, routing, routeOptions, onPinChange, onOpenTranscript, musterUrl }: ClaudeChatProps) {
   const feat = features ?? {};
   const railOn = Boolean(feat.routing);
   // Seed from a persisted thread's transcript when the host provides one. Computed
@@ -1530,6 +1538,31 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   const pinnedRef = useRef(true);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
+  // Leave room to read the conversation, including in a short Kanban pane.
+  // WebKit has no field-sizing support, so also resize when the host pane or
+  // keyboard changes size. The cap belongs to this chat, not the whole window.
+  useEffect(() => {
+    const ta = taRef.current;
+    const root = rootRef.current;
+    if (!ta || !root) return;
+    const resize = () => {
+      const available = Math.min(root.clientHeight || window.innerHeight, window.visualViewport?.height ?? window.innerHeight);
+      const cap = Math.max(80, Math.min(240, Math.floor(available * 0.32)));
+      ta.style.maxHeight = `${cap}px`;
+      if (!input) { ta.style.height = ""; return; }
+      ta.style.height = "auto";
+      ta.style.height = `${Math.min(ta.scrollHeight + 2, cap)}px`;
+    };
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(root);
+    window.visualViewport?.addEventListener("resize", resize);
+    return () => {
+      observer.disconnect();
+      window.visualViewport?.removeEventListener("resize", resize);
+    };
+  }, [input]);
+
   // ── Theme (opt-in). Mirrors the dev-env terminal toggle: shared LS key, so
   // flipping either re-themes the other. When the feature is off the root
   // carries no data-theme attribute and the CSS falls back to its fixed dark
@@ -1596,6 +1629,15 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
   const lastSpokenRef = useRef<string>("");
+  /** The provider's per-request /tts budget from the last health probe; speak()
+   *  reads it through a ref so a 15s poll does not re-create the callback. */
+  const chunkCharsRef = useRef<number>(chunkCharsFor(null));
+  /** Mirrors `paused` for the playback queue: a pause pressed BETWEEN two chunks
+   *  (while the next one is still being fetched) must hold the next chunk back. */
+  const pausedRef = useRef(false);
+  /** The read-aloud in progress. A newer speak() or stop() replaces / clears it,
+   *  which cancels the remaining chunks and aborts the in-flight synthesis. */
+  const speakRunRef = useRef<{ abort: AbortController } | null>(null);
 
   // Keep the root's single polite live region authoritative for voice failures;
   // the durable visible error row deliberately has no second status region.
@@ -1606,13 +1648,31 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
   useEffect(() => {
     if (!voiceOn || !voiceClient) return;
     let cancelled = false;
-    const probe = () => voiceClient.health().then((h) => { if (!cancelled) setVoiceHealth(h); }).catch(() => {});
+    const probe = () => voiceClient.health().then((h) => {
+      if (cancelled) return;
+      setVoiceHealth(h);
+      chunkCharsRef.current = chunkCharsFor(h);
+    }).catch(() => {});
     void probe();
     const id = window.setInterval(probe, 15000);
     return () => { cancelled = true; window.clearInterval(id); };
   }, [voiceOn, voiceClient]);
 
   const voiceUsable = voiceOn && voiceHealth.available && voiceHealth.keyConfigured !== false;
+  // Read-aloud needs a synthesiser behind the provider (`tts` on health); the
+  // mic only needs the transcriber. A provider without a speech backend keeps
+  // push-to-talk and loses the speaker buttons, not the other way round.
+  const ttsUsable = voiceUsable && voiceHealth.tts !== false;
+  const ttsUnavailableTitle = voiceUsable
+    ? "Read-aloud unavailable: the voice provider has no speech backend"
+    : undefined;
+  // The disabled voice controls say WHY: the host's health carries the reason
+  // ("voice locked", "no voice provider", "voice provider not running", ...).
+  const voiceUnavailableTitle = voiceHealth.reason
+    ? `Voice unavailable: ${voiceHealth.reason}`
+    : voiceHealth.available && voiceHealth.keyConfigured === false
+      ? "Voice unavailable: the voice layer has no transcription key"
+      : "Voice layer unavailable";
 
   // ── Copy-last-response ──
   const [copied, setCopied] = useState(false);
@@ -2168,9 +2228,16 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
 
   // ── Voice: speak a message's text via the /voice/tts proxy. Playback is a
   // real transport (play / pause / resume / stop), not a fire-and-forget: a
-  // long reply read aloud has to be pausable. One <audio> at a time - starting a
-  // new read tears the previous one down (and revokes its object URL). ──
+  // long reply read aloud has to be pausable. The provider speaks at most
+  // `maxTextChars` per request (600 on capture-service), so a reply is split at
+  // sentence boundaries and the pieces play back to back through ONE <audio> at
+  // a time, each piece fetched while the previous one plays. Starting a new read
+  // tears the previous one down (cancels its queue, aborts its fetch, revokes its
+  // object URL). ──
   const teardownAudio = useCallback(() => {
+    const run = speakRunRef.current;
+    speakRunRef.current = null;
+    if (run) run.abort.abort();
     const a = audioRef.current;
     if (a) {
       a.onended = null;
@@ -2184,6 +2251,34 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
     }
   }, []);
 
+  // Play one synthesized chunk to its end. Resolves early (without error) when
+  // the run is cancelled mid-chunk, so the queue loop can just check liveness.
+  const playChunk = useCallback(
+    (blob: Blob, signal: AbortSignal) =>
+      new Promise<void>((resolve, reject) => {
+        if (signal.aborted) return resolve();
+        const urlObj = URL.createObjectURL(blob);
+        audioUrlRef.current = urlObj;
+        const audio = new Audio(urlObj);
+        audioRef.current = audio;
+        const release = () => {
+          if (audioRef.current !== audio) return; // superseded by a newer read
+          audio.onended = null;
+          audio.onerror = null;
+          audioRef.current = null;
+          URL.revokeObjectURL(urlObj);
+          if (audioUrlRef.current === urlObj) audioUrlRef.current = null;
+        };
+        signal.addEventListener("abort", () => resolve(), { once: true });
+        audio.onended = () => { release(); resolve(); };
+        audio.onerror = () => { release(); reject(new Error("Playback failed")); };
+        // Paused between chunks: leave this one loaded and let Resume start it.
+        if (pausedRef.current) return;
+        audio.play().then(() => setTtsLoading(false), reject);
+      }),
+    []
+  );
+
   const speak = useCallback(
     async (text: string, turnId?: string) => {
       if (!voiceClient || !text.trim()) return;
@@ -2192,26 +2287,38 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
       setTtsLoading(true);
       setSpeaking(true);
       setPaused(false);
+      pausedRef.current = false;
       setSpeakingId(turnId ?? null);
+      const run = { abort: new AbortController() };
+      speakRunRef.current = run;
+      const live = () => voiceMountedRef.current && speakRunRef.current === run;
+      const chunks = chunkSpeech(text, chunkCharsRef.current);
+      const fetchChunk = (i: number) => {
+        const p = voiceClient.tts(chunks[i], { signal: run.abort.signal });
+        let ready = false;
+        p.then(() => { ready = true; }, () => { ready = true; });
+        return { blob: p, isReady: () => ready };
+      };
       try {
-        const blob = await voiceClient.tts(text);
-        if (!voiceMountedRef.current) return;
-        const urlObj = URL.createObjectURL(blob);
-        audioUrlRef.current = urlObj;
-        const audio = new Audio(urlObj);
-        audioRef.current = audio;
-        const finish = () => {
-          if (audioRef.current !== audio) return; // superseded by a newer read
-          teardownAudio();
-          setSpeaking(false);
-          setPaused(false);
-          setSpeakingId(null);
-        };
-        audio.onended = finish;
-        audio.onerror = () => { setVoiceError("Playback failed"); finish(); };
-        await audio.play();
+        let next = fetchChunk(0);
+        for (let i = 0; i < chunks.length; i++) {
+          // A gap where the next piece is not synthesized yet shows as
+          // "Preparing" again rather than as unexplained silence.
+          if (i > 0 && !next.isReady()) setTtsLoading(true);
+          const blob = await next.blob;
+          if (!live()) return;
+          if (i + 1 < chunks.length) next = fetchChunk(i + 1);
+          await playChunk(blob, run.abort.signal);
+          if (!live()) return;
+        }
+        speakRunRef.current = null;
+        teardownAudio();
         setTtsLoading(false);
+        setSpeaking(false);
+        setPaused(false);
+        setSpeakingId(null);
       } catch (err) {
+        if (!live()) return;
         setTtsLoading(false);
         setSpeaking(false);
         setPaused(false);
@@ -2227,26 +2334,36 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
         );
       }
     },
-    [voiceClient, teardownAudio]
+    [voiceClient, teardownAudio, playChunk]
   );
 
   const stopSpeaking = useCallback(() => {
     teardownAudio();
     setSpeaking(false);
     setPaused(false);
+    pausedRef.current = false;
     setTtsLoading(false);
     setSpeakingId(null);
   }, [teardownAudio]);
 
-  // Pause / resume the current read-aloud. No-op before the audio element
-  // exists (still fetching the TTS) - the button shows a loading state then.
+  // Pause / resume the current read-aloud. Between two chunks (the next one still
+  // being fetched) there is no element yet: the flag alone holds the next chunk
+  // back and Resume starts it; while the first chunk is still loading the
+  // button shows a loading state instead.
   const togglePause = useCallback(() => {
     const a = audioRef.current;
-    if (!a) return;
+    if (!a) {
+      if (!speakRunRef.current) return;
+      pausedRef.current = !pausedRef.current;
+      setPaused(pausedRef.current);
+      return;
+    }
     if (a.paused) {
-      a.play().then(() => setPaused(false)).catch(() => setPaused(true));
+      pausedRef.current = false;
+      a.play().then(() => { setPaused(false); setTtsLoading(false); }).catch(() => { pausedRef.current = true; setPaused(true); });
     } else {
       a.pause();
+      pausedRef.current = true;
       setPaused(true);
     }
   }, []);
@@ -2306,13 +2423,13 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
     cb({ user: latestSettledAssistant.user, assistant });
   }, [latestSettledAssistant?.id, latestSettledAssistant?.assistant, latestSettledAssistant?.sessionEvents, latestSettledAssistant?.streaming]);
   useEffect(() => {
-    if (!readAloud || !voiceUsable || !latestSettledAssistant) return;
+    if (!readAloud || !ttsUsable || !latestSettledAssistant) return;
     if (latestSettledAssistant.streaming) return;
     const text = resolvedAssistantText(latestSettledAssistant).trim();
     if (!text || text === lastSpokenRef.current) return;
     lastSpokenRef.current = text;
     void speak(text, latestSettledAssistant.id);
-  }, [readAloud, voiceUsable, latestSettledAssistant?.id, latestSettledAssistant?.assistant, latestSettledAssistant?.sessionEvents, latestSettledAssistant?.streaming, speak]);
+  }, [readAloud, ttsUsable, latestSettledAssistant?.id, latestSettledAssistant?.assistant, latestSettledAssistant?.sessionEvents, latestSettledAssistant?.streaming, speak]);
 
   // ── Voice: push-to-talk. Record from the mic; on stop, POST to /voice/stt
   // and drop the transcript into the composer for review/edit. ──
@@ -2880,6 +2997,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
             focusEventId={transcriptFocusEventId}
             conversationLive={transcriptLive}
             onActivityChange={transcriptOnActivityChange}
+            emptyMessage={transcriptEmptyMessage}
           />
         ) : showTranscript && transcriptUrl ? (
           <SessionStream url={transcriptUrl} live={busy} announceLiveUpdates={false} />
@@ -3024,7 +3142,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                       )}
                     </button>
                     )}
-                    {feat.voice && voiceUsable && (() => {
+                    {feat.voice && ttsUsable && (() => {
                       // The same button is play / pause / resume for THIS message:
                       // once it is the one being read, clicking toggles playback
                       // rather than restarting the whole reply from the top.
@@ -3256,12 +3374,12 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
             <button
               type="button"
               className={`cc-chip ${readAloud ? "cc-chip-active" : ""} ${speaking && !paused ? "cc-chip-pulse" : ""}`}
-              disabled={!voiceUsable}
+              disabled={!ttsUsable}
               aria-pressed={readAloud}
               title={
-                voiceUsable
+                ttsUsable
                   ? readAloud ? "Auto-read is on - click to turn it off" : "Read each new response aloud"
-                  : "Voice fitting not running"
+                  : ttsUnavailableTitle ?? voiceUnavailableTitle
               }
               onClick={() => {
                 const next = !readAloud;
@@ -3271,7 +3389,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
             >
               <svg className="cc-ico" width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
                 <path d="M8 2 4.5 5H2v6h2.5L8 14z" fill="currentColor" />
-                {voiceUsable && (
+                {ttsUsable && (
                   <path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.7a6 6 0 0 1 0 8.6" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
                 )}
               </svg>
@@ -3281,7 +3399,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           {/* Playback transport - only while a read-aloud is actually running, so
               the toolbar doesn't carry dead controls. Pause/Resume is the control
               a long reply needs; Stop ends the read without turning auto-read off. */}
-          {feat.voice && voiceUsable && (speaking || ttsLoading) && (
+          {feat.voice && ttsUsable && (speaking || ttsLoading) && (
             <div className="cc-playback" role="group" aria-label="Read-aloud playback">
               <button
                 type="button"
@@ -3427,6 +3545,21 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
           onDragLeave={() => setDragOver(false)}
           onDrop={onComposerDrop}
         >
+          {/* The box sits on a row of its own so what is typed (or dictated)
+              can be read; the controls, labelled now that they have the width,
+              share the row beneath it. */}
+          <textarea
+            ref={taRef}
+            className="cc-input"
+            value={input}
+            placeholder={placeholder ?? "Message Claude…  (/ for commands)"}
+            aria-label={`Message ${title ?? "Claude"}`}
+            rows={1}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={onKeyDown}
+            onPaste={onComposerPaste}
+          />
+          <div className="cc-composertools">
           {railOn && generatedMode && (
             <button
               type="button"
@@ -3443,10 +3576,19 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                 <circle cx="3" cy="4.2" r="1.6" fill="currentColor" />
                 <circle cx="13" cy="4.2" r="1.6" fill="currentColor" />
               </svg>
+              <span className="cc-btnlabel">Route</span>
             </button>
           )}
           {typeof composerAdornment === "function"
-            ? composerAdornment({ send: (text: string) => send(text), busy, queueLocked: generatedWork, lastReply: settledReply })
+            ? composerAdornment({
+              send: (text: string) => send(text),
+              busy,
+              queueLocked: generatedWork,
+              lastReply: settledReply,
+              draft: input,
+              setDraft: setInput,
+              focusComposer: () => taRef.current?.focus(),
+            })
             : composerAdornment}
           {hasAttachmentTransport && (
             <>
@@ -3462,7 +3604,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
               />
               <button
                 type="button"
-                className="cc-mic"
+                className="cc-mic cc-attach"
                 disabled={attachmentLocked}
                 aria-label="Attach a file"
                 title={attachmentLocked ? "Attachments are unavailable while messages are pending" : "Attach a file"}
@@ -3478,6 +3620,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                     strokeLinejoin="round"
                   />
                 </svg>
+                <span className="cc-btnlabel">Attach</span>
               </button>
             </>
           )}
@@ -3489,7 +3632,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
               aria-pressed={recording}
               title={
                 !voiceUsable
-                  ? "Voice fitting not running"
+                  ? voiceUnavailableTitle
                   : generatedWork && !recording
                     ? "Voice input is unavailable while messages are pending"
                   : transcribing
@@ -3510,19 +3653,10 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                   <path d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2.5M5.5 14.5h5" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
                 </svg>
               )}
+              <span className="cc-btnlabel">Talk</span>
             </button>
           )}
-          <textarea
-            ref={taRef}
-            className="cc-input"
-            value={input}
-            placeholder={placeholder ?? "Message Claude…  (/ for commands)"}
-            aria-label={`Message ${title ?? "Claude"}`}
-            rows={1}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={onKeyDown}
-            onPaste={onComposerPaste}
-          />
+          <span className="cc-toolspacer" aria-hidden="true" />
           {generatedMode ? (
             <>
               {activeGeneratedTurn && (generatedMode || !showFlightRail) && (
@@ -3562,6 +3696,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
                 <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
                   <path d="M8 13.5V3M8 3 3.5 7.5M8 3l4.5 4.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
+                <span className="cc-btnlabel">{generatedWork ? "Queue" : resendArmed ? "Resend" : "Send"}</span>
               </button>
             </>
           ) : busy && !showFlightRail ? (
@@ -3582,6 +3717,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
               {resendArmed ? "Resend" : "Send"}
             </button>
           )}
+          </div>
         </div>
       </div>
     </div>

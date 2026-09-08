@@ -12,8 +12,9 @@ Print this page (or open it on a laptop) and tick each box on **both** devices.
 
 ## Preflight (once, from the machine running Garrison)
 
-- [ ] The composition is **up** and `deepgram-voice` is stationed and running
-      (the web-channel UI shows the mic button - hidden when no voice Fitting runs).
+- [ ] The composition is **up** and `capture-service` is stationed and running
+      with `DEEPGRAM_API_KEY` and `CAPTURE_TOKEN` sealed (the Conversations UI
+      shows the mic button - hidden when `/api/voice/health` reports no STT).
 - [ ] Get the secure https URL:
       `node fittings/seed/web-channel-default/scripts/secure-context.mjs --check`
       → note the `tailnet URL` it prints. If it reports NOT available, run

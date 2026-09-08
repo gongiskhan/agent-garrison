@@ -3,6 +3,14 @@
 @tailwind utilities;
 
 :root {
+  /* Inside the iOS app the page runs edge to edge (viewport-fit=cover), so the
+     shell chrome clears the status bar: sidebar, rail and the fixed "New"
+     trigger offset by the top inset. Hosted pages that fill the column
+     (Conversations) read env(safe-area-inset-top) themselves. */
+  --shell-safe-top: env(safe-area-inset-top, 0px);
+  /* The phone app bar (.app-bar) is 48px plus the top inset it absorbs; the
+     pages that fill the column (Conversations, an embedded view) subtract it. */
+  --app-bar-h: calc(48px + var(--shell-safe-top, 0px));
   color-scheme: light;
   --canvas: #efe8d9;
   --surface: #f7f2e8;
@@ -207,6 +215,155 @@ button:disabled {
 .shell-content > iframe {
   flex: 1 1 auto;
 }
+/* /embed/<id>: the Fitting's own UI in an iframe. Desktop: the full viewport
+   beside the sidebar. Phone width: the app bar above it carries Back, the
+   Fitting's name and the menu, and the view takes the rest of the screen. */
+.embed-view {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+}
+.embed-view > iframe {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  display: block;
+  background: var(--paper);
+}
+.shell-phone .embed-view {
+  height: calc(100vh - var(--app-bar-h));
+  height: calc(100dvh - var(--app-bar-h));
+}
+/* /mesh/talk/<node>/<id>: a peer's conversation framed under this shell. The
+   offline note sits above the frame and takes nothing from it once dismissed
+   by the peer coming back (the page re-renders from the roster). */
+.mesh-talk-offline {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--mute);
+  background: var(--paper-2);
+  border-bottom: 1px solid var(--rule);
+}
+/* FRAMED SHELL (.shell-frame): this node's page inside another node's shell
+   (/frame/<...>). No rail, no app bar, no floating controls; the parent owns
+   them and the safe-area inset, so the page fills the frame from y=0. The
+   .shell-phone rules still apply at phone width for the page's own layout. */
+.app-shell.shell-frame {
+  grid-template-columns: minmax(0, 1fr);
+  --app-bar-h: 0px;
+  --shell-safe-top: 0px;
+}
+
+/* PHONE SHELL (.shell-phone, < 720px): one column, no rail. The app bar is the
+   page header a phone expects - menu, name, node and session state, New, and
+   the page's own controls - and it is sticky, so it stays while a long page
+   scrolls under it. It absorbs the status-bar inset for everything below. */
+.app-shell.shell-phone {
+  grid-template-columns: minmax(0, 1fr);
+}
+.app-bar {
+  position: sticky;
+  top: 0;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  min-height: var(--app-bar-h);
+  padding: var(--shell-safe-top, 0px) 6px 0 4px;
+  background: var(--shell);
+  color: var(--shell-ink);
+  border-bottom: 1px solid var(--shell-rule);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, .18);
+}
+.app-bar-btn {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--shell-ink);
+  cursor: pointer;
+}
+.app-bar-btn:hover,
+.app-bar-btn:active { background: rgba(255, 255, 255, 0.08); }
+.app-bar-title {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 4px;
+  line-height: 1.15;
+}
+.app-bar-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 600;
+  font-size: 17px;
+  letter-spacing: .005em;
+}
+.app-bar-sub {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 2px;
+  font-family: var(--font-mono), 'JetBrains Mono', monospace;
+  font-size: 9.5px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--shell-mute);
+}
+.app-bar-state {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--shell-mute);
+}
+.app-bar-state.is-running { background: #78a284; box-shadow: 0 0 0 2px rgba(120, 162, 132, .25); }
+.app-bar-state.is-error { background: #c86659; }
+.app-bar-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+}
+.app-bar-actions .app-bar-btn { color: var(--shell-ink); }
+/* The shell's New control inside the bar: in the bar's flow, its menu still
+   anchored under the trigger. */
+.composition-creator.composition-creator--bar {
+  position: static;
+  top: auto;
+  right: auto;
+  z-index: auto;
+  max-width: none;
+}
+.composition-creator--bar .composition-creator-trigger-wrap {
+  padding: 0;
+  border-color: var(--shell-rule);
+  box-shadow: none;
+}
+.composition-creator--bar .composition-creator-trigger { min-height: 34px; }
+.shell-phone .crumbs {
+  /* The bar carries the inset now. */
+  padding-top: 14px;
+}
 .shell-main-anchor {
   position: absolute;
   top: 0;
@@ -277,7 +434,7 @@ button:disabled {
   color: var(--shell-ink);
   /* Bottom padding lives on .side-foot so the sticky footer reaches the true
      bottom edge - otherwise scrolled nav items peek out beneath it. */
-  padding: 20px 14px 0;
+  padding: calc(20px + var(--shell-safe-top, 0px)) 14px 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -332,18 +489,6 @@ button:disabled {
   text-transform: uppercase;
   color: var(--shell-mute);
   margin-top: 4px;
-}
-/* The commit the instance is running. A footnote under the sub-line: lowercase
-   (a hash is not a label), smaller and dimmer than .sub so it does not compete
-   with the DEV/PROD chip riding on the line above. */
-.brand-text .rev {
-  display: block;
-  font-family: var(--font-mono), 'JetBrains Mono', monospace;
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  color: var(--shell-mute);
-  opacity: 0.6;
-  margin-top: 2px;
 }
 .side-collapse,
 .side-rail-toggle {
@@ -494,26 +639,6 @@ nav.tabs .item.active .ic { opacity: 1; color: var(--brass-2); }
 nav.tabs .item .ic.view-live { color: #82a98b; }
 nav.tabs .item .ic.view-down { color: #d17a6f; }
 nav.tabs .item .ic.view-off { color: #879087; }
-/* Jarvis activity indicator (persistent-HUD Phase 1): a small pulsing dot on
-   the Jarvis entry's icon, lit while the always-mounted jarvis-os iframe is
-   mid-turn and the user is on a different route. */
-nav.tabs .item .ic.jarvis-active { position: relative; }
-nav.tabs .item .ic.jarvis-active::after {
-  content: "";
-  position: absolute;
-  top: -2px;
-  right: -3px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--sage-2);
-  box-shadow: 0 0 0 2px var(--shell);
-  animation: jarvis-activity-pulse 1.4s ease-in-out infinite;
-}
-@keyframes jarvis-activity-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(1.35); }
-}
 nav.tabs .item .ct {
   font-family: var(--font-mono), 'JetBrains Mono', monospace;
   font-size: 10.5px;
@@ -617,7 +742,7 @@ nav.tabs .item .ct.tone-off::before { background: var(--rule-2); }
 .side-rail {
   align-items: center;
   overflow: hidden;
-  padding: 12px 6px;
+  padding: calc(12px + var(--shell-safe-top, 0px)) 6px 12px;
 }
 .side-rail-toggle {
   width: 100%;
@@ -652,7 +777,9 @@ main {
   font-size: 10.5px;
   letter-spacing: 0.08em;
   color: var(--mute);
-  padding: clamp(18px, 2.5vw, 30px) clamp(24px, 5vw, 72px) 0;
+  /* The crumb line is the first thing on every non-talk page, so inside the
+     app (viewport-fit=cover) it carries the status-bar inset for the page. */
+  padding: calc(clamp(18px, 2.5vw, 30px) + var(--shell-safe-top, 0px)) clamp(24px, 5vw, 72px) 0;
   text-transform: uppercase;
 }
 .crumbs b {
@@ -1076,7 +1203,7 @@ table.simple td.bad { color: var(--alarm); font-weight: 500; }
    dossier dialog, shared across every route without page-specific positioning. */
 .composition-creator {
   position: fixed;
-  top: 18px;
+  top: calc(18px + var(--shell-safe-top, 0px));
   right: 22px;
   z-index: 40;
   display: flex;
@@ -1301,7 +1428,7 @@ table.simple td.bad { color: var(--alarm); font-weight: 500; }
 @media (max-width: 560px) {
   .route-skeleton-head { grid-template-columns: 1fr; }
   .route-skeleton-mark { width: 52px; }
-  .composition-creator { top: 10px; right: 10px; }
+  .composition-creator { top: calc(10px + var(--shell-safe-top, 0px)); right: 10px; }
   .composition-creator-trigger-wrap { padding: 2px; }
   .composition-creator-trigger { min-height: 30px; padding: 5px 8px; }
   .composition-creator-trigger { font-size: 0; }
@@ -1344,6 +1471,26 @@ table.simple td.bad { color: var(--alarm); font-weight: 500; }
   height: 100dvh;
   z-index: 60;
   box-shadow: 22px 0 60px rgba(12, 18, 14, .36);
+  /* Slides in from the left edge; parked off-screen and hidden when closed so
+     its controls leave the tab order. The visibility flip waits for the slide. */
+  transform: translateX(-104%);
+  visibility: hidden;
+  transition: transform .28s cubic-bezier(.2, .8, .2, 1), visibility 0s linear .28s;
+}
+.side.side-overlay.is-open {
+  transform: none;
+  visibility: visible;
+  transition: transform .28s cubic-bezier(.2, .8, .2, 1);
+}
+.side-scrim {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .28s ease, visibility 0s linear .28s;
+}
+.side-scrim.is-open {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity .28s ease;
 }
 
 /* ── Touch targets (iPad / iPhone over Tailscale) ───────────────────────────
@@ -1517,44 +1664,50 @@ table.simple td.bad { color: var(--alarm); font-weight: 500; }
 }
 .quarters-note { color: var(--mute); font-size: 12.5px; padding: 12px 0; }
 
-/* ---- Instance identity (DEV vs PROD) --------------------------------------
-   Keyed off the server-stamped <html data-instance>. The two surfaces must be
-   tellable apart at a glance when both are open: DEV gets a fixed amber stripe
-   across the top of the viewport plus an amber chip under the brand; PROD gets
-   a quiet green chip only (it is the "normal" surface — the loud marking goes
-   on the one where an edit is live-on-save). */
-html[data-instance="dev"] body::before {
-  content: "";
-  position: fixed;
-  inset: 0 0 auto 0;
-  height: 3px;
-  z-index: 2147483647;
-  pointer-events: none;
-  background: repeating-linear-gradient(
-    -45deg,
-    #d99e2b 0 14px,
-    #7c5c10 14px 28px
-  );
+/* G5: file_sets (a DIRECTORY of files - rules/skills/agents/hooks/desktop/
+   project rules), the same visual language as .runtime-file-editor above. */
+.runtime-file-set { display: flex; flex-direction: column; gap: 12px; }
+.qs-project-picker {
+  align-self: flex-start;
+  border: 1px solid var(--rule);
+  background: white;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  color: var(--ink, #222);
 }
-.brand-text .sub::after {
-  display: inline-block;
-  margin-left: 7px;
-  padding: 1px 5px 0;
-  border-radius: 3px;
-  font-size: 8.5px;
-  letter-spacing: 0.14em;
-  vertical-align: 1px;
+.runtime-file-set-body { display: flex; flex-direction: column; gap: 8px; }
+.runtime-file-set-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.runtime-file-set-list li { display: contents; }
+.runtime-file-set-create { display: flex; align-items: center; gap: 8px; }
+.runtime-file-set-create input {
+  border: 1px solid var(--rule);
+  background: white;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  font-family: var(--mono, monospace);
+  min-width: 220px;
 }
-html[data-instance="dev"] .brand-text .sub::after {
-  content: "DEV 7777";
-  color: #1c1503;
-  background: #d99e2b;
+.runtime-file-set-editor { border: 1px solid var(--rule); background: var(--surface-raised); }
+.qs-frontmatter { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px 0; }
+.qs-frontmatter-chip {
+  border: 1px solid var(--rule);
+  background: white;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-family: var(--mono, monospace);
+  color: var(--mute);
 }
-html[data-instance="prod"] .brand-text .sub::after {
-  content: "PROD 8777";
-  color: #dff0e2;
-  background: #2e5c3a;
+.runtime-file-set-json {
+  width: 100%;
+  min-height: 420px;
+  border: none;
+  padding: 12px;
+  font-family: var(--mono, monospace);
+  font-size: 12.5px;
+  line-height: 1.5;
+  resize: vertical;
 }
+.runtime-file-set-json:disabled { background: var(--surface, #f5f3ec); color: var(--mute); }
 nav.tabs .item .pin-toggle {
   display: inline-flex;
   align-items: center;
@@ -1570,32 +1723,6 @@ nav.tabs .item .pin-toggle {
 }
 nav.tabs .item .pin-toggle svg { width: 12px; height: 12px; stroke-width: 2; }
 nav.tabs .item .pin-toggle:active { transform: translateY(1px); }
-
-/* ── Jarvis orb mode (Phase 3) ─────────────────────────────────────────────
-   Shell-side controls that sit next to the persistent jarvis-os iframe once
-   JarvisPersistentFrame.tsx shrinks it to a floating orb over another
-   Garrison page. Dark/self-contained rather than themed off --paper/--ink -
-   these float over ARBITRARY pages (light or dark shell theme underneath),
-   so they carry their own fixed dark chrome, matching the Jarvis HUD's own
-   look rather than whatever page happens to be under them. */
-.jarvis-orb-expand-btn,
-.jarvis-orb-mute-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: rgba(10, 6, 5, 0.82);
-  color: #f3ded9;
-  font-size: 13px;
-  line-height: 1;
-  cursor: pointer;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-}
-.jarvis-orb-expand-btn:hover,
-.jarvis-orb-mute-btn:hover { border-color: rgba(255, 255, 255, 0.32); }
-.jarvis-orb-mute-btn { font-size: 14px; }
 
 /* ── Native form primitives ──────────────────────────────────────────────────
    A browser-default checkbox has no intrinsic flex basis, so inside a flex label

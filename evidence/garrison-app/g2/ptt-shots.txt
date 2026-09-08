@@ -1,0 +1,17 @@
+# push-to-talk through the shell at https://goncalos-macbook-pro.tail31efa.ts.net/talk, 2026-09-02T09:41:24.676Z
+# chromium with --use-fake-device-for-media-stream (a synthetic tone as the mic)
+
+[desktop] mic title before hold: Hold to talk (push-to-talk) disabled=false
+[desktop] holding: aria-label=Release push-to-talk class=wcv-mic wcv-mic-rec
+[desktop] panel text while holding: "LISTENING\n×\nListening… speak now"
+[desktop] geometry while holding: pill={"top":700,"bottom":742,"left":314,"right":691} panel={"top":754,"bottom":824,"left":318,"right":1424} composer={"top":829,"bottom":900,"left":302,"right":1440} inset=146px pillClearOfPanel=true
+[desktop] after release: aria-pressed=false panel=""
+[desktop] voice lane calls: GET /api/voice/health -> 200 {"available":true,"keyConfigured":true,"tts":true,"backend":"deepgram","maxTextChars":600,"fitting":"capture-service"} | POST /api/voice/stt -> 200 {"transcript":"","confidence":0,"language":"pt","model":"nova-3"}
+[desktop] console errors: none
+[phone] mic title before hold: Hold to talk (push-to-talk) disabled=false
+[phone] holding: aria-label=Release push-to-talk class=wcv-mic wcv-mic-rec
+[phone] panel text while holding: "LISTENING\n×\nListening… speak now"
+[phone] geometry while holding: pill={"top":624,"bottom":672,"left":64,"right":378} panel={"top":684,"bottom":776,"left":62,"right":380} composer={"top":781,"bottom":844,"left":52,"right":390} inset=160px pillClearOfPanel=true
+[phone] after release: aria-pressed=false panel=""
+[phone] voice lane calls: GET /api/voice/health -> 200 {"available":true,"keyConfigured":true,"tts":true,"backend":"deepgram","maxTextChars":600,"fitting":"capture-service"} | POST /api/voice/stt -> 200 {"transcript":"","confidence":0,"language":"pt","model":"nova-3"}
+[phone] console errors: none

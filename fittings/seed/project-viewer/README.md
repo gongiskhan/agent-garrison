@@ -64,10 +64,8 @@ Two reasons, and the second is the real one.
 1. The pages are server-rendered documents. The only client-side work is folding a
    step, stepping between states, triaging a finding and posting a button — about
    200 lines of vanilla JS. React would earn nothing here.
-2. **Setup runs with its cwd in `apm_modules/_local/<id>`, while the runtime serves
-   from `fittings/seed/<id>`.** Anything `setup.sh` built would be built in the
-   tree that is not being served. This fitting sidesteps that by having nothing to
-   build: no bundler, no `node_modules`, no committed bundle to go stale.
+2. The installed fitting carries the same static assets and renderer as its seed.
+   No generated bundle or network install is needed during setup.
 
 That is also why the highlighter is hand-written rather than Shiki, and the diff
 renderer hand-written rather than diff2html. The brief lists those as *candidate*
@@ -79,7 +77,7 @@ bundle living in exactly the tree where committed build output is fragile.
 | Data | Location | Why |
 |---|---|---|
 | flow manifests, findings, intake | `<repo>/viewer/` | durable, diffable, reviewable — a manifest and the commit it narrates travel together through clone, branch and revert, exactly like the drillbook |
-| runtime captures | `~/.garrison/project-viewer/<projectKey>/captures/` | run-scoped, per the rule that nothing run-scoped lives in the repo |
+| runtime captures | `<GARRISON_HOME>/project-viewer/captures/<projectKey>/` | run-scoped, per the rule that nothing run-scoped lives in the repo |
 | rendered HTML | nowhere | a pure function of manifest plus repo; committing it would add a drift channel, and render-time verification only means something if rendering actually happens |
 
 ## Running it
@@ -119,10 +117,9 @@ node scripts/build-flow.mjs --repo /path/to/repo --from-run <runId>
 A spec that includes a `code` or `sampleText` field is rejected. Samples come from
 the repository or they do not exist.
 
-`pilot/spec-manifest-validation.json` is a real, working spec against this repo's
-own manifest-validation path. Regenerate it after pulling — it is anchored to
-whatever HEAD you build it at, so a spec built on another machine's HEAD will
-correctly refuse to render on yours.
+`pilot/spec-manifest-validation.json` is a historical example. Review its source
+coordinates against the selected commit before materializing it; extraction can
+verify bytes, but cannot decide whether old prose still describes those bytes.
 
 ## Capturing what actually ran
 
@@ -135,12 +132,12 @@ Four mechanical stages, no model involved:
 
 | Stage | Module | What it produces |
 |---|---|---|
-| record | `runtime/pv-reporter.mjs` | ordered actions per test, with selectors and timing |
+| record | `runtime/pv-reporter.mjs` | ordered action names, route paths, source locations and timing |
 | stitch | `scripts/capture-runtime.mjs` | each action tagged with the URL it happened on |
 | resolve | `lib/route-resolve.mjs` | the file that served that URL, derived from routing rules |
 | candidates | `lib/import-graph.mjs` | that file's imports, two levels deep, ranked |
 
-Captures land in `~/.garrison/project-viewer/<projectKey>/captures/<runId>/`. A flow
+Captures land in `<GARRISON_HOME>/project-viewer/captures/<projectKey>/<runId>/`. A flow
 manifest keeps only an opaque `captureRef`, so the repo never carries run output.
 
 **A reporter, not the trace zip.** The zip's internals are a Playwright
@@ -253,3 +250,37 @@ flow reported 3 stale and refused to advance its anchor.
 - **The highlighter is line-scoped**, so a sample window starting inside a block
   comment does not tint the rest of the window. That is the deliberate trade for
   making a windowed slice colour independently of its surroundings.
+
+## Convergence checks (7 September 2026)
+
+Repository writes and document reads reject traversal and symlink descendants.
+Cleanup accepts only explicitly listed documentation files with distinct, verified
+copies under `viewer/docs`; it preflights the whole list, rechecks immediately before
+deleting, and reports any partial filesystem failure. It never deletes source code,
+agent instructions, skills, installed dependencies or viewer data.
+
+Diff samples are compared with the actual Git diff, in addition to verifying their
+hash. A dirty preview is checked against the current working tree. Freshness labels
+refer to recorded manifest status; sample integrity is verified when opened.
+Partial refreshes keep each sample's own commit, so repeating an update does not
+shift an already refreshed span twice. Returning to a page creates a new contiguous
+state and preserves the exact action order. Drillbook descriptions are never counted
+as evidence of executed coverage.
+
+Capture uses the selected project's installed Playwright CLI, with no automatic
+package install. It has a five-minute deadline and bounded output, and removes live
+Garrison authority from the test environment while providing an isolated test home.
+The reporter stores action metadata, not filled values, URL credentials/query strings
+or error bodies. `--dry` still executes the selected tests; it suppresses the enriched
+capture write, so it is not a no-execution preview.
+
+HTTP mutations check browser origin. Board dispatch shares concurrent submissions
+for the same origin and requires a successful duplicate lookup and a real card ID.
+The whole request, including response reading, has a deadline. An uncertain send is
+reported as unconfirmed and is never retried automatically. Git and capture child
+processes have time/output limits and process-group cancellation.
+
+The isolated acceptance suite builds and serves six neutral temporary-repository
+flows and verifies real Git extraction, partial-refresh stability, HTTP confinement,
+dispatch failures, process bounds and capture metadata. This is synthetic acceptance;
+it does not assert that six production project narratives have been authored.

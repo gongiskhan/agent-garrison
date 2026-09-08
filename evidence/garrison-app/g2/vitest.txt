@@ -1,0 +1,44 @@
+# npm test (vitest run), full suite, 2026-09-02T09:54:50Z, 28a78222 + working tree
+
+## summary (vitest default reporter)
+    Test Files  605 passed | 7 skipped (612)
+    Tests  7009 passed | 23 skipped (7032)
+    Start at  10:48:39
+    Duration  300.26s (transform 9.05s, setup 2.27s, collect 40.59s, tests 727.26s, environment 104ms, prepare 28.02s)
+    exit=0
+
+JSON: suites=2337 tests=7032 passed=7009 failed=0 skipped=23
+
+## failing files: 0
+
+## skipped (by design, environment-gated)
+- tests/agent-sdk-primary-smoke.integration.test.ts: 1 skipped
+- tests/codex-primary-smoke.integration.test.ts: 1 skipped
+- tests/garrison-call-live.test.ts: 5 skipped
+- tests/gateway-pty.integration.test.ts: 6 skipped
+- tests/global-composition.integration.test.ts: 1 skipped
+- tests/openai-agents-live.test.ts: 3 skipped
+- tests/state-transitions.integration.test.ts: 1 skipped
+- tests/third-party-live.test.ts: 2 skipped
+
+## run history (full suite, both workspace projects, this MacBook Pro)
+
+The G1 fixes for macOS (realpath'd TMPDIR, cwd-string session guards, the
+`ps -o etime=` pid-reuse fallback, port-free fixture servers, hookTimeout
+30000) carried into this gate; nothing in the runner or the suites' harness
+changed for G2 itself.
+
+run 1-2: during the G2 build and its adversarial review - the failing files
+       were the ones the review named (voice contract, omi ordering, dev-env
+       PTY env, the deepgram-voice test moves of D28) and each fix landed
+       with its test; recorded in review-summary.md, not repeated here.
+run 3 (08:07-08:14Z): 3 failed files, 0 failed assertions: drill-mobile-e2e,
+       drill-gate-ui, drill-spotter-capture-e2e failed at file level with
+       every test inside passing or skipped (the singleFork Chromium tail).
+       The log carries no assertion failure and no hook error text, so the
+       cause is not established from it; not reproduced in runs 4 and 5.
+run 4 (08:34Z): 604 passed | 7 skipped files, 6992 passed | 23 skipped
+       tests, exit=0, on the D31 tree (own-port secret ledger, heal pass,
+       shell voice token via the secret authority).
+run 5: see summary above - the final G2 tree (adds the push-pill inset fix
+       and its test), run after the final redeploy with the node live.

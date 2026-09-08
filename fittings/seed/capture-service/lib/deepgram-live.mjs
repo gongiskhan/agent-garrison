@@ -17,16 +17,20 @@
 
 import WebSocket from "ws";
 import { normalizeOpusPacket } from "./opus-normalize.mjs";
+import { applyAliases } from "./pronunciation-aliases.mjs";
 
 const KEEPALIVE_MS = 5000;
 const CLOSE_FLUSH_TIMEOUT_MS = 3000;
 const RECONNECT_DELAY_MS = 1000;
 const FEED_QUEUE_MAX = 1024; // ~20s of 20ms packets buffered across a reconnect
 
-export function deepgramUrl(cfg) {
+// `language` overrides the deployment pin for ONE session: the screen
+// broadcast speaks the language of a coding session (see screenSttLanguage in
+// config.mjs), the pendant keeps the household pin.
+export function deepgramUrl(cfg, { language = null } = {}) {
   const params = new URLSearchParams({
     model: cfg.sttModel,
-    language: cfg.sttLanguage,
+    language: String(language ?? "").trim() || cfg.sttLanguage,
     encoding: "opus",
     sample_rate: "16000",
     channels: "1",
@@ -72,9 +76,10 @@ export function segmentFromResults(msg) {
 }
 
 class SessionTranscription {
-  constructor(lane, sessionId) {
+  constructor(lane, sessionId, { language = null } = {}) {
     this.lane = lane;
     this.sessionId = sessionId;
+    this.language = language;
     this.segments = []; // finals only
     this.listeners = new Set(); // live-view subscribers
     this.queue = []; // Buffers awaiting an open socket
@@ -96,7 +101,7 @@ class SessionTranscription {
     const { cfg, counters, log } = this.lane;
     let ws;
     try {
-      ws = this.lane.wsFactory(deepgramUrl(cfg), {
+      ws = this.lane.wsFactory(deepgramUrl(cfg, { language: this.language }), {
         headers: { authorization: `Token ${cfg.secrets.deepgramApiKey}` }
       });
     } catch (err) {
@@ -168,6 +173,9 @@ class SessionTranscription {
       this.lastResultAt = Date.now();
       const segment = segmentFromResults(msg);
       if (!segment) return;
+      // Fix known mishearings AFTER the bias, before storage/dispatch (I5:
+      // this touches only in-flight segment text, never a log or counter).
+      if (cfg.sttAliases) segment.text = applyAliases(segment.text, cfg.sttAliases);
       // Echo suppression sits HERE, at the single ingestion point: a
       // suppressed segment (the app's own spoken ack coming back through the
       // mic) never reaches the stored transcript, the live view, or the wake
@@ -340,7 +348,7 @@ export class TranscriptionLane {
     return { ok: true };
   }
 
-  openSession(sessionId) {
+  openSession(sessionId, { language = null } = {}) {
     const availability = this.available();
     if (!availability.ok) {
       this.counters.bump("transcribe_skipped");
@@ -348,7 +356,7 @@ export class TranscriptionLane {
       return false;
     }
     if (!this.sessions.has(sessionId)) {
-      this.sessions.set(sessionId, new SessionTranscription(this, sessionId));
+      this.sessions.set(sessionId, new SessionTranscription(this, sessionId, { language }));
       this.counters.bump("transcribe_sessions");
     }
     return true;

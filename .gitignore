@@ -3,15 +3,13 @@
 node_modules/
 coverage/
 dist/
-# Most Fitting dist/ is esbuild/vad-web BUILD OUTPUT, regenerated on station by
-# `x-garrison.setup: node ui/build.mjs` (jarvis-os copies ~76MB of ort-wasm/onnx
-# from node_modules) — it MUST stay ignored so it never lands in git history.
-# Only these two Fittings ship a hand-authored dist/index.html with no build step;
-# re-include the dir first (git can't re-include a file under an excluded dir), then the file.
-!fittings/seed/automations/dist/
-!fittings/seed/automations/dist/index.html
-!fittings/seed/file-browser/dist/
-!fittings/seed/file-browser/dist/index.html
+# Own-port Fitting UIs under fittings/seed/*/dist are HAND-AUTHORED static assets
+# (source), not build output — keep them tracked despite the global dist/ ignore.
+!fittings/seed/*/dist/
+!fittings/seed/*/dist/**
+# Jarvis builds its bundle and voice model/WASM assets during fitting setup.
+fittings/seed/jarvis-os/dist/*
+!fittings/seed/jarvis-os/dist/index.html
 *.log
 *.tsbuildinfo
 .env
@@ -83,9 +81,6 @@ public/phase-1-demo/.playwright-artifacts/
 **/.serena/
 scripts/spike/chat-harness/out/
 
-# voice e2e synthesized audio fixtures
-scripts/voice-e2e/fixtures/
-
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
@@ -115,9 +110,28 @@ docs/autothing/runs/**/owner.lock.json
 
 # aborted drill-graduation e2e runs leave their temp playwright config behind
 .tmp-drill-graduation-pw-config-*.mjs
+.tmp-selftest-pw-config-*.mjs
 
-# mesh evidence run artifacts (transient)
-evidence/
+# mesh evidence run artifacts (transient), except the versioned gate evidence
+# of the garrison-app run (docs/decisions/2026-09-garrison-app.md, D15).
+evidence/*
+!evidence/garrison-app/
+!evidence/garrison-app/**/*.log
+evidence/garrison-app/**/*.mp4
+evidence/garrison-app/**/*.webm
+evidence/garrison-app/**/*.mov
+evidence/garrison-app/**/*.mp3
+evidence/garrison-app/**/*.wav
+
+# versioned gate evidence of the shells + mesh sessions run
+# (docs/decisions/2026-09-03-shells-and-mesh-sessions.md).
+!evidence/shells/
+!evidence/shells/**/*.log
+evidence/shells/**/*.mp4
+evidence/shells/**/*.webm
+evidence/shells/**/*.mov
+evidence/shells/**/*.mp3
+evidence/shells/**/*.wav
 .mesh-shots-*.mjs
 # Raw Anthropic request dumps from the logging proxy (megabytes per run,
 # regenerated on demand by session_log_proxy_dump).

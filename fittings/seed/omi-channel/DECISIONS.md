@@ -110,3 +110,12 @@ One line per deviation, with the reason. Details in
   the new wake exports (`shortRef`, `humanTime`, extended parse fields) are
   bridged with casts in `tests/omi-wake-card-commands.test.ts` - extending
   the shim is a small follow-up.
+- 2026-09-02, D24 (one voice layer): the wake bus, echo guard, wake
+  classifier and the `ask_zeca` chat tool leave this fitting; realtime
+  segments are forwarded to capture-service's `POST /capture/ingest/text`
+  with `source: "omi"` and a `CAPTURE_TOKEN` Bearer, fail closed and with
+  no local fallback (voice layer down = segments dropped and counted). The
+  `/ack` route goes with the echo guard - kanban-loop's ack fan-out reads
+  404 as "not for you". `wake_enabled` keeps its name (YAML fields do not
+  churn) and now gates the forward; the `wake_*` tuning keys are
+  capture-service config.

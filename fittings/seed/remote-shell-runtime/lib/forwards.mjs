@@ -70,7 +70,7 @@ function portTaken(port, timeoutMs = 300) {
  * fail this check; forwards exist to be opened in a browser, so that trade is
  * deliberate rather than accidental.
  */
-function probeRoundTrip(port, timeoutMs = 4000) {
+export function probeRoundTrip(port, timeoutMs = 4000) {
   return new Promise((resolve) => {
     const socket = net.connect({ host: "127.0.0.1", port });
     let settled = false;

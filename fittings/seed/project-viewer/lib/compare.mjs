@@ -27,6 +27,7 @@ const LIST_CAP = 200;
 export function observedFiles(captures) {
   const out = new Set();
   for (const capture of captures ?? []) {
+    if (capture?.status === "not-executed" || capture?.source === "drillbook") continue;
     for (const event of capture?.events ?? []) {
       if (event.type !== "route") continue;
       if (event.file) out.add(event.file);
@@ -63,6 +64,7 @@ export function buildCompareReport({
 } = {}) {
   if (!scan || !Array.isArray(scan.symbols)) throw new Error("buildCompareReport needs a scan");
 
+  captures = captures.filter(capture => capture?.status !== "not-executed" && capture?.source !== "drillbook");
   const observed = observedFiles(captures);
   const narrated = narratedFiles(flows);
 

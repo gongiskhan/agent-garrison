@@ -71,8 +71,18 @@ describe("rehostTextToTailnet (pure body transform)", () => {
   });
 });
 
+// The runner projects GARRISON_APP_URL into a live fitting; a vitest process
+// may inherit it from the shell. Each fan-out describe pins its own value so
+// the legacy status-file seam and the shell seam are each tested on purpose.
+const INHERITED_APP_URL = process.env.GARRISON_APP_URL;
+function restoreAppUrl() {
+  if (INHERITED_APP_URL === undefined) delete process.env.GARRISON_APP_URL;
+  else process.env.GARRISON_APP_URL = INHERITED_APP_URL;
+}
+
 describe("fanOutNotification (channel send boundary)", () => {
   beforeAll(() => {
+    delete process.env.GARRISON_APP_URL;
     // One running notify-capable channel fitting so the fan-out has a target.
     mkdirSync(join(GARRISON_HOME, "ui-fittings"), { recursive: true });
     writeFileSync(
@@ -80,6 +90,7 @@ describe("fanOutNotification (channel send boundary)", () => {
       JSON.stringify({ url: "http://127.0.0.1:9111" })
     );
   });
+  afterAll(restoreAppUrl);
 
   it("rehosts text, link and action urls to the tailnet form for delivery", async () => {
     const sent: any[] = [];
@@ -119,5 +130,72 @@ describe("fanOutNotification (channel send boundary)", () => {
     const notify = sent.find((s) => s.url.endsWith("/notify"));
     expect(notify.body.link).toBe(LOOPBACK_CARD);
     expect(notify.body.text).toContain(LOOPBACK_CARD);
+  });
+});
+
+// The web channel is Conversations, a route of the Garrison shell. The shell's
+// talk API is mounted under /api/*, so the app entry posts to /api/notify; the
+// other channel fittings only accept /notify, so their path stays. A node that
+// still runs the legacy own-port web-channel-default shares the shell's thread
+// store, so it is dropped from the fan-out whenever the app is known - posting
+// to both would deliver every notification twice.
+describe("fanOutNotification (web channel hosted by the shell)", () => {
+  const APP = "http://127.0.0.1:9333";
+  const LEGACY_WEB = "http://127.0.0.1:9222";
+
+  beforeAll(() => {
+    mkdirSync(join(GARRISON_HOME, "ui-fittings"), { recursive: true });
+    writeFileSync(
+      join(GARRISON_HOME, "ui-fittings", "slack-channel.json"),
+      JSON.stringify({ url: "http://127.0.0.1:9111" })
+    );
+    writeFileSync(
+      join(GARRISON_HOME, "ui-fittings", "web-channel-default.json"),
+      JSON.stringify({ url: LEGACY_WEB })
+    );
+  });
+  afterAll(restoreAppUrl);
+
+  function capture() {
+    const sent: any[] = [];
+    const fetchImpl: any = async (url: string, init: any) => {
+      sent.push({ url, body: JSON.parse(init.body) });
+      return { ok: true, status: 200 };
+    };
+    return { sent, fetchImpl };
+  }
+  const NOTICE = { title: "Card due", text: `Card: ${LOOPBACK_CARD}`, link: LOOPBACK_CARD, actions: [] };
+
+  it("posts the app entry to /api/notify and skips the legacy web-channel status file", async () => {
+    process.env.GARRISON_APP_URL = `${APP}/`;
+    const { sent, fetchImpl } = capture();
+    const results = await fanOutNotification(NOTICE, { fetchImpl, serveMap: MAP });
+    const urls = sent.map((s) => s.url);
+    expect(urls).toContain(`${APP}/api/notify`);
+    expect(urls).toContain("http://127.0.0.1:9111/notify");
+    expect(urls.some((u) => u.startsWith(LEGACY_WEB))).toBe(false);
+    // The shell surface keeps the legacy fitting's id so receipts and skip
+    // lists name one web channel across both hosts.
+    expect(results.find((r: any) => r.id === "web-channel-default")?.ok).toBe(true);
+    expect(results.filter((r: any) => r.id === "web-channel-default")).toHaveLength(1);
+    const app = sent.find((s) => s.url === `${APP}/api/notify`);
+    expect(app.body.link).toBe(TAILNET_CARD);
+  });
+
+  it("honours skipFittingIds for the app entry under the web channel id", async () => {
+    process.env.GARRISON_APP_URL = APP;
+    const { sent, fetchImpl } = capture();
+    await fanOutNotification(NOTICE, { fetchImpl, serveMap: MAP, skipFittingIds: ["web-channel-default"] });
+    const urls = sent.map((s) => s.url);
+    expect(urls).toEqual(["http://127.0.0.1:9111/notify"]);
+  });
+
+  it("falls back to the legacy status file at /notify when GARRISON_APP_URL is unset", async () => {
+    delete process.env.GARRISON_APP_URL;
+    const { sent, fetchImpl } = capture();
+    await fanOutNotification(NOTICE, { fetchImpl, serveMap: MAP });
+    const urls = sent.map((s) => s.url).sort();
+    expect(urls).toEqual(["http://127.0.0.1:9111/notify", `${LEGACY_WEB}/notify`]);
+    expect(urls.some((u) => u.endsWith("/api/notify"))).toBe(false);
   });
 });

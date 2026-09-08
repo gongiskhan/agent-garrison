@@ -179,4 +179,12 @@ describe("refreshing every transport", () => {
     });
     expect(out.map((r: any) => [r.transport, r.ok])).toEqual([["a", false], ["b", true]]);
   });
+
+  it("skips a transport whose devtunnel opts out (pushHostToken: false) - a VS Code Remote Tunnel manages its own auth", async () => {
+    const seen: string[][] = [];
+    const t = { name: "csg", ssh: { host: "h", port: 22, user: "u", identity: null }, via: { devtunnel: { tunnel: "swift-book", port: 2222, pushHostToken: false } } } as any;
+    const out = await refreshHostTokens([t], { spawnFn: fakeCli(MINTED, 0, seen), exec: async () => ({ code: 0, stdout: "", stderr: "" }) });
+    expect(out).toEqual([]);
+    expect(seen).toEqual([]);
+  });
 });

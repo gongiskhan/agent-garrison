@@ -35,6 +35,9 @@ const savedHome = process.env.GARRISON_HOME;
 const savedData = process.env.IMPROVER_DATA;
 const savedStateUrl = process.env.GARRISON_STATE_URL;
 const savedStateToken = process.env.GARRISON_STATE_TOKEN;
+// A dev-env shell projects the live app's address; inherited here it would make
+// the legacy-host cases below post to the app instead of the registered stub.
+const savedAppUrl = process.env.GARRISON_APP_URL;
 let h: Awaited<ReturnType<typeof startStateService>>;
 
 function pending(extra: Record<string, unknown> = {}) {
@@ -81,6 +84,7 @@ beforeEach(async () => {
   h = await startStateService();
   process.env.GARRISON_STATE_URL = h.url;
   process.env.GARRISON_STATE_TOKEN = h.token;
+  delete process.env.GARRISON_APP_URL;
   signals.resetFeedbackClient();
 });
 
@@ -94,6 +98,8 @@ afterEach(async () => {
   else process.env.GARRISON_STATE_URL = savedStateUrl;
   if (savedStateToken === undefined) delete process.env.GARRISON_STATE_TOKEN;
   else process.env.GARRISON_STATE_TOKEN = savedStateToken;
+  if (savedAppUrl === undefined) delete process.env.GARRISON_APP_URL;
+  else process.env.GARRISON_APP_URL = savedAppUrl;
   signals.resetFeedbackClient();
   rmSync(home, { recursive: true, force: true });
 });
@@ -119,6 +125,36 @@ describe("out-of-band delivery", () => {
     // The improver never notifies itself.
     expect(seen.map((s) => s.url)).not.toContain("http://127.0.0.1:7093/notify");
     expect(seen).toHaveLength(2);
+  });
+
+  it("posts to the shell's /api/notify under the web channel's id when the runner projected GARRISON_APP_URL", async () => {
+    // The app hosts Conversations; a still-running legacy web-channel host shares
+    // its thread store and push subscriptions, so it must not be notified twice.
+    process.env.GARRISON_APP_URL = "http://127.0.0.1:8777/";
+    registerFitting("web-channel-default", "http://127.0.0.1:7083");
+    registerFitting("slack-channel", "http://127.0.0.1:7086");
+    registerFitting("improver", "http://127.0.0.1:7093");
+    const seen: string[] = [];
+    const fetchImpl = async (url: string) => {
+      seen.push(url);
+      return { status: 200, ok: true };
+    };
+    const res = await notify.deliverProbeQuestion(pending(), {
+      selfUrl: "http://127.0.0.1:7093",
+      fetchImpl,
+      serveMap: new Map([[7093, "https://box.tail31efa.ts.net:8093"]]),
+    });
+    expect(seen.sort()).toEqual(["http://127.0.0.1:7086/notify", "http://127.0.0.1:8777/api/notify"]);
+    expect(res.channels.sort()).toEqual(["slack-channel", "web-channel-default"]);
+  });
+
+  it("a test process that never named a home reaches no target, the app included", async () => {
+    process.env.GARRISON_APP_URL = "http://127.0.0.1:8777";
+    registerFitting("slack-channel", "http://127.0.0.1:7086");
+    delete process.env.GARRISON_HOME;
+    expect(notify.notifyTargets()).toEqual([]);
+    process.env.GARRISON_HOME = home;
+    expect(notify.notifyTargets().map((t: { id: string }) => t.id)).toEqual(["web-channel-default", "slack-channel"]);
   });
 
   it("every option becomes an action pointing at the answer route", async () => {

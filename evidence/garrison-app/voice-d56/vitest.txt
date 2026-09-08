@@ -1,0 +1,106 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /Users/ggomes/dev/garrison
+
+ ✓ |unit| tests/capture-service-conversation-reply.test.ts (6 tests) 33ms
+ ✓ |unit| tests/talk-capture-feedback.test.ts (4 tests) 143ms
+stdout | tests/capture-service-digest.test.ts > recording digest delivery > posts one assistant message into the conversation when the session ends, keyed by session id
+[capture-service] listening on http://127.0.0.1:49683 (home /private/var/folders/6k/3f5mbfxn0td88bhglmzwgjhw0000gn/T/capture-digest-2YPAke; flags {"ingress":true,"transcribe":false,"wake":false,"notify":false,"speak":false,"pendant":false,"capturePolicy":"wake_only"})
+[capture-service] no gateway URL in env; gateway-dependent pipes will skip with a reason
+
+ ✓ |unit| tests/capture-service-wake-conversation.test.ts (11 tests) 797ms
+stdout | tests/capture-service-apns.test.ts > companion notifier > carries the in-app route as `path`: explicit, or derived from a link on this node's app
+[capture-service] notify wake_confirmation -> companion-push:ok
+
+stdout | tests/capture-service-apns.test.ts > companion notifier > delivers a template push and counts it against the daily ledger
+[capture-service] notify wake_confirmation -> companion-push:ok
+
+stdout | tests/capture-service-digest.test.ts > recording digest delivery > posts one assistant message into the conversation when the session ends, keyed by session id
+[capture-service] transcription skipped for session: transcribe disabled
+
+stdout | tests/capture-service-apns.test.ts > companion notifier > delivers a template push and counts it against the daily ledger
+[capture-service] notify tip -> companion-push:ok
+
+stdout | tests/capture-service-apns.test.ts > companion notifier > prunes dead tokens and still succeeds on the live one
+[capture-service] notify tip -> companion-push:ok
+
+stdout | tests/capture-service-apns.test.ts > companion notifier > honours Retry-After on 429 with a capped delay, then succeeds
+[capture-service] notify ask -> companion-push:ok
+
+stdout | tests/capture-service-digest.test.ts > recording digest delivery > posts one assistant message into the conversation when the session ends, keyed by session id
+[capture-service] digest for 01DIGESTSESSION01 -> thread chat-mf0abc-xyz123
+
+stdout | tests/capture-service-digest.test.ts > recording digest delivery > posts nothing for a session that named no conversation
+[capture-service] listening on http://127.0.0.1:49691 (home /private/var/folders/6k/3f5mbfxn0td88bhglmzwgjhw0000gn/T/capture-digest-tiTcze; flags {"ingress":true,"transcribe":false,"wake":false,"notify":false,"speak":false,"pendant":false,"capturePolicy":"wake_only"})
+[capture-service] no gateway URL in env; gateway-dependent pipes will skip with a reason
+
+stdout | tests/capture-service-digest.test.ts > recording digest delivery > posts nothing for a session that named no conversation
+[capture-service] transcription skipped for session: transcribe disabled
+
+ ✓ |unit| tests/vocabulary.test.ts (7 tests) 2727ms
+   ✓ vocabulary — 'Operative' left the user-facing surface > no fitting manifest teaches it to the model 381ms
+   ✓ vocabulary — a conversation is not a session > no user-visible string on the conversation surfaces calls one a session 1085ms
+   ✓ vocabulary — a conversation is not a session > the Kanban UI does not name a column the board no longer has 865ms
+stdout | tests/capture-service-digest.test.ts > recording digest delivery > refuses a conversation_id the thread store would rewrite
+[capture-service] listening on http://127.0.0.1:49698 (home /private/var/folders/6k/3f5mbfxn0td88bhglmzwgjhw0000gn/T/capture-digest-gsVH7m; flags {"ingress":true,"transcribe":false,"wake":false,"notify":false,"speak":false,"pendant":false,"capturePolicy":"wake_only"})
+[capture-service] no gateway URL in env; gateway-dependent pipes will skip with a reason
+
+ ✓ |unit| tests/capture-service-digest.test.ts (8 tests) 1112ms
+   ✓ recording digest delivery > posts one assistant message into the conversation when the session ends, keyed by session id 723ms
+stdout | tests/capture-service-apns.test.ts > companion notifier > degrades to the web-channel thread after persistent 5xx, without content in logs
+[capture-service] notify relay -> companion-push:failed, web-channel:ok
+
+stdout | tests/capture-service-apns.test.ts > companion notifier > never degrades a conversation_reply to the web thread: the answer already lives in its conversation
+[capture-service] notify conversation_reply -> companion-push:skipped, web-channel:skipped
+
+stdout | tests/capture-service-apns.test.ts > companion notifier > pushes a conversation_reply as Zeca, opening the conversation, on the interactive budget
+[capture-service] notify conversation_reply -> companion-push:ok
+
+stdout | tests/capture-service-apns.test.ts > companion notifier > posts the fallback to the Garrison app when GARRISON_APP_URL names it, ignoring the legacy status file
+[capture-service] notify relay -> companion-push:skipped, web-channel:ok
+
+stdout | tests/capture-service-apns.test.ts > companion notifier > names both hosts in the skip reason when neither the app nor the legacy fitting is reachable
+[capture-service] notify relay -> companion-push:skipped, web-channel:skipped
+
+stdout | tests/capture-service-apns.test.ts > companion notifier > enforces the per-day cap and strips loopback links
+[capture-service] notify tip -> companion-push:ok
+[capture-service] notify tip -> companion-push:skipped, web-channel:skipped
+
+stdout | tests/capture-service-apns.test.ts > companion notifier > enforces the per-day cap and strips loopback links
+[capture-service] notify wake_confirmation -> companion-push:ok
+
+stdout | tests/capture-service-apns.test.ts > companion notifier > enforces the per-day cap and strips loopback links
+[capture-service] notify wake_confirmation -> companion-push:ok
+[capture-service] notify wake_confirmation -> companion-push:skipped, web-channel:skipped
+
+stdout | tests/capture-service-apns.test.ts > companion notifier > enforces the per-day cap and strips loopback links
+[capture-service] notify card_created -> companion-push:ok
+
+stdout | tests/capture-service-apns.test.ts > the /notify sink > delivers the fan-out shape once per idempotency key, honouring the toggle
+[capture-service] listening on http://127.0.0.1:49700 (home /private/var/folders/6k/3f5mbfxn0td88bhglmzwgjhw0000gn/T/notify-sink-Yiu44f; flags {"ingress":false,"transcribe":false,"wake":false,"notify":true,"speak":false,"pendant":false,"capturePolicy":"wake_only"})
+[capture-service] no gateway URL in env; gateway-dependent pipes will skip with a reason
+
+stdout | tests/capture-service-apns.test.ts > the /notify sink > delivers the fan-out shape once per idempotency key, honouring the toggle
+[capture-service] notify relay -> companion-push:ok
+
+stdout | tests/capture-service-apns.test.ts > the /notify sink > delivers the fan-out shape once per idempotency key, honouring the toggle
+[capture-service] notify wake_confirmation -> companion-push:ok
+
+stdout | tests/capture-service-apns.test.ts > the /notify sink > delivers the fan-out shape once per idempotency key, honouring the toggle
+[capture-service] notify relay -> companion-push:skipped, web-channel:skipped
+
+stdout | tests/capture-service-apns.test.ts > the /notify sink > delivers the fan-out shape once per idempotency key, honouring the toggle
+[capture-service] notify relay -> companion-push:skipped, web-channel:skipped
+
+ ✓ |unit| tests/capture-service-apns.test.ts (14 tests) 1671ms
+   ✓ companion notifier > degrades to the web-channel thread after persistent 5xx, without content in logs 605ms
+   ✓ the /notify sink > delivers the fan-out shape once per idempotency key, honouring the toggle 395ms
+stdout | shutdown (/Users/ggomes/dev/garrison/fittings/seed/capture-service/scripts/server.mjs:1350:13)
+[capture-service] SIGTERM received; shutting down
+
+
+ Test Files  6 passed (6)
+      Tests  50 passed (50)
+   Start at  22:18:35
+   Duration  5.58s (transform 2.17s, setup 367ms, collect 5.50s, tests 6.48s, environment 2ms, prepare 3.64s)
+

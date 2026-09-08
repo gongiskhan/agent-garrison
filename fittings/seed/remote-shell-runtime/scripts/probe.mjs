@@ -14,6 +14,13 @@ try {
   await import("../lib/transports.mjs");
   await import("../lib/sessions.mjs");
   await import("../lib/remote-shell-adapter.mjs");
+  await import("../lib/runtimes.mjs");
+  await import("../lib/session-index.mjs");
+  await import("../lib/node-identity.mjs");
+  await import("../lib/index-publisher.mjs");
+  await import("../lib/origin-guard.mjs");
+  await import("./install-hooks.mjs");
+  await import("./uninstall-hooks.mjs");
 } catch (err) {
   problems.push(`module load failed: ${err.message}`);
 }

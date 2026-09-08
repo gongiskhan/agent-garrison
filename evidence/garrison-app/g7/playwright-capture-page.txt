@@ -1,0 +1,17 @@
+
+Running 8 tests using 1 worker
+
+[2m[WebServer] [22m [33m[1m⚠[22m[39m Cross origin request detected from 127.0.0.1 to /_next/* resource. In a future major version of Next.js, you will need to explicitly configure "allowedDevOrigins" in next.config to allow this.
+[2m[WebServer] [22mRead more: https://nextjs.org/docs/app/api-reference/config/next-config-js/allowedDevOrigins
+  ✓  1 [desktop-chromium] › tests/e2e/capture-page.spec.ts:10:5 › capture page: browser sees the fallback and no menu entry (1.4s)
+  ✓  2 [desktop-chromium] › tests/e2e/capture-page.spec.ts:18:5 › capture page: with the native bridge the controls render and the menu lists Capture (1.8s)
+[2m[WebServer] [22m[thread-registry] not-enrolled: state service unreachable at (unconfigured): GARRISON_STATE_URL/GARRISON_STATE_TOKEN are unset and $GARRISON_HOME/state.json is unreadable — this node is not enrolled in the mesh
+  ✓  3 [desktop-chromium] › tests/e2e/capture-page.spec.ts:62:5 › conversation composer: the record button appears with the native bridge and passes the conversation id (5.4s)
+  ✓  4 [desktop-chromium] › tests/e2e/capture-page.spec.ts:116:5 › capture page: a connected pendant shows its state and streams the session's words (700ms)
+  ✓  5 [mobile] › tests/e2e/capture-page.spec.ts:10:5 › capture page: browser sees the fallback and no menu entry (521ms)
+  ✓  6 [mobile] › tests/e2e/capture-page.spec.ts:18:5 › capture page: with the native bridge the controls render and the menu lists Capture (600ms)
+  ✓  7 [mobile] › tests/e2e/capture-page.spec.ts:62:5 › conversation composer: the record button appears with the native bridge and passes the conversation id (2.8s)
+  ✓  8 [mobile] › tests/e2e/capture-page.spec.ts:116:5 › capture page: a connected pendant shows its state and streams the session's words (886ms)
+
+  8 passed (20.3s)
+EXIT 0

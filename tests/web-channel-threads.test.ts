@@ -8,10 +8,10 @@ import { pathToFileURL } from "node:url";
 // it at a temp home BEFORE importing.
 const TMP_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "wc-threads-"));
 const MOD = pathToFileURL(
-  path.resolve(__dirname, "../fittings/seed/web-channel-default/scripts/threads.mjs")
+  path.resolve(__dirname, "../packages/talk/src/threads.mjs")
 ).href;
 
-let threads: typeof import("../fittings/seed/web-channel-default/scripts/threads.mjs");
+let threads: typeof import("../packages/talk/src/threads.mjs");
 
 // Same module, run-context view. The shared ambient declaration for this .mjs
 // module (tests/web-channel-mjs.d.ts) predates the 2026-07-25 run-context
@@ -46,6 +46,7 @@ interface ThreadsRunContext {
   startInputLive(inputId: string, at?: string): Loose | null;
   markInputActive(threadId: string, inputId: string, at?: string): boolean;
   activeInputId(threadId: string): string | null;
+  conversationRunningSince(conversationId: string): string | null;
   appendInputLiveFrame(inputId: string, frame: Loose): Loose | null;
   inputLiveFrames(inputId: string): Loose[];
   finishInputLive(threadId: string, inputId: string, reason?: string): boolean;
@@ -93,6 +94,47 @@ describe("web-channel threads store", () => {
     expect((await threads.getThread("chat-conv-identity"))?.conversationId).toBe("chat-conv-identity");
     const [meta] = (await threads.listThreads()).filter((m) => m.id === "chat-conv-identity");
     expect(meta.conversationId).toBe("chat-conv-identity");
+  });
+
+  it("projects canonical launcher activity and replies into the legacy thread list", async () => {
+    const id = "chat-canonical-list";
+    await threads.ensureThread({ id, title: "Canonical conversation" });
+    const dir = path.join(TMP_HOME, "conversations", id);
+    fs.mkdirSync(dir, { recursive: true });
+    const log = path.join(dir, "log.jsonl");
+    const append = (kind: string, ts: string, payload: Loose = {}) => fs.appendFileSync(log, JSON.stringify({ kind, ts, payload }) + "\n");
+    append("user-message", "2030-01-01T01:00:00Z", { text: "Hello" });
+    append("stretch-started", "2030-01-01T01:00:01Z");
+    append("note", "2030-01-01T01:00:02Z", { text: "Tool output ".repeat(6000) });
+    expect((await rc.listThreads()).find((m) => m.id === id)).toMatchObject({ messageCount: 1, updatedAt: "2030-01-01T01:00:02Z" });
+    expect(rc.conversationRunningSince(id)).toBe("2030-01-01T01:00:01Z");
+    append("stretch-ended", "2030-01-01T01:00:03Z", { next: "test", replyRef: "payloads/reply.json" });
+    expect(rc.conversationRunningSince(id)).toBe("2030-01-01T01:00:03Z");
+    append("stretch-ended", "2030-01-01T01:00:04Z", { next: "done", replyRef: "payloads/result.json" });
+    expect((await rc.listThreads()).find((m) => m.id === id)).toMatchObject({ messageCount: 3, updatedAt: "2030-01-01T01:00:04Z" });
+    expect(rc.conversationRunningSince(id)).toBeNull();
+    expect((await rc.getThread(id))?.messages).toEqual([]);
+    await threads.deleteThread(id);
+  });
+
+  it("lists and opens a recent card conversation before a legacy thread exists, without resurrecting a deleted row", async () => {
+    const id = "01CANONICALCARD";
+    const dir = path.join(TMP_HOME, "conversations", id);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "log.jsonl"), JSON.stringify({
+      kind: "conversation-opened", ts: "2030-01-01T01:00:00Z", payload: { cardId: id, title: "Saved card title" },
+    }) + "\n" + JSON.stringify({ kind: "user-message", ts: "2030-01-01T01:00:01Z", payload: { text: "Card verification" } }) + "\n");
+    expect(fs.existsSync(path.join(threads._threadsDirForTest(), `${id}.json`))).toBe(false);
+    expect((await rc.listThreads()).find((row) => row.id === id)).toMatchObject({ conversationId: id, title: "Saved card title", source: "kanban", messageCount: 1 });
+    expect(await rc.getThread(id)).toMatchObject({ conversationId: id, context: { cardId: id } });
+    expect(rc.threadExistsSync(id)).toBe(true);
+    expect(fs.existsSync(path.join(threads._threadsDirForTest(), `${id}.json`))).toBe(false);
+    expect(await threads.deleteThread(id)).toBe(true);
+    expect(await rc.getThread(id)).toBeNull();
+    expect((await rc.listThreads()).some((row) => row.id === id)).toBe(false);
+    await threads.ensureThread({ id });
+    expect(await rc.getThread(id)).not.toBeNull();
+    await threads.deleteThread(id);
   });
 
   it("a thread written before conversations existed adopts its own id on read", async () => {

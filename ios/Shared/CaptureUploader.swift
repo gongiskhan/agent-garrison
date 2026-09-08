@@ -59,6 +59,8 @@ final class CaptureUploader: NSObject {
     var onFeedback: ((FeedbackEvent) -> Void)?
     /// Pendant sessions only: the device codec announced in session_start.
     var codec: String?
+    /// The conversation the recording reports back into, when started from one.
+    var conversationId: String?
 
     init(baseURL: URL, token: String, sessionId: String, mode: SessionMode, deviceName: String, consent: ConsentState, spoolDirectory: URL) {
         self.baseURL = baseURL
@@ -259,7 +261,8 @@ extension CaptureUploader: URLSessionWebSocketDelegate {
                 deviceName: self.deviceName,
                 consent: self.consent.rawValue,
                 startedAt: ISO8601DateFormatter().string(from: Date()),
-                codec: self.codec
+                codec: self.codec,
+                conversationId: self.conversationId
             ))
         }
     }

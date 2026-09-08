@@ -1508,7 +1508,7 @@ export class RoutedGateway {
       // A duty harness profile sets `mcpServers: null` to mean "this stretch
       // carries no MCP server", which is different from leaving it unspecified.
       // Nine unused schemas are ~2.3k tokens of boot prefix on every stretch.
-      mcpServers: target.mcpServers === null
+      mcpServers: target.mcpServers === null || target.promptMode === "lean"
         ? {}
         : narrowMcpTools(cloneAssemblyValue(this._agentSdkMcpServers), target.mcpTools, opts.conversationId, opts.cwd),
       strictMcpConfig: true,
@@ -2508,6 +2508,9 @@ export class RoutedGateway {
   // `Object.create(RoutedGateway.prototype)` (no constructor, no private brand),
   // and a private call on such an object throws "Receiver must be an instance of".
   async _runSecondaryExec(route, message, opts, { adapter, rt, provider, model, effort }) {
+    // A Codex turn may have waited behind another process's machine-wide lock.
+    // Stop during that wait cancels admission, not just a child that exists yet.
+    if (opts.signal?.aborted) throw new Error("secondary runtime cancelled before admission");
     // cwd, most specific first: a PINNED PROJECT for this turn (§8), else the
     // shared BUILD WORKSPACE when set (so codex reads + gemini edits the REAL
     // project files), else a clean scratch cwd (default — keep the agentic CLI out
@@ -2557,11 +2560,15 @@ export class RoutedGateway {
     if (typeof opts.registerStop === "function" && typeof adapter.cancel === "function") {
       opts.registerStop(() => adapter.cancel(session));
     }
-    await adapter.awaitReady(session);
-    opts.onRuntimeAdmission?.();
-    await adapter.sendTurn(session, message);
     let resp;
     try {
+      await adapter.awaitReady(session);
+      // CodexAdapter.cancel() before sendTurn intentionally does nothing: there
+      // is no child yet. Recheck after asynchronous setup so a latched Stop
+      // cannot be cleared by sendTurn and start unwanted work.
+      if (opts.signal?.aborted) throw new Error("secondary runtime cancelled before admission");
+      opts.onRuntimeAdmission?.();
+      await adapter.sendTurn(session, message);
       // The streaming seam. A one-shot exec adapter ignores the options object;
       // one that can report progress mid-turn (remote-shell watches a remote
       // agent work for minutes) streams through it, so the channel shows the

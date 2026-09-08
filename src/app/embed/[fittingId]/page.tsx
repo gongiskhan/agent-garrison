@@ -3,7 +3,14 @@
 import { useEffect, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { resolveViewUrl } from "@/components/fitting-views/browser-view-url";
-import { JARVIS_FITTING_ID } from "@/components/chrome/JarvisPersistentFrame";
+import { useAppShell } from "@/components/chrome/AppShell";
+import { useAppBar } from "@/components/chrome/AppBar";
+
+// Shell routes an embedded Fitting may ask the shell to open through the
+// "garrison:navigate-route" message. An allow-list, not a pattern: the message
+// comes from an iframe on another origin, so it names a destination the shell
+// chose to expose, never an arbitrary path.
+const EMBED_SHELL_ROUTES: ReadonlySet<string> = new Set(["/talk"]);
 
 interface ViewEntry {
   fittingId: string;
@@ -20,6 +27,7 @@ export default function EmbedPage() {
   const pathname = usePathname() ?? "";
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { library } = useAppShell();
   // Derive fittingId from pathname as the source of truth — useParams has been
   // observed returning stale values when navigating between sibling dynamic
   // routes in Next 14, which causes the iframe to keep showing the previous
@@ -32,6 +40,11 @@ export default function EmbedPage() {
   const [reloadNonce, setReloadNonce] = useState(0);
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
+  const label = library.find((e) => e.id === fittingId)?.name ?? fittingId;
+  // Phone width: the shell's app bar shows the Fitting's name with a Back
+  // control in place of the menu (the menu moves to the trailing end), so the
+  // view itself renders nothing but the frame. Desktop keeps the sidebar.
+  useAppBar({ title: label, back: true });
 
   async function publishNow() {
     setPublishing(true);
@@ -55,14 +68,26 @@ export default function EmbedPage() {
 
   // Cross-Fitting navigation: an embedded Fitting can ask Garrison to swap to
   // another Fitting (with optional query params forwarded to the destination
-  // iframe). Without this, a Fitting calling `window.location.href = otherUrl`
-  // would swap its iframe content but leave Garrison's outer URL stale — the
-  // sidebar would still highlight the old Fitting and clicking its link would
-  // be a no-op.
+  // iframe), or to open one of the shell's own routes. Without this, a Fitting
+  // calling `window.location.href = otherUrl` would swap its iframe content but
+  // leave Garrison's outer URL stale - the sidebar would still highlight the old
+  // Fitting and clicking its link would be a no-op. A shell route is worse: an
+  // own-port iframe's relative URL resolves against the Fitting's own origin
+  // (the automations server has no /talk), and an absolute one would nest the
+  // whole Garrison shell inside the pane. Only the shell can push its own route,
+  // and only the routes listed in EMBED_SHELL_ROUTES are reachable this way.
   useEffect(() => {
     function onMessage(event: MessageEvent) {
       const data = event.data;
       if (!data || typeof data !== "object") return;
+      if (data.type === "garrison:navigate-route") {
+        if (typeof data.route !== "string" || !EMBED_SHELL_ROUTES.has(data.route)) return;
+        const qs = new URLSearchParams(
+          data.params && typeof data.params === "object" ? data.params : {}
+        ).toString();
+        router.push(`${data.route}${qs ? `?${qs}` : ""}`);
+        return;
+      }
       if (data.type !== "garrison:navigate-fitting") return;
       if (typeof data.fittingId !== "string" || !/^[a-z0-9][a-z0-9-]*$/i.test(data.fittingId)) return;
       const qs = new URLSearchParams(
@@ -77,10 +102,6 @@ export default function EmbedPage() {
   useEffect(() => {
     let alive = true;
     setEntry(undefined);
-    // jarvis-os is rendered exactly once, in AppShell's JarvisPersistentFrame,
-    // which never unmounts across route navigation - see the early return
-    // below. Skip fetching a status this route never uses.
-    if (fittingId === JARVIS_FITTING_ID) return;
     async function load() {
       try {
         const res = await fetch("/api/fittings/views", { cache: "no-store" });
@@ -98,14 +119,6 @@ export default function EmbedPage() {
       alive = false;
     };
   }, [fittingId, reloadNonce]);
-
-  // jarvis-os: this route is now a VIEW over the single shared iframe AppShell
-  // mounts in JarvisPersistentFrame (positioned to cover this route's content
-  // area while it's active) - not a second iframe. Rendering nothing here is
-  // what guarantees exactly one jarvis-os iframe ever exists in the DOM.
-  if (fittingId === JARVIS_FITTING_ID) {
-    return null;
-  }
 
   if (entry === undefined) {
     return (
@@ -176,24 +189,19 @@ export default function EmbedPage() {
 
   const iframeSrc = qs ? `${base}${base.includes("?") ? "&" : "?"}${qs}` : base;
   return (
-    <iframe
-      key={fittingId}
-      src={iframeSrc}
-      title={fittingId}
-      // Own-port views run on a different port (a distinct origin), so without
-      // an explicit Permissions-Policy delegation the embedded page's
-      // navigator.clipboard is blocked — which silently breaks copy in the
-      // dev-env terminal. Same for microphone (web-channel push-to-talk:
-      // getUserMedia rejects with NotAllowedError before any prompt) and
-      // autoplay (read-aloud's auto-play after a turn is not a user gesture).
-      allow="clipboard-read; clipboard-write; microphone; autoplay"
-      style={{
-        width: "100%",
-        height: "100vh",
-        border: 0,
-        display: "block",
-        background: "var(--paper)"
-      }}
-    />
+    <div className="embed-view">
+      <iframe
+        key={fittingId}
+        src={iframeSrc}
+        title={fittingId}
+        // Own-port views run on a different port (a distinct origin), so without
+        // an explicit Permissions-Policy delegation the embedded page's
+        // navigator.clipboard is blocked - which silently breaks copy in the
+        // dev-env terminal. Same for microphone (web-channel push-to-talk:
+        // getUserMedia rejects with NotAllowedError before any prompt) and
+        // autoplay (read-aloud's auto-play after a turn is not a user gesture).
+        allow="clipboard-read; clipboard-write; microphone; autoplay"
+      />
+    </div>
   );
 }

@@ -104,6 +104,7 @@ declare module "*/project-viewer/lib/i18n.mjs" {
   export function keysFor(lang: string): string[];
 }
 declare module "*/project-viewer/scripts/server.mjs" {
+  export function createRequestHandler(cfg: { repo: string; lang: string }): import("node:http").RequestListener;
   export function readConfig(argv?: string[], env?: Record<string, string | undefined>): any;
   export function safeReturnPath(referer: string | undefined): string;
   export function main(argv?: string[]): Promise<any>;
@@ -199,6 +200,7 @@ declare module "*/project-viewer/scripts/build-flow.mjs" {
   export function specsFromRun(repo: string, runId: string, opts?: { only?: string | null }): Promise<any[]>;
 }
 declare module "*/project-viewer/scripts/capture-runtime.mjs" {
+  export function runPlaywright(repo: string, options: { spec?: string; grep?: string; project?: string; workers?: string; rawOut: string; timeoutMs?: number; env?: NodeJS.ProcessEnv }): Promise<{ ok: boolean; stdout: string; stderr: string }>;
   export function listAppFiles(repo: string, appDir?: string): Promise<string[]>;
   export function stitchUrls(actions: any[]): any[];
   export function stripOrigin(url: string): string;
@@ -209,6 +211,10 @@ declare module "*/project-viewer/scripts/capture-runtime.mjs" {
   export function isNavigation(action: string): boolean;
   export default class ProjectViewerReporter {
     constructor(options?: { outputDir?: string });
+    onBegin(): void;
+    onTestBegin(test: unknown): void;
+    onStepEnd(test: unknown, result: unknown, step: unknown): void;
+    onTestEnd(test: unknown, result: unknown): void;
   }
 }declare module "*/project-viewer/lib/git.mjs" {
   export function toRepoPath(p: string): string;
@@ -277,10 +283,10 @@ declare module "*/project-viewer/lib/dispatch.mjs" {
   export function instanceName(env?: any): string;
   export function openCardWithOrigin(base: string, originId: string): Promise<any>;
   export function dispatchCard(
-    input: { title: string; prompt: string; project: string; originId: string },
+    input: { title: string; prompt: string; project: string; originId: string; timeoutMs?: number },
     env?: any
   ): Promise<any>;
-  export function dispatchChat(input: { prompt: string }, env?: any): Promise<any>;
+  export function dispatchChat(input: { prompt: string; timeoutMs?: number }, env?: any): Promise<any>;
 }
 declare module "*/project-viewer/lib/projects.mjs" {
   export const REGISTRY_VERSION: number;
@@ -366,4 +372,11 @@ declare module "*/project-viewer/scripts/cleanup.mjs" {
     checked: { rel: string; abs: string; docId: string }[];
     deleted: string[];
   }>;
+}
+declare module "*/project-viewer/lib/process.mjs" {
+  export function runProcess(command: string, args: string[], options?: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number; maxBytes?: number; keepLine?: (line: string) => boolean }): Promise<{ code: number | null; stdout: string; stderr: string }>;
+}
+
+declare module "*/project-viewer/lib/paths.mjs" {
+  export function readRegularText(file: string, limit?: number): string;
 }

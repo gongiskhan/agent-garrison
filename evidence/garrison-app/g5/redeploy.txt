@@ -1,0 +1,40 @@
++ First Load JS shared by all                   88 kB
+  ├ chunks/2117-6c5709cc8eacd4f2.js             31.9 kB
+  ├ chunks/fd9d1056-027276b386e481b1.js         53.6 kB
+  └ other shared chunks (total)                 2.43 kB
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+
+[redeploy] stopping operative + fittings (default)
+
+[redeploy] kickstarting io.garrison.node (launchd)
+
+[redeploy] waiting for http://127.0.0.1:8777
+
+[redeploy] unlocking the vault (keychain-sealed)
+
+[redeploy] starting operative + fittings (default)
+
+[redeploy] publishing own-port views to the tailnet
+Warning: client version "1.92.3-t9a08e8f1c" != tailscaled server version "1.96.5-t4ee448d3a-g74ffbefc2"
+Found 7 own-port view(s). Ensuring tailscale serve mappings...
+
+Warning: client version "1.92.3-t9a08e8f1c" != tailscaled server version "1.96.5-t4ee448d3a-g74ffbefc2"
+Warning: client version "1.92.3-t9a08e8f1c" != tailscaled server version "1.96.5-t4ee448d3a-g74ffbefc2"
+Fitting            local   tailnet URL
+-----------------  ------  ------------------------------------------
+email-channel      8081    https://goncalos-macbook-pro.tail31efa.ts.net:8481   [kept]
+automations        8090    https://goncalos-macbook-pro.tail31efa.ts.net:8505   [kept]
+file-browser       8091    https://goncalos-macbook-pro.tail31efa.ts.net:8499   [kept]
+power-default      8092    https://goncalos-macbook-pro.tail31efa.ts.net:8492   [kept]
+omi-channel        8094    https://goncalos-macbook-pro.tail31efa.ts.net:8494   [kept]
+drill              8096    https://goncalos-macbook-pro.tail31efa.ts.net:8501   [kept]
+capture-service    8097    https://goncalos-macbook-pro.tail31efa.ts.net:8497   [kept]
+
+Done. Garrison will now link these views to their HTTPS tailnet URLs when reached over Tailscale.
+
+[redeploy] done — prod serving http://127.0.0.1:8777 (tailnet: https://goncalos-macbook-pro.tail31efa.ts.net)
+EXIT 0

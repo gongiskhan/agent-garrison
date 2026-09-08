@@ -21,20 +21,26 @@ expand_tilde() {
   esac
 }
 
-# Absolute path for a path that may not exist yet — the guard has to run before
-# anything is created. realpath -m / python3 normalise `..`; the printf fallback
-# does not, which is why guard_outside_tree refuses `..` segments outright.
+# Absolute, symlink-resolved path for a path that may not exist yet - the guard
+# has to run before anything is created. GNU `realpath -m` does both; BSD
+# realpath (macOS) has no -m and only takes existing paths, so it is tried
+# plain, then python3's realpath (which resolves the existing prefix of a
+# missing path). Symlink resolution is load-bearing: a repository can commit a
+# symlink pointing outside its clone, and a check on the unresolved path would
+# pass it. The printf fallback normalises nothing, which is why
+# guard_outside_tree refuses `..` segments outright.
 resolve_abs() {
   local p
   p="$(expand_tilde "$1")"
   case "$p" in /*) : ;; *) p="$PWD/$p" ;; esac
   if command -v realpath >/dev/null 2>&1; then
-    realpath -m "$p" 2>/dev/null || printf '%s' "$p"
-  elif command -v python3 >/dev/null 2>&1; then
-    python3 -c 'import os,sys;print(os.path.abspath(sys.argv[1]))' "$p" 2>/dev/null || printf '%s' "$p"
-  else
-    printf '%s' "$p"
+    realpath -m "$p" 2>/dev/null && return
+    realpath "$p" 2>/dev/null && return
   fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$p" 2>/dev/null && return
+  fi
+  printf '%s' "$p"
 }
 
 # Garrison's own worktree, resolved from the calling script's location.

@@ -24,23 +24,25 @@
 // Writes are atomic (temp + rename) and read back before being declared done,
 // cloning the drill store discipline: a half-written manifest is worse than none.
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+
+import { confinedPath, pathId, relativePath, readRegularText } from "./paths.mjs";
 
 import { SCHEMA_VERSION, validateFindings, validateFlow, validateViewerIndex } from "./manifest.mjs";
 
 export const VIEWER_DIRNAME = "viewer";
 
 export function viewerDir(root) {
-  return path.join(root, VIEWER_DIRNAME);
+  return confinedPath(root, VIEWER_DIRNAME);
 }
 export function flowsDir(root) {
-  return path.join(viewerDir(root), "flows");
+  return confinedPath(viewerDir(root), "flows");
 }
 export function flowPath(root, flowId) {
-  return path.join(flowsDir(root), `${flowId}.json`);
+  return confinedPath(flowsDir(root), `${pathId(flowId)}.json`);
 }
 /**
  * Specs live in the repo, next to the manifests they become.
@@ -52,29 +54,29 @@ export function flowPath(root, flowId) {
  * weight, and the build says so rather than leaving it to rot.
  */
 export function specsDir(root) {
-  return path.join(viewerDir(root), "specs");
+  return confinedPath(viewerDir(root), "specs");
 }
 export function specPath(root, flowId) {
-  return path.join(specsDir(root), `${flowId}.json`);
+  return confinedPath(specsDir(root), `${pathId(flowId)}.json`);
 }
 export function findingsPath(root) {
-  return path.join(viewerDir(root), "findings.json");
+  return confinedPath(viewerDir(root), "findings.json");
 }
 export function indexPath(root) {
-  return path.join(viewerDir(root), "viewer.json");
+  return confinedPath(viewerDir(root), "viewer.json");
 }
 export function intakePath(root) {
-  return path.join(viewerDir(root), "intake.json");
+  return confinedPath(viewerDir(root), "intake.json");
 }
 export function docsManifestPath(root) {
-  return path.join(viewerDir(root), "docs-manifest.json");
+  return confinedPath(viewerDir(root), "docs-manifest.json");
 }
 export function cleanupAllowlistPath(root) {
-  return path.join(viewerDir(root), "cleanup-allowlist.json");
+  return confinedPath(viewerDir(root), "cleanup-allowlist.json");
 }
 /** Consolidated doc copies live in the repo, so they travel with it like manifests. */
 export function docsCopyDir(root) {
-  return path.join(viewerDir(root), "docs");
+  return confinedPath(viewerDir(root), "docs");
 }
 
 /** Machine-local store root. Honours GARRISON_PROJECTVIEWER_STORE, then GARRISON_HOME. */
@@ -93,10 +95,10 @@ export function projectKey(root) {
 }
 
 export function capturesDir(root, env = process.env) {
-  return path.join(storeRoot(env), "captures", projectKey(root));
+  return confinedPath(storeRoot(env), `captures/${projectKey(root)}`);
 }
 export function cacheDir(root, env = process.env) {
-  return path.join(storeRoot(env), "cache", projectKey(root));
+  return confinedPath(storeRoot(env), `cache/${projectKey(root)}`);
 }
 
 function expandHome(p) {
@@ -104,11 +106,22 @@ function expandHome(p) {
   return s.startsWith("~") ? path.join(os.homedir(), s.slice(1)) : s;
 }
 
+// Serialize read/modify/write operations owned by this server process. This is
+// not a cross-node store: manifests still move through Git, never replication.
+const updates = new Map();
+export async function serializeUpdate(file, operation) {
+  const previous = updates.get(file) ?? Promise.resolve();
+  const current = previous.catch(() => {}).then(operation);
+  updates.set(file, current);
+  try { return await current; }
+  finally { if (updates.get(file) === current) updates.delete(file); }
+}
+
 // ---------------------------------------------------------------- reads
 
 export async function readJson(file, fallback = null) {
   try {
-    return JSON.parse(await readFile(file, "utf8"));
+    return JSON.parse(readRegularText(file));
   } catch (err) {
     if (err.code === "ENOENT") return fallback;
     throw new Error(`${file}: ${err.message}`);
@@ -191,8 +204,8 @@ export async function getDocsManifest(root) {
 async function writeJsonAtomic(file, obj) {
   await mkdir(path.dirname(file), { recursive: true });
   const text = `${JSON.stringify(obj, null, 2)}\n`;
-  const tmp = `${file}.tmp-${process.pid}`;
-  await writeFile(tmp, text, "utf8");
+  const tmp = `${file}.tmp-${process.pid}-${randomUUID()}`;
+  await writeFile(tmp, text, { encoding: "utf8", flag: "wx", mode: 0o600 });
   try {
     await rename(tmp, file);
   } catch (err) {
@@ -266,18 +279,22 @@ export async function saveDocsManifest(root, obj) {
 
 /** Append a flow id to viewer.json's order if it is not already there. */
 export async function registerFlow(root, flowId) {
+  return serializeUpdate(indexPath(root), async () => {
   const index = await getIndex(root);
   if (!index.flowOrder.includes(flowId)) {
     index.flowOrder.push(flowId);
     await saveIndex(root, index);
   }
   return index;
+  });
 }
 
 export async function recordRefresh(root, sha) {
+  return serializeUpdate(indexPath(root), async () => {
   const index = await getIndex(root);
   index.lastRefresh = { sha, at: new Date().toISOString() };
   return saveIndex(root, index);
+  });
 }
 
 /**
@@ -286,12 +303,14 @@ export async function recordRefresh(root, sha) {
  * finding must not come back on the next analysis.
  */
 export async function setFindingStatus(root, findingId, status) {
+  return serializeUpdate(findingsPath(root), async () => {
   const coll = await getFindings(root);
   const finding = coll.findings.find((f) => f.id === findingId);
   if (!finding) return null;
   finding.status = status;
   await saveFindings(root, coll);
   return finding;
+  });
 }
 
 export async function ensureViewerDir(root) {
@@ -318,19 +337,20 @@ export async function consolidateDoc(root, sourceRel, { docId, title }) {
     throw new Error(`consolidateDoc: docId must be a lowercase slug, got ${JSON.stringify(docId)}`);
   }
   if (!title) throw new Error("consolidateDoc: a title is required");
-  const rel = path.normalize(String(sourceRel));
+  const rel = relativePath(sourceRel);
   if (path.isAbsolute(rel) || rel.split(path.sep).includes("..")) {
     throw new Error(`consolidateDoc: source must be a repo-relative path inside the repo, got ${sourceRel}`);
   }
-  const abs = path.join(root, rel);
-  const bytes = await readFile(abs);
+  const abs = confinedPath(root, rel);
+  const bytes = Buffer.from(readRegularText(abs));
   const sourceSha256 = createHash("sha256").update(bytes).digest("hex");
 
   const storedRel = path.join(VIEWER_DIRNAME, "docs", `${docId}${path.extname(rel) || ".md"}`);
-  const storedAbs = path.join(root, storedRel);
+  const storedAbs = confinedPath(root, storedRel);
+  if (abs === storedAbs) throw new Error("source must be separate from the consolidated copy");
   await mkdir(path.dirname(storedAbs), { recursive: true });
-  const tmp = `${storedAbs}.tmp-${process.pid}`;
-  await writeFile(tmp, bytes);
+  const tmp = `${storedAbs}.tmp-${process.pid}-${randomUUID()}`;
+  await writeFile(tmp, bytes, { flag: "wx", mode: 0o600 });
   try {
     await rename(tmp, storedAbs);
   } catch (err) {
@@ -342,6 +362,7 @@ export async function consolidateDoc(root, sourceRel, { docId, title }) {
     throw new Error(`consolidateDoc: read-back of ${storedRel} does not match what was written`);
   }
 
+  return serializeUpdate(docsManifestPath(root), async () => {
   const manifest = await getDocsManifest(root);
   const entry = {
     docId,
@@ -356,4 +377,16 @@ export async function consolidateDoc(root, sourceRel, { docId, title }) {
   docs.push(entry);
   await saveDocsManifest(root, { ...manifest, docs });
   return entry;
+  });
+}
+
+/** Only consolidated files inside viewer/docs are exposed by the HTTP surface. */
+export function consolidatedDocPath(root, doc) {
+  const rel = relativePath(doc?.storedAt);
+  if (!rel.startsWith("viewer/docs/")) throw new Error("consolidated copy must live in viewer/docs");
+  return confinedPath(root, rel);
+}
+
+export async function readConsolidatedDoc(root, doc) {
+  return readRegularText(consolidatedDocPath(root, doc));
 }

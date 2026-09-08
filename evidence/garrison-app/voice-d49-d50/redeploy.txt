@@ -1,0 +1,70 @@
+# node:redeploy on commit 66c84865
+
+## dev-madrid (ssh) - done
+drill              8096    https://dev-madrid.tail31efa.ts.net:8496   [kept]
+capture-service    8097    https://dev-madrid.tail31efa.ts.net:8498   [kept]
+
+Done. Garrison will now link these views to their HTTPS tailnet URLs when reached over Tailscale.
+
+[redeploy] done — prod serving http://127.0.0.1:8777 (tailnet: https://dev-madrid.tail31efa.ts.net)
+
+## goncalos-mac-mini-1 (ssh) - done
+automations        8090    https://goncalos-mac-mini-1.tail31efa.ts.net:8490   [kept]
+file-browser       8091    https://goncalos-mac-mini-1.tail31efa.ts.net:8491   [kept]
+
+Done. Garrison will now link these views to their HTTPS tailnet URLs when reached over Tailscale.
+
+[redeploy] done — prod serving http://127.0.0.1:8777 (tailnet: https://goncalos-mac-mini-1.tail31efa.ts.net)
+
+## goncalos-macbook-pro (local) - build ok, app did not come up
+[redeploy] building prod bundle (.next-prod)
+[redeploy] prod app not responding on http://127.0.0.1:8777 — skipping pre-down
+[redeploy] kickstarting io.garrison.node (launchd)
+[redeploy] waiting for http://127.0.0.1:8777
+[redeploy] prod did not come up on http://127.0.0.1:8777
+
+Diagnosis at 2026-09-03 17:35 local: the new next-server (pid 25952) listens on 8777 but never
+answers; ~370 established loopback connections queue on it. Two orphaned next-server copies from
+earlier redeploys (pid 36317, 9144; parent 1, no listener, in graceful shutdown that never ends)
+still serve keep-alive clients and hold 128 hung connections into the new server; 36317 is also
+the parent of all 17 running fitting processes (old code). Killing the orphans was blocked by the
+session's permission classifier - left for the owner: kill 36317 9144; npm run node:redeploy.
+
+== 2026-09-03 17:50Z-18:50Z, the Mac node after the orphan kill
+
+The operator ended the orphaned next-servers by hand (36317 had already
+exited; 9144 took the SIGTERM and stayed in its graceful shutdown). The new
+server answered at once: /api/compositions 200 in 20 ms, load 166 -> 23.
+The redeploy tail run by hand: vault unlock 200; up() 400 after 375 s,
+{"error":"setup failed for basic-memory: exit null: verify timed out"};
+tailnet publish found no fitting status files.
+
+Second silence, same node, ~306 established connections on 8777: CPU profile
+of the live next-server (inspector on 9229, 500 us sampling) put the event
+loop in readLibrary() -> readYamlFile + parseGarrisonMetadata, ~50 manifests
+per API request. Fixed in 6a168ea0 (snapshot keyed on mtime+size).
+
+D50 flag: `git diff` showed up() had rewritten compositions/default/apm.yml
+from the committed `screen_audio_transcribe: true` to `false`. The state
+service (rev 30) held `false`; the peers' live capture-service env carried
+GARRISON_CAPTURESERVICE_SCREEN_AUDIO_TRANSCRIBE=false (dev-madrid pid 840223,
+mini pid 31115). Pushed HEAD's manifest to the service:
+
+  $ GARRISON_HOME=$HOME/.garrison npx tsx scripts/state-push-composition.ts default
+  service rev 30 -> HEAD:
+  --- service
+  +++ HEAD
+  @@ -104,7 +104,10 @@
+  -            screen_audio_transcribe: false
+  +            # The REC button's broadcast is the phone's only microphone when no
+  +            # pendant is worn; the ingress mutes it by itself while a pendant
+  +            # session is live, so the hard override stays off.
+  +            screen_audio_transcribe: true
+  pushed; service rev 31.
+
+Then on each peer: `git checkout -- compositions/default/apm.yml` (the only
+diff was the service flip), `POST /api/fittings/capture-service/restart`:
+  dev-madrid {"ok":true,"pid":1085939,"healed":false}
+             GARRISON_CAPTURESERVICE_SCREEN_AUDIO_TRANSCRIBE=true
+  mini       {"ok":true,"pid":14713,"healed":false}
+             GARRISON_CAPTURESERVICE_SCREEN_AUDIO_TRANSCRIBE=true

@@ -1,600 +1,368 @@
 #!/usr/bin/env node
-// local-voice backend — Local Voice Fitting (channels role, own-port).
-//
-// A thin Node own-port wrapper that supervises the Fable voice-server
-// (voice-server/server.py — Kokoro TTS + faster-whisper STT, kept verbatim)
-// and exposes the Garrison voice contract, so it is a drop-in alternative to
-// deepgram-voice:
-//   - POST /stt    → proxies the Python POST /stt   (audio → { transcript })
-//   - POST /tts    → proxies the Python GET  /speak  ({ text } → audio/wav)
-//   - GET  /health → liveness + enginesReady (Python warm?)
-//   - GET  /       → status page
-//
-// The Python child binds an internal localhost port (VOICE_PY_PORT); this Node
-// process owns the public port (default 8100) and the status file, so the
-// Garrison runner's own-port lifecycle (which kills the Node pid on `down`)
-// works unchanged. On shutdown we kill the Python child too.
-//
-// Everything is local: no API key, no network. Mirrors CLAUDE.md "talks only
-// to localhost"; the user opts into 0.0.0.0 via config_schema.bind_host.
+// Local Voice's public HTTP boundary and supervised Python engine. Only this
+// wrapper publishes an own-port record; the engine stays on private loopback.
+import { spawn } from 'node:child_process';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import http from 'node:http';
+import { isIP } from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { WebSocketServer, WebSocket } from 'ws';
 
-import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
-import http from "node:http";
-import os from "node:os";
-import path from "node:path";
-import url from "node:url";
-import { WebSocketServer, WebSocket } from "ws";
+const VOICE_SERVER_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../voice-server');
+const cfg = key => process.env[`GARRISON_LOCALVOICE_${key}`];
+export const LIMITS = Object.freeze({ audio: 25 * 1024 * 1024, json: 16 * 1024,
+  transcript: 64 * 1024, speech: 12 * 1024 * 1024, text: 900,
+  bodyMs: 15_000, requestMs: 120_000, requests: 2, wsPayload: 16 * 1024, wsClients: 16 });
 
-// Mirrors garrisonDir() in src/lib/claude-home.ts.
-function garrisonDir() {
-  const override = process.env.GARRISON_HOME?.trim();
-  return override && override.length > 0 ? override : path.join(os.homedir(), ".garrison");
-}
-
-const HERE = path.dirname(url.fileURLToPath(import.meta.url));
-const VOICE_SERVER_DIR = path.resolve(HERE, "..", "voice-server");
-const STATUS_ROOT = path.join(garrisonDir(), "ui-fittings");
-const STATUS_FILE = path.join(STATUS_ROOT, "local-voice.json");
-
-// Composition config arrives from Garrison's own-port runner NAMESPACED:
-// GARRISON_<ID>_<KEY> — the fitting id stripped of every non-alphanumeric, the
-// config_schema key's separators normalised to "_", both upper-cased (see
-// ownPortConfigEnv in src/lib/own-port-lifecycle.ts, which is the authority).
-// local-voice + `whisper_model` → GARRISON_LOCALVOICE_WHISPER_MODEL. Bare names
-// are NOT delivered any more. Only host/machine env keeps its own name
-// (LOCAL_VOICE_PYTHON, LOCAL_VOICE_VENV, LOCAL_VOICE_AUTH_TOKEN, GARRISON_HOME).
-const cfg = (key) => process.env[`GARRISON_LOCALVOICE_${key}`];
-
-function parseArgs(argv) {
-  const out = {
-    port: Number(cfg("PORT") || 8100),
-    host: cfg("BIND_HOST") || "127.0.0.1",
-    // config_schema `python_bin`. LOCAL_VOICE_PYTHON is HOST env (the
-    // interpreter setup.sh builds the venv with), not composition config, so it
-    // stays bare and still wins over the built-in default.
-    pythonBin: cfg("PYTHON_BIN") || process.env.LOCAL_VOICE_PYTHON || "",
-    // The Python child reads these under their BARE names (its own env
-    // contract); spawnPython translates config → bare. We only force wake_word
-    // off by default (the Fable default is "on", but v1 is push-to-talk and the
-    // mic would hear our own TTS).
-    kokoroVoice: cfg("KOKORO_VOICE") || "bm_george",
-    kokoroSpeed: cfg("KOKORO_SPEED") || "1.0",
-    // Multilingual by default — `small` auto-detects the spoken language so the
-    // Operative can be addressed in PT/FR/EN/… (use `small.en` for English-only).
-    whisperModel: cfg("WHISPER_MODEL") || "small",
-    // JSON map ISO-lang → { voice, klang } for per-language TTS voice. Empty =
-    // the voice-server's built-in defaults (en/pt/fr/es/it).
-    langVoices: cfg("LANG_VOICES") || "",
-    wakeWord: cfg("WAKE_WORD") || "off",
-    // Optional shared secret required for OFF-BOX access to the STT/TTS/events
-    // endpoints. Loopback (the jarvis-os proxy) never needs it. Unset + a
-    // non-loopback bind = off-box access is denied outright (secure default).
-    authToken: process.env.LOCAL_VOICE_AUTH_TOKEN || ""
-  };
+export function parseArgs(argv = []) {
+  const out = { port: Number(cfg('PORT')), host: cfg('BIND_HOST') || '127.0.0.1',
+    pythonBin: cfg('PYTHON_BIN') || process.env.LOCAL_VOICE_PYTHON || '',
+    kokoroVoice: cfg('KOKORO_VOICE') || 'bm_george', kokoroSpeed: cfg('KOKORO_SPEED') || '1.0',
+    whisperModel: cfg('WHISPER_MODEL') || 'small', langVoices: cfg('LANG_VOICES') || '',
+    wakeWord: cfg('WAKE_WORD') || 'off', authToken: process.env.LOCAL_VOICE_AUTH_TOKEN || '' };
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === "--port") out.port = Number(argv[++i]);
-    else if (a === "--host") out.host = argv[++i];
-    else if (a === "--python") out.pythonBin = argv[++i];
+    if (argv[i] === '--port') out.port = Number(argv[++i]);
+    else if (argv[i] === '--host') out.host = argv[++i];
+    else if (argv[i] === '--python') out.pythonBin = argv[++i];
   }
   return out;
 }
 
-// venv python created by setup.sh → explicit override → system python3.
-// The venv holds the installed deps (numpy, kokoro, faster-whisper), so it must
-// win at runtime even when LOCAL_VOICE_PYTHON is set — that env only picks the
-// interpreter setup.sh uses to BUILD the venv, not the runtime interpreter.
-function resolvePython(opts) {
-  // The venv lives OUTSIDE the package tree (default ~/.cache/garrison-local-voice/venv,
-  // override via LOCAL_VOICE_VENV) so apm install -- which deep-copies the fitting and
-  // hard-fails on any symlink escaping the package root -- never trips on the venv python
-  // symlink. A legacy in-package .venv is still honored for older installs.
-  const external = path.join(
-    process.env.LOCAL_VOICE_VENV || path.join(os.homedir(), ".cache", "garrison-local-voice", "venv"),
-    "bin",
-    "python"
-  );
-  if (existsSync(external)) return external;
-  const legacy = path.join(VOICE_SERVER_DIR, ".venv", "bin", "python");
-  if (existsSync(legacy)) return legacy;
-  if (opts.pythonBin) return opts.pythonBin;
-  return "python3";
+export function resolvePython(opts) {
+  const venv = process.env.LOCAL_VOICE_VENV || path.join(os.homedir(), '.cache/garrison-local-voice/venv');
+  const python = path.join(venv, process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+  if (existsSync(python)) return python;
+  return opts.pythonBin || 'python3';
 }
 
+function httpError(status, message) { return Object.assign(new Error(message), { status }); }
 function jsonRes(res, status, body) {
-  res.statusCode = status;
-  res.setHeader("Content-Type", "application/json");
+  if (res.destroyed || res.writableEnded) return;
+  if (res.headersSent) { res.destroy(); return; }
+  res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(body));
 }
 
-function isLoopbackAddr(addr) {
-  if (!addr) return false;
-  return addr === "::1" || addr === "::ffff:127.0.0.1" || addr.startsWith("127.");
+// Tailnet Serve connects over loopback, so its browser Origin must still match
+// the incoming Host. Another tailnet node or localhost port is another origin.
+function trustedHost(hostname) {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  if (host === 'localhost' || host === '::1' || host.endsWith('.ts.net')) return true;
+  if (isIP(host) === 4) {
+    const [a, b] = host.split('.').map(Number);
+    return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+  }
+  return isIP(host) === 6 && /^(?:f[cd]|fe[89ab])/i.test(host);
 }
-
-// The STT/TTS/events endpoints are CPU-heavy and unauthenticated by default —
-// fine on loopback (the jarvis-os proxy is always loopback), but if the user binds
-// a LAN IP, an off-box client must present the configured LOCAL_VOICE_AUTH_TOKEN
-// (Bearer header or ?token=). No token configured → off-box access is denied.
-function requestAuthorized(req, ctx) {
-  if (isLoopbackAddr(req.socket?.remoteAddress)) return true;
-  const token = ctx?.authToken;
-  if (!token) return false;
-  const auth = String(req.headers?.["authorization"] || "");
-  const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  let q = "";
-  try { q = String(url.parse(req.url || "", true).query.token || ""); } catch {}
-  return bearer === token || q === token;
-}
-
-// Cross-site WebSocket hijacking defense: allow no-Origin (native client),
-// loopback/tailnet Origin, or same-host Origin; reject a page on another site.
-function wsOriginAllowed(request) {
-  const origin = request.headers.origin;
-  if (!origin) return true;
+export function originAllowed(req) {
+  if (req.headers['sec-fetch-site'] === 'cross-site') return false;
+  if (req.headers.origin === undefined) return true;
   try {
-    const o = new URL(origin);
-    if (o.hostname === "127.0.0.1" || o.hostname === "localhost" || o.hostname === "[::1]") return true;
-    if (/\.ts\.net$/i.test(o.hostname)) return true;
-    return o.host === (request.headers.host || "");
+    const origin = new URL(req.headers.origin);
+    const target = new URL(`http://${req.headers.host || ''}`);
+    return ['http:', 'https:'].includes(origin.protocol) && origin.origin === req.headers.origin &&
+      origin.host.toLowerCase() === target.host.toLowerCase() && trustedHost(target.hostname);
   } catch { return false; }
 }
 
-// PRIVATE loopback port for the supervised Python child. It is never this
-// fitting's canonical port and is never published in the status file, so
-// letting the OS hand out an ephemeral one is correct. The PUBLIC port is bound
-// EXACTLY — Garrison's canonical-port contract: no scan, no shift, EADDRINUSE
-// exits 1 (see startServer).
-async function reserveInternalPort() {
-  const net = await import("node:net");
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.once("error", reject);
-    srv.listen(0, "127.0.0.1", () => {
-      const { port } = srv.address();
-      srv.close(() => resolve(port));
-    });
-  });
+function equalToken(a, b) {
+  const aa = Buffer.from(a), bb = Buffer.from(b);
+  return aa.length === bb.length && timingSafeEqual(aa, bb);
+}
+export function requestAuthorized(req, ctx) {
+  const addr = req.socket?.remoteAddress || '';
+  if (addr === '::1' || addr === '::ffff:127.0.0.1' || /^127\./.test(addr)) return true;
+  if (!ctx.authToken) return false;
+  const bearer = String(req.headers.authorization || '').replace(/^Bearer /, '');
+  const query = new URL(req.url || '/', 'http://local').searchParams.get('token') || '';
+  return equalToken(bearer, ctx.authToken) || equalToken(query, ctx.authToken);
 }
 
-async function readBinaryBody(req, limit = 25 * 1024 * 1024) {
+export async function readBody(req, limit, timeoutMs = LIMITS.bodyMs) {
+  if (req.aborted) throw httpError(400, 'request aborted');
+  if (Number(req.headers['content-length']) > limit) throw httpError(413, 'payload too large');
   return new Promise((resolve, reject) => {
-    let size = 0;
-    const chunks = [];
-    req.on("data", (chunk) => {
+    let size = 0, chunks = [], settled = false;
+    const finish = (error, body) => {
+      if (settled) return;
+      settled = true; clearTimeout(timer);
+      req.off('data', onData); req.off('end', onEnd); req.off('aborted', onAbort); req.off('error', onError);
+      chunks = [];
+      if (error) { req.once('error', () => {}); req.resume(); reject(error); } else resolve(body);
+    };
+    const onData = chunk => {
       size += chunk.length;
-      if (size > limit) {
-        reject(new Error("payload too large"));
-        try { req.destroy(); } catch {}
-        return;
+      if (size > limit) finish(httpError(413, 'payload too large'));
+      else chunks.push(chunk);
+    };
+    const onEnd = () => finish(null, Buffer.concat(chunks));
+    const onAbort = () => finish(httpError(400, 'request aborted'));
+    const onError = () => finish(httpError(400, 'could not read request'));
+    const timer = setTimeout(() => finish(httpError(408, 'request body timed out')), timeoutMs);
+    req.on('data', onData); req.once('end', onEnd); req.once('aborted', onAbort); req.once('error', onError);
+  });
+}
+
+// A wall-clock deadline covers headers, body and silence. Closing the RESPONSE
+// detects a browser disappearing after upload; req.close only marks body end.
+export function proxyRequest(req, res, ctx, { route, body, contentType, maxBytes, transform }) {
+  return new Promise(resolve => {
+    let upstream, response, settled = false, size = 0;
+    const finish = error => {
+      if (settled) return;
+      settled = true; clearTimeout(timer);
+      res.off('close', disconnected); req.off('aborted', disconnected);
+      if (error) {
+        upstream?.destroy(); response?.destroy();
+        jsonRes(res, error.status || 502, { error: error.message });
       }
-      chunks.push(chunk);
-    });
-    req.on("end", () => resolve(Buffer.concat(chunks)));
-    req.on("error", reject);
-  });
-}
-
-async function readJsonBody(req, limit = 1 * 1024 * 1024) {
-  const buf = await readBinaryBody(req, limit);
-  const raw = buf.toString("utf8");
-  if (!raw) return {};
-  return JSON.parse(raw);
-}
-
-// Probe the supervised Python /health. Resolves true only once the models are
-// warm and uvicorn is serving (server.py warms the models before listening).
-function pyHealth(pyPort, timeoutMs = 2500) {
-  return new Promise((resolve) => {
-    let settled = false;
-    const settle = (ok) => { if (!settled) { settled = true; resolve(ok); } };
-    try {
-      const req = http.request(
-        { method: "GET", hostname: "127.0.0.1", port: pyPort, path: "/health", timeout: timeoutMs },
-        (res) => { res.resume(); settle(res.statusCode === 200); }
-      );
-      req.on("error", () => settle(false));
-      req.on("timeout", () => { req.destroy(); settle(false); });
-      req.end();
-    } catch {
-      settle(false);
-    }
-  });
-}
-
-function handleHealth(res, ctx) {
-  jsonRes(res, 200, {
-    ok: true,
-    port: ctx.port,
-    pid: process.pid,
-    host: ctx.host,
-    enginesReady: ctx.pyReady
-  });
-}
-
-function handleStatusPage(res, ctx) {
-  res.statusCode = 200;
-  res.setHeader("Content-Type", "text/html");
-  res.end(`<!doctype html><html><head><meta charset="utf-8"><title>Voice — Local</title>
-<style>body{font-family:system-ui,sans-serif;background:#0b0d10;color:#e6e9ef;margin:0;padding:2rem;line-height:1.5}
-code{background:#1a1f26;padding:.15rem .4rem;border-radius:4px}h1{font-size:1.1rem}.k{color:${ctx.pyReady ? "#46d18a" : "#e0b06a"}}</style></head>
-<body><h1>Local Voice — Kokoro + faster-whisper</h1>
-<p>Key-free local speech I/O on port ${ctx.port}. Engines: <span class="k">${ctx.pyReady ? "ready" : "warming up / unavailable (see logs)"}</span></p>
-<p>Endpoints: <code>POST /stt</code> (audio → transcript), <code>POST /tts</code> (text → audio), <code>GET /health</code>.</p>
-<p>No interactive UI — channels (e.g. the Jarvis or web channel) consume it for voice in/out.</p></body></html>`);
-}
-
-async function handleStt(req, res, ctx) {
-  if (!ctx.pyReady) {
-    jsonRes(res, 503, { error: "voice engines not ready" });
-    return;
-  }
-  ctx.inFlight++;
-  res.on("close", () => { ctx.inFlight = Math.max(0, ctx.inFlight - 1); });
-  let audio;
-  try {
-    audio = await readBinaryBody(req);
-  } catch (err) {
-    jsonRes(res, 400, { error: `bad audio body: ${err.message}` });
-    return;
-  }
-  if (!audio.length) {
-    jsonRes(res, 400, { error: "empty audio body" });
-    return;
-  }
-  const contentType = req.headers["content-type"] || "audio/webm";
-  const upstream = http.request(
-    {
-      method: "POST",
-      hostname: "127.0.0.1",
-      port: ctx.pyPort,
-      path: "/stt",
-      headers: { "Content-Type": contentType, "Content-Length": audio.length },
-      // large-v3 decodes in ~5-6s on CPU; cap generously so a wedged Python worker
-      // (or GPU/Metal contention) can't hang the request — and its socket — forever.
-      timeout: 30_000
-    },
-    (up) => {
+      resolve();
+    };
+    const disconnected = () => {
+      if (!res.writableFinished) finish(httpError(499, 'request cancelled'));
+    };
+    const timer = setTimeout(() => finish(httpError(504, 'voice engine request timed out')), ctx.limits.requestMs);
+    res.once('close', disconnected); req.once('aborted', disconnected);
+    if (res.destroyed || req.aborted) { disconnected(); return; }
+    upstream = http.request({ hostname: '127.0.0.1', port: ctx.pyPort, path: route, method: 'POST',
+      headers: { 'Content-Type': contentType, 'Content-Length': body.length } }, up => {
+      response = up;
       const chunks = [];
-      up.on("data", (c) => chunks.push(c));
-      up.on("end", () => {
-        const raw = Buffer.concat(chunks).toString("utf8");
-        if (up.statusCode !== 200) {
-          jsonRes(res, 502, { error: `voice-server stt ${up.statusCode}`, detail: raw.slice(0, 300) });
-          return;
+      const failed = up.statusCode !== 200;
+      up.on('error', () => finish(httpError(502, 'voice engine response failed')));
+      up.on('aborted', () => finish(httpError(502, 'voice engine response interrupted')));
+      up.on('data', chunk => {
+        if (settled) return;
+        size += chunk.length;
+        if (size > (failed ? 8192 : maxBytes)) { finish(httpError(502, 'voice engine response too large')); return; }
+        if (failed || transform) chunks.push(chunk);
+        else {
+          if (!res.headersSent) {
+            if (!/^audio\/wav(?:;|$)/i.test(up.headers['content-type'] || '')) {
+              finish(httpError(502, 'voice engine returned invalid audio')); return;
+            }
+            const headers = { 'Content-Type': 'audio/wav', 'Cache-Control': 'no-store' };
+            for (const key of ['x-voice-lang', 'x-voice']) if (up.headers[key]) headers[key] = String(up.headers[key]).slice(0, 128);
+            res.writeHead(200, headers);
+          }
+          if (!res.write(chunk)) up.pause();
         }
-        let data = {};
-        try { data = JSON.parse(raw); } catch {}
-        // Translate the voice-server shape { text, ms, language, language_probability }
-        // → the Garrison voice contract { transcript, confidence, detected_language }.
-        // confidence stays null (whisper gives no transcript-level confidence);
-        // detected_language is the auto-detected spoken language (ISO-639-1).
-        // eot_prob (0..1, may be null on older voice-servers) = how likely the
-        // transcript is a FINISHED utterance — smart-endpointing consumers size
-        // their grace window from it.
-        jsonRes(res, 200, {
-          transcript: typeof data.text === "string" ? data.text : "",
-          confidence: null,
-          detected_language: typeof data.language === "string" ? data.language : null,
-          eot_prob: typeof data.eot_prob === "number" ? data.eot_prob : null
-        });
       });
-    }
-  );
-  upstream.on("error", (err) => {
-    if (res.headersSent) { try { res.destroy(err); } catch {} return; }
-    try { jsonRes(res, 502, { error: `voice-server stt failed: ${err.message}` }); } catch {}
+      res.on('drain', () => up.resume());
+      up.once('end', () => {
+        if (settled) return;
+        if (failed) {
+          const status = [400, 413, 415, 422, 429, 503].includes(up.statusCode) ? up.statusCode : 502;
+          finish(httpError(status, `voice engine rejected request (${up.statusCode})`)); return;
+        }
+        try {
+          if (transform) jsonRes(res, 200, transform(Buffer.concat(chunks)));
+          else if (size <= 44) { finish(httpError(502, 'voice engine returned empty audio')); return; }
+          else res.end();
+          finish();
+        } catch { finish(httpError(502, 'voice engine returned invalid transcript')); }
+      });
+    });
+    upstream.once('error', () => finish(httpError(502, 'voice engine unavailable')));
+    upstream.end(body);
   });
-  upstream.on("timeout", () => { try { upstream.destroy(new Error("stt upstream timeout")); } catch {} });
-  // Client gave up (barge-in / navigation) — stop the upstream STT work.
-  req.on("close", () => { try { upstream.destroy(); } catch {} });
-  upstream.end(audio);
 }
 
-async function handleTts(req, res, ctx) {
-  if (!ctx.pyReady) {
-    jsonRes(res, 503, { error: "voice engines not ready" });
-    return;
-  }
-  ctx.inFlight++;
-  res.on("close", () => { ctx.inFlight = Math.max(0, ctx.inFlight - 1); });
-  let body;
-  try {
-    body = await readJsonBody(req);
-  } catch (err) {
-    jsonRes(res, 400, { error: `invalid json: ${err.message}` });
-    return;
-  }
-  const text = typeof body?.text === "string" ? body.text.trim() : "";
-  if (!text) {
-    jsonRes(res, 400, { error: "text is required" });
-    return;
-  }
-  // The Fable voice-server exposes GET /speak?text=... and streams audio/wav
-  // sentence-by-sentence. We proxy it straight back (format is always wav).
-  const qs = new URLSearchParams({ text }).toString();
-  const upstream = http.request(
-    { method: "GET", hostname: "127.0.0.1", port: ctx.pyPort, path: `/speak?${qs}` },
-    (up) => {
-      if (up.statusCode !== 200) {
-        const chunks = [];
-        up.on("data", (c) => chunks.push(c));
-        up.on("end", () => jsonRes(res, 502, {
-          error: `voice-server tts ${up.statusCode}`,
-          detail: Buffer.concat(chunks).toString("utf8").slice(0, 300)
-        }));
-        return;
+export function voiceCapabilities(ctx) {
+  return { stt: ctx.pyReady, tts: ctx.pyReady, restEnabled: ctx.pyReady,
+    maxTextChars: LIMITS.text, ttsFormat: 'wav', stream: false,
+    wakeEvents: Boolean(ctx.pyReady && ctx.pyHealth?.wake?.enabled && ctx.pyHealth?.wake?.ok) };
+}
+
+export function createRequestHandler(ctx, overrides = {}) {
+  ctx.limits = { ...LIMITS, ...ctx.limits };
+  ctx.inFlight ??= 0;
+  const proxy = overrides.proxyRequest || proxyRequest;
+  return async (req, res) => {
+    let release;
+    try {
+      const pathname = new URL(req.url || '/', 'http://local').pathname;
+      if (req.method === 'GET' && ['/health', '/api/health'].includes(pathname)) {
+        return jsonRes(res, 200, { ok: true, fittingId: 'local-voice', enginesReady: ctx.pyReady,
+          voice: voiceCapabilities(ctx), wake: ctx.pyHealth?.wake || { enabled: false, ok: false } });
       }
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "audio/wav");
-      res.setHeader("Cache-Control", "no-store");
-      // Surface the language/voice the voice-server actually chose from the text,
-      // so consumers can log which voice spoke (X-Voice-Lang = ISO-639-1).
-      if (up.headers["x-voice-lang"]) res.setHeader("X-Voice-Lang", up.headers["x-voice-lang"]);
-      if (up.headers["x-voice"]) res.setHeader("X-Voice", up.headers["x-voice"]);
-      up.pipe(res);
-    }
-  );
-  upstream.on("error", (err) => {
-    // Once we've started piping audio the headers are already sent — a jsonRes here
-    // would throw and leave the response hanging open; destroy it instead.
-    if (res.headersSent) { try { res.destroy(err); } catch {} return; }
-    try { jsonRes(res, 502, { error: `voice-server tts failed: ${err.message}` }); } catch {}
-  });
-  req.on("close", () => { try { upstream.destroy(); } catch {} });
-  upstream.end();
+      if (req.method === 'GET' && pathname === '/') {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'" });
+        return res.end(`<!doctype html><meta name="viewport" content="width=device-width"><title>Local Voice</title><style>body{font:18px system-ui;max-width:40rem;margin:3rem auto;padding:1rem}</style><h1>Local Voice</h1><p>${ctx.pyReady ? 'Speech engines ready.' : 'Speech engines warming up.'}</p><p>Local speech recognition and WAV playback. Microphone wake-word capture is optional.</p>`);
+      }
+      if (!['/stt', '/tts'].includes(pathname)) return jsonRes(res, 404, { error: 'not found' });
+      if (req.method !== 'POST') return jsonRes(res, 405, { error: 'POST required' });
+      if (!originAllowed(req) || !requestAuthorized(req, ctx)) return jsonRes(res, 403, { error: 'forbidden' });
+      if (!ctx.pyReady) return jsonRes(res, 503, { error: 'voice engines not ready' });
+      if (ctx.inFlight >= ctx.limits.requests) return jsonRes(res, 429, { error: 'voice engine busy' });
+      const type = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+      if (req.headers['content-encoding'] && req.headers['content-encoding'] !== 'identity') return jsonRes(res, 415, { error: 'encoded request body is not supported' });
+      if (pathname === '/tts' ? type !== 'application/json' : !/^(audio\/[a-z0-9.+-]+|application\/octet-stream)$/.test(type)) {
+        return jsonRes(res, 415, { error: pathname === '/tts' ? 'application/json required' : 'audio content type required' });
+      }
+      ctx.inFlight++;
+      let released = false;
+      release = () => { if (!released) { released = true; ctx.inFlight--; } };
+      res.once('close', release);
+      const body = await readBody(req, pathname === '/tts' ? ctx.limits.json : ctx.limits.audio, ctx.limits.bodyMs);
+      if (res.destroyed || req.aborted) return;
+      if (pathname === '/stt') {
+        if (!body.length) throw httpError(400, 'empty audio');
+        await proxy(req, res, ctx, { route: '/stt', body, contentType: type, maxBytes: ctx.limits.transcript,
+          transform: bytes => {
+            const value = JSON.parse(bytes.toString('utf8'));
+            if (typeof value.text !== 'string') throw new Error('missing text');
+            return { transcript: value.text, confidence: null, detected_language: typeof value.language === 'string' ? value.language : null, ...(Number.isFinite(value.eot_prob) ? { eot_prob: value.eot_prob } : {}),
+              ...(typeof value.language === 'string' ? { language: value.language } : {}),
+              ...(Number.isFinite(value.ms) ? { ms: value.ms } : {}) };
+          } });
+      } else {
+        let value; try { value = JSON.parse(body.toString('utf8')); } catch { throw httpError(400, 'invalid JSON'); }
+        if (typeof value?.text !== 'string' || !value.text.trim()) throw httpError(400, 'text is required');
+        if ([...value.text.trim()].length > ctx.limits.text) throw httpError(413, `text exceeds ${ctx.limits.text} characters`);
+        if (value.format !== undefined && value.format !== 'wav') throw httpError(400, 'only wav output is supported');
+        if (value.lang !== undefined && (typeof value.lang !== 'string' || !/^[a-z]{2}$/i.test(value.lang))) throw httpError(400, 'invalid language');
+        await proxy(req, res, ctx, { route: '/speak', body: Buffer.from(JSON.stringify({ text: value.text.trim(), lang: value.lang })),
+          contentType: 'application/json', maxBytes: ctx.limits.speech });
+      }
+    } catch (error) { jsonRes(res, error.status || 500, { error: error.status ? error.message : 'voice request failed' }); }
+    finally { release?.(); }
+  };
 }
 
-// config_schema keys the voice-server reads under BARE names — it is a
-// SEPARATE process with its own env contract, so Garrison's namespaced form has
-// to be translated here. This wrapper is the only thing that knows both.
-const PY_CONFIG_KEYS = [
-  "PAUSE_COMMA", "PAUSE_CLAUSE", "PAUSE_SENTENCE", "PAUSE_QUESTION", "PAUSE_ELLIPSIS",
-  "PAUSE_PARA", "MIN_CLAUSE", "WHISPER_LANG", "STT_ENGINE", "WHISPER_CPP_MODEL",
-  "WHISPER_CPP_NO_TIMESTAMPS", "STT_NORMALIZE_GAIN", "TTS_FORCE_LANG", "PIPER_VOICES",
-  "WAKE_THRESHOLD", "WHISPER_BEAM"
-];
+export async function pyHealth(port) {
+  return new Promise(resolve => {
+    let finished = false, chunks = [], size = 0;
+    const done = value => { if (!finished) { finished = true; clearTimeout(timer); resolve(value); } };
+    const req = http.get({ hostname: '127.0.0.1', port, path: '/health' }, res => {
+      res.on('data', chunk => { size += chunk.length; if (size > 16_384) req.destroy(); else chunks.push(chunk); });
+      res.on('error', () => done(null));
+      res.on('end', () => { try { const value = JSON.parse(Buffer.concat(chunks)); done(res.statusCode === 200 && value.ok === true ? value : null); } catch { done(null); } });
+    });
+    const timer = setTimeout(() => { req.destroy(); done(null); }, 2500);
+    req.on('error', () => done(null));
+  });
+}
 
-// Unset/empty config never shadows the voice-server's own default.
-function pyConfigEnv() {
-  const env = {};
-  for (const key of PY_CONFIG_KEYS) {
-    const value = cfg(key);
-    if (value !== undefined && value !== "") env[key] = value;
-  }
+const PY_CONFIG_KEYS = ['PAUSE_COMMA', 'PAUSE_CLAUSE', 'PAUSE_SENTENCE', 'PAUSE_QUESTION', 'PAUSE_ELLIPSIS', 'PAUSE_PARA', 'MIN_CLAUSE',
+  'WHISPER_LANG', 'STT_ENGINE', 'WHISPER_CPP_MODEL', 'WHISPER_CPP_NO_TIMESTAMPS', 'STT_NORMALIZE_GAIN', 'TTS_FORCE_LANG', 'PIPER_VOICES', 'WAKE_THRESHOLD', 'WHISPER_BEAM'];
+export function pythonEnvironment(opts) {
+  const env = { ...process.env, VOICE_PY_PORT: String(opts.pyPort), VOICE_PARENT_PID: String(process.pid),
+    KOKORO_VOICE: opts.kokoroVoice, KOKORO_SPEED: opts.kokoroSpeed, WHISPER_MODEL: opts.whisperModel,
+    WAKE_WORD: opts.wakeWord || 'off' };
+  for (const key of PY_CONFIG_KEYS) if (cfg(key) !== undefined && cfg(key) !== '') env[key] = cfg(key);
+  if (opts.langVoices) env.LANG_VOICES = opts.langVoices;
   return env;
 }
-
-function spawnPython(ctx) {
-  const python = resolvePython(ctx);
-  const child = spawn(python, ["server.py"], {
-    cwd: VOICE_SERVER_DIR,
-    env: {
-      ...process.env,
-      ...pyConfigEnv(),
-      VOICE_PY_PORT: String(ctx.pyPort),
-      KOKORO_VOICE: ctx.kokoroVoice,
-      KOKORO_SPEED: ctx.kokoroSpeed,
-      WHISPER_MODEL: ctx.whisperModel,
-      ...(ctx.langVoices ? { LANG_VOICES: ctx.langVoices } : {}),
-      WAKE_WORD: ctx.wakeWord
-    },
-    stdio: ["ignore", "pipe", "pipe"]
-  });
-  child.stdout.on("data", (d) => process.stdout.write(`[voice-py] ${d}`));
-  child.stderr.on("data", (d) => process.stderr.write(`[voice-py] ${d}`));
-  child.on("error", (err) => {
-    console.error(`[local-voice] failed to spawn python (${python}): ${err.message}. ` +
-      `Run setup (scripts/setup.sh) to create the venv and fetch models.`);
-  });
+function spawnPython(opts) {
+  const child = spawn(resolvePython(opts), ['server.py'], { cwd: VOICE_SERVER_DIR, env: pythonEnvironment(opts), stdio: ['ignore', 'pipe', 'pipe'] });
+  child.stdout?.on('data', bytes => process.stdout.write(`[voice-py] ${bytes}`));
+  child.stderr?.on('data', bytes => process.stderr.write(`[voice-py] ${bytes}`));
   return child;
 }
-
-async function writeStatusFile(ctx) {
-  await mkdir(STATUS_ROOT, { recursive: true });
-  await writeFile(
-    STATUS_FILE,
-    JSON.stringify(
-      {
-        fittingId: "local-voice",
-        port: ctx.port,
-        url: `http://${ctx.host === "0.0.0.0" ? "localhost" : ctx.host}:${ctx.port}`,
-        pid: process.pid,
-        startedAt: new Date().toISOString()
-      },
-      null,
-      2
-    )
-  );
+async function reserveInternalPort() {
+  const server = http.createServer();
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+  const port = server.address().port;
+  await new Promise(resolve => server.close(resolve));
+  return port;
+}
+function alive(pid) { try { process.kill(pid, 0); return true; } catch (err) { return err.code === 'EPERM'; } }
+export async function clearStatusFile(file, owner) {
+  try { const record = JSON.parse(await readFile(file, 'utf8')); if (record.pid === owner.pid && record.startupId === owner.startupId) await unlink(file); } catch {}
+}
+export async function stopChild(child, graceMs = 2500) {
+  if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
+  await new Promise(resolve => {
+    let killTimer;
+    const done = () => { clearTimeout(killTimer); resolve(); };
+    child.once('exit', done);
+    try { child.kill('SIGTERM'); } catch { done(); return; }
+    killTimer = setTimeout(() => { try { child.kill('SIGKILL'); } catch { done(); } }, graceMs);
+  });
 }
 
-async function clearStatusFile() {
-  try { await unlink(STATUS_FILE); } catch {}
-}
-
-export async function startServer(opts = parseArgs(process.argv.slice(2))) {
-  // The configured port is CANONICAL: bind it or exit. Never scan for a free
-  // one — a silent shift makes this instance answer for another and orphans the
-  // status-file slot consumers discover us through.
-  const port = opts.port;
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    console.error(`[local-voice] invalid port ${opts.port}`);
-    process.exit(1);
-  }
-  // Internal port for the Python child — OS-assigned, private to this pair.
-  const pyPort = await reserveInternalPort();
-
-  // inFlight: how many /stt or /tts calls are currently being served by the
-  // Python. Whisper decoding blocks its event loop, so a long transcription
-  // makes /health time out for the WHOLE decode - which is work, not death.
-  const ctx = { ...opts, port, pyPort, pyReady: false, inFlight: 0 };
-
-  const pyChild = spawnPython(ctx);
-  let shuttingDown = false;
-  pyChild.on("exit", (code) => {
-    if (shuttingDown) return;
-    console.error(`[local-voice] voice-server exited (code ${code}); shutting down so Garrison can heal`);
-    clearStatusFile().finally(() => process.exit(1));
-  });
-
-  // Poll the Python until it warms up; flip enginesReady on. `pyReady` is
-  // STICKY: once the engines are confirmed up, a single slow /health (the
-  // Python is busy synthesizing on CPU and can't answer within the timeout)
-  // must NOT gate real requests — only sustained misses flip it back to
-  // not-ready. A genuine Python death is caught separately by pyChild.on(exit),
-  // which shuts the whole wrapper down, so this poll is purely warmup +
-  // liveness, never the crash detector.
-  let healthMisses = 0;
-  const HEALTH_MISS_LIMIT = 3;
-  const healthTimer = setInterval(async () => {
-    // A decode in flight holds the Python's event loop, so /health cannot
-    // answer within its 2.5s budget. Counting those misses marked the engines
-    // dead after ~4.5s of NORMAL work (STT measured 6-68s on this box), and the
-    // very next /stt was then rejected with "voice engines not ready" - the
-    // caller saw Jarvis drop straight back to listening without a transcript.
-    // A real death is caught by pyChild.on("exit"), not by this poll.
-    if (ctx.inFlight > 0) return;
-    const ok = await pyHealth(pyPort);
-    if (ok) {
-      healthMisses = 0;
-      if (!ctx.pyReady) {
-        ctx.pyReady = true;
-        console.log("[local-voice] voice engines ready");
-      }
-    } else {
-      healthMisses++;
-      if (ctx.pyReady && healthMisses >= HEALTH_MISS_LIMIT) {
-        ctx.pyReady = false;
-        console.log(`[local-voice] voice engines unresponsive (${healthMisses} missed health checks)`);
-      }
-    }
-  }, 1500);
-
-  const server = http.createServer(async (req, res) => {
-    try {
-      const parsed = url.parse(req.url || "/", true);
-      const pathname = parsed.pathname || "/";
-      const method = req.method || "GET";
-      if (pathname === "/health" || pathname === "/api/health") return handleHealth(res, ctx);
-      // /stt + /tts are unauthenticated + CPU-heavy — gate off-box access.
-      if ((pathname === "/stt" || pathname === "/tts") && !requestAuthorized(req, ctx)) {
-        return jsonRes(res, 403, { error: "forbidden (off-box access needs LOCAL_VOICE_AUTH_TOKEN)" });
-      }
-      if (pathname === "/stt" && method === "POST") return handleStt(req, res, ctx);
-      if (pathname === "/tts" && method === "POST") return handleTts(req, res, ctx);
-      if (pathname === "/" && method === "GET") return handleStatusPage(res, ctx);
-      jsonRes(res, 404, { error: "not found", path: pathname });
-    } catch (err) {
-      console.error("[local-voice] handler error:", err);
-      jsonRes(res, 500, { error: err.message });
-    }
-  });
-
-  // WS /events — pure passthrough relay to the Python voice-server's /events
-  // (wake-word "hey jarvis" + hello). Consumers (jarvis-os) reach the internal
-  // Python port only through here, mirroring how /stt and /tts are proxied.
-  const wss = new WebSocketServer({ noServer: true });
-  server.on("upgrade", (request, socket, head) => {
-    // Cross-site WebSocket hijacking defense (WS bypasses same-origin policy):
-    // reject a browser Origin that isn't same-host / loopback / tailnet. Native
-    // clients (jarvis-os relay) send no Origin and pass.
-    if (!wsOriginAllowed(request) || !requestAuthorized(request, ctx)) {
-      socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
-      socket.destroy();
-      return;
-    }
-    const parsed = url.parse(request.url || "/", true);
-    if (parsed.pathname !== "/events") {
-      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
-      socket.destroy();
-      return;
-    }
-    wss.handleUpgrade(request, socket, head, (client) => {
-      const upstream = new WebSocket(`ws://127.0.0.1:${ctx.pyPort}/events`);
-      const pending = [];
-      upstream.on("open", () => {
-        for (const { data, isBinary } of pending) upstream.send(data, { binary: isBinary });
-        pending.length = 0;
-      });
-      upstream.on("message", (data, isBinary) => {
-        if (client.readyState === WebSocket.OPEN) client.send(data, { binary: isBinary });
-      });
-      upstream.on("close", () => { try { client.close(); } catch {} });
-      upstream.on("error", () => { try { client.close(); } catch {} });
-      client.on("message", (data, isBinary) => {
-        if (upstream.readyState === WebSocket.OPEN) upstream.send(data, { binary: isBinary });
-        else pending.push({ data, isBinary });
-      });
-      client.on("close", () => { try { upstream.close(); } catch {} });
-      client.on("error", () => { try { upstream.close(); } catch {} });
-    });
-  });
-
-  // Canonical-port contract: refuse to start when the port is taken. Do NOT
-  // touch the status file here — it belongs to whoever already owns the port.
-  server.once("error", (err) => {
-    if (err?.code === "EADDRINUSE") {
-      console.error(
-        `[local-voice] port ${port} is already in use - refusing to start on a shifted port (the configured port is canonical)`
-      );
-      shuttingDown = true;
-      try { pyChild.kill("SIGTERM"); } catch {}
-      process.exit(1);
-    }
-    throw err;
-  });
-  server.listen(port, opts.host, async () => {
-    await writeStatusFile(ctx);
-    console.log(
-      `[local-voice] listening on http://${opts.host}:${port} ` +
-        `(python ${resolvePython(opts)} on :${pyPort}, voice=${ctx.kokoroVoice} whisper=${ctx.whisperModel} wake=${ctx.wakeWord})`
-    );
-  });
-
-  const shutdown = async (signal) => {
-    shuttingDown = true;
-    console.log(`[local-voice] shutdown (${signal})`);
-    clearInterval(healthTimer);
-    try { pyChild.kill("SIGTERM"); } catch {}
-    await clearStatusFile();
-    server.close(() => process.exit(0));
-    setTimeout(() => {
-      try { pyChild.kill("SIGKILL"); } catch {}
-      process.exit(1);
-    }, 3000);
-  };
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
-  // shutdown() covers the signal paths; these cover the rest. A SIGKILL on us
-  // runs none of them -- the Python child's own parent-watchdog is the
-  // backstop for that.
-  process.on("exit", () => { try { pyChild.kill("SIGTERM"); } catch {} });
-  process.on("uncaughtException", (err) => {
-    console.error(`[local-voice] uncaught: ${err?.stack || err}`);
-    shutdown("uncaughtException");
-  });
-  process.on("unhandledRejection", (err) => {
-    console.error(`[local-voice] unhandled rejection: ${err?.stack || err}`);
-    shutdown("unhandledRejection");
-  });
-
-  return { server, options: ctx };
-}
-
-const isDirect = (() => {
-  if (!import.meta.url) return false;
+export async function startServer(opts = parseArgs(process.argv.slice(2)), deps = {}) {
+  if (!Number.isInteger(opts.port) || opts.port < (deps.allowEphemeral ? 0 : 1) || opts.port > 65535) throw new Error('a valid configured port is required');
+  const statusFile = path.join(deps.home || process.env.GARRISON_HOME || path.join(os.homedir(), '.garrison'), 'ui-fittings/local-voice.json');
+  try { const record = JSON.parse(await readFile(statusFile, 'utf8')); if (Number.isInteger(record.pid) && record.pid > 0 && alive(record.pid)) throw new Error('local-voice already has a live status owner'); }
+  catch (error) { if (error.message === 'local-voice already has a live status owner') throw error; }
+  const ctx = { ...opts, pyReady: false, pyHealth: null, inFlight: 0, limits: { ...LIMITS, ...deps.limits } };
+  const server = http.createServer(createRequestHandler(ctx));
+  // Bind before spawning a heavyweight model process or publishing status.
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(opts.port, opts.host, resolve); });
+  ctx.port = server.address().port;
+  const address = opts.host === '0.0.0.0' ? 'localhost' : opts.host.includes(':') ? `[${opts.host}]` : opts.host;
+  const owner = { fittingId: 'local-voice', pid: process.pid, startupId: randomUUID(), port: ctx.port,
+    url: `http://${address}:${ctx.port}`, startedAt: new Date().toISOString() };
+  let child, timer, warmupTimer, shuttingDown, polling = false;
+  const wss = new WebSocketServer({ noServer: true, maxPayload: ctx.limits.wsPayload });
+  const relays = new Set();
+  const signals = [];
+  const shutdown = () => shuttingDown ||= (async () => {
+    ctx.pyReady = false; clearInterval(timer); clearTimeout(warmupTimer);
+    for (const [signal, handler] of signals) process.off(signal, handler);
+    for (const ws of relays) ws.terminate();
+    for (const ws of wss.clients) ws.terminate();
+    wss.close();
+    server.closeAllConnections();
+    await Promise.all([new Promise(resolve => server.close(resolve)), stopChild(child, deps.childGraceMs)]);
+    await clearStatusFile(statusFile, owner);
+  })();
   try {
-    return path.resolve(url.fileURLToPath(import.meta.url)) === path.resolve(process.argv[1] || "");
-  } catch {
-    return false;
-  }
-})();
+    ctx.pyPort = deps.pyPort || await reserveInternalPort();
+    child = (deps.spawnPython || spawnPython)(ctx);
+    await new Promise((resolve, reject) => { child.once('spawn', resolve); child.once('error', reject); });
+    child.on('error', () => { void shutdown().finally(() => deps.onFatal?.(1)); });
+    child.on('exit', () => { if (!shuttingDown) void shutdown().finally(() => deps.onFatal?.(1)); });
+    await mkdir(path.dirname(statusFile), { recursive: true });
+    const temp = `${statusFile}.${owner.startupId}.tmp`;
+    try { await writeFile(temp, JSON.stringify(owner), { mode: 0o600 }); await rename(temp, statusFile); }
+    finally { await unlink(temp).catch(() => {}); }
+    if (shuttingDown) { await shuttingDown; await clearStatusFile(statusFile, owner); throw new Error('voice engine exited during startup'); }
+    const poll = async () => {
+      if (polling || ctx.inFlight || shuttingDown) return;
+      polling = true;
+      try { const health = await (deps.pyHealth || pyHealth)(ctx.pyPort); if (!shuttingDown) { ctx.pyHealth = health; ctx.pyReady = Boolean(health); if (health) clearTimeout(warmupTimer); } }
+      finally { polling = false; }
+    };
+    warmupTimer = setTimeout(() => { void shutdown().finally(() => deps.onFatal?.(1)); }, deps.warmupMs || 600_000);
+    timer = setInterval(() => { void poll(); }, deps.healthMs || 1500);
+    void poll();
+    server.on('upgrade', (req, socket, head) => {
+      const reject = status => { socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`); };
+      if (!originAllowed(req) || !requestAuthorized(req, ctx)) return reject('403 Forbidden');
+      if (new URL(req.url || '/', 'http://local').pathname !== '/events') return reject('404 Not Found');
+      if (!ctx.pyReady || wss.clients.size >= ctx.limits.wsClients) return reject('503 Service Unavailable');
+      wss.handleUpgrade(req, socket, head, client => {
+        const upstream = new WebSocket(`ws://127.0.0.1:${ctx.pyPort}/events`, { handshakeTimeout: 5000, maxPayload: ctx.limits.wsPayload });
+        relays.add(upstream);
+        const close = () => { upstream.terminate(); client.terminate(); relays.delete(upstream); };
+        upstream.on('message', (data, isBinary) => {
+          if (client.bufferedAmount > 64 * 1024) return close();
+          if (client.readyState === WebSocket.OPEN) client.send(data, { binary: isBinary });
+        });
+        // The upstream is an event feed; client pings have no application
+        // payload. Never accumulate a queue while its handshake is pending.
+        upstream.on('close', close); upstream.on('error', close);
+        client.on('close', close); client.on('error', close);
+      });
+    });
+    if (deps.signals !== false) for (const signal of ['SIGTERM', 'SIGINT']) {
+      const handler = () => { void shutdown().then(() => deps.onShutdown?.(0)); };
+      signals.push([signal, handler]); process.on(signal, handler);
+    }
+    return { server, options: ctx, shutdown, child };
+  } catch (error) { await shutdown(); throw error; }
+}
 
-if (isDirect) {
-  startServer().catch((err) => {
-    console.error("[local-voice] failed to start:", err);
-    process.exit(1);
+if (path.resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) {
+  startServer(undefined, { onFatal: code => process.exit(code), onShutdown: code => process.exit(code) }).catch(error => {
+    console.error(`[local-voice] start failed: ${error.message}`); process.exit(1);
   });
 }

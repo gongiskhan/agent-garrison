@@ -21,8 +21,9 @@
 // Pass --project when the target repo defines several viewport projects, or the same
 // flow is captured once per viewport for no gain.
 
-import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { runProcess } from "../lib/process.mjs";
+import { confinedPath, readRepoText, pathId, readRegularText } from "../lib/paths.mjs";
 import { mkdir, readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -65,7 +66,7 @@ export async function listAppFiles(repo, appDir = "src/app") {
   async function walk(dir) {
     let entries;
     try {
-      entries = await readdir(path.join(repo, dir), { withFileTypes: true });
+      entries = await readdir(confinedPath(repo, dir), { withFileTypes: true });
     } catch {
       return;
     }
@@ -115,7 +116,7 @@ export async function enrich(repo, raw, { appFiles, sha, dirty, runId }) {
       // Synchronous on purpose: the import walk is a tight inner loop over a few
       // dozen small files, and threading async reads through it would buy nothing
       // but make the pure module take a promise-returning reader.
-      text = readFileSync(path.join(repo, file), "utf8");
+      text = readRepoText(repo, file);
     } catch {
       text = null;
     }
@@ -190,36 +191,29 @@ export async function enrich(repo, raw, { appFiles, sha, dirty, runId }) {
   });
 }
 
-async function runPlaywright(repo, { spec, grep, project, workers, rawOut }) {
-  const args = ["playwright", "test"];
-  if (spec) args.push(spec);
+export async function runPlaywright(repo, { spec, grep, project, workers, rawOut, timeoutMs = 300_000, env = process.env }) {
+  // Resolve only the target project's installed public Playwright CLI. Never let npx
+  // install a package or select a binary from an unrelated checkout.
+  const require = createRequire(path.join(repo, "package.json"));
+  let cli;
+  try { cli = require.resolve("@playwright/test/cli"); }
+  catch { throw new Error("Install @playwright/test in the selected project before capturing"); }
+  const args = [cli, "test"];
+  if (spec) { confinedPath(repo, spec); if (spec.startsWith("-")) throw new Error("invalid spec path"); args.push(spec); }
   if (grep) args.push("-g", grep);
-  // Passed through, because a repo with three viewport projects otherwise captures
-  // the same flow three times — and an earlier version accepted --project and then
-  // silently dropped it, which is worse than not offering the flag at all.
   if (project) args.push(`--project=${project}`);
   if (workers) args.push(`--workers=${workers}`);
   args.push(`--reporter=${REPORTER.split(path.sep).join("/")}`);
-
-  return new Promise((resolve) => {
-    const child = execFile(
-      "npx",
-      args,
-      {
-        cwd: repo,
-        maxBuffer: 32 * 1024 * 1024,
-        env: { ...process.env, PV_CAPTURE_RAW_DIR: rawOut },
-        windowsHide: true,
-      },
-      (err, stdout, stderr) => {
-        // A failing test still produces a usable capture — what it did is what it
-        // did. Report the exit state and carry on rather than aborting.
-        resolve({ ok: !err, stdout, stderr: String(stderr ?? "") });
-      }
-    );
-    child.stdout?.on("data", (d) => process.stdout.write(d));
-    child.stderr?.on("data", (d) => process.stderr.write(d));
-  });
+  const childEnv = { ...env, PV_CAPTURE_RAW_DIR: rawOut };
+  // A test must never inherit authority to operate the live node.
+  for (const key of Object.keys(childEnv)) if (key.startsWith("GARRISON_")) delete childEnv[key];
+  childEnv.GARRISON_HOME = path.join(rawOut, "test-home");
+  childEnv.GARRISON_INSTANCE_ID = "codex";
+  delete childEnv.PORT;
+  childEnv.CLAUDE_CONFIG_DIR = path.join(childEnv.GARRISON_HOME, "claude");
+  childEnv.GARRISON_CLAUDE_CONFIG_DIR = childEnv.CLAUDE_CONFIG_DIR;
+  const result = await runProcess(process.execPath, args, { cwd: repo, env: childEnv, timeoutMs });
+  return { ok: result.code === 0, stdout: result.stdout, stderr: result.stderr };
 }
 
 async function main() {
@@ -272,7 +266,7 @@ async function main() {
 
   const raws = [];
   for (const name of names) {
-    raws.push({ key: name.slice(0, -5), raw: JSON.parse(await readFile(path.join(rawOut, name), "utf8")) });
+    raws.push({ key: name.slice(0, -5), raw: JSON.parse(readRegularText(confinedPath(rawOut, name))) });
   }
 
   // A capture with no actions is a bug, not a result. Writing it would poison every

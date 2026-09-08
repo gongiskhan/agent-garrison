@@ -11,7 +11,8 @@
 // PTY tabs), but the helper stays generic on (fittingId, instanceId) so it's
 // a straight copy, not a fork.
 
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 
@@ -44,9 +45,11 @@ export async function writeInstanceState(fittingId, instanceId, state) {
     updatedAt: new Date().toISOString(),
     state
   };
-  const tmp = `${file}.tmp-${process.pid}`;
-  await writeFile(tmp, `${JSON.stringify(envelope, null, 2)}\n`, "utf8");
-  await rename(tmp, file);
+  const tmp = `${file}.tmp-${process.pid}-${randomUUID()}`;
+  try {
+    await writeFile(tmp, `${JSON.stringify(envelope, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+    await rename(tmp, file);
+  } finally { await unlink(tmp).catch(() => {}); }
   return envelope;
 }
 

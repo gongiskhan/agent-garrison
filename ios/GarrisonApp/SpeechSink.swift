@@ -1,7 +1,7 @@
 import AVFoundation
 import Foundation
 
-/// Something that can utter a sentence — AVSpeechSynthesizer in the app,
+/// Something that can utter a sentence - AVSpeechSynthesizer in the app,
 /// a recorder in tests. The sink's POLICY (queue ceiling, staleness, mute
 /// rules) is what the tests pin down; the synthesizer is an implementation
 /// detail behind this seam.
@@ -54,7 +54,7 @@ final class SpeechUtterer: NSObject, Utterer, AVSpeechSynthesizerDelegate {
 
 /// The voice-out sink (spec §5b). Behaviour rules, all testable through the
 /// injected Utterer:
-///  - speaks `ack.text` verbatim — the text is pre-rendered and pre-validated
+///  - speaks `ack.text` verbatim - the text is pre-rendered and pre-validated
 ///    upstream; the sink NEVER composes sentences;
 ///  - queue ceiling 3: beyond it the oldest INFO acks are dropped (an error
 ///    is never the one sacrificed); ten acks in five seconds must not produce

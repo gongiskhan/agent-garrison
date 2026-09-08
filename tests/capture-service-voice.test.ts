@@ -13,7 +13,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSyn
 import os from "node:os";
 import path from "node:path";
 import { Counters, CaptureStore } from "../fittings/seed/capture-service/lib/store.mjs";
-import { ZecaVoice, clipId, looksPortuguese, textSeed } from "../fittings/seed/capture-service/lib/tts.mjs";
+import { ZecaVoice, clipId, looksPortuguese, resolveBackend, textSeed } from "../fittings/seed/capture-service/lib/tts.mjs";
 
 const VOICE = "RlGHmE2fztwdBDat0jYf";
 const MODEL = "eleven_multilingual_v2";
@@ -143,6 +143,18 @@ describe("Zeca's voice - cost and caching", () => {
     expect(clipId({ text: "Feito.", voiceId: VOICE, model: "eleven_v3" })).not.toBe(a);
   });
 
+  // D21: the id carries the backend, so flipping tts_backend never replays the
+  // other engine's recording of the same line - while the ElevenLabs id stays
+  // byte-identical to the pre-backend hash, keeping the on-disk cache valid.
+  it("keys the cache on the backend and the Aura voice, and leaves ElevenLabs ids untouched", () => {
+    const eleven = clipId({ text: "Feito.", voiceId: VOICE, model: MODEL });
+    expect(clipId({ text: "Feito.", voiceId: VOICE, model: MODEL, backend: "elevenlabs" })).toBe(eleven);
+    const aura = clipId({ text: "Feito.", model: "aura-asteria-en", backend: "deepgram" });
+    expect(aura).not.toBe(eleven);
+    expect(clipId({ text: "Feito.", model: "aura-luna-en", backend: "deepgram" })).not.toBe(aura);
+    expect(clipId({ text: "Feito.", model: "aura-asteria-en", backend: "deepgram", lang: "pt" })).not.toBe(aura);
+  });
+
   it("evicts oldest-first past the cap", async () => {
     const h = harness({ ttsCacheMaxClips: 2 });
     try {
@@ -163,6 +175,55 @@ describe("Zeca's voice - cost and caching", () => {
     try {
       expect(h.voice.readClip("../../../../etc/passwd")).toBeNull();
       expect(h.voice.readClip("not-hex")).toBeNull();
+    } finally {
+      h.cleanup();
+    }
+  });
+});
+
+describe("Zeca's voice - which engine speaks (D21)", () => {
+  const keys = (eleven: string, dg: string) => ({ secrets: { elevenLabsApiKey: eleven, deepgramApiKey: dg } });
+
+  it("auto prefers ElevenLabs, falls back to Deepgram Aura, then to nothing", () => {
+    expect(resolveBackend({ ttsBackend: "auto", ttsVoiceId: VOICE, ...keys("sk", "dg") }).backend).toBe("elevenlabs");
+    expect(resolveBackend({ ttsBackend: "auto", ttsVoiceId: VOICE, ...keys("", "dg") }).backend).toBe("deepgram");
+    expect(resolveBackend({ ttsVoiceId: VOICE, ...keys("", "dg") }).backend).toBe("deepgram");
+    const none = resolveBackend({ ttsBackend: "auto", ttsVoiceId: VOICE, ...keys("", "") });
+    expect(none.backend).toBeNull();
+    expect(none.reason).toContain("no TTS backend");
+  });
+
+  it("an explicit engine without its key is no TTS, never a silent swap", () => {
+    const eleven = resolveBackend({ ttsBackend: "elevenlabs", ttsVoiceId: VOICE, ...keys("", "dg") });
+    expect(eleven.backend).toBeNull();
+    expect(eleven.reason).toContain("ElevenLabs");
+    const dg = resolveBackend({ ttsBackend: "deepgram", ttsVoiceId: VOICE, ...keys("sk", "") });
+    expect(dg.backend).toBeNull();
+    expect(dg.reason).toContain("DEEPGRAM_API_KEY");
+  });
+
+  it("renders through Aura with the Deepgram key alone: /v1/speak, Token auth, mp3 accept", async () => {
+    const h = harness({ ttsDeepgramModel: "aura-asteria-en", dgRestBaseUrl: "http://dg.mock", secrets: { deepgramApiKey: "dg-key" } });
+    try {
+      expect(h.voice.available()).toEqual({ ok: true, backend: "deepgram" });
+      expect(h.voice.backend()).toBe("deepgram");
+      const clip = await h.voice.clipFor("Feito.", { lang: "pt" });
+      expect(clip).toMatchObject({ cached: false, backend: "deepgram" });
+      expect(h.calls).toHaveLength(1);
+      const { url, body, headers } = h.calls[0];
+      expect(url).toBe("http://dg.mock/v1/speak?model=aura-asteria-en");
+      expect(headers.authorization).toBe("Token dg-key");
+      expect(headers.accept).toBe("audio/mpeg");
+      expect(body).toEqual({ text: "Feito." });
+      expect(clip!.id).toBe(clipId({ text: "Feito.", model: "aura-asteria-en", backend: "deepgram", lang: "pt" }));
+      expect(h.voice.readClip(clip!.id)).not.toBeNull();
+      expect(h.counters.read().tts_generated_deepgram).toBe(1);
+
+      // The ack lane still never throws; the REST lane gets the typed failure.
+      h.setResponse(() => ({ ok: false, status: 500, body: "aura down" }));
+      await expect(h.voice.clipFor("Outra linha.")).resolves.toBeNull();
+      await expect(h.voice.render("Mais uma linha.")).rejects.toMatchObject({ backend: "deepgram", status: 500 });
+      expect(h.counters.read().tts_failures_deepgram).toBe(2);
     } finally {
       h.cleanup();
     }
@@ -258,5 +319,83 @@ describe("Zeca's voice - never costs the acknowledgement", () => {
     expect(clipId({ ...base, lang: "pt" })).not.toBe(clipId(base));
     expect(clipId({ ...base, lang: "pt" })).not.toBe(clipId({ ...base, lang: "en" }));
     expect(clipId({ ...base, lang: null })).toBe(clipId(base));
+  });
+});
+describe("Zeca's voice - ElevenLabs fails, Aura speaks (2026-09-04)", () => {
+  // The ElevenLabs key reached the mesh with 0 credits left on the account:
+  // every clip, acks included, answered 401 quota_exceeded and the phone fell
+  // back to its own voice on a node that held a perfectly good Deepgram key.
+  const both = { ttsDeepgramModel: "aura-asteria-en", dgRestBaseUrl: "http://dg.mock", secrets: { elevenLabsApiKey: "sk", deepgramApiKey: "dg-key" } };
+  const quotaWall = { ok: false, status: 401, body: '{"detail":{"code":"quota_exceeded","message":"0 credits remaining"}}' };
+
+  it("renders the line through Aura when ElevenLabs fails, and parks ElevenLabs", async () => {
+    let clock = 1_000_000;
+    const h = harness({ ...both });
+    (h.voice as unknown as { now: () => number }).now = () => clock;
+    try {
+      let elevenCalls = 0;
+      h.setResponse(() => ({ ok: true, status: 200, body: Buffer.from("ID3aura") }));
+      const respondByUrl = (url: string) => {
+        if (url.startsWith("http://dg.mock/")) return { ok: true, status: 200, body: Buffer.from("ID3aura") };
+        elevenCalls += 1;
+        return quotaWall;
+      };
+      h.setResponse(() => respondByUrl(h.calls[h.calls.length - 1].url));
+
+      expect(h.voice.backend()).toBe("elevenlabs");
+      const clip = await h.voice.render("Feito.", { lang: "pt" });
+      expect(clip).toMatchObject({ cached: false, backend: "deepgram" });
+      expect(clip!.id).toBe(clipId({ text: "Feito.", model: "aura-asteria-en", backend: "deepgram", lang: "pt" }));
+      expect(elevenCalls).toBe(1);
+      expect(h.calls.map((c) => c.url)).toEqual([
+        `https://api.elevenlabs.io/v1/text-to-speech/${VOICE}?output_format=mp3_44100_128`,
+        "http://dg.mock/v1/speak?model=aura-asteria-en"
+      ]);
+      const c = h.counters.read();
+      expect(c.tts_quota_exhausted).toBe(1);
+      expect(c.tts_failures_elevenlabs).toBe(1);
+      expect(c.tts_fallback_deepgram).toBe(1);
+      expect(c.tts_generated_deepgram).toBe(1);
+
+      // Parked: the next line goes straight to Aura, ElevenLabs is not asked.
+      expect(h.voice.backend()).toBe("deepgram");
+      expect(h.voice.available()).toEqual({ ok: true, backend: "deepgram" });
+      expect(h.voice.degraded()).toMatchObject({ since: 1_000_000, until: 1_000_000 + 15 * 60_000 });
+      await h.voice.clipFor("Outra linha.", { lang: "pt" });
+      expect(elevenCalls).toBe(1);
+
+      // After the hold ElevenLabs is tried again.
+      clock += 15 * 60_000 + 1;
+      expect(h.voice.degraded()).toBeNull();
+      expect(h.voice.backend()).toBe("elevenlabs");
+      await h.voice.clipFor("Terceira linha.", { lang: "pt" });
+      expect(elevenCalls).toBe(2);
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  it("never swaps when the engine is pinned to ElevenLabs", async () => {
+    const h = harness({ ...both, ttsBackend: "elevenlabs" });
+    try {
+      h.setResponse(() => quotaWall);
+      await expect(h.voice.render("Feito.")).rejects.toMatchObject({ backend: "elevenlabs", status: 401 });
+      expect(h.calls).toHaveLength(1);
+      expect(h.voice.backend()).toBe("elevenlabs");
+      expect(h.voice.degraded()).toBeNull();
+    } finally {
+      h.cleanup();
+    }
+  });
+
+  it("propagates the Aura failure when both engines fail", async () => {
+    const h = harness({ ...both });
+    try {
+      h.setResponse(() => ({ ok: false, status: 500, body: "down" }));
+      await expect(h.voice.render("Feito.")).rejects.toMatchObject({ backend: "deepgram", status: 500 });
+      await expect(h.voice.clipFor("Feito.")).resolves.toBeNull();
+    } finally {
+      h.cleanup();
+    }
   });
 });

@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-08-31T21:49:45.838181+00:00'
+generated_at: '2026-09-07T07:16:34.352234+00:00'
 apm_version: 0.24.0
 dependencies:
 - repo_url: _local/agent-sdk-runtime
@@ -22,7 +22,7 @@ dependencies:
   - .claude/skills/garrison-memory
   - .claude/skills/garrison-memory/SKILL.md
   deployed_file_hashes:
-    .claude/skills/garrison-memory/SKILL.md: sha256:d02e15fd7cee15654b6328925261fb08f03415ff11a76b8860739c2f9cd4621a
+    .claude/skills/garrison-memory/SKILL.md: sha256:ccc98f2bf692e2f4c064abae33bdb1bfda52480b72cb6f83dce185a2593dc3bf
   source: local
   local_path: ../../fittings/seed/basic-memory
 - repo_url: _local/browser-default
@@ -71,12 +71,12 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/cortex-client
-- repo_url: _local/deepgram-voice
-  name: deepgram-voice
+- repo_url: _local/cursor-runtime
+  name: cursor-runtime
   version: 0.1.0
   package_type: invalid
   source: local
-  local_path: ../../fittings/seed/deepgram-voice
+  local_path: ../../fittings/seed/cursor-runtime
 - repo_url: _local/dev-env
   name: dev-env
   version: 0.1.0
@@ -233,7 +233,7 @@ dependencies:
   local_path: ../../fittings/seed/power-default
 - repo_url: _local/remote-shell-runtime
   name: remote-shell-runtime
-  version: 0.1.0
+  version: 0.2.0
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/remote-shell-runtime
@@ -334,12 +334,6 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/vault-git-sync
-- repo_url: _local/web-channel-default
-  name: web-channel-default
-  version: 0.1.0
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/web-channel-default
 - repo_url: _local/whatsapp-web
   name: whatsapp-web
   version: 0.1.0

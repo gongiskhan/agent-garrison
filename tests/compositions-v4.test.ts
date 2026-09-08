@@ -237,4 +237,36 @@ describe("applyLocalOverlay", () => {
     applyLocalOverlay(input, { selections: { gateway: [{ id: "http-gateway", config: { port: 1 } }] } });
     expect(JSON.stringify(input)).toBe(before);
   });
+
+  it("unstation removes a named fitting id from selections, everywhere it appears", () => {
+    const merged = applyLocalOverlay(base(), { unstation: ["basic-memory"] });
+    const composition = manifestToComposition("c", merged);
+    expect(composition.selections.memory ?? []).toEqual([]);
+    // untouched otherwise
+    expect(composition.selections.gateway?.map((s) => s.id)).toEqual(["http-gateway"]);
+  });
+
+  it("unstation applies AFTER the config merge - naming a fitting the overlay also configures still removes it", () => {
+    const merged = applyLocalOverlay(base(), {
+      selections: { memory: [{ id: "basic-memory", config: { vault_dir: "/other" } }] },
+      unstation: ["basic-memory"]
+    });
+    const composition = manifestToComposition("c", merged);
+    expect(composition.selections.memory ?? []).toEqual([]);
+  });
+
+  it("refuses to unstation orchestrator/http-gateway/scheduler - ignored, everything else in the list still applies", () => {
+    const merged = applyLocalOverlay(base(), { unstation: ["http-gateway", "basic-memory"] });
+    const composition = manifestToComposition("c", merged);
+    // http-gateway survives the refusal; basic-memory is still removed.
+    expect(composition.selections.gateway?.map((s) => s.id)).toEqual(["http-gateway"]);
+    expect(composition.selections.memory ?? []).toEqual([]);
+  });
+
+  it("an unknown unstation id is simply a no-op (nothing to remove)", () => {
+    const merged = applyLocalOverlay(base(), { unstation: ["nope-not-stationed"] });
+    const composition = manifestToComposition("c", merged);
+    expect(composition.selections.gateway?.map((s) => s.id)).toEqual(["http-gateway"]);
+    expect(composition.selections.memory?.map((s) => s.id)).toEqual(["basic-memory"]);
+  });
 });

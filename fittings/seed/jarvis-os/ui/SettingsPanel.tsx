@@ -1,11 +1,4 @@
-// Jarvis HUD settings — a small unobtrusive gear + popover. Three settings live
-// here: HUD color (see ./hud-color.ts for the derivation), the per-state orb
-// colours (listening / thinking / speaking — see ./core-colors.ts), and Orb
-// mode (Phase 3 — shrinks the same persistent HUD into a draggable corner orb
-// over the rest of Garrison; see ./orb-settings.ts and JarvisPersistentFrame.tsx
-// for the shell-side half). No save button: every change flows straight to
-// the parent's onChange* callbacks, which persist it (debounced) via
-// /api/hud-settings.
+// Dedicated Jarvis HUD color settings. Changes autosave through /api/hud-settings.
 
 import { useEffect, useRef, useState } from "react";
 import { DEFAULT_HUD_COLOR, isValidHudColor } from "./hud-color";
@@ -22,21 +15,6 @@ import {
   type StateColors,
   type ThemeKey,
 } from "./core-colors";
-import { ORB_CORNERS, type OrbCorner } from "./orb-settings";
-
-const CORNER_LABEL: Record<OrbCorner, string> = {
-  "top-left": "⌜",
-  "top-right": "⌝",
-  "bottom-left": "⌞",
-  "bottom-right": "⌟",
-};
-const CORNER_TITLE: Record<OrbCorner, string> = {
-  "top-left": "canto superior esquerdo",
-  "top-right": "canto superior direito",
-  "bottom-left": "canto inferior esquerdo",
-  "bottom-right": "canto inferior direito",
-};
-
 export default function SettingsPanel({
   color,
   onChange,
@@ -44,10 +22,6 @@ export default function SettingsPanel({
   onStateColorChange,
   onStateColorsReset,
   onThemeChange,
-  orbMode,
-  onOrbModeChange,
-  orbCorner,
-  onOrbCornerChange,
 }: {
   color: string;
   onChange: (hex: string) => void;
@@ -55,10 +29,6 @@ export default function SettingsPanel({
   onStateColorChange: (state: CoreStateKey, hex: string) => void;
   onStateColorsReset: () => void;
   onThemeChange: (theme: ThemeKey) => void;
-  orbMode: boolean;
-  onOrbModeChange: (next: boolean) => void;
-  orbCorner: OrbCorner;
-  onOrbCornerChange: (next: OrbCorner) => void;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -175,39 +145,6 @@ export default function SettingsPanel({
             </button>
           )}
 
-          <div className="jarvis-settings-sep" role="separator" />
-
-          <label className="jarvis-settings-row" htmlFor="jarvis-orb-mode">
-            <span className="jarvis-settings-label">modo orbe</span>
-            <button
-              id="jarvis-orb-mode"
-              type="button"
-              className={`jarvis-settings-toggle${orbMode ? " is-on" : ""}`}
-              role="switch"
-              aria-checked={orbMode}
-              onClick={() => onOrbModeChange(!orbMode)}
-              title={orbMode ? "Voltar ao HUD completo noutras páginas" : "Encolher para um orbe flutuante noutras páginas"}
-            >
-              <span className="jarvis-settings-toggle-knob" />
-            </button>
-          </label>
-
-          {orbMode && (
-            <div className="jarvis-settings-corners" role="group" aria-label="Canto do orbe">
-              {ORB_CORNERS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  className={`jarvis-settings-corner${orbCorner === c ? " is-active" : ""}`}
-                  onClick={() => onOrbCornerChange(c)}
-                  aria-pressed={orbCorner === c}
-                  title={CORNER_TITLE[c]}
-                >
-                  {CORNER_LABEL[c]}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
       )}
     </div>

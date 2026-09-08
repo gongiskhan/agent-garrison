@@ -42,6 +42,7 @@ import {
 import { boardBase, cardById } from "./autonomous-cards.mjs";
 import { resolveRunScope, listProjectNames, readDevRoot, PERSONAL_SCOPE_TOKEN } from "./project-source.mjs";
 import { applyDutyHarnessProfile, runtimeCodexEnabled } from "./harness-profiles.mjs";
+import { prepareStretchContinuity } from "./stretch-continuity.mjs";
 import {
   routingTableEnabled,
   readRoutingTable,
@@ -305,6 +306,8 @@ export function tripwires(store, { duty, window = 12 } = {}) {
   for (const evt of tail) {
     if (evt.duty !== duty) continue;
     const h = evt.payload ?? {};
+    // A user steer cut the stretch short; it is neither progress nor its lack.
+    if (h.steered === true) continue;
     if (h.status === "complete") {
       noProgress = 0;
       prevEvidence = null;
@@ -321,6 +324,7 @@ export function tripwires(store, { duty, window = 12 } = {}) {
   for (let i = tail.length - 1; i >= 0; i--) {
     const evt = tail[i];
     if (!GATE_DUTIES.has(evt.duty)) continue;
+    if (evt.payload?.steered === true) continue;
     const status = evt.payload?.status;
     if (status === "failed" || status === "partial") testFails += 1;
     else break;
@@ -334,8 +338,61 @@ export function tripwires(store, { duty, window = 12 } = {}) {
   return { noProgress, testFails, fires };
 }
 
+const ANSWER_DUTIES = new Set(["plan", "review", "adversarial-review", "validate", "discuss", "research", "report"]);
+const ANSWER_CYCLE_DUTIES = new Set([...ANSWER_DUTIES, "triage", "dispatch", "responder", "dialogue"]);
+
+// A prose deliverable has no runnable artifact to prove. It must be declared
+// explicitly, and only an analytical, cardless response cycle can use it.
+// Missing/old contracts stay on the work rail; neither an implement stretch nor
+// its later review can rename changed work into an evidence-free answer.
+function isAnswerCompletion({ store, duty, handoff, card }) {
+  if (card || !ANSWER_DUTIES.has(duty) || handoff?.completion !== "answer"
+    || handoff.status !== "complete" || handoff.synthesized !== false
+    || handoff.nextSteps?.next !== "done" || handoff.nextSteps.items?.length !== 0 || handoff.blocker !== null) return false;
+  const events = store?.tail?.(4000, { kinds: ["handoff", "stretch-started", "session-event", "finding"] }) ?? [];
+  let boundary = -1;
+  for (let i = events.length - 1; i >= 0; i--) {
+    // needs-input can park unfinished implementation; it cannot erase that
+    // work from the evidence obligation when an analytical follow-up resumes.
+    if (events[i].kind === "handoff" && events[i].payload?.nextSteps?.next === "done") { boundary = i; break; }
+  }
+  if (boundary < 0 && events.length >= 4000) return false; // unknown earlier work
+  for (const event of events.slice(boundary + 1)) {
+    if (["handoff", "stretch-started"].includes(event.kind)
+      && !ANSWER_CYCLE_DUTIES.has(event.duty ?? event.payload?.duty)) return false;
+    if (event.kind === "finding" && event.payload?.kind === "change") return false;
+    for (const block of event.payload?.blocks ?? []) {
+      if (block?.type !== "tool_use" || !["Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch", "file_change"].includes(block.name)) continue;
+      let input = block.input;
+      try { if (typeof input === "string") input = JSON.parse(input); } catch { return false; }
+      const file = input?.file_path;
+      // Writing the mandatory handoff is session bookkeeping, not a project
+      // mutation. Every other observed file edit retains the evidence gate.
+      if (block.name === "Write" && typeof file === "string" && store?.dir
+        && path.dirname(path.resolve(file)) === path.join(path.resolve(store.dir), "handoffs") && file.endsWith(".json")) continue;
+      return false;
+    }
+  }
+  return true;
+}
+
 /** The two flow invariants plus the review budget. Returns {next, rewritten, reason}. */
 export function applyFlowPolicy(next, { store, duty, selectedDuties = [], cwd = null, stretchId = null, handoff = null, card = null, env = process.env } = {}) {
+  // The responder answers a person on a settled conversation. Where it points
+  // next is where the conversation already stood (done stays done after a
+  // question) or the duty the person's follow-up asks for - the review and
+  // evidence invariants below judge WORK, and a question is not work. Without
+  // this, "is this deployed?" on a done card without on-disk evidence became a
+  // fresh implement stretch.
+  if (duty === "responder") return { next, rewritten: false, reason: null };
+  // Dialogue is the spoken conversation (D62): one pass, one answer, then stop.
+  // It has no work to show evidence for and nothing to hand off to - the work it
+  // recognises becomes its own card, which runs the loop there. Without this
+  // exemption "que horas são em Lisboa" answered, said done, and was rewritten
+  // into a `test` stretch by the evidence invariant below - two minutes of
+  // stretches and a closing line spoken instead of the answer.
+  if (duty === "dialogue") return { next, rewritten: false, reason: null };
+  if (next === "done" && isAnswerCompletion({ store, duty, handoff, card })) return { next, rewritten: false, reason: null };
   const budget = reviewBudgetDecision(store, { card, env });
   let reviewBudget = null;
   if (REVIEW_DUTIES.has(next)) {
@@ -472,6 +529,80 @@ for a human and is not carried forward as claims; the findings record is what th
 next stretch is actually handed.`,
 };
 
+// Per-duty guidance on the SHAPE of the reply, beside the findings expectation.
+// The responder is the one duty a person talks to directly: it answers on a
+// settled conversation, and a follow-up ask ("now also do X", the answer to
+// what the work was parked on) has to become WORK again rather than a haiku
+// paragraph - by handing off to the duty that does it, never by doing it.
+export const DUTY_GUIDANCE = {
+  // The one duty a person SPEAKS to (D62). Everything here is read aloud into an
+  // earpiece, so the register is the voice lane's, not the loop's: the word cap
+  // and the markdown ban are the same ones buildVoiceDiscussPrompt has carried
+  // since D25, and they are load-bearing - tts.mjs refuses to render past 600
+  // characters. The other half is the escalation rule: this duty finishes small
+  // things itself and REFUSES to start big ones inline, because the moment it
+  // does, the delivery loop opens on a conversation the person is listening to.
+  dialogue: `### How to answer on this duty
+
+You are talking with the person, out loud. They are wearing an earpiece or
+holding a phone; what you write here is spoken back to them. One pass: answer,
+act, stop. There is no next stretch to hand to and nothing to hand off.
+
+How to speak here, which is different from writing:
+
+- Under 55 words. This is a hard limit, not a guideline.
+- No markdown, no bullets, no headings, no code, no URLs, no file paths, no
+  emoji - nothing you would not say out loud to someone next to you.
+- No preamble, no sign-off, no repeating their question back at them.
+- Answer in the language they spoke. When that is Portuguese it is EUROPEAN
+  Portuguese: "tu", not "você"; "estou a fazer", not "estou fazendo".
+- Say plainly when you do not know. Disagree when they are about to do
+  something daft, and say why - agreement they did not earn is worth nothing.
+- When the request is genuinely ambiguous, ask ONE short question and stop.
+  They answer by voice and the conversation carries on right here.
+
+What to DO, not just say. Finish it in this pass whenever you can:
+
+- A question you can answer, from what you know or with the tools you have:
+  answer it.
+- A fact about them or their work worth keeping: save it with your memory
+  tools, then say in a few words that you kept it.
+- A note or a thought to keep: write it down.
+- A reminder, an errand, an appointment, something for a day: put it on the
+  board with a due date. Say what you put there.
+- A message to send through a connector: send it, then say you sent it.
+
+What NOT to do here. Real project work - code, a feature, a bug, a refactor, a
+deployment, an automation to build, an investigation that needs several steps -
+does not happen in this conversation. Create a card for it with
+garrison_create_card (title, and a description carrying what they actually
+said), which starts its own conversation and runs there under triage, and tell
+them in one sentence that it is on the board and running. Never open that work inline, never promise
+to do it "now" here, and never hand off: your handoff is always
+"nextSteps.next": "done", status "complete".`,
+  responder: `### How to answer on this duty
+
+You are the conversation's responder: a person wrote into a conversation with no
+work running, and you answer them from the summary and handoffs above. The
+message has one of two shapes:
+
+- A QUESTION or a remark. Answer it plainly in your reply, record anything you
+  promised in your handoff summary, and hand off with "nextSteps.next" set to
+  where the conversation already stood: "done" when the work was finished,
+  "needs-input" when it was parked and still is.
+- A REQUEST FOR WORK: a follow-up task, a change, a fix, or the answer to what
+  the work was parked on. Do NOT do the work yourself. Say in one or two
+  sentences what happens next, put the request into "nextSteps.items", and hand
+  off with "nextSteps.next" naming the duty that should do it - "triage" when
+  the ask still needs scoping, otherwise the duty that fits (implement, plan,
+  review, ...). Status "complete". The conversation re-opens on that duty and
+  the card goes back to work.`,
+};
+
+export function dutyGuidanceFor(duty) {
+  return DUTY_GUIDANCE[duty] ?? null;
+}
+
 // Behind `triage_findings` (default on) so the per-duty expectation can be
 // reverted without touching the shared contract above.
 export function dutyFindingsExpectationEnabled(env = process.env) {
@@ -513,6 +644,7 @@ keys are not:
   "stretchId": "<given below>",
   "duty": "<your duty>",
   "status": "complete" | "partial" | "blocked" | "failed",
+  "completion": "work" | "answer",
   "summary": "<what happened - concise, plain language, <=4000 chars>",
   "evidenceRefs": [{"kind":"file|commit|run|gate|artifact|url|log","ref":"<ABSOLUTE path or id>","note":"..."}],
   "nextSteps": {"next":"<a selected duty, or done, or needs-input>","why":"...","items":["..."]},
@@ -527,6 +659,19 @@ Rules: blocked requires a blocker; partial/failed require at least one
 failedApproaches entry; next "done" requires status "complete"; a gate/run/file
 evidence ref must point at a real non-empty file. Update nothing else — the
 exit gate applies your handoff to the conversation summary.
+
+completion defaults to "work" for older handoffs. Use "answer" ONLY when the
+user requested an informational reply (for example a prose plan, explanation,
+review or evaluation), your reply fully delivers it, and no requested change,
+artifact creation, command/test execution or other action remains. A request to
+implement, fix, deploy or actually run checks is "work", even when its current
+duty is plan/review/validate: keep working or hand off the remaining duty.
+An answer has next "done", no blocker and no nextSteps.items. Do not invent or
+run tests, create evidence files or expand scope to prove a prose-only answer.
+The gateway permits this evidence exception only for cardless analytical
+responses without implementation work or recorded project edits in the current
+response cycle. All card deliverables remain "work". Citations and read-only
+inspection can support an answer without fabricating gate/run evidence.
 
 forceEscalation is the model lever: it runs the NEXT stretch one rung above
 the conversation's floor and raises the sticky floor. Set it to a one-line
@@ -573,6 +718,7 @@ export function buildStretchBrief({
   selectedDuties = [],
   findingsText = "",
   findingsExpectation = null,
+  dutyGuidance = null,
 }) {
   const parts = [];
   parts.push(`# Stretch brief — conversation ${conversationId}`);
@@ -636,6 +782,7 @@ export function buildStretchBrief({
   if (findingsText) parts.push("", findingsText);
   parts.push("", `## Your duty: ${duty} (level ${level}${attempt > 1 ? `, attempt ${attempt}` : ""})`);
   if (dutyDescription) parts.push(dutyDescription);
+  if (dutyGuidance) parts.push("", dutyGuidance);
   if (skill) parts.push(`Bound skill: ${skill}`);
   if (task) parts.push("", "## Task", task);
   if (userMessages.length) {
@@ -788,11 +935,16 @@ export async function runStretch(gateway, {
   onUsage = null,
   signal = null,
   timeoutMs = STRETCH_TIMEOUT_MS,
+  env = process.env,
 }) {
   const started = Date.now();
+  let continuity = null;
   let stop = null;
   const registerStop = (fn) => {
     stop = fn;
+    // Stop can arrive while the runtime is spawning or waiting for its lock.
+    // Deliver it as soon as the adapter exposes its cancellation primitive.
+    if (signal?.aborted) { try { stop?.(); } catch { /* cancellation is best-effort */ } }
   };
   const abort = () => {
     try {
@@ -803,16 +955,29 @@ export async function runStretch(gateway, {
   };
   if (signal) signal.addEventListener("abort", abort, { once: true });
   let timer = null;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => {
-      abort();
-      reject(new Error(`stretch timeout after ${timeoutMs}ms`));
-    }, timeoutMs);
-  });
   try {
+    if (signal?.aborted) throw new Error("stretch cancelled before runtime admission");
+    const prepared = prepareStretchContinuity({ cwd: cwd ?? gateway.compositionDir, conversationId, stretchId,
+      model: route.target.model, runtime: route.target.runtime, duty: route.duty, env, signal });
+    continuity = prepared?.then ? await prepared : prepared;
+    if (signal?.aborted) throw new Error("stretch cancelled before runtime admission");
+    const groundedBrief = [
+      continuity.instructions ? `## Enrolled project instructions (local files; preserve override precedence)\n${continuity.instructions}` : "",
+      brief,
+      continuity.context ? `## Shared project context and peer sessions (cached; verify current evidence)\n${continuity.context}` : "",
+    ].filter(Boolean).join("\n\n");
+    const onRuntimeAdmission = () => continuity.admit();
+    // The separately bounded local cache read precedes the runtime deadline;
+    // no timeout promise can reject while its consumer is still preparing.
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        abort();
+        reject(new Error(`stretch timeout after ${timeoutMs}ms`));
+      }, timeoutMs);
+    });
     const isAgentSdk = route.target.runtime === "agent-sdk";
     const turnPromise = isAgentSdk
-      ? gateway.runAgentSdkTurn(route, brief, onChunk, {
+      ? gateway.runAgentSdkTurn(route, groundedBrief, onChunk, {
           sessionKey: `stretch:${stretchId}`,
           turnId: turnId ?? `stretch:${stretchId}`,
           // The stretch's own conversation, so the layer-3 tools default to it
@@ -822,10 +987,13 @@ export async function runStretch(gateway, {
           onEvent,
           onUsage,
           registerStop,
+          onRuntimeAdmission,
         })
-      : gateway.runSecondaryTurn(route, brief, {
+      : gateway.runSecondaryTurn(route, groundedBrief, {
           onChunk,
           registerStop,
+          signal,
+          onRuntimeAdmission,
           ...(cwd ? { cwd } : {}),
           // Stretch identity: the exec lane uses it to mount the Garrison MCP
           // server scoped to this conversation (provider-two step 3). A
@@ -877,6 +1045,9 @@ export async function runStretch(gateway, {
       error: err?.message ?? String(err),
     };
   } finally {
+    // Queued local lifecycle events finish independently of model cancellation
+    // and never await a Basic Memory or network operation on the turn path.
+    void continuity?.finish();
     if (timer) clearTimeout(timer);
     if (signal) signal.removeEventListener("abort", abort);
     // A stretch dies with its session: the warm pool must never leak prior
@@ -1090,10 +1261,32 @@ export async function patchCardEngine({ id, patch, logFn = () => {} }) {
 
 async function writeCardTransition(gateway, { cardId, conversationId, stretchId, phase, handoff = null, duty = null }) {
   if (!cardId) return;
-  // The responder answers a user; it never moves the card. A question about a
-  // done card must not reopen or re-park it.
-  if (duty === "responder") return;
   const logFn = (e) => gateway.logFn?.(e);
+  if (duty === "responder") {
+    // The responder used to leave the card untouched, so a message on a done
+    // card was answered by a card that showed no sign of working. Now the card
+    // is on Running while the responder works - same as any stretch - and
+    // settles where the responder's handoff points: back to done after a
+    // question, to needs-attention when it is still parked, or on to the duty
+    // a follow-up asked for (whose own start keeps it running).
+    if (phase === "started") {
+      await patchCardEngine({ id: cardId, patch: { list: "running", status: "running", runningSince: new Date().toISOString(), awaitingApproval: null }, logFn });
+      return;
+    }
+    const next = handoff?.nextSteps?.next;
+    const reply = String(handoff?.summary ?? "").slice(0, 600);
+    if (next === "done") {
+      await patchCardEngine({ id: cardId, patch: { list: "done", status: "ok", ...(reply ? { lastReply: reply } : {}) }, logFn });
+    } else if (next === "needs-input" || phase === "error") {
+      const reason = handoff?.blocker
+        ? `${handoff.blocker.what} — needs: ${handoff.blocker.needs}`
+        : (handoff?.summary ?? "responder error");
+      await patchCardEngine({ id: cardId, patch: { list: "needs-attention", status: "needs-attention", attentionReason: String(reason).slice(0, 400) }, logFn });
+    } else if (next) {
+      await patchCardEngine({ id: cardId, patch: { status: "ok", duty: next, ...(reply ? { lastReply: reply } : {}) }, logFn });
+    }
+    return;
+  }
   if (phase === "started") {
     // A starting stretch consumes any standing approval ask — the approval
     // arrived (or Autonomous was flipped), so the card must stop wearing it.
@@ -1128,7 +1321,9 @@ function unconsumedUserMessages(store) {
     (acc, e) => (e.kind === "messages-consumed" ? Math.max(acc, Number(e.payload?.throughIndex ?? -1)) : acc),
     -1
   );
-  const lastHandoffIdx = all.reduce((acc, e) => (e.kind === "handoff" ? e.index : acc), -1);
+  // A steered handoff is written AFTER the message that caused it, so under
+  // the pre-stamp rule it would eat exactly the message it exists to carry.
+  const lastHandoffIdx = all.reduce((acc, e) => (e.kind === "handoff" && e.payload?.steered !== true ? e.index : acc), -1);
   const hwm = lastConsumed >= 0 ? lastConsumed : lastHandoffIdx;
   return all
     .filter((e) => e.kind === "user-message" && e.index > hwm)
@@ -1208,8 +1403,10 @@ function consecutiveSameDuty(store, duty) {
   const tail = store.tail(10, { kinds: ["handoff"] });
   let n = 0;
   for (let i = tail.length - 1; i >= 0; i--) {
-    if (tail[i].duty === duty) n += 1;
-    else break;
+    if (tail[i].duty !== duty) break;
+    // A steered stretch re-runs its duty as a continuation, not a retry.
+    if (tail[i].payload?.steered === true) continue;
+    n += 1;
   }
   return n;
 }
@@ -1289,6 +1486,53 @@ export function stretchScopeForCard(card) {
   return { label, cwd, degraded: !cwd };
 }
 
+/** The closing record every downstream number is built from. `cost_usd` is OUR
+ *  arithmetic over the rate table; `sdkCostUsd` is what the provider's own SDK
+ *  reported for the same calls. Kept apart on purpose - a divergence beyond a
+ *  rounding margin means the table or the parsing is wrong, and averaging the
+ *  two would hide exactly that. One builder, so a steered stretch and a gated
+ *  one leave the same shape behind. */
+function stretchEndedPayload({ stretchId, ordinal, duty, route, result, usageRows, outcome, stoppedReason, replyRef, summaryWrite, next }) {
+  const usageAgg = aggregateUsageRows(usageRows);
+  const priced = priceAggregate(usageAgg, { fallbackModel: result.model ?? route.target.model });
+  return {
+    stretchId,
+    ordinal,
+    duty,
+    provider: route.target.provider ?? null,
+    runtime: route.target.runtime ?? null,
+    target: route.targetId ?? null,
+    effort: route.target.effort ?? null,
+    apiCalls: usageAgg.apiCalls,
+    inputTokens: usageAgg.usage.inputTokens,
+    outputTokens: usageAgg.usage.outputTokens,
+    cacheWriteTokens: usageAgg.usage.cacheWrite5mTokens + usageAgg.usage.cacheWrite1hTokens,
+    cacheWrite5mTokens: usageAgg.usage.cacheWrite5mTokens,
+    cacheWrite1hTokens: usageAgg.usage.cacheWrite1hTokens,
+    cacheReadTokens: usageAgg.usage.cacheReadTokens,
+    usageBasis: usageAgg.basis,
+    usageSources: usageAgg.sources,
+    ttlSplit: usageAgg.ttlSplit,
+    subagentsInvisible: usageAgg.subagentsInvisible,
+    byModel: usageAgg.byModel,
+    cost_usd: priced.usd,
+    costUnpricedReason: priced.reason,
+    sdkCostUsd: usageAgg.sdkCostUsd ?? result.sdkCostUsd ?? null,
+    outcome,
+    usedTokens: result.usedTokens,
+    costUnknown: result.costUnknown,
+    durationMs: result.durationMs,
+    model: result.model,
+    effortApplied: result.effortApplied,
+    stoppedReason,
+    error: result.error,
+    handoffRef: `handoffs/${String(ordinal).padStart(4, "0")}.json`,
+    replyRef,
+    summaryWrite,
+    next,
+  };
+}
+
 export async function runConversation(gateway, {
   conversationId,
   task = null,
@@ -1307,7 +1551,7 @@ export async function runConversation(gateway, {
     const model = await gateway.executionModel();
     const selectedDuties = model?.selectedDuties ?? [];
     const card = await cardById(conversationId).catch(() => null);
-    const scope = stretchScopeForCard(card);
+    let scope = stretchScopeForCard(card);
     if (scope.degraded) {
       const failure = projectResolutionFailure(scope, {
         compositionDir: gateway.compositionDir ?? null,
@@ -1346,7 +1590,41 @@ export async function runConversation(gateway, {
         terminal = "cancelled";
         break;
       }
-      const duty = nextDutyFor(store, selectedDuties);
+      const pendingMessages = unconsumedUserMessages(store);
+      // Cards keep their own run configuration and flow. A plain Talk thread
+      // has no card, so its explicitly pinned message is its run context.
+      const messagePins = !card
+        ? Object.assign({}, ...pendingMessages.map((message) => message.routing ?? {}))
+        : {};
+      const rejectPins = (rejected) => {
+        const text = `The conversation did not start: ${rejected.map(({ field, reason }) => `${field}: ${reason}`).join("; ")}. Update the run settings and send again.`;
+        if (pendingMessages.length) store.append({ kind: "messages-consumed", payload: {
+          throughIndex: Math.max(...pendingMessages.map((message) => message.index ?? -1)), count: pendingMessages.length,
+        } });
+        store.append({ kind: "routing-rejected", payload: { rejected } });
+        // Notes are a rendered part of the conversation contract. A custom
+        // diagnostic event alone would leave a refused turn invisible.
+        store.append({ kind: "note", payload: { text, origin: "gateway" } });
+      };
+      const supportedPins = new Set(["target", "model", "effort", "duty", "level", "project", "account", "rung"]);
+      const invalidPins = Object.entries(messagePins)
+        .filter(([field, value]) => value != null && value !== "" && !supportedPins.has(field))
+        .map(([field]) => ({ field, reason: "unsupported for a conversation" }));
+      for (const [field, value] of Object.entries(messagePins)) {
+        if (field !== "level" && supportedPins.has(field) && value != null && typeof value !== "string") {
+          invalidPins.push({ field, reason: "must be text" });
+        }
+      }
+      if (messagePins.duty && !selectedDuties.includes(messagePins.duty)) invalidPins.push({ field: "duty", reason: "duty-not-selected" });
+      if (messagePins.level != null && (!Number.isInteger(messagePins.level) || messagePins.level < 1 || messagePins.level > 9)) {
+        invalidPins.push({ field: "level", reason: "level must be an integer from 1 to 9" });
+      }
+      if (invalidPins.length) {
+        rejectPins(invalidPins);
+        terminal = "needs-input";
+        break;
+      }
+      const duty = messagePins.duty || nextDutyFor(store, selectedDuties);
       if (CONVERSATION_FLOW.terminal.includes(duty)) {
         terminal = duty;
         break;
@@ -1394,7 +1672,7 @@ export async function runConversation(gateway, {
         }
       }
 
-      const level = Number(card?.level) >= 1 ? Number(card.level) : 1;
+      const level = messagePins.level ?? (Number(card?.level) >= 1 ? Number(card.level) : 1);
       const ladder = await ladderForDuty(gateway, duty, level);
       if (!ladder) {
         store.append({ kind: "stretch-ended", duty, payload: { outcome: "error", error: `no route for duty ${duty}` } });
@@ -1406,17 +1684,6 @@ export async function runConversation(gateway, {
       const lastHandoff = store.tail(1, { kinds: ["handoff"] })[0]?.payload ?? null;
       const forced = lastHandoff?.forceEscalation ?? false;
       const wire = tripwires(store, { duty });
-      const pendingMessages = unconsumedUserMessages(store);
-      // Stamp consumption NOW, at brief build - a message landing during the
-      // stretch stays unconsumed and wakes the responder after it, instead of
-      // being outranked by the stretch's own handoff.
-      if (pendingMessages.length) {
-        store.append({
-          kind: "messages-consumed",
-          duty,
-          payload: { throughIndex: Math.max(...pendingMessages.map((m) => m.index ?? -1)), count: pendingMessages.length },
-        });
-      }
       const rungPick = resolveRung({
         ladder,
         floorRungId,
@@ -1487,6 +1754,34 @@ export async function runConversation(gateway, {
         }
       }
 
+      let pinDecision = null;
+      if (Object.keys(messagePins).length) {
+        // Reuse the gateway's existing target/account/project validators and
+        // route overlay. This is the same seam the chat lane uses; a target
+        // can be any configured target, not only a rung of the default ladder.
+        const overridePins = Object.fromEntries(Object.entries(messagePins).filter(([field]) =>
+          ["target", "model", "effort", "project", "account"].includes(field)));
+        pinDecision = !Object.keys(overridePins).length ? { applied: [], rejected: [] }
+          : typeof gateway._applyOverride === "function"
+            ? gateway._applyOverride(route, overridePins)
+            : { applied: [], rejected: [{ field: "routing", reason: "the gateway cannot apply conversation pins" }] };
+        if (pinDecision.rejected?.length) {
+          rejectPins(pinDecision.rejected);
+          terminal = "needs-input";
+          break;
+        }
+        if (Object.hasOwn(messagePins, "project")) {
+          scope = { label: pinDecision.project ?? null, cwd: pinDecision.projectPath ?? null, degraded: false };
+        }
+        route = applyDutyHarnessProfile(route, duty);
+      }
+      // Only a built brief consumes inputs. A message that lands after this
+      // snapshot stays pending and is picked up by the next stretch.
+      if (pendingMessages.length) store.append({
+        kind: "messages-consumed", duty,
+        payload: { throughIndex: Math.max(...pendingMessages.map((message) => message.index ?? -1)), count: pendingMessages.length },
+      });
+
       const stretchId = `st_${newConversationId()}`;
       const ordinal = store.nextHandoffOrdinal();
       const handoffPath = store.handoffPath(ordinal);
@@ -1531,10 +1826,10 @@ export async function runConversation(gateway, {
           runtime: route.target.runtime,
           provider: route.target.provider ?? null,
           model: route.target.model,
-          effort,
+          effort: route.target.effort ?? null,
         },
-        chosenBy: rungPick.chosenBy,
-        chosenWhy: rungPick.chosenWhy,
+        chosenBy: pinDecision?.applied?.length || messagePins.duty || messagePins.level ? "pin" : rungPick.chosenBy,
+        chosenWhy: pinDecision?.applied?.length || messagePins.duty || messagePins.level ? "requested conversation run settings" : rungPick.chosenWhy,
         floorBefore: floorRungId,
         floorAfter: floorUpdate?.rung ?? floorRungId,
         notify: rungPick.notify,
@@ -1569,7 +1864,8 @@ export async function runConversation(gateway, {
           // one: reason says WHY this route ("default", "brief-route",
           // "cooling until <ts>", "capability:<x>", "cross-family"), and
           // table carries what was skipped on the way down.
-          reason: tableDecision?.reason ?? "default",
+          reason: pinDecision?.applied?.length || messagePins.duty || messagePins.level ? "turn-override" : tableDecision?.reason ?? "default",
+          ...(pinDecision ? { overridesApplied: [...(messagePins.duty ? ["duty"] : []), ...(messagePins.level ? ["level"] : []), ...pinDecision.applied] } : {}),
           ...(tableDecision
             ? { table: { index: tableDecision.index, id: tableDecision.row?.id ?? null, skipped: tableDecision.skipped } }
             : {}),
@@ -1620,6 +1916,7 @@ export async function runConversation(gateway, {
         floorLine: floorRungId ? `Escalation floor for ${duty}: ${floorRungId} (sticky for this conversation)` : null,
         selectedDuties,
         findingsExpectation: findingsExpectationFor(duty, env),
+        dutyGuidance: dutyGuidanceFor(duty),
       });
 
       const tee = makeStretchEventTee(store, {
@@ -1636,25 +1933,104 @@ export async function runConversation(gateway, {
         usageRows.push(row);
         store.append({ kind: "usage", duty, stretch: stretchId, runId, payload: { ...row, ordinal } });
       };
-      const result = await runStretch(gateway, {
-        route,
-        brief,
+      // A steer interrupts THIS stretch only. Its controller is chained to the
+      // conversation's cancel signal, so a cancel still stops everything, while
+      // a steer stops one stretch and the loop carries on with the same duty.
+      const stretchAbort = new AbortController();
+      let steer = null;
+      const onOuterAbort = () => stretchAbort.abort();
+      if (signal?.aborted) stretchAbort.abort();
+      else signal?.addEventListener("abort", onOuterAbort, { once: true });
+      steerRegistry().set(conversationId, {
         stretchId,
-        conversationId,
-        cwd: scope.cwd,
-        turnId: `${conversationId}#${ordinal}`,
-        onChunk: (text, replace) => {
-          onFrame("chunk", { type: "chunk", text, replace });
-          tee.chunk(text, replace);
+        duty,
+        steer: (info = {}) => {
+          if (steer || stretchAbort.signal.aborted) return false;
+          steer = {
+            at: new Date().toISOString(),
+            seq: typeof info.seq === "number" ? info.seq : null,
+            text: String(info.text ?? "").slice(0, 4000),
+          };
+          store.append({ kind: "stretch-steered", duty, stretch: stretchId, runId, payload: { ...steer, stretchId, ordinal } });
+          onFrame("stretch-steered", { stretchId, duty, ordinal, seq: steer.seq });
+          stretchAbort.abort();
+          return true;
         },
-        onEvent: (event) => {
-          onFrame("session_event", event);
-          tee.event(event);
-        },
-        onUsage,
-        signal,
       });
+      let result;
+      try {
+        result = await runStretch(gateway, {
+          route,
+          brief,
+          stretchId,
+          conversationId,
+          cwd: scope.cwd,
+          turnId: `${conversationId}#${ordinal}`,
+          onChunk: (text, replace) => {
+            onFrame("chunk", { type: "chunk", text, replace });
+            tee.chunk(text, replace);
+          },
+          onEvent: (event) => {
+            onFrame("session_event", event);
+            tee.event(event);
+          },
+          onUsage,
+          signal: stretchAbort.signal,
+          env,
+        });
+      } finally {
+        if (steerRegistry().get(conversationId)?.stretchId === stretchId) steerRegistry().delete(conversationId);
+        signal?.removeEventListener("abort", onOuterAbort);
+      }
       tee.flush();
+
+      if (signal?.aborted || steer) {
+        // A steered stretch is not a failed one: no exit gate, no repair call,
+        // no needs-input. Its handoff routes straight back to the same duty,
+        // and the brief that duty boots from carries the steering message (it
+        // landed after this stretch's messages-consumed stamp, so it is still
+        // unconsumed). The partial reply is kept as evidence of what was cut.
+        const cancelled = signal?.aborted === true;
+        // A human Stop must never start the exit gate's re-ask/repair model.
+        // Preserve partial output and a resumable summary locally instead.
+        const handoff = cancelled ? {
+          v: 1, stretchId, duty, status: "partial", summary: "Stopped by the user before the stretch finished.",
+          evidenceRefs: [], nextSteps: { next: "needs-input", why: "The user stopped this conversation.", items: [] },
+          blocker: { what: "Conversation stopped", needs: "a new user message to continue", who: "user" },
+          activeConstraints: [], failedApproaches: [], surprises: [], forceEscalation: null,
+          synthesized: true, cancelled: true,
+        } : steeredHandoff({ stretchId, duty, steer, reply: result.reply });
+        store.writeHandoff(ordinal, handoff);
+        const replyRef = store.writeNamedPayload(`stretch-${String(ordinal).padStart(4, "0")}-reply.md`, result.reply ?? "");
+        store.append({
+          kind: "handoff",
+          duty,
+          stretch: stretchId,
+          payload: { ...handoff, ordinal, _gate: { valid: true, repairs: 0, synthesized: true, source: cancelled ? "cancel" : "steer", resolved: [] } },
+        });
+        onFrame("handoff", { ordinal, duty, status: handoff.status, next: handoff.nextSteps.next, synthesized: true });
+        const updated = applyHandoffToSummary(store.parseSummary() ?? {}, handoff, { floorUpdate });
+        let write = store.writeSummary(updated, { stretchId: store.currentStretch() });
+        if (!write.ok && write.reason === "over-cap") {
+          write = store.trimSummary(updated, { stretchId: store.currentStretch() });
+        }
+        if (cancelled) await writeCardTransition(gateway, { cardId: card?.id, conversationId, stretchId, phase: "ended", handoff, duty });
+        // A steer keeps the card Running: the same duty starts again shortly.
+        const endedPayload = stretchEndedPayload({
+          stretchId, ordinal, duty, route, result, usageRows,
+          outcome: cancelled ? "cancelled" : "steered",
+          stoppedReason: cancelled ? "cancelled" : "steered",
+          replyRef: replyRef.ref,
+          summaryWrite: write.ok ? "ok" : write.reason,
+          next: handoff.nextSteps.next,
+        });
+        store.append({ kind: "stretch-ended", duty, stretch: stretchId, runId, payload: endedPayload });
+        onFrame("stretch-ended", endedPayload);
+        store.releaseStretch(stretchId);
+        stretches += 1;
+        if (cancelled) { terminal = "cancelled"; break; }
+        continue;
+      }
 
       // Step 4: an account that answered with a rate/usage limit is marked
       // cooling and skipped by later table walks until the interval passes.
@@ -1758,6 +2134,9 @@ export async function runConversation(gateway, {
       if (policy.rewritten) {
         store.append({ kind: "policy-rewrite", duty, stretch: stretchId, payload: { from: gate.handoff.nextSteps.next, to: policy.next, reason: policy.reason } });
         gate.handoff.nextSteps = { ...gate.handoff.nextSteps, next: policy.next, why: `${gate.handoff.nextSteps.why} [policy: ${policy.reason}]` };
+        // A refused answer classification resumes the work rail. Persist a
+        // valid contract rather than answer + a nonterminal next duty.
+        if (gate.handoff.completion === "answer") gate.handoff.completion = "work";
         store.writeHandoff(ordinal, gate.handoff);
       }
       store.append({
@@ -1778,50 +2157,16 @@ export async function runConversation(gateway, {
 
       await writeCardTransition(gateway, { cardId: card?.id, conversationId, stretchId, phase: result.ok ? "ended" : "error", handoff: gate.handoff, duty });
 
-      // Aggregate the stretch's calls onto its closing event: this is the record
-      // every downstream number is built from. `cost_usd` is OUR arithmetic over
-      // the rate table; `sdkCostUsd` is what the provider's own SDK reported for
-      // the same calls. They are kept apart on purpose — a divergence beyond a
-      // rounding margin means the table or the parsing is wrong, and averaging
-      // the two would hide exactly that.
-      const usageAgg = aggregateUsageRows(usageRows);
-      const priced = priceAggregate(usageAgg, { fallbackModel: result.model ?? route.target.model });
-      const endedPayload = {
-        stretchId,
-        ordinal,
-        duty,
-        provider: route.target.provider ?? null,
-        runtime: route.target.runtime ?? null,
-        target: route.targetId ?? null,
-        effort: route.target.effort ?? null,
-        apiCalls: usageAgg.apiCalls,
-        inputTokens: usageAgg.usage.inputTokens,
-        outputTokens: usageAgg.usage.outputTokens,
-        cacheWriteTokens: usageAgg.usage.cacheWrite5mTokens + usageAgg.usage.cacheWrite1hTokens,
-        cacheWrite5mTokens: usageAgg.usage.cacheWrite5mTokens,
-        cacheWrite1hTokens: usageAgg.usage.cacheWrite1hTokens,
-        cacheReadTokens: usageAgg.usage.cacheReadTokens,
-        usageBasis: usageAgg.basis,
-        usageSources: usageAgg.sources,
-        ttlSplit: usageAgg.ttlSplit,
-        subagentsInvisible: usageAgg.subagentsInvisible,
-        byModel: usageAgg.byModel,
-        cost_usd: priced.usd,
-        costUnpricedReason: priced.reason,
-        sdkCostUsd: usageAgg.sdkCostUsd ?? result.sdkCostUsd ?? null,
+      // Aggregate the stretch's calls onto its closing event (see
+      // stretchEndedPayload for what the cost fields mean).
+      const endedPayload = stretchEndedPayload({
+        stretchId, ordinal, duty, route, result, usageRows,
         outcome: !result.ok ? "error" : gate.synthesized ? "synthesized" : gate.repairs ? "repaired" : "handoff",
-        usedTokens: result.usedTokens,
-        costUnknown: result.costUnknown,
-        durationMs: result.durationMs,
-        model: result.model,
-        effortApplied: result.effortApplied,
         stoppedReason: result.stoppedReason,
-        error: result.error,
-        handoffRef: `handoffs/${String(ordinal).padStart(4, "0")}.json`,
         replyRef: replyRef.ref,
         summaryWrite: write.ok ? "ok" : write.reason,
         next: gate.handoff.nextSteps.next,
-      };
+      });
       store.append({ kind: "stretch-ended", duty, stretch: stretchId, runId, payload: endedPayload });
       onFrame("stretch-ended", endedPayload);
 
@@ -1896,16 +2241,38 @@ export async function runConversation(gateway, {
 /** Record a user message in the store; a running stretch picks it up at its
  *  next brief, and when nothing is running the caller kicks an advance so a
  *  responder stretch answers from L1. */
-export function recordUserMessage(store, { text, origin = "web", threadId = null, context = null, routing = null }) {
+export function recordUserMessage(store, { text, origin = "web", threadId = null, context = null, routing = null, delivery = null, steered = false, clientRequestId = null }) {
+  const requestId = typeof clientRequestId === "string" && clientRequestId.trim() ? clientRequestId.trim().slice(0, 200) : null;
+  const normalizedText = String(text ?? "").slice(0, 32_000);
+  if (requestId) {
+    // A browser may retry after the gateway recorded the message but its HTTP
+    // reply was lost. Read the durable ledger, not a process-local cache: this
+    // remains idempotent after a gateway restart and after a long conversation.
+    // The check and append are synchronous, so concurrent requests handled by
+    // this gateway cannot interleave them.
+    const previous = store.tail(Number.MAX_SAFE_INTEGER, { kinds: ["user-message"] })
+      .find((event) => event.payload?.clientRequestId === requestId);
+    if (previous) {
+      if (previous.payload.text !== normalizedText) {
+        return { ok: false, conflict: true, error: "clientRequestId was already used for a different message" };
+      }
+      return { ok: true, duplicate: true, ts: previous.ts, seq: previous.seq };
+    }
+  }
   const running = store.currentStretch();
   return store.append({
     kind: "user-message",
     payload: {
-      text: String(text ?? "").slice(0, 32_000),
+      text: normalizedText,
+      ...(requestId ? { clientRequestId: requestId } : {}),
       origin,
       threadId,
       arrivedDuringStretch: running,
-      disposition: running ? "queued" : "opened",
+      // `steer`: the running stretch is interrupted for this message and its
+      // duty re-runs with it in the brief. `queued`: it waits for the next
+      // brief. `opened`: nothing was running; a responder answers.
+      disposition: running ? (steered ? "steer" : "queued") : "opened",
+      ...(delivery === "steer" || delivery === "queue" ? { delivery } : {}),
       // Host-supplied grounding (a Discuss card's brief) and a Turn Rail pin
       // ride the message: the next stretch's brief carries the context, and
       // the pin decides its rung (resolveRung precedence: pin first).
@@ -1913,4 +2280,56 @@ export function recordUserMessage(store, { text, origin = "web", threadId = null
       ...(routing && typeof routing === "object" && !Array.isArray(routing) ? { routing } : {}),
     },
   });
+}
+
+// ── steering a stretch in flight ────────────────────────────────────────────
+// One entry per conversation whose stretch can be interrupted RIGHT NOW,
+// registered by the loop for the duration of runStretch. On globalThis because
+// the gateway's HTTP handler imports this module per request and has to find
+// the same map the loop wrote into. Steering is what typing into a working
+// Claude Code session does: the turn in flight stops at its next boundary and
+// the same duty continues with the new instruction - it is NOT a cancel (the
+// loop goes on) and NOT a failure (no exit gate, no repair, no needs-input).
+function steerRegistry() {
+  return (globalThis.__conversationSteers ??= new Map());
+}
+
+/** The stretch a steer would interrupt, or null when nothing is interruptible
+ *  (between stretches, or nothing running). */
+export function steerableStretch(conversationId) {
+  const entry = steerRegistry().get(conversationId);
+  return entry ? { stretchId: entry.stretchId, duty: entry.duty } : null;
+}
+
+/** Interrupt the running stretch so its duty re-runs with the message that was
+ *  just recorded. True when a stretch was interrupted; false when none could be
+ *  (the message is then simply queued - the next brief carries it anyway). */
+export function steerRunningStretch(conversationId, info = {}) {
+  const entry = steerRegistry().get(conversationId);
+  if (!entry) return false;
+  return entry.steer(info);
+}
+
+/** The handoff a steered stretch leaves behind: partial (the work was cut
+ *  short), routing straight back to the SAME duty, and marked so the tripwires
+ *  and attempt counters know it was the user's interruption, not a failure. */
+export function steeredHandoff({ stretchId, duty, steer, reply = "" }) {
+  const quoted = String(steer?.text ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
+  return {
+    v: 1,
+    stretchId,
+    duty,
+    status: "partial",
+    summary: `Interrupted by the user to steer the work${quoted ? `: "${quoted}"` : ""}. What this stretch did before the interruption may be partly applied in the working tree - check the tree before redoing any of it. The next ${duty} stretch continues with the user's message in its brief.`,
+    evidenceRefs: [],
+    nextSteps: { next: duty, why: "the user steered mid-stretch; the same duty continues with the new instruction", items: [] },
+    blocker: null,
+    activeConstraints: [],
+    failedApproaches: [{ approach: `run duty ${duty} as a stretch`, why: "interrupted by a user steer before it finished" }],
+    surprises: [],
+    forceEscalation: null,
+    synthesized: true,
+    steered: true,
+    ...(String(reply ?? "").trim() ? { partialReply: String(reply).slice(0, 2000) } : {}),
+  };
 }

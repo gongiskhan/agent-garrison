@@ -1,0 +1,1224 @@
+[
+ {
+  "agentId": "a7b5ad6cb2c1968bb",
+  "result": {
+   "summary": "Next shell seams mapped. Sidebar Command entries are DATA in COMMAND_ITEMS (src/components/chrome/Sidebar.tsx:424-470), Fittings group auto-built from composition.selections x library (Sidebar.tsx:608-640), pins via GET/PUT /api/sidebar-pins with PIN_ID_PATTERN (src/lib/sidebar-pins.ts:31). Phone drawer ALREADY EXISTS (AppShell NARROW_BREAKPOINT=720 -> narrowViewport; Sidebar renders overlay dialog with scrim/Escape/focus-trap, Sidebar.tsx:91-130). /api/conversation/[...path] already mounts the shared claude-pty conversation router in the Next app (so a /talk page can talk to it same-origin). Mesh roster at GET /api/mesh/nodes (MeshNodeRow has tailnetHost); no node SWITCHER exists - only MeshPanel's \"Open <node>\" cross-origin <a href=https://tailnetHost target=_blank> (MeshPanel.tsx:316) and NodeBadge linking /mesh. PWA present: src/app/manifest.ts (per-node name/icons) + public/sw.js registered by ServiceWorkerRegistrar. No src/app/talk; no Capacitor in ios/ (native SwiftUI app, project.yml). Voice: `voice` kind is PROVIDED only by deepgram-voice (faculty connectors) and CONSUMED only by web-channel-default (optional-one); capture-service is faculty channels and provides channel:companion, NOT voice - G2 must add `provides: kind: voice` to capture-service and drop it from deepgram-voice/composition.",
+   "facts": [
+    {
+     "topic": "Command entries",
+     "fact": "Fixed Garrison routes are declared as data in COMMAND_ITEMS: CommandItem {id (nav:*), href, label, Icon (lucide), isActive(pathname)}. Current entries: nav:accounts /accounts, nav:composition /compose, nav:connectors, nav:coordination, nav:garrison /, nav:mesh /mesh, nav:quarters, nav:vault. Sorted alphabetically by label at render (declaration order irrelevant).",
+     "evidence": "src/components/chrome/Sidebar.tsx:412-470 (COMMAND_ITEMS), :601-604 (sort)"
+    },
+    {
+     "topic": "Fittings group",
+     "fact": "Fittings group lists every equipped fitting: ids collected from composition.selections values, matched against library entries; own-port entries (isOwnPortFitting) get status from useFittingViewStatus, others are 'embedded' rows -> /fitting/<id>. Group only rendered when non-empty.",
+     "evidence": "src/components/chrome/Sidebar.tsx:608-646"
+    },
+    {
+     "topic": "Pins",
+     "fact": "Pins loaded via GET /api/sidebar-pins (data.pins.pinned string[]), saved via PUT /api/sidebar-pins; ids validated by PIN_ID_PATTERN /^(?:nav:)?[a-z0-9][a-z0-9._-]*$/i so a new nav:conversations id is accepted with no store change. Group expand state in localStorage key garrison.sidebar.menuGroups.v2.",
+     "evidence": "src/components/chrome/Sidebar.tsx:545-556, 656-688; src/lib/sidebar-pins.ts:31; Sidebar.tsx:405"
+    },
+    {
+     "topic": "Phone/drawer behaviour",
+     "fact": "Drawer already implemented: AppShell defines NARROW_BREAKPOINT=720 and exposes narrowViewport + sidebarCollapsed via useAppShell; Sidebar renders `overlay = !sidebarCollapsed && narrowViewport` as <aside class=side side-overlay role=dialog aria-modal> with body scroll lock, focus move, Escape close, link-tap close, Tab focus trap. Below 720 sidebar auto-collapses to CollapsedRail (48px column) and own-port views open in new tab instead of iframe.",
+     "evidence": "src/components/chrome/AppShell.tsx:64-67,132-164,592; src/components/chrome/Sidebar.tsx:91-145, 229, 293-296"
+    },
+    {
+     "topic": "Shell layout",
+     "fact": "src/app/layout.tsx wraps children in <AppShell> and mounts <ServiceWorkerRegistrar/>; metadata.manifest = /manifest.webmanifest. Chrome components: AppShell, Sidebar, NodeBadge, GarrisonMark, PageSkeleton, RouteState, ServiceWorkerRegistrar.",
+     "evidence": "src/app/layout.tsx:4-5,50-51,112-113; ls src/components/chrome/"
+    },
+    {
+     "topic": "Routes",
+     "fact": "src/app routes: accounts, armory, compose, connectors, coordination, embed, file, fitting, host-map, memory, mesh (page.tsx + session/[node]/[id]), muster, quarters, results, run, settings, vault, plus manifest.ts, icon.svg, icons. No talk/ or capture/ route exists.",
+     "evidence": "ls src/app; ls src/app/talk -> No such file"
+    },
+    {
+     "topic": "Conversation API in shell",
+     "fact": "src/app/api/conversation/[...path]/route.ts already mounts the ONE conversation router (packages/claude-pty conversation-http.mjs, handleConversationRequest + gatewayMessageForwarder) at /api/conversation, same base as web-channel and kanban servers; uses activeGatewayBaseUrl from runner. Node http (req,res) adapted via RequestShim. Also /api/conversation-metrics exists.",
+     "evidence": "src/app/api/conversation/[...path]/route.ts:1-45; ls src/app/api"
+    },
+    {
+     "topic": "Web-channel UI source",
+     "fact": "Web-channel conversation UI lives in fittings/seed/web-channel-default/ui (main.tsx, conversation-transport.ts, orchestrator-transport.ts, push-client.ts, pcm-worklet.js, remote-shell-pane.tsx, pwa-assets.mjs, manifest.json, build.mjs -> dist). It is own-port default_port 8083, faculty channels, provides channel:web, consumes voice optional-one.",
+     "evidence": "ls fittings/seed/web-channel-default/ui; fittings/seed/web-channel-default/apm.yml:8-12,38-42"
+    },
+    {
+     "topic": "Mesh node list API",
+     "fact": "GET /api/mesh/nodes returns MeshNodesResponse {nodes: MeshNodeRow[], self, degraded:false}; MeshNodeRow has id, name, accentColor, tailnetHost, platform, status, state, lastSeenAt, activeComposition, capabilities, health, isSelf, registered. Returns 503 with no fallback roster when state service unreachable. Merge logic in src/lib/mesh/node-row.ts (mergeMeshRoster). peerAppBase(tailnetHost) = https://<host> (app at tailnet root); peerControlBase uses meshServePort(port).",
+     "evidence": "src/app/api/mesh/nodes/route.ts:1-30; src/lib/mesh/node-row.ts:10-38; src/lib/mesh/peer-proxy.ts:176-190"
+    },
+    {
+     "topic": "Node switcher UI",
+     "fact": "No node switcher exists. MeshPanel renders per-node 'Open <node>' as cross-origin <a href=https://{tailnetHost} target=_blank>; NodeBadge in chrome links to /mesh. Also src/app/mesh/session/[node]/[id]/page.tsx exists for peer session view.",
+     "evidence": "src/components/mesh/MeshPanel.tsx:312-320; src/components/chrome/NodeBadge.tsx:43-48; tests/vocabulary.test.ts:277"
+    },
+    {
+     "topic": "PWA",
+     "fact": "Shell has a PWA: src/app/manifest.ts (dynamic, name `Garrison <node>`, short_name node, start_url /, display standalone, icons /icons/node-192.png, node-512.png) and public/sw.js registered by ServiceWorkerRegistrar with scope / and updateViaCache none.",
+     "evidence": "src/app/manifest.ts:12-30; src/components/chrome/ServiceWorkerRegistrar.tsx:5-20; ls public/sw.js"
+    },
+    {
+     "topic": "resolveViewUrl",
+     "fact": "resolveViewUrl({url, tailnetUrl}): on SSR or loopback host returns url; if tailnetUrl hostname === page host returns tailnetUrl; else rebinds loopback host to page host (browserViewUrl) and returns '' if page is https and rebind is http (mixed content). Callers must treat '' as unreachable.",
+     "evidence": "src/components/fitting-views/browser-view-url.ts:18-70"
+    },
+    {
+     "topic": "Playwright configs",
+     "fact": "Two configs: playwright.config.ts and playwright.web-channel.config.ts.",
+     "evidence": "ls playwright*.config.ts"
+    },
+    {
+     "topic": "Vocabulary test",
+     "fact": "tests/vocabulary.test.ts bans /\\boperatives?\\b/i in src/**/*.tsx|*.css, every fittings/**/apm.yml, and scans src, fittings/seed/web-channel-default/ui, fittings/seed/kanban-loop/ui for banned words in UI strings. Moved web-channel UI into src stays inside the scanned set.",
+     "evidence": "tests/vocabulary.test.ts:32,72,86,143-145"
+    },
+    {
+     "topic": "Voice capability today",
+     "fact": "`voice` kind provided only by deepgram-voice (faculty connectors, own_port default_port 8085, provides voice:deepgram + connector:deepgram, consumes vault). Consumed only by web-channel-default (optional-one). capture-service is faculty channels, own_port default_port 8097, provides channel:companion, consumes vault (one) + memory-store (optional-one); it does NOT provide voice. Default composition stations both capture-service (with pendant_enabled: true) and deepgram-voice.",
+     "evidence": "fittings/seed/deepgram-voice/apm.yml:8,11-12,54-59; fittings/seed/capture-service/apm.yml:8,12-13,364-371; fittings/seed/web-channel-default/apm.yml:41-42; compositions/default/apm.yml:10,15,100,109,300"
+    },
+    {
+     "topic": "ios/",
+     "fact": "ios/ is a native SwiftUI app (GarrisonApp with ConversationView.swift, CaptureController.swift, BroadcastExtension, project.yml via xcodegen, fastlane). No Capacitor anywhere in ios/project.yml or package.json.",
+     "evidence": "ls ios ios/GarrisonApp; grep capacitor ios/project.yml package.json -> no hits"
+    }
+   ],
+   "stalePremises": [
+    {
+     "premise": "Plan G4/G1: phone-width sidebar needs to 'become a drawer'",
+     "reality": "Overlay drawer at <720px already shipped: AppShell narrowViewport + Sidebar side-overlay dialog with scrim, Escape, focus trap, scroll lock.",
+     "evidence": "src/components/chrome/AppShell.tsx:132-164; src/components/chrome/Sidebar.tsx:91-145"
+    },
+    {
+     "premise": "Plan G2: capture-service is 'the single voice provider (kind: voice)'",
+     "reality": "capture-service provides only channel:companion today; `voice` is provided by deepgram-voice and consumed (optional-one) by web-channel-default. Retiring deepgram-voice without adding provides voice to capture-service leaves web-channel's optional consume unsatisfied (allowed) but no voice at all.",
+     "evidence": "fittings/seed/capture-service/apm.yml:364-371; fittings/seed/deepgram-voice/apm.yml:54-59; fittings/seed/web-channel-default/apm.yml:41-42"
+    },
+    {
+     "premise": "CLAUDE.md port table: voice 27085, web-channel 27083, deepgram summary says 'port 27085'",
+     "reality": "Committed family is 8xxx: deepgram-voice default_port 8085, web-channel 8083, capture-service 8097. deepgram-voice apm.yml description line 3 still says 27085 (stale prose).",
+     "evidence": "fittings/seed/deepgram-voice/apm.yml:3,12; fittings/seed/web-channel-default/apm.yml:12; fittings/seed/capture-service/apm.yml:13"
+    },
+    {
+     "premise": "CLAUDE.md: 'Garrison does not ship a built-in chat surface' / 'no built-in Chat surface'",
+     "reality": "The Next app already mounts the shared conversation router at /api/conversation (server side); only the UI is missing. G1 adds the UI the doc says does not exist - CLAUDE.md terminology section will need updating.",
+     "evidence": "src/app/api/conversation/[...path]/route.ts:10-20"
+    },
+    {
+     "premise": "Plan mentions a node switcher to extend",
+     "reality": "No node switcher exists; only MeshPanel 'Open <node>' new-tab link and NodeBadge -> /mesh. Must be built new.",
+     "evidence": "src/components/mesh/MeshPanel.tsx:312-320; src/components/chrome/NodeBadge.tsx:43-48"
+    },
+    {
+     "premise": "G3 'wrap ios/ in Capacitor'",
+     "reality": "ios/ is a full native SwiftUI app (ConversationView, CaptureController, BroadcastExtension); Capacitor is not present. Plan is a replacement, not a wrap.",
+     "evidence": "ls ios/GarrisonApp; no capacitor in ios/project.yml or package.json"
+    }
+   ],
+   "seams": [
+    {
+     "gate": "G1",
+     "file": "/Users/ggomes/dev/garrison/src/components/chrome/Sidebar.tsx",
+     "change": "Add to COMMAND_ITEMS (lines 424-470): { id: 'nav:conversations', href: '/talk', label: 'Conversations', Icon: <lucide e.g. MessagesSquare>, isActive: p => p === '/talk' || p.startsWith('/talk/') }. Alphabetical sort is automatic. Import the icon in the lucide import block (lines 7-36). No change needed in src/lib/sidebar-pins.ts (PIN_ID_PATTERN already accepts nav:conversations)."
+    },
+    {
+     "gate": "G1",
+     "file": "/Users/ggomes/dev/garrison/src/app/talk/page.tsx",
+     "change": "New route (plus optional src/app/talk/[thread]/page.tsx). Port UI from fittings/seed/web-channel-default/ui/{main.tsx,conversation-transport.ts,orchestrator-transport.ts,push-client.ts,pcm-worklet.js} into src/components/talk/*, pointing transport at same-origin /api/conversation (already mounted by src/app/api/conversation/[...path]/route.ts). Copy must pass tests/vocabulary.test.ts (no 'operative' in .tsx/.css)."
+    },
+    {
+     "gate": "G1",
+     "file": "/Users/ggomes/dev/garrison/tests/vocabulary.test.ts",
+     "change": "Lines 143-145 list scanned UI dirs (src, web-channel ui, kanban-loop ui); if web-channel ui is deleted, drop that path so walk() does not fail; src/ already covered."
+    },
+    {
+     "gate": "G1",
+     "file": "/Users/ggomes/dev/garrison/CLAUDE.md",
+     "change": "Update 'Garrison does not ship a built-in chat surface' / 'There is no built-in Chat surface' statements and the visible-shell-surfaces list to include Conversations (/talk)."
+    },
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/capture-service/apm.yml",
+     "change": "Under provides (line 364) add `- kind: voice` with a name (e.g. capture) and for_consumers; keep channel:companion. Add ui/verify coverage for transcribe/synthesize actions as needed."
+    },
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/compositions/default/apm.yml",
+     "change": "Remove deepgram-voice dependency (line 15) and its stationing under connectors (line 300); leave capture-service (lines 10, 100-109). Redeploy required (apm.yml read at up())."
+    },
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/web-channel-default/apm.yml",
+     "change": "consumes voice optional-one (lines 41-42) now resolves to capture-service; if web-channel retires under G1, remove fitting from data/library.json and composition too."
+    },
+    {
+     "gate": "G3",
+     "file": "/Users/ggomes/dev/garrison/ios/",
+     "change": "Native SwiftUI app + project.yml + fastlane; a Capacitor shell would replace GarrisonApp/ConversationView.swift & CaptureController.swift with a WebView loading https://<node>.tail31efa.ts.net (peerAppBase). BroadcastExtension/CaptureController become native plugin for G7."
+    },
+    {
+     "gate": "G4",
+     "file": "/Users/ggomes/dev/garrison/src/app/capture/page.tsx",
+     "change": "New route for the capture page (native-only gate via Capacitor.isNativePlatform() or a client check); NOT a Command entry unless wanted in COMMAND_ITEMS. Backend is capture-service (default_port 8097, channel:companion, CAPTURE_TOKEN/APNS secrets)."
+    },
+    {
+     "gate": "G4",
+     "file": "/Users/ggomes/dev/garrison/src/components/chrome/NodeBadge.tsx",
+     "change": "Node switcher home: extend NodeBadge (currently <Link href=/mesh>) into a dropdown fed by GET /api/mesh/nodes (MeshNodeRow.tailnetHost, isSelf, accentColor); switching = full navigation to peerAppBase(tailnetHost) (src/lib/mesh/peer-proxy.ts:176) + current pathname, since each node is its own origin. Handle 503 degraded roster."
+    },
+    {
+     "gate": "G4",
+     "file": "/Users/ggomes/dev/garrison/src/app/manifest.ts",
+     "change": "Deep links: start_url/scope live here; push deep links into /talk/<thread> and /capture need sw.js (public/sw.js) notificationclick handling and web-channel push-client.ts logic (VAPID) moved into the shell."
+    },
+    {
+     "gate": "G4",
+     "file": "/Users/ggomes/dev/garrison/src/components/chrome/Sidebar.tsx",
+     "change": "Drawer already exists (lines 91-145, side-overlay). Only tune: MOBILE_BREAKPOINT 720 duplicated in Sidebar.tsx:296 and AppShell.tsx:132 - unify if changed; ensure /talk and /capture rows close the drawer (link-tap close already generic)."
+    },
+    {
+     "gate": "G6",
+     "file": "/Users/ggomes/dev/garrison/src/components/chrome/Sidebar.tsx",
+     "change": "Fittings rows built at lines 608-640 from composition.selections x library; own-port rows resolve URL via resolveViewUrl (src/components/fitting-views/browser-view-url.ts:44). Fittings 'in the app' = converting own-port views to embedded `/fitting/<id>` views via ui.views[] entries in src/components/fitting-views/registry.tsx; below 720px own-port opens in new tab (Sidebar.tsx:293-296) - embedded views avoid that."
+    }
+   ],
+   "openQuestions": [
+    "Does the shared conversation router at /api/conversation serve SSE streaming correctly through the Next RequestShim (long-lived GET /channels/web/stream replay)? Not verified - only the header of route.ts read.",
+    "Which lucide icon and exact label sort position for Conversations; and should /talk be pinned by default in state-service sidebar.pins (global) - pins live in the state service, not code.",
+    "Does capture-service already expose transcribe/synthesize HTTP actions comparable to deepgram-voice's connector actions (apm.yml lines 37-45), or does G2 need new endpoints in capture-service?",
+    "Does data/library.json need entries changed for deepgram-voice retirement (de-list) and does any test (tests/seeds) pin the voice provider count?",
+    "Is public/sw.js authored by hand or generated from web-channel's pwa-assets.mjs; does it already handle push notificationclick for deep links?",
+    "tests/vocabulary.test.ts:277 references src/app/mesh/session/[node]/[id]/page.tsx as a known exception - would a node switcher or /talk page need a similar allowance?"
+   ]
+  }
+ },
+ {
+  "agentId": "ae1994623b5e81dad",
+  "result": {
+   "summary": "Voice capability today: `kind: voice` is a singleton capability kind (src/lib/types.ts:158, :192) provided ONLY by fittings/seed/deepgram-voice (provides voice/deepgram + connector/deepgram, faculty connectors, own_port 8085) and consumed ONLY by web-channel-default (`consumes: voice, cardinality: optional-one`, apm.yml:42). The capability graph is NOT how the URL reaches consumers: resolveCapabilities is used only for prompt assembly (renderCapabilitiesBlock, runner.ts:1850-1856); no GARRISON_VOICE_URL env exists. Consumers (web-channel server.mjs:97, dev-env server.mjs:95) discover the provider by hardcoded status-file name `~/.garrison/ui-fittings/deepgram-voice.json` and read `.url` from it. The browser (web-channel UI) never sees the voice fitting: it calls same-origin `/api/voice/health` (GET), `/api/voice/stt` (POST), `/api/voice/tts` (POST), WS `/api/voice/stream?sample_rate&utterance_end_ms`, WS `/api/voice/tts-stream?sample_rate`, no auth header; the web-channel server proxies these 1:1 to the fitting's `/health`, `/stt`, `/tts`, `/stream`, `/tts-stream`. capture-service today provides `kind: channel, name: companion` only (apm.yml:364-366), port 8097, bearer CAPTURE_TOKEN auth on /capture/*, Deepgram live STT internally (lib/deepgram-live.mjs) and ElevenLabs TTS (lib/tts.mjs) served as `/speak/<hash>.mp3` clips; it serves none of /stt, /tts, /stream, /tts-stream. G2 therefore requires capture-service to add `provides: [{kind: voice, name: capture}]`, implement those 5 endpoints (health with keyConfigured, /stt JSON, /tts bytes, WS /stream and /tts-stream with the documented frame protocol), AND the two consumers must stop reading `deepgram-voice.json` (rename to `capture-service.json` or resolve by capability). Retiring deepgram-voice touches: compositions/default + openai apm.yml (path dep + stationing) and their lockfiles, data/library.json:201-210, Sidebar.tsx:324, own-port-lifecycle.ts:214 comment, automations connector-invoke.mjs:102 (maps connector \"deepgram\" -> deepgram-voice), tests (capabilities, seed, own-port-lifecycle, vault-heal, matrix-harness, connector-deepgram, deepgram-voice-live), docs (CLAUDE.md:402, CAPABILITIES, FITTINGS, INSTANCES, RUNTIME_MATRIX, COMPANION_IOS_SPEC, VOICE_TRELLO_HANDOFF, voice-attended-checklist), fittings/seed/{dev-env,web-channel-default}/README.md, packages/claude-chat/src/voice.ts comment.",
+   "facts": [
+    {
+     "topic": "voice kind definition",
+     "fact": "`voice` is one of the 16 capabilityKinds and is also in singletonCapabilityKinds (only one provider per composition).",
+     "evidence": "src/lib/types.ts:158 (\"voice\" in capabilityKinds), src/lib/types.ts:186-193 (singletonCapabilityKinds includes \"voice\")"
+    },
+    {
+     "topic": "deepgram-voice manifest",
+     "fact": "deepgram-voice: faculty connectors, category Connections, cardinality_hint single, own_port true, default_port 8085, component_shape plugin; config_schema keys port, bind_host, stt_model (nova-2), tts_model (aura-asteria-en); secret_scope DEEPGRAM_API_KEY; provides [voice/deepgram, connector/deepgram]; consumes vault one; verify `node apm_modules/_local/deepgram-voice/scripts/probe.mjs --probe` expect ok; connector actions transcribe + synthesize.",
+     "evidence": "fittings/seed/deepgram-voice/apm.yml:8-60"
+    },
+    {
+     "topic": "deepgram-voice HTTP routes",
+     "fact": "Server routes: GET /health and /api/health; POST /stt; POST /tts; GET / status page; WS upgrade /stream and /tts-stream. 404 otherwise.",
+     "evidence": "fittings/seed/deepgram-voice/scripts/server.mjs:742-767"
+    },
+    {
+     "topic": "deepgram-voice env",
+     "fact": "Server reads GARRISON_DEEPGRAMVOICE_PORT / DEEPGRAM_VOICE_PORT (fallback literal 7085), GARRISON_DEEPGRAMVOICE_BIND_HOST, DEEPGRAM_STT_MODEL, DEEPGRAM_TTS_MODEL, DEEPGRAM_TTS_STREAM_MODEL (aura-2-thalia-en), DEEPGRAM_API_KEY; writes status under $GARRISON_HOME/ui-fittings.",
+     "evidence": "fittings/seed/deepgram-voice/scripts/server.mjs:29-54"
+    },
+    {
+     "topic": "voice endpoint contract (for_consumers)",
+     "fact": "Contract consumers rely on: GET /health -> {ok,port,pid,host,keyConfigured}; POST /stt raw audio bytes (Content-Type = mime) -> {transcript,confidence}; POST /tts {text,format:mp3|wav} -> audio bytes; WS /stream?sample_rate&utterance_end_ms takes linear16 PCM, emits {type:ready|speech_started|transcript{text,isFinal,speechFinal}|utterance_end{transcript}|error}; WS /tts-stream?sample_rate takes {type:speak,text}|flush|clear|close, emits {type:ready,sampleRate} then binary PCM plus flushed/cleared/metadata/error. Missing key -> 503 / error frame.",
+     "evidence": "fittings/seed/deepgram-voice/apm.yml:62-106"
+    },
+    {
+     "topic": "who consumes kind: voice",
+     "fact": "Only web-channel-default declares `consumes: - kind: voice, cardinality: optional-one`. No other seed fitting, composition, or library entry mentions `kind: voice` besides deepgram-voice's provides.",
+     "evidence": "grep -rln 'kind: voice' fittings compositions data/library.json -> fittings/seed/web-channel-default/apm.yml:42-43 and fittings/seed/deepgram-voice/apm.yml"
+    },
+    {
+     "topic": "provider discovery is NOT via capabilities/env",
+     "fact": "No GARRISON_VOICE_URL or per-consumed-capability env exists. Runner env projected to fittings is GARRISON_COMPOSITION_ID/DIR, GARRISON_BASE_URL, GARRISON_APP_URL, GARRISON_GATEWAY_URL, plus setupConfigEnv (<FITTINGID>_<KEY>) and vault secrets. resolveCapabilities is used in runner only to render the prompt capabilities block.",
+     "evidence": "src/lib/runner.ts:1225-1244, 1274-1305, 1352-1365 (setupConfigEnv), 1850-1856 (renderCapabilitiesBlock -> resolveCapabilities); own-port-lifecycle.ts:23 TRACKED_ENV_KEYS"
+    },
+    {
+     "topic": "web-channel voice discovery",
+     "fact": "web-channel server hardcodes VOICE_STATUS_FILE = ~/.garrison/ui-fittings/deepgram-voice.json and reads `.url` from it (readVoiceInfo). Health handler fetches `${url}/health` and returns {available,url,keyConfigured}.",
+     "evidence": "fittings/seed/web-channel-default/scripts/server.mjs:97, 164-172, 281-302"
+    },
+    {
+     "topic": "web-channel voice proxy routes",
+     "fact": "Server routes: GET /api/voice/health, GET /api/voice (info), POST /api/voice/stt -> upstream /stt, POST /api/voice/tts -> upstream /tts (binary proxy, 503 when no fitting, 502 upstream error); WS relay VOICE_WS_ROUTES {'/api/voice/stream':'/stream','/api/voice/tts-stream':'/tts-stream'} via relayVoiceStream (pure passthrough).",
+     "evidence": "fittings/seed/web-channel-default/scripts/server.mjs:306-360, 3323-3326, 3395-3419"
+    },
+    {
+     "topic": "browser voice calls",
+     "fact": "Browser code calls same-origin only, no auth header: voice-capture.ts builds ws(s)://${location.host}/api/voice/stream?sample_rate=&utterance_end_ms= and sends 16kHz linear16 PCM; voice-tts.ts builds /api/voice/tts-stream?sample_rate=; voice-conversation.tsx probes fetch('/api/voice/health'). voice-machine.ts is a pure reducer (VoiceState idle|listening|sending|speaking, VoiceMode conversation|ptt).",
+     "evidence": "fittings/seed/web-channel-default/ui/voice-capture.ts:6,68,108; voice-tts.ts:2,39,61; voice-conversation.tsx:30,157-162; voice-machine.ts:23-94"
+    },
+    {
+     "topic": "web-channel batch voice is off",
+     "fact": "main.tsx: the streaming voice surface is a composer adornment (voiceAdornment); the claude-chat component's batch `voice` feature stays OFF in all three lanes.",
+     "evidence": "fittings/seed/web-channel-default/ui/main.tsx:41-52, 1688-1726, 2028"
+    },
+    {
+     "topic": "dev-env also consumes voice (undeclared)",
+     "fact": "dev-env server hardcodes the same deepgram-voice.json status file and proxies /voice/health, /voice/tts, /voice/stt (also under /sessions/:id/voice/*) for the claude-chat VoiceClient (packages/claude-chat/src/voice.ts uses <base>/voice/{health,tts,stt}). dev-env apm.yml declares no `consumes: voice`.",
+     "evidence": "fittings/seed/dev-env/scripts/server.mjs:95, 858-870, 885, 909, 944, 1185-1186; packages/claude-chat/src/voice.ts:4-6, 31-56"
+    },
+    {
+     "topic": "capture-service manifest",
+     "fact": "capture-service: faculty channels, category Interfaces, own_port true, default_port 8097, provides ONLY [channel/companion]; consumes vault one + memory-store optional-one; secret_scope DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, CAPTURE_TOKEN, APNS_TEAM_ID, APNS_KEY_ID; setup bash scripts/setup.sh; verify `node apm_modules/_local/capture-service/scripts/capture.mjs --probe` expect CAPTURE-OK. Flags enabled/transcribe_enabled/wake_enabled/notify_enabled/speak_enabled/tts_enabled default false; stt_model nova-3, stt_language pt; TTS is ElevenLabs (tts_voice_id, tts_model eleven_multilingual_v2).",
+     "evidence": "fittings/seed/capture-service/apm.yml:1-16, 27-50, 120-140, 357-380"
+    },
+    {
+     "topic": "capture-service HTTP routes",
+     "fact": "Routes: GET /speak/<hex>.mp3 (unauthenticated clip), GET /capture/exchanges, GET /health|/api/health, GET /, POST /capture/devices, GET /capture/sessions, POST /notify, /capture/stream (WS only, 400 otherwise), POST /ack, /capture/sessions/<id>; all /capture/* gated by authorizeHttp (403 when disabled/no CAPTURE_TOKEN, 401 bad bearer). WS upgrade handled by ingress.handleUpgrade. It serves NO /stt, /tts, /stream, /tts-stream.",
+     "evidence": "fittings/seed/capture-service/scripts/server.mjs:264-300, 318, 372, 437, 487, 517, 551, 588-603, 970"
+    },
+    {
+     "topic": "capture-service TTS engine",
+     "fact": "capture-service's voice-out is ElevenLabs (API_BASE https://api.elevenlabs.io/v1, class ZecaVoice, content-hash clipId), not Deepgram Aura; its STT is Deepgram live (lib/deepgram-live.mjs) borrowing deepgram-voice's 300ms finalization.",
+     "evidence": "fittings/seed/capture-service/lib/tts.mjs:34,53,80,205; lib/deepgram-live.mjs:35"
+    },
+    {
+     "topic": "default composition stationing",
+     "fact": "compositions/default/apm.yml stations both capture-service (port 8097, enabled/transcribe_enabled/wake_enabled true) and deepgram-voice (path dep line 15, selection line 300); web-channel-default port 8083; compositions/openai/apm.yml also stations deepgram-voice (lines 15, 276).",
+     "evidence": "compositions/default/apm.yml:10,15,48,79-81,100-106,300; compositions/openai/apm.yml:15,276"
+    },
+    {
+     "topic": "deepgram-voice references to remove",
+     "fact": "Code: src/components/chrome/Sidebar.tsx:324 icon map; src/lib/own-port-lifecycle.ts:214 comment; fittings/seed/automations/lib/connector-invoke.mjs:102 maps connectorId 'deepgram' -> 'deepgram-voice'; data/library.json:201-210 registry entry. Tests: tests/capabilities.test.ts:119,126,139; tests/seed.test.ts:22,94; tests/own-port-lifecycle.test.ts:203-211; tests/vault-heal.test.ts:35,616-618; tests/matrix-harness.test.ts:32; tests/connector-deepgram.test.ts; tests/deepgram-voice-live.test.ts. Docs: CLAUDE.md:402, docs/CAPABILITIES.md, docs/CAPABILITY_CONTRACT.md, docs/FITTINGS.md, docs/INSTANCES.md, docs/RUNTIME_MATRIX.md, docs/COMPANION_IOS_SPEC.md, docs/VOICE_TRELLO_HANDOFF.md, docs/voice-attended-checklist.md, fittings/seed/{web-channel-default,dev-env}/README.md, packages/claude-chat/src/voice.ts:2. Generated: compositions/*/.garrison/{capability-docs.json,last-up.json,assembled-system-prompt.md}, apm.lock.yaml.",
+     "evidence": "grep -rl deepgram-voice over src tests scripts docs data compositions fittings/seed packages CLAUDE.md (output listed above)"
+    },
+    {
+     "topic": "ios/ layout",
+     "fact": "ios/ is a native xcodegen project (project.yml, GarrisonApp, BroadcastExtension, Shared, Tests, fastlane, Gemfile) - no Capacitor today. src/app has no talk/ route yet; existing routes include compose, muster, mesh, embed, fitting, quarters, vault, run, settings.",
+     "evidence": "ls ios; ls src/app"
+    }
+   ],
+   "stalePremises": [
+    {
+     "premise": "Plan G2: capture-service already is (or trivially becomes) the voice provider; consumers resolve it through kind: voice.",
+     "reality": "capture-service provides only channel/companion and serves none of the voice endpoints; and consumers do not resolve voice through the capability graph at all - web-channel and dev-env hardcode the status-file name deepgram-voice.json. Changing provides alone changes nothing at runtime.",
+     "evidence": "fittings/seed/capture-service/apm.yml:364-366; fittings/seed/web-channel-default/scripts/server.mjs:97; fittings/seed/dev-env/scripts/server.mjs:95; src/lib/runner.ts:1850-1856"
+    },
+    {
+     "premise": "CLAUDE.md: `voice` is an own-port residue on port 27085 under channels.",
+     "reality": "deepgram-voice manifest default_port is 8085, faculty is `connectors` (manifest description still says 'channels role ... port 27085'); server.mjs fallback literal is 7085 (pre-8xxx family, violates the never-hardcode-a-port rule).",
+     "evidence": "CLAUDE.md own-port residue paragraph; fittings/seed/deepgram-voice/apm.yml:3,8,13; fittings/seed/deepgram-voice/scripts/server.mjs:45"
+    },
+    {
+     "premise": "Only web-channel consumes voice (per manifests).",
+     "reality": "dev-env also proxies /voice/* to deepgram-voice for the claude-chat VoiceClient without declaring `consumes: voice`; retiring deepgram-voice silently breaks dev-env read-aloud/STT too.",
+     "evidence": "fittings/seed/dev-env/scripts/server.mjs:858-944; packages/claude-chat/src/voice.ts:4-6"
+    },
+    {
+     "premise": "deepgram-voice is only a voice provider.",
+     "reality": "It also provides connector/deepgram with actions transcribe/synthesize, and the automations fitting maps connector id 'deepgram' to fitting 'deepgram-voice'; retiring it removes a connector, not just voice.",
+     "evidence": "fittings/seed/deepgram-voice/apm.yml:34-51; fittings/seed/automations/lib/connector-invoke.mjs:102"
+    },
+    {
+     "premise": "TTS in the plan is one provider.",
+     "reality": "Browser TTS today is Deepgram Aura-2 PCM streaming over /tts-stream; capture-service TTS is ElevenLabs mp3 clips at /speak/<hash>.mp3 - different engine, format, and protocol. Unifying means capture-service must emit linear16 PCM frames on a WS or the browser voice-tts.ts must change.",
+     "evidence": "fittings/seed/deepgram-voice/apm.yml:83-97; fittings/seed/capture-service/lib/tts.mjs:34; fittings/seed/capture-service/scripts/server.mjs:290-300"
+    }
+   ],
+   "seams": [
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/capture-service/apm.yml",
+     "change": "Add `- kind: voice\\n  name: capture` under provides (line 364); add config keys mirroring deepgram-voice (tts stream model etc.) and extend for_consumers with the voice endpoint contract; keep DEEPGRAM_API_KEY in secret_scope."
+    },
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/capture-service/scripts/server.mjs",
+     "change": "In makeRequestHandler (line 287+) add unauthenticated GET /health returning {ok,port,pid,host,keyConfigured}; POST /stt (raw audio -> {transcript,confidence}); POST /tts ({text,format} -> audio bytes); in the upgrade handler (line 970) route pathname /stream (linear16 PCM in, ready/speech_started/transcript/utterance_end/error JSON out, honouring sample_rate and utterance_end_ms) and /tts-stream (speak/flush/clear/close in, {type:ready,sampleRate} + binary PCM out) - the minimal set for the browser + web-channel relay to keep working unchanged. Port deepgram-voice/scripts/server.mjs handlers (lines 742-767 and their handleStt/handleTts/stream functions) rather than re-deriving."
+    },
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/web-channel-default/scripts/server.mjs",
+     "change": "Line 97: VOICE_STATUS_FILE points at deepgram-voice.json - switch to capture-service.json (or resolve the status file from the voice provider id passed by the runner). Everything else (handleVoiceHealth 281-302, handleVoiceProxy 306-345, relayVoiceStream 359, routes 3323-3326 and VOICE_WS_ROUTES 3400-3402) stays as is."
+    },
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/dev-env/scripts/server.mjs",
+     "change": "Line 95: same VOICE_STATUS_FILE rename to capture-service.json; add `consumes: - kind: voice, cardinality: optional-one` to fittings/seed/dev-env/apm.yml so the dependency is declared."
+    },
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/compositions/default/apm.yml",
+     "change": "Remove path dep line 15 (../../fittings/seed/deepgram-voice) and the selection block at line 300 (id: deepgram-voice); regenerate apm.lock.yaml; same in compositions/openai/apm.yml lines 15 and 276."
+    },
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/data/library.json",
+     "change": "Delete the deepgram-voice registry entry at lines 201-210 (or the connector action list moves to capture-service if connector/deepgram must survive)."
+    },
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/src/components/chrome/Sidebar.tsx",
+     "change": "Line 324: drop `\"deepgram-voice\": Mic` (add a Mic icon for capture-service if desired)."
+    },
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/automations/lib/connector-invoke.mjs",
+     "change": "Line 102: connectorId 'deepgram' -> 'deepgram-voice' mapping must point at capture-service or be removed along with the deepgram connector."
+    },
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/tests",
+     "change": "Update tests/seed.test.ts:22,94 (seed list), tests/capabilities.test.ts:119-139 (fixture ids), tests/own-port-lifecycle.test.ts:203-211, tests/vault-heal.test.ts:35,616-618, tests/matrix-harness.test.ts:32; delete or repoint tests/connector-deepgram.test.ts and tests/deepgram-voice-live.test.ts; ensure tests/vocabulary.test.ts and validation pass on capture-service's new provides."
+    },
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/deepgram-voice",
+     "change": "Delete the directory (apm.yml, README.md, scripts/{server,start,probe,connector}.mjs) after porting the STT/TTS handlers; update docs listed in facts (CLAUDE.md:402, docs/CAPABILITIES.md, docs/FITTINGS.md, docs/INSTANCES.md, docs/RUNTIME_MATRIX.md, docs/COMPANION_IOS_SPEC.md, docs/CAPABILITY_CONTRACT.md) and packages/claude-chat/src/voice.ts:2 comment."
+    },
+    {
+     "gate": "G1",
+     "file": "/Users/ggomes/dev/garrison/src/app/talk",
+     "change": "New route dir does not exist; the moved UI (web-channel ui/voice-capture.ts, voice-tts.ts, voice-conversation.tsx, voice-machine.ts) expects same-origin /api/voice/{health,stt,tts,stream,tts-stream}; the Next shell would need those proxies (Next API routes cannot do WS upgrade - a custom server or keeping the WS relay on the web-channel/capture-service port is required)."
+    },
+    {
+     "gate": "G3",
+     "file": "/Users/ggomes/dev/garrison/ios/project.yml",
+     "change": "ios/ is an xcodegen native app (GarrisonApp, BroadcastExtension); wrapping in Capacitor is a new project shape, not an edit - BroadcastExtension screen-capture would need to survive as a native extension beside the Capacitor app."
+    }
+   ],
+   "openQuestions": [
+    "Should capture-service keep the Deepgram Aura-2 PCM /tts-stream protocol for browser read-aloud, or switch the browser to its ElevenLabs mp3 clip path (/speak/<hash>.mp3)? The two are incompatible today.",
+    "Does connector/deepgram (transcribe/synthesize actions used by automations connector-invoke.mjs:102) need to survive on capture-service, or is it retired with deepgram-voice?",
+    "capture-service gates /capture/* on CAPTURE_TOKEN and `enabled`; should the new /stt,/tts,/stream,/tts-stream be unauthenticated like deepgram-voice's (behind tailnet) or bearer-gated (which would require the browser/web-channel relay to carry a token it does not carry today)?",
+    "Should provider discovery move from a hardcoded status-file name to a runner-projected env (e.g. GARRISON_VOICE_URL derived from resolveCapabilities) so future providers need no consumer edits? No such projection exists in runner.ts today.",
+    "Is dev-env's undeclared voice consumption (server.mjs:858+) still wanted, or does it retire with the Terminal|Chat lane?",
+    "Which tailnet serve port does capture-service publish (8400+97=8497 by the formula) and is that already mapped for the phone - relevant for G3/G4 when the shell is loaded over tailnet."
+   ]
+  }
+ },
+ {
+  "agentId": "a0cd5bf9b0e4229fc",
+  "result": {
+   "summary": "web-channel-default is a single 3485-line node http server (scripts/server.mjs) plus a 2289-line thread store (scripts/threads.mjs) and 8 small lib modules; there is NO server/ dir. It serves an esbuild bundle (ui/main.tsx -> dist/web-channel.bundle.js) built on @garrison/claude-chat, and proxies the gateway (GARRISON_GATEWAY_URL, else GARRISON_GATEWAY_HOST:PORT) for /chat/stream, /channels/web/stream and /claude/*. Threads live at $GARRISON_HOME/web-channel/threads/<id>.json; the newer canonical conversation log lives at $GARRISON_HOME/conversations/<id>/log.jsonl via packages/claude-pty conversation-store, whose HTTP router (handleConversationRequest) is ALREADY mounted in the Next app at src/app/api/conversation/[...path]/route.ts. Push is home-grown VAPID (lib/webpush.mjs) with subscriptions in $GARRISON_HOME/web-channel/push-subscriptions.json and a hand-written ui/sw.js. Voice discovery is hardcoded to the deepgram-voice.json status file, which the G2 retirement must break. Playwright web-channel specs spawn scripts/server.mjs directly and goto http://127.0.0.1:<wcPort>/ - they must be re-pointed at the Next /talk route. No PROGRESS-WEB-PARITY.md exists; the parity criteria are encoded in tests/e2e/web-channel-session-parity.spec.ts.",
+   "facts": [
+    {
+     "topic": "layout",
+     "fact": "Fitting root has apm.yml, README.md, dist/, lib/ (8 .mjs), scripts/ (probe, secure-context, server 3485 lines, sidebar-state, start, threads 2289 lines), ui/ (main.tsx 2036 lines + transports, voice, rail, sw.js, build.mjs). There is no server/ directory - the server is scripts/server.mjs.",
+     "evidence": "ls output of /Users/ggomes/dev/garrison/fittings/seed/web-channel-default; wc -l scripts/server.mjs=3485, scripts/threads.mjs=2289, ui/main.tsx=2036"
+    },
+    {
+     "topic": "manifest",
+     "fact": "apm.yml: faculty channels, own_port true, default_port 8083, provides channel:web, consumes voice (optional-one) + vault (one), secret_scope VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY/VAPID_SUBJECT, setup `node ui/build.mjs`, verify scripts/probe.mjs --probe.",
+     "evidence": "fittings/seed/web-channel-default/apm.yml:8-63"
+    },
+    {
+     "topic": "routes",
+     "fact": "HTTP routes in server.mjs main handler: GET /health|/api/health (liveness); GET /api/push/key, POST/DELETE /api/push/subscribe, POST /notify|/api/notify (push); GET /host-map (tailnet serve map), GET /file (confined file render); GET /api/session-stream (SSE); POST /power-heartbeat (relay to power-default); /api/remote-shell/* proxy; GET /api/voice/health, GET /api/voice, POST /api/voice/stt, POST /api/voice/tts (voice fitting proxy); GET /api/stream (SSE proxy of gateway /channels/web/stream); POST /api/chat, /api/chat/answer, /api/chat/interrupt (gateway /chat/stream); GET /api/route-options; GET/PUT /api/sidebar; GET /api/mesh-threads; GET/PUT /api/brief; /api/threads* (routeThreads); GET /api/claude/stream (SSE) + GET status/commands, POST message/keys/mode/interrupt/answer proxied to gateway /claude/*; POST /api/attachments; /api/conversation/* -> shared handleConversationRequest; everything else -> serveStatic(dist).",
+     "evidence": "fittings/seed/web-channel-default/scripts/server.mjs:3292-3382"
+    },
+    {
+     "topic": "routes-threads",
+     "fact": "routeThreads: GET/POST /api/threads; per id GET, DELETE, PATCH (rename); GET :id/live (SSE); GET/POST :id/inputs; POST :id/interrupt; GET :id/inputs/:inputId/live (SSE); POST :id/messages; GET/PUT :id/routing; POST :id/permissions/:requestId.",
+     "evidence": "fittings/seed/web-channel-default/scripts/server.mjs:2545-2572"
+    },
+    {
+     "topic": "websocket",
+     "fact": "WebSocket upgrade handler relays /remote-shell/io to the remote-shell fitting's /io, and /api/voice/stream -> voice fitting /stream, /api/voice/tts-stream -> /tts-stream (pure passthrough, forwards query verbatim).",
+     "evidence": "fittings/seed/web-channel-default/scripts/server.mjs:3400-3430"
+    },
+    {
+     "topic": "gateway",
+     "fact": "Gateway URL = GARRISON_GATEWAY_URL env or --gateway-url, else http://${GARRISON_GATEWAY_HOST||127.0.0.1}:${GARRISON_GATEWAY_PORT||4777}. Port = GARRISON_WEBCHANNELDEFAULT_PORT || WEB_CHANNEL_PORT || 7083; host = GARRISON_WEBCHANNELDEFAULT_BIND_HOST || WEB_CHANNEL_HOST || GARRISON_BIND_HOST. Other env read: GARRISON_HOME, GARRISON_COMPOSITION_DIR, GARRISON_CLAUDE_PROJECTS_DIR, GARRISON_CLAUDE_HOME, WEB_CHANNEL_TLS_CERT/KEY. Gateway endpoints hit: POST /chat/stream (new URL('/chat/stream', opts.gatewayUrl) at :1359), GET /channels/web/stream, /claude/{stream,status,commands,message,keys,mode,interrupt,answer}.",
+     "evidence": "fittings/seed/web-channel-default/scripts/server.mjs:102-126, 1359; env grep counts over server.mjs"
+    },
+    {
+     "topic": "gateway-in-shell",
+     "fact": "The Next app already knows the gateway base: src/app/api/conversation/[...path]/route.ts imports activeGatewayBaseUrl from @/lib/runner and passes gatewayMessageForwarder(...) to handleConversationRequest.",
+     "evidence": "src/app/api/conversation/[...path]/route.ts:3-5"
+    },
+    {
+     "topic": "thread-model",
+     "fact": "Threads = { id, title, source, mode, context, messages[], routing, session events, inputs } stored one JSON file per thread at $GARRISON_HOME/web-channel/threads/<id>.json, atomic tmp+rename writes; messages carry `route` (assistant RunAttribution) and `overrides` (user TurnRouting); canonical `session_event` envelopes are stored with stable id + revision replaced in place. Live frames are in-memory via lib/live-event-stream.mjs LiveEventStreamRegistry; lib/thread-registry.mjs indexes threads.",
+     "evidence": "fittings/seed/web-channel-default/scripts/threads.mjs:1-46 (THREADS_DIR at :46), exports at :1325-2255"
+    },
+    {
+     "topic": "conversation-store",
+     "fact": "The newer canonical conversation store lives in packages/claude-pty/src/conversation-store.mjs: $GARRISON_HOME/conversations/<id>/{log.jsonl, summary.md, handoffs/NNNN.json, payloads/}, log rolls at 64MB, payload inline cap 64KB. threads.mjs maps a thread to it via conversationIdFor(thread) (:95) and reads its log.jsonl for titles/running state (:1203, :2255).",
+     "evidence": "packages/claude-pty/src/conversation-store.mjs:3,74-140; fittings/seed/web-channel-default/scripts/threads.mjs:95,1203,2255"
+    },
+    {
+     "topic": "conversation-router",
+     "fact": "Shared router packages/claude-pty/src/conversation-http.mjs handleConversationRequest(req,res,opts) serves under a base: GET / (list), GET :id/log, :id/metrics, :id/summary, :id/handoff/:n, :id/payload/:name, GET :id/stream (SSE), POST :id/message; exports gatewayMessageForwarder(gatewayUrl) and recordDig. Mounted three times at /api/conversation: web-channel server.mjs:3366, kanban, and the Next app (Request/Response shims). conversation-digest.mjs exports buildConversationDigest(events, opts) - reusable for G5 digest message.",
+     "evidence": "packages/claude-pty/src/conversation-http.mjs:72-143,454; src/app/api/conversation/[...path]/route.ts:10-20; packages/claude-pty/src/conversation-digest.mjs:51"
+    },
+    {
+     "topic": "sse-shape",
+     "fact": "Gateway-proxied SSE frames handled by name: open, route, session_event, done, error (`event: <name>\\ndata: <json>`). Frames are decoded by SseFrameDecoder and appended per thread via appendLiveFrame; server writes `event: error` on upstream failure.",
+     "evidence": "fittings/seed/web-channel-default/scripts/server.mjs:413-431,596-627,1220-1227; frame-name grep counts"
+    },
+    {
+     "topic": "push",
+     "fact": "Web Push is home-grown: lib/webpush.mjs implements VAPID JWT (vapidAuthorization), aes128gcm encryptPayload, sendPush; lib/push-store.mjs stores subscriptions at $GARRISON_HOME/web-channel/push-subscriptions.json and reads VAPID keys from env (vapidFromEnv). ui/push-client.ts: pushState() GETs /api/push/key, registers /sw.js, POST/DELETE /api/push/subscribe. ui/sw.js: app-shell cache (bypasses /api/* and /power-heartbeat), push handler builds notification with data.link (default '/') + up to 2 actions, notificationclick openWindow(target).",
+     "evidence": "fittings/seed/web-channel-default/lib/webpush.mjs:42,98,156; lib/push-store.mjs:17-22,74; ui/push-client.ts:54-115; ui/sw.js:58-123,157"
+    },
+    {
+     "topic": "build",
+     "fact": "ui/build.mjs: esbuild, entry ui/main.tsx, format esm, minified, target es2022, outfile dist/web-channel.bundle.js; copies index.html and pcm-worklet.js; concatenates xterm.css + packages/claude-chat/src/claude-chat.css + ui/styles.css into dist/web-channel.css; manifest.json, sw.js and icons are emitted by ui/pwa-assets.mjs emitPwaAssets({srcDir, distDir}).",
+     "evidence": "fittings/seed/web-channel-default/ui/build.mjs:1-72"
+    },
+    {
+     "topic": "ui-imports",
+     "fact": "ui/main.tsx imports from @garrison/claude-chat: ClaudeChat, ConversationView, createHttpTransport, SessionStream, types ChatInputReceipt/ComposerAdornmentApi/RailOptions/RouteAttribution/SessionEvent/TurnRouting; plus marked, ./orchestrator-transport (createOrchestratorTransport), ./conversation-transport, ./voice-conversation (VoiceConversation), ./remote-shell-workbench, ./sessions-rail (SessionsRail, RailMeshNode, RailSelf), ./shells-modal, ./push-client.",
+     "evidence": "fittings/seed/web-channel-default/ui/main.tsx:20-45"
+    },
+    {
+     "topic": "transports",
+     "fact": "conversation-transport.ts exports CONVERSATION_BASE='/api/conversation', conversationMessageUrl(id, base), postConversationMessage(...), createConversationTransport(...) - all relative URLs. orchestrator-transport.ts exports OrchestratorTransportOptions, ResumableChatTransport, createOrchestratorTransport(...) and hits relative /api/chat, /api/chat/answer, /api/chat/interrupt, /api/attachments.",
+     "evidence": "fittings/seed/web-channel-default/ui/conversation-transport.ts:20-99; ui/orchestrator-transport.ts:255-277 + URL grep"
+    },
+    {
+     "topic": "voice-discovery",
+     "fact": "Voice is discovered by reading the status file $GARRISON_HOME/ui-fittings/deepgram-voice.json (VOICE_STATUS_FILE hardcoded), not by resolving the consumed kind:voice capability generically.",
+     "evidence": "fittings/seed/web-channel-default/scripts/server.mjs:95-97,164"
+    },
+    {
+     "topic": "voice-fittings",
+     "fact": "deepgram-voice: faculty connectors, own_port, default_port 8085, provides kind voice + kind connector. capture-service: faculty channels, own_port, default_port 8097, provides only kind channel (no kind voice). Both are stationed in compositions/default/apm.yml.",
+     "evidence": "fittings/seed/deepgram-voice/apm.yml:8-56; fittings/seed/capture-service/apm.yml:8-365; compositions/default/apm.yml:10,15,48,79,100,300"
+    },
+    {
+     "topic": "mesh",
+     "fact": "lib/mesh-threads.mjs meshThreads({limitPerNode}) uses lib/state-client.mjs to list per-node threads and returns {self, nodes[]}; served at GET /api/mesh-threads and rendered by ui/sessions-rail.tsx.",
+     "evidence": "fittings/seed/web-channel-default/lib/mesh-threads.mjs:16,81-117; scripts/server.mjs:3343"
+    },
+    {
+     "topic": "playwright",
+     "fact": "playwright.web-channel.config.ts drops the Next webServer and matches web-channel-(chat|session-parity).spec.ts; both specs spawn node fittings/seed/web-channel-default/scripts/server.mjs with a fake gateway and page.goto(`http://127.0.0.1:${wcPort}/?console=1`). Base playwright.config.ts baseURL is http://127.0.0.1:${PORT} with a Next webServer.",
+     "evidence": "playwright.web-channel.config.ts:3-14; tests/e2e/web-channel-session-parity.spec.ts:18,134,157; playwright.config.ts:35"
+    },
+    {
+     "topic": "parity-criteria",
+     "fact": "No PROGRESS-WEB-PARITY.md exists anywhere (only README.md in the fitting; no docs/*PARITY*). Parity = the M8 spec: real web-channel server + real bundle + fake gateway speaking canonical session-event fixtures; asserts both what the page renders and what the gateway received (durable admission -> gateway -> canonical events -> durable thread -> render), including survival across a genuine web-channel process restart via a v2 spawn signature (agentSdkResumeFromThread).",
+     "evidence": "tests/e2e/web-channel-session-parity.spec.ts:8-25; ls fittings/seed/web-channel-default/*.md shows only README.md"
+    },
+    {
+     "topic": "vocabulary",
+     "fact": "tests/vocabulary.test.ts scans fittings/seed/web-channel-default/ui (:144) with per-file allowances for remote-shell-workbench.tsx, shells-modal.tsx, main.tsx; a port to src/app/talk must move/extend those allowances.",
+     "evidence": "tests/vocabulary.test.ts:120,144,321-342"
+    },
+    {
+     "topic": "shell-state",
+     "fact": "Next app has no basePath/assetPrefix/rewrites in next.config; src/app has no talk/ route and src/components has no conversation component; shell files already importing claude-pty/claude-chat: src/app/api/{session-log,conversation-metrics,conversation}/route.ts, src/components/garrison/{RouterFeedbackCard,OutboxStrip}.tsx, src/lib/{runtime-selection,host-rewrite,account-env}.ts. src/app/host-map and src/app/file routes already exist in the shell (counterparts to web-channel /host-map and /file).",
+     "evidence": "grep next.config.* empty; ls src/app; grep -rl claude-chat|claude-pty src"
+    },
+    {
+     "topic": "ios",
+     "fact": "ios/ exists with GarrisonApp, BroadcastExtension, Shared, Tests, fastlane, project.yml, scripts - a native Xcode project, not a Capacitor shell.",
+     "evidence": "ls /Users/ggomes/dev/garrison/ios"
+    }
+   ],
+   "stalePremises": [
+    {
+     "premise": "CLAUDE.md port map: node gateway 5777, fittings 80xx (web-channel 8083).",
+     "reality": "server.mjs fallback defaults are gateway port 4777 and web port 7083 (pre-re-axis numbers); apm.yml default_port is 8083. Harmless when the runner projects env, but the literal fallbacks violate the never-hardcode-a-port rule and mislead standalone runs.",
+     "evidence": "fittings/seed/web-channel-default/scripts/server.mjs:108,124; apm.yml:14"
+    },
+    {
+     "premise": "apm.yml for_consumers says the mobile surface talks to gateway /claude/* proxied as /api/claude/* and the legacy bubble UI was retired.",
+     "reality": "main.tsx uses createOrchestratorTransport over /api/chat (+answer/interrupt/attachments) and createConversationTransport over /api/conversation; the /api/claude/* proxies exist but are not the primary path the UI imports. The for_consumers endpoint list also omits threads, push, conversation, mesh-threads, remote-shell, brief, sidebar.",
+     "evidence": "apm.yml:64-104 vs ui/main.tsx:35-40, ui/orchestrator-transport.ts URL grep, server.mjs:3292-3382"
+    },
+    {
+     "premise": "Plan G2: capture-service becomes the single kind:voice provider and deepgram-voice retires.",
+     "reality": "capture-service currently provides only kind:channel; web-channel discovers voice by the hardcoded deepgram-voice.json status file, and deepgram-voice is the only kind:voice provider and also provides kind:connector (faculty connectors). G2 needs capture-service to add provides kind:voice with /stt, /tts, /stream, /tts-stream, and web-channel's readVoiceInfo must resolve by capability, not filename.",
+     "evidence": "fittings/seed/capture-service/apm.yml:365; fittings/seed/deepgram-voice/apm.yml:54-56; server.mjs:95-97"
+    },
+    {
+     "premise": "Plan G3: wrap ios/ in Capacitor.",
+     "reality": "ios/ is a native Swift Xcode project (GarrisonApp + BroadcastExtension + Shared + XCTest + fastlane, xcodegen project.yml); memory notes say no Xcode on this Mac, builds run on the mini/TestFlight. Capacitor would replace, not wrap, this project.",
+     "evidence": "ls ios; MEMORY.md garrison-ios-build-topology"
+    },
+    {
+     "premise": "Plan assumes a PROGRESS-WEB-PARITY.md defines parity criteria.",
+     "reality": "No such file exists in the fitting or docs; parity is defined only by tests/e2e/web-channel-session-parity.spec.ts.",
+     "evidence": "ls fittings/seed/web-channel-default/*.md -> README.md only; docs/*PARITY* no match"
+    },
+    {
+     "premise": "Plan G1 implies the conversation API must be built into the shell.",
+     "reality": "The shared conversation router is already mounted in Next at /api/conversation (Request/Response shims over handleConversationRequest); only the thread/orchestrator/push/voice/mesh endpoints are missing from the shell.",
+     "evidence": "src/app/api/conversation/[...path]/route.ts:1-20"
+    }
+   ],
+   "seams": [
+    {
+     "gate": "G1",
+     "file": "fittings/seed/web-channel-default/scripts/threads.mjs -> src/lib/web-threads.mjs (or packages/claude-pty/src/threads.mjs)",
+     "change": "Move the thread store wholesale (keep THREADS_DIR at $GARRISON_HOME/web-channel/threads so existing threads survive); it depends only on ../lib/live-event-stream.mjs and ../lib/thread-registry.mjs, which move alongside. Import into Next as .mjs with @ts-ignore like the conversation route does."
+    },
+    {
+     "gate": "G1",
+     "file": "src/app/api/threads/route.ts and src/app/api/threads/[...path]/route.ts",
+     "change": "Port routeThreads (server.mjs:2545-2572): list/create; per-id GET/DELETE/PATCH; :id/live and :id/inputs/:inputId/live as SSE ReadableStreams (reuse the ResponseShim pattern from src/app/api/conversation/[...path]/route.ts); inputs, interrupt, messages, routing, permissions."
+    },
+    {
+     "gate": "G1",
+     "file": "src/app/api/chat/route.ts (+ answer, interrupt) and src/app/api/attachments/route.ts",
+     "change": "Port handleChat/handleChatAnswer/handleChatInterrupt/handleAttachments (server.mjs:852-1400 region) using activeGatewayBaseUrl() from @/lib/runner instead of GARRISON_GATEWAY_URL; keep frame names open/route/session_event/done/error so orchestrator-transport.ts works unchanged."
+    },
+    {
+     "gate": "G1",
+     "file": "src/app/api/push/key/route.ts, src/app/api/push/subscribe/route.ts, src/app/api/notify/route.ts + src/lib/webpush.mjs + src/lib/push-store.mjs",
+     "change": "Move lib/webpush.mjs and lib/push-store.mjs; read VAPID_* from the vault (shell has vault access; the fitting relied on secret_scope). Keep subscriptions file at $GARRISON_HOME/web-channel/push-subscriptions.json. Note the sw.js scope becomes the whole shell origin - restrict cache to /talk assets or register with scope '/talk/'."
+    },
+    {
+     "gate": "G1",
+     "file": "src/app/api/voice/{route.ts,health,stt,tts} and WS relay",
+     "change": "Port handleVoiceInfo/handleVoiceProxy; Next App Router cannot upgrade WebSockets, so /api/voice/stream and /api/voice/tts-stream (and /remote-shell/io) need either a custom server hook or the browser connecting straight to the voice fitting's tailnet serve port via resolveViewUrl (src/components/fitting-views/browser-view-url.ts). Resolve the voice fitting by kind:voice status file name from the composition, not deepgram-voice.json (server.mjs:97)."
+    },
+    {
+     "gate": "G1",
+     "file": "src/app/api/mesh-threads/route.ts, src/app/api/sidebar (exists as sidebar-pins), src/app/api/brief, src/app/api/route-options",
+     "change": "Port meshThreads (lib/mesh-threads.mjs + state-client.mjs - the shell already has a state client under src/lib; dedupe), handleBriefGet/Put, handleRouteOptions, loadSidebar/saveSidebar."
+    },
+    {
+     "gate": "G1",
+     "file": "src/app/talk/page.tsx + src/components/talk/*",
+     "change": "Move ui/main.tsx, sessions-rail.tsx, shells-modal.tsx, remote-shell-*.tsx, voice-*.ts(x), conversation-transport.ts, orchestrator-transport.ts, push-client.ts, terminal-scroll.ts into the shell as client components; replace createRoot with a Next page; all transports already use relative /api/* URLs so no base-path change is needed (next.config has no basePath). Import claude-chat.css + xterm.css via globals or a route CSS module instead of build.mjs concatenation; serve pcm-worklet.js and sw.js from public/."
+    },
+    {
+     "gate": "G1",
+     "file": "playwright.web-channel.config.ts, tests/e2e/web-channel-chat.spec.ts:134-157, tests/e2e/web-channel-session-parity.spec.ts:18,134,157",
+     "change": "Stop spawning scripts/server.mjs; use the base config's Next webServer and page.goto(`${baseURL}/talk?console=1`), point the fake gateway via the runner's active gateway URL (or an env the /api/chat route honours); restart-survival test must restart the Next server or the thread-store process instead of the fitting."
+    },
+    {
+     "gate": "G1",
+     "file": "tests/vocabulary.test.ts:144,321-342",
+     "change": "Re-point the scanned dir from fittings/seed/web-channel-default/ui to src/app/talk + src/components/talk and move the per-file allowances."
+    },
+    {
+     "gate": "G1",
+     "file": "fittings/seed/web-channel-default/apm.yml + compositions/default/apm.yml:48,79 + data/library.json",
+     "change": "Either delete the fitting (and its own_port 8083 tailnet serve mapping in scripts/tailnet-serve-views.mjs) or shrink it to a redirect stub; the shell sidebar 'Conversations' entry becomes a nav: pin."
+    },
+    {
+     "gate": "G2",
+     "file": "fittings/seed/capture-service/apm.yml:365 + its server",
+     "change": "Add provides kind:voice and expose /stt, /tts, /stream (WS), /tts-stream (WS) with the same contract deepgram-voice serves; drop deepgram-voice from compositions/default/apm.yml:15,300 and the lockfile; change web-channel/shell voice lookup from deepgram-voice.json to the stationed kind:voice fitting's status file."
+    },
+    {
+     "gate": "G5",
+     "file": "packages/claude-pty/src/conversation-digest.mjs:51 buildConversationDigest",
+     "change": "Reuse for the digest message posted into a conversation via POST /api/conversation/:id/message (conversation-http.mjs:143) rather than inventing a new digest path."
+    }
+   ],
+   "openQuestions": [
+    "Does the Next app run under a custom server that can handle WebSocket upgrades? If not, the voice WS relays (/api/voice/stream, /api/voice/tts-stream) and /remote-shell/io must go direct-to-fitting over tailnet serve ports.",
+    "Which of the two stores is canonical going forward - $GARRISON_HOME/web-channel/threads/<id>.json (threads.mjs) or $GARRISON_HOME/conversations/<id>/log.jsonl (conversation-store)? The UI today uses both transports; G1 could collapse to the conversation store.",
+    "How does the fitting's /api/chat handler (server.mjs ~852-1400) map thread inputs to gateway generations (admitThreadInput/claimNextThreadInput) - not read in this pass; it is the largest piece to port and carries the permission-card flow.",
+    "Who else reads $GARRISON_HOME/ui-fittings/web-channel-default.json or POSTs /notify to the web-channel port (kanban-loop, power, automations)? Those callers must be re-pointed to the shell's /api/notify.",
+    "Does capture-service already have STT/TTS code paths (it is 365+ lines of apm.yml) or is G2 a fresh implementation of the deepgram contract?"
+   ]
+  }
+ },
+ {
+  "agentId": "a5c1b13aad2c9d9fa",
+  "result": {
+   "summary": "Mapped docs, roadmap, tests and iOS state for the G1-G8 plan. Roadmap is a flat JSON (categories[].items[] with id/text/done/sentToKanban/noteRef; notes[] with id/title/body) - the plan's items live in c7 (Ears: Companion/Omi/push), c8 (Signals: web channel into core) and c9 (mesh). Web-channel fitting is actually `web-channel-default` (port 8083, consumes `voice` optional-one); `deepgram-voice` provides `voice`+`connector` (8085); `capture-service` today provides `channel:companion` only (8097) with its own ElevenLabs voice path, so G2 needs a `provides: kind: voice` addition plus removing deepgram-voice from compositions/default/apm.yml. No `src/app/talk` exists. GOVERNANCE.md §3.1 (lines 80-86) explicitly names a built-in chat tab as Honesty-Test leakage and points to the Web Channel Fitting - the exception paragraph for G1 belongs right there (plus CLAUDE.md \"Garrison does not ship a built-in chat surface\"). ios/ is a native SwiftUI app built by XcodeGen + fastlane, with zero Capacitor - G3 is a rewrite, contradicting the 2026-07-13 memo that declared Capacitor out of scope, and the Mac has no Xcode (builds on the mini over ssh). Roadmap c8.4 preconditions (c1 in daily use, c3 widgets exist) are not marked done. Tests: 627 files in tests/, vitest includes tests/**/*.test.ts with setup.ts sandboxing GARRISON_HOME; \"sandboxed\" for capture-service/omi-channel means the server boots under an injected GARRISON_HOME tmpdir and writes ui-fittings/<id>.json status; Playwright main config runs tests/e2e against `next dev` on 3401 with sandbox homes, web-channel variant boots its own fake gateway and skips webServer.",
+   "facts": [
+    {
+     "topic": "roadmap shape",
+     "fact": "roadmap.json top keys: title, intro, updatedAt, categories (12), notes (29). Each category: {id,title,noteRef,items[]}; each item: {id,text,done:boolean,sentToKanban:null|..,noteRef:string|null}; each note: {id,title,body}. Updating an item = set items[].done=true and optionally edit text; updatedAt is ISO string.",
+     "evidence": "roadmap.json (python3 dump: categories item keys ['id','title','noteRef','items'], item keys ['id','text','done','sentToKanban','noteRef'], notes keys ['id','title','body'])"
+    },
+    {
+     "topic": "roadmap c7 (Ears)",
+     "fact": "c7 'Ears and mouths: Omi, Companion, screen context' noteRef n-ears. Items c7.1 Omi channel to standard + pendant BLE direct in Companion; c7.2 drop Omi subscription keeping compat; c7.3 Companion app v1 on TestFlight (marked 'Found: partial - ios/ has the Companion app, BroadcastExtension, fastlane TestFlight upload, spoken answers... wait-for-context triage batching not confirmed'); c7.4-c7.6 screen context/stories (noteRef n-screen); c7.7 story of day feeds improver; c7.8 Notifications one behaviour everywhere: web push from PWA with deep link to card or conversation, Companion push, Omi push, Slack; tapping opens Command Center row. All done=false.",
+     "evidence": "roadmap.json categories[c7].items (dump above)"
+    },
+    {
+     "topic": "roadmap c8 (Signals)",
+     "fact": "c8 'Signals, the web channel as system core' noteRef n-signals. c8.1 name it (Signals/Adjutant/CIC); c8.2 write down fitting-shape costs; c8.3 'The exception is written into the docs. The honesty rule stands for every capability except Signals... other channels (Slack, Omi, Companion, voice) remain fittings with channel parity generalised, not special-cased'; c8.4 'Migrate after c1 is in daily use and c3's first widgets exist, in one long autonomous task, with the conversation component shared with the card modal untouched, and the Command Center embedding the conversation widget from core'; c8.5 no new fitting-specific machinery until then. All done=false; c8.1 noteRef n-signals.",
+     "evidence": "roadmap.json categories[c8].items"
+    },
+    {
+     "topic": "roadmap c9 (Mesh)",
+     "fact": "c9 'Mesh and multi-node' noteRef n-mesh: c9.1 cross-node visibility + node accent + instances menu to open other nodes; c9.2 convergence health; c9.3 parked cross-machine delegation/session migration; c9.4 secrets authority on dev-madrid, online-only. All done=false. G4 node switching maps to c9.1.",
+     "evidence": "roadmap.json categories[c9].items"
+    },
+    {
+     "topic": "Honesty Test location",
+     "fact": "GOVERNANCE.md §3 'The Honesty Test' starts line 43; §3.1 Downstream consumers lists leakage forms; lines 80-86: 'Garrison shell surfaces that duplicate Channel-Fitting work. A built-in chat tab, a send a test message box... is leakage. Talking to the Operative is what Channel Fittings exist for; if a user needs a browser surface, the Web Channel Fitting is the right place for it.' SPEC.md:369 references GOVERNANCE §3. AGENTS.md has no web-channel/Honesty mentions.",
+     "evidence": "docs/GOVERNANCE.md:43, :70, :80-86; docs/SPEC.md:369; grep of AGENTS.md returned nothing"
+    },
+    {
+     "topic": "docs inventory",
+     "fact": "docs/ has CONVERSATIONS.md (conversation store: $GARRISON_HOME/conversations/<id>/ with L1 summary.md, L2 handoffs/NNNN.json, stretch model), UI-FITTINGS.md (rule 1 every Fitting has a view; rule 2 own-port UIs; garrison:* shared views; bespoke views registered in src/components/fitting-views/registry.tsx), COMPANION_IOS_SPEC.md (Rev 2 2026-08-11, 'the app is now the voice sink'), adr-companion.md, adr-pendant-direct.md, pendant-protocol.md, pendant-direct-report.md, MESH-PING.md, INSTANCES.md, DECISIONS.md. docs/decisions/ uses YYYY-MM-DD-slug.md naming; latest 2026-08-23. Relevant: 2026-07-13-capacitor-native-wrap-memo.md, 2026-07-25-web-channel-run-context.md (normative field contract for web-channel turns), 2026-07-29-every-fitting-has-a-view.md.",
+     "evidence": "ls docs; ls docs/decisions; docs/CONVERSATIONS.md:1-40; docs/UI-FITTINGS.md:1-40; docs/COMPANION_IOS_SPEC.md:1-8"
+    },
+    {
+     "topic": "web-channel fitting identity",
+     "fact": "The web channel fitting is named `web-channel-default` (not `web-channel`), own_port true, default_port 8083, provides channel:web, consumes voice (cardinality optional-one) and vault. Its UI lives at fittings/seed/web-channel-default/ui and is a scanned CONVERSATION_SURFACE in vocabulary test.",
+     "evidence": "fittings/seed/web-channel-default/apm.yml:1,11,12,38-48; tests/vocabulary.test.ts:142-146; compositions/default/apm.yml:48,79"
+    },
+    {
+     "topic": "voice provider wiring",
+     "fact": "capabilityKinds includes 'voice' (src/lib/types.ts:158,192). Only deepgram-voice provides kind voice (name deepgram) plus kind connector, secret_scope DEEPGRAM_API_KEY, own_port 8085. capture-service provides ONLY kind channel name companion, consumes vault (one) + memory-store (optional-one), own_port 8097, secret_scope includes CAPTURE_TOKEN, APNS_TEAM_ID, APNS_KEY_ID, APNS_P8; verify = capture.mjs --probe expecting CAPTURE-OK. capture-service already has its own ElevenLabs TTS path tested in tests/capture-service-voice.test.ts (pt-PT anchors, cache, ack-never-blocked rule).",
+     "evidence": "fittings/seed/deepgram-voice/apm.yml:11-12,50-62; fittings/seed/capture-service/apm.yml:12-13,360-380; src/lib/types.ts:158,192; tests/capture-service-voice.test.ts:1-9"
+    },
+    {
+     "topic": "composition default stationing",
+     "fact": "compositions/default/apm.yml stations capture-service (dep line 10, selection line 100), deepgram-voice (dep 15, selection 300), omi-channel (dep 32, selection 84), web-channel-default (dep 48, selection 79). apm.yml and apm.lock.yaml are currently modified in the working tree (git status M).",
+     "evidence": "compositions/default/apm.yml:10,15,32,48,79,84,100,300; git status at session start"
+    },
+    {
+     "topic": "app routes",
+     "fact": "src/app/ has: accounts api armory compose connectors coordination embed file fitting host-map icons memory mesh muster quarters results run settings vault (+ layout/page/manifest.ts/error/loading/not-found). No src/app/talk exists; no 'Signals' identifier in src. Sidebar COMMAND_ITEMS in src/components/chrome/Sidebar.tsx around lines 420-470 (ids nav:accounts, nav:composition, nav:connectors, nav:coordination, nav:mesh, nav:quarters, nav:vault with href/label/Icon/isActive).",
+     "evidence": "ls src/app; grep for app/talk returned none; src/components/chrome/Sidebar.tsx:426-469"
+    },
+    {
+     "topic": "tests inventory",
+     "fact": "627 entries in tests/. vitest.config.ts: include tests/**/*.test.ts, setupFiles ./tests/setup.ts, testTimeout 20000, alias @ -> src. tests/setup.ts sets process.env.GARRISON_HOME to a mkdtemp 'garrison-test-home-' when unset so tests never touch the live ~/.garrison (a previous leak found the live capture-service and pinged the user's phone). Relevant files: capture-service*.test.ts (ack-sink, apns, cues, ingress, replay, screen-context, transcribe, triage, voice, wake, main), omi-channel*.test.ts (8 files), web-channel-*.test.ts (13 files incl pwa, conversation-surface, run-context, ui-run-context, threads, live-resume, restart-reconciliation), conversation-*.test.ts (store, digest, summary, view, activity, metrics, handoff-schema), companion-e2e, companion-lockstep, pendant-e2e/capture/answer-window/voice-intents, sidebar-grouping, sidebar-pins, vocabulary, instance-isolation, view-instances, mesh-serve-ports, mesh-proxy, mesh-self, mesh-node-workers, deepgram-voice-live, voice-machine, voice-latency.",
+     "evidence": "ls tests | wc -l = 627; vitest.config.ts:1-22; tests/setup.ts:19-28; ls tests grep output"
+    },
+    {
+     "topic": "meaning of 'sandboxed' tests",
+     "fact": "For capture-service and omi-channel, 'sandboxed' means the fitting server is spawned with an injected env {GARRISON_HOME: tmpdir} (loadConfig reads env argument, not ambient process.env), writes $GARRISON_HOME/ui-fittings/<id>.json and state under $GARRISON_HOME/capture (or /omi), serves /health, and the test asserts on those. Also capture-service config has GARRISON_CAPTURESERVICE_APNS_ENVIRONMENT: 'sandbox' (APNs sandbox env). package.json has no 'sandbox' script; e2e sandbox homes come from tests/e2e/sandbox.ts (CLAUDE_SANDBOX, GARRISON_SANDBOX).",
+     "evidence": "tests/capture-service.test.ts:6,45,54,71-75,126; tests/omi-channel.test.ts:6,93-94; playwright.config.ts:4,68-70"
+    },
+    {
+     "topic": "playwright configs",
+     "fact": "playwright.config.ts: testDir ./tests/e2e, globalSetup tests/e2e/global-setup.ts, workers 1, baseURL http://127.0.0.1:${GARRISON_E2E_PORT ?? 3401}, webServer `npx next dev --port PORT` with reuseExistingServer false and env GARRISON_STATE_PATH=~/.garrison-test/state.json, GARRISON_CLAUDE_HOME=CLAUDE_SANDBOX, GARRISON_HOME=GARRISON_SANDBOX, own NEXT_DIST_DIR; a project with iPhone userAgent exists. playwright.web-channel.config.ts: spreads base, globalSetup undefined, webServer undefined, testMatch /web-channel-(chat|session-parity)\\.spec\\.ts$/ - those specs boot their own fake gateway + web-channel server. tests/e2e specs: landing, shell-overhaul, quarters*, muster*, board-panel, dev-env-*, web-channel-chat, web-channel-session-parity, settings, memory, etc.",
+     "evidence": "playwright.config.ts:6-11,35,60-70; playwright.web-channel.config.ts:1-15; ls tests/e2e"
+    },
+    {
+     "topic": "package.json scripts",
+     "fact": "test=vitest run; test:e2e=playwright test; e2e:companion=vitest run tests/companion-e2e.test.ts; e2e:pendant=vitest run tests/pendant-e2e.test.ts; ios:testflight=bash scripts/ios-testflight.sh; test:all; typecheck=tsc --noEmit; lint=next lint; node:reload / node:redeploy (prod:* aliases) via scripts/garrison-reload.sh / garrison-redeploy.sh; dev/start via scripts/garrison-instance.sh dev start; start:mobile => garrison-instance.sh dev mobile; test:integration, test:pty gated by GARRISON_INTEGRATION=1.",
+     "evidence": "package.json scripts (node -e dump)"
+    },
+    {
+     "topic": "iOS state",
+     "fact": "ios/ is a native Swift app: GarrisonApp/ (SwiftUI: GarrisonApp.swift, ContentView.swift, ConversationView.swift, CaptureController.swift, ConsentSheet.swift, BroadcastPicker.swift, ClipPlayer.swift, AckLog.swift), BroadcastExtension/ (SampleHandler.swift), Shared/ (AppGroup, CaptureProtocol, CaptureUploader, OpusEncoder), Tests/, fastlane/, project.yml (XcodeGen), Gemfile. ios/scripts contains only make-app-icon.py. scripts/ios-testflight.sh wraps fastlane `beta` lane requiring ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8 APPLE_TEAM_ID MATCH_PASSWORD. No 'capacitor' in package.json or ios/project.yml.",
+     "evidence": "ls ios ios/GarrisonApp ios/Shared ios/BroadcastExtension ios/scripts; scripts/ios-testflight.sh:1-14; grep capacitor returned nothing"
+    },
+    {
+     "topic": "evidence dir",
+     "fact": "evidence/ exists at repo root with PNG screenshots (card-link-*, composer-desktop/phone, contrast-after, link-probe*) and subdirs csg-verify, garrison-app. Gate evidence screenshots have precedent there.",
+     "evidence": "ls evidence"
+    },
+    {
+     "topic": "mesh serve ports",
+     "fact": "Serve-port formula 8400 + (localPort % 1000) is asserted against scripts/tailnet-serve-views.mjs; tests assert every committed own-port default lands on a distinct serve port and node profile is offset 0. New/removed own-port fittings (G2 retiring deepgram-voice 8085) must keep this test green.",
+     "evidence": "tests/mesh-serve-ports.test.ts:1,15,21-26,42"
+    },
+    {
+     "topic": "sidebar test pins routes",
+     "fact": "tests/sidebar-grouping.test.ts 'keeps every Garrison route on the menu' hardcodes COMMAND_ITEMS hrefs = ['/','/accounts','/compose','/connectors','/coordination','/mesh','/quarters','/vault']; adding /talk requires editing this expectation and Sidebar.tsx COMMAND_ITEMS.",
+     "evidence": "tests/sidebar-grouping.test.ts:47-59; src/components/chrome/Sidebar.tsx:426-469"
+    },
+    {
+     "topic": "pendant tests",
+     "fact": "tests/pendant-e2e.test.ts 'e2e:pendant - the full loop from a clean sandbox': wake-to-card at real cadence, near-miss never wakes, duplicate segments dispatch once, mid-stream disconnect resumes from last ack, ambient policy stores transcript with pendant identity. Pendant BLE lives in the iOS Companion app (memory: haptic-only feedback, lockstep wake hook).",
+     "evidence": "tests/pendant-e2e.test.ts:134,196,248,270,289,312; MEMORY.md Pendant Direct entry"
+    }
+   ],
+   "stalePremises": [
+    {
+     "premise": "Plan G1: web-channel conversation UI moves into the Next shell as a 'Conversations' route at src/app/talk.",
+     "reality": "GOVERNANCE.md §3.1 currently declares a built-in chat tab in the shell to be Honesty-Test leakage and names the Web Channel Fitting as the right place; CLAUDE.md says 'Garrison does not ship a built-in chat surface' and 'There is no built-in Chat surface'. Roadmap c8.3 requires the exception be written into docs and c8.1 says the name is undecided (Signals/Adjutant/CIC), not 'Conversations'. Also 'Conversations' already names the conversation store substrate in docs/CONVERSATIONS.md, so the route label collides with existing terminology.",
+     "evidence": "docs/GOVERNANCE.md:80-86; CLAUDE.md Terminology 'Channel' bullet and shell surfaces paragraph; roadmap.json c8.1, c8.3; docs/CONVERSATIONS.md:1"
+    },
+    {
+     "premise": "Plan G1 fitting name 'web-channel'.",
+     "reality": "The seed fitting is `web-channel-default` (fittings/seed/web-channel-default, port 8083). CLAUDE.md's own-port list says web-channel 27083 and voice 27085 - stale 27xxx ports from before the 8xxx re-axis; the committed defaults are 8083/8085, and CLAUDE.md omits capture-service (8097) and omi-channel (8094) from the own-port list.",
+     "evidence": "fittings/seed/web-channel-default/apm.yml:1,12; fittings/seed/deepgram-voice/apm.yml:12; fittings/seed/capture-service/apm.yml:13; fittings/seed/omi-channel/apm.yml:13; CLAUDE.md 'Own-port runtime residue' paragraph"
+    },
+    {
+     "premise": "Plan G2: capture-service is (or becomes) 'the single voice provider (kind: voice)'.",
+     "reality": "capture-service today provides only kind channel (name companion); no fitting other than deepgram-voice provides kind voice. web-channel-default consumes voice optional-one, so retiring deepgram-voice without adding a voice provider silently degrades web-channel voice. capture-service also already contains its own ElevenLabs TTS path (not Deepgram) with locked pt-PT constraints - a 'single voice provider' must reconcile deepgram STT/TTS relay (tests/deepgram-voice-live.test.ts) with the ElevenLabs path.",
+     "evidence": "fittings/seed/capture-service/apm.yml:365-366; fittings/seed/deepgram-voice/apm.yml:54-56; fittings/seed/web-channel-default/apm.yml:41-43; tests/capture-service-voice.test.ts:1-9; tests/deepgram-voice-live.test.ts:1-5"
+    },
+    {
+     "premise": "Plan G3: 'wrap ios/ in Capacitor loading the shell over tailnet'.",
+     "reality": "ios/ is a native SwiftUI app (XcodeGen project.yml, fastlane, BroadcastExtension, BLE pendant, Opus encoder, App Group) with no Capacitor anywhere. The 2026-07-13 decision memo explicitly recorded Capacitor as 'out of scope for implementation'; COMPANION_IOS_SPEC Rev 2 chose Swift because 'the app is now the voice sink' (background audio, BLE, broadcast extension - none available to a plain WebView shell). Wrapping means re-architecting, not wrapping. Also this Mac has no Xcode (builds via the mini over ssh) per memory.",
+     "evidence": "ls ios; ios/project.yml; docs/decisions/2026-07-13-capacitor-native-wrap-memo.md:1-6; docs/COMPANION_IOS_SPEC.md:5-8; MEMORY.md 'iOS build topology'"
+    },
+    {
+     "premise": "Plan proceeds now with the web-channel migration.",
+     "reality": "Roadmap c8.4 gates the migration on 'c1 is in daily use and c3's first widgets exist' and requires 'the conversation component shared with the card modal untouched' and the Command Center embedding the widget from core; c8.5 forbids new fitting-specific machinery meanwhile. None of c8.x is done=true.",
+     "evidence": "roadmap.json c8.4, c8.5 (done:false)"
+    },
+    {
+     "premise": "CLAUDE.md: 'the runner still spawns a process via spawnGateway/spawnClaude' and RC3/RC4 notes.",
+     "reality": "Not verified in this pass (out of budget); treat runner-launch claims in CLAUDE.md as unverified for this plan.",
+     "evidence": "CLAUDE.md pivot paragraph; no code read"
+    }
+   ],
+   "seams": [
+    {
+     "gate": "G1 docs (exception paragraph)",
+     "file": "/Users/ggomes/dev/garrison/docs/GOVERNANCE.md",
+     "change": "Rewrite lines 80-86 (§3.1 'Garrison shell surfaces that duplicate Channel-Fitting work') into the single documented Signals exception per roadmap c8.3: the conversation surface is core because no work happens without it; other channels stay Fittings with generalised parity. Add a matching entry to docs/DECISIONS.md and a new docs/decisions/2026-09-01-web-channel-into-core.md (existing date-slug convention)."
+    },
+    {
+     "gate": "G1 docs (project guide)",
+     "file": "/Users/ggomes/dev/garrison/CLAUDE.md",
+     "change": "Update Terminology 'Channel' bullet ('Garrison does not ship a built-in chat surface') and the shell-surfaces paragraph ('There is no built-in Chat surface') to name the /talk route; fix the stale own-port port list (8083/8085/8094/8097 not 27xxx); list the new route in 'High-level architecture'. Also add /talk to docs/UI-FITTINGS.md only if the conversation component remains reusable by fittings."
+    },
+    {
+     "gate": "G1 route + menu",
+     "file": "/Users/ggomes/dev/garrison/src/components/chrome/Sidebar.tsx",
+     "change": "Add a COMMAND_ITEMS entry (id nav:talk, href /talk) near lines 426-469; create src/app/talk/page.tsx. Then update tests/sidebar-grouping.test.ts:50-59 expected href list to include '/talk' and add '/talk' to tests/vocabulary.test.ts CONVERSATION_SURFACES scan (src already covered; drop fittings/seed/web-channel-default/ui when that tree is removed)."
+    },
+    {
+     "gate": "G1 tests",
+     "file": "/Users/ggomes/dev/garrison/tests/e2e/web-channel-chat.spec.ts",
+     "change": "Port web-channel-chat.spec.ts and web-channel-session-parity.spec.ts (currently matched by playwright.web-channel.config.ts with webServer undefined) to run against the Next shell at /talk under playwright.config.ts; retire or repoint playwright.web-channel.config.ts testMatch. Migrate the 13 tests/web-channel-*.test.ts vitest suites (conversation-surface, run-context, ui-run-context, threads, live-resume, restart-reconciliation, pwa, attachments, brief, input-fifo, rail-order, discuss-kickoff, orchestrator-transport) to the new src module paths."
+    },
+    {
+     "gate": "G2 voice provider",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/capture-service/apm.yml",
+     "change": "Add `- kind: voice` / `name: companion` under provides (line ~365) so web-channel-default's `consumes: voice optional-one` (web-channel-default/apm.yml:41-43) resolves; extend tests/capture-service.test.ts boot test and tests/capture-service-voice.test.ts to cover the voice contract deepgram-voice provided (STT/TTS relay asserted in tests/deepgram-voice-live.test.ts, voice-machine.test.ts, voice-latency.test.ts - re-target or retire them)."
+    },
+    {
+     "gate": "G2 retire deepgram-voice",
+     "file": "/Users/ggomes/dev/garrison/compositions/default/apm.yml",
+     "change": "Remove the deepgram-voice dependency (line 15) and selection (line 300) and regenerate apm.lock.yaml; delete or de-list fittings/seed/deepgram-voice and its data/library.json entry; keep tests/mesh-serve-ports.test.ts (distinct serve ports) and tests/seeds tests green; note working tree already has uncommitted edits to apm.yml/apm.lock.yaml."
+    },
+    {
+     "gate": "G3 Capacitor wrap",
+     "file": "/Users/ggomes/dev/garrison/docs/decisions/2026-07-13-capacitor-native-wrap-memo.md",
+     "change": "Supersede the memo with a new decision before touching ios/: the plan contradicts it and COMPANION_IOS_SPEC Rev 2 (native app is the voice sink). ios/project.yml (XcodeGen) and ios/fastlane must be reworked or a parallel Capacitor target added; scripts/ios-testflight.sh + npm run ios:testflight is the upload seam; XCTest under ios/Tests must still run (on the mini per memory). Add tailnet-shell-load verification to tests/companion-e2e.test.ts (npm run e2e:companion)."
+    },
+    {
+     "gate": "G4 capture page + node switching + push deep links",
+     "file": "/Users/ggomes/dev/garrison/src/app/mesh",
+     "change": "Node switching belongs beside the existing /mesh route (roadmap c9.1 'instances menu to open the other nodes'); extend tests/mesh-self.test.ts / tests/mesh-proxy.test.ts / tests/view-instances.test.ts. Push deep links extend tests/capture-service-apns.test.ts and tests/omi-channel-notify.test.ts (roadmap c7.8 - deep link to card or conversation, tap opens Command Center row)."
+    },
+    {
+     "gate": "G5 record button + digest message",
+     "file": "/Users/ggomes/dev/garrison/tests/conversation-digest.test.ts",
+     "change": "Extend conversation-digest.test.ts and conversation-view.test.ts for the digest message in /talk; extend tests/capture-service-ingress.test.ts and tests/capture-service-transcribe.test.ts for the record-button upload path (sandboxed GARRISON_HOME tmpdir pattern from capture-service.test.ts:126)."
+    },
+    {
+     "gate": "G6 fittings in the app",
+     "file": "/Users/ggomes/dev/garrison/tests/view-instances.test.ts",
+     "change": "Fittings-in-app must keep tests/sidebar-pins.test.ts, tests/view-instances.test.ts, tests/instance-isolation.test.ts (port/profile pinning) and tests/mesh-serve-ports.test.ts green; verify from a non-localhost origin per CLAUDE.md hard rule (resolveViewUrl in src/components/fitting-views/browser-view-url.ts)."
+    },
+    {
+     "gate": "G7 pendant via plugin",
+     "file": "/Users/ggomes/dev/garrison/tests/pendant-e2e.test.ts",
+     "change": "npm run e2e:pendant (pendant-e2e, pendant-capture, pendant-answer-window, pendant-voice-intents, companion-lockstep) must stay green; the BLE code today is Swift in ios/GarrisonApp + ios/Shared/CaptureProtocol.swift, so a Capacitor plugin means porting it - document in docs/adr-pendant-direct.md / docs/pendant-protocol.md."
+    },
+    {
+     "gate": "G8 roadmap update",
+     "file": "/Users/ggomes/dev/garrison/roadmap.json",
+     "change": "Set done=true (and refresh text) on c8.1 (name chosen), c8.2, c8.3 (exception documented), c8.4 (migration) for G1; c7.3 for G3 (also clear its 'Found: partial' text), c7.8 for G4 push deep links, c7.1 for G7 pendant; c9.1 for node switching. Update notes n-signals (n-signals body still lists candidate names) and n-ears; bump updatedAt. Item shape: {id,text,done,sentToKanban,noteRef}."
+    }
+   ],
+   "openQuestions": [
+    "Route name: roadmap c8.1 has the name undecided (Signals/Adjutant/CIC); plan says 'Conversations' at /talk, which collides with the CONVERSATIONS.md substrate vocabulary - which name lands in menus, docs and roadmap text?",
+    "G2: should capture-service absorb deepgram STT/TTS relay behaviour (deepgram-voice-live, voice-machine, voice-latency tests) or is web-channel voice replaced by the ElevenLabs path already in capture-service? Does anything besides web-channel-default consume kind voice (only grep'd apm.yml provides, not consumes across all seeds)?",
+    "G3: does the plan intend to REPLACE the Swift Companion (BLE pendant, BroadcastExtension screen capture, background audio) with a Capacitor WebView, or add Capacitor alongside? The 2026-07-13 memo and COMPANION_IOS_SPEC Rev 2 argue native is required for the voice sink; and this Mac has no Xcode.",
+    "Roadmap c8.4 preconditions (c1 daily use, c3 widgets) are not done - is the plan explicitly overriding that gate?",
+    "Whether the uncommitted edits to compositions/default/apm.yml and apm.lock.yaml already touch deepgram-voice/capture-service stationing (not diffed in this pass).",
+    "Whether tests/e2e specs run at all on this machine given the live launchd dev server and shared .next hazards noted in memory (playwright-corrupts-next-cache)."
+   ]
+  }
+ },
+ {
+  "agentId": "a13505779536394f0",
+  "result": {
+   "summary": "capture-service (fittings/seed/capture-service, faculty channels, own_port 8097) today provides ONLY `kind: channel name: companion`. Its HTTP surface is a hand-rolled node http server in scripts/server.mjs (no express): Bearer CAPTURE_TOKEN routes under /capture/* (devices, sessions, exchanges), unauthenticated own-port surfaces (/, /sessions/<id>[/events] SSE, /speak/<hash>.mp3 clips, /health), loopback/tailnet sinks POST /notify and POST /ack, and one websocket at /capture/stream (Bearer on upgrade; modes audio | screen_audio | pendant; 17-byte binary Opus/JPEG frames; JSON control session_start/session_end/feedback_ack/spoken). STT is lib/deepgram-live.mjs TranscriptionLane: one Deepgram live websocket per SESSION fed Opus packets (encoding=opus, 16k mono, nova-3, pt) - there is no one-shot clip/batch endpoint, so a browser push-to-talk clip needs either a new short-lived session through the lane or a new REST /stt path. TTS is lib/tts.mjs ZecaVoice: ElevenLabs text-to-speech/<voiceId> mp3_44100_128, eleven_multilingual_v2, default voice RlGHmE2fztwdBDat0jYf, content-hash disk cache under $GARRISON_HOME/capture/tts-cache, MAX_TEXT_CHARS cap, `available()` fails closed without ELEVENLABS_API_KEY (phone falls back to AVSpeechSynthesizer; no crash, counters only). The gateway is reached via lib/gateway-client.mjs: POST ${gatewayUrl}/chat with channel \"garrison\", header x-garrison-origin: channel, three lanes (inferenceRunFn cheap pinned target, operativeRunFn full turn with sessionId/sessionTitle, discussRunFn routing {duty:\"discuss\",level}); conversation continuity is the gateway `sessionId` (`<originPrefix>-wake:<captureSessionId>`), not mode words. web-channel-default is the existing kind:voice CONSUMER; it discovers the provider by reading ~/.garrison/ui-fittings/deepgram-voice.json (hardcoded filename) and proxies /api/voice/stt|tts|stream|tts-stream to the provider's POST /stt, POST /tts, WS /stream, WS /tts-stream - that is the contract capture-service must implement to replace deepgram-voice. Tests: 12 vitest files tests/capture-service*.test.ts plus pendant-*/companion-e2e; all run against a sandboxed GARRISON_HOME with injected env and mock Deepgram (scripts/mock-deepgram.mjs, cfg.wsFactory). No express/sandbox harness beyond that.",
+   "facts": [
+    {
+     "topic": "HTTP routes (server.mjs)",
+     "fact": "GET /speak/<hex 8-64>.mp3 - unauthenticated, serves cached ElevenLabs clip via voice.readClip; GET /capture/exchanges - Bearer CAPTURE_TOKEN via authorizeHttp, returns {exchanges} (the Conversation screen data: user words, intent, full reply, delivery, follow-up rounds); GET /health and /api/health - unauthenticated status incl. gatewayConfigured; GET / - unauthenticated own-port status page; GET /sessions/<id> and /sessions/<id>/events - unauthenticated transcript page + SSE live segments; POST /capture/devices - Bearer, body {apns_token hex, device_name} -> {ok,count}; GET /capture/sessions - Bearer, list; GET /capture/sessions/<id> - Bearer, one record; POST /notify - NO token (loopback/tailnet trust), body {text, title?, link?, tag?, idempotencyKey?}; /capture/stream over plain HTTP -> 400 'websocket upgrade required'; any other /capture/* -> 501; POST /ack - NO token, kanban fanOutAck sink; else 404.",
+     "evidence": "fittings/seed/capture-service/scripts/server.mjs:296-300 (speak), :318 (exchanges), :372 (health), :437 (/), :444 (sessions view), :487 (devices), :517 (sessions), :535 (session), :551 (notify), :588-596 (stream 400 / 501), :603 (ack); authorizeHttp :269-285"
+    },
+    {
+     "topic": "Auth ladder",
+     "fact": "authorizeHttp: cfg.enabled false -> 403 'capture ingress disabled'; no CAPTURE_TOKEN sealed -> 403 'CAPTURE_TOKEN not sealed'; token mismatch -> 401 'bad token'. tokenMatches is timing-safe digest compare; bearerToken parses 'Bearer <x>' header. Same ladder on websocket upgrade.",
+     "evidence": "scripts/server.mjs:269-285; lib/ingress.mjs:48-59, :141"
+    },
+    {
+     "topic": "Websocket /capture/stream",
+     "fact": "Only websocket path is /capture/stream (other paths refused on upgrade). Bearer CAPTURE_TOKEN on upgrade. Control frames JSON: session_start {mode: audio|screen_audio|pendant, consent shown|suppressed, codec opus|opus_fs320 for pendant}, session_end {reason user|error|timeout}, feedback_ack, spoken {spoken:<ackId>, ok, reason?}. Server -> client: {type:'ack', stream, seq}, {type:'speak', ack:{...,audioPath:'/speak/<id>.mp3'}}, {type:'error'}. Binary media: 17-byte LE header [u8 kind][u32 seq][f64 ts_ms][u32 len] kind 0 Opus, kind 1 JPEG. Sessions survive socket drops; session_start with a live id resumes; ended ids refuse to reopen. pendant mode gated on cfg.pendantEnabled.",
+     "evidence": "lib/ingress.mjs:1-46, :120-141 (upgrade), :181-218 (control types), :247 (pendant gate), :349 (KIND_AUDIO); lib/ack-sink.mjs:195-200 (speak frame)"
+    },
+    {
+     "topic": "capture.mjs",
+     "fact": "scripts/capture.mjs is ONLY the verify hook: `--probe` loads config, checks port, prints CAPTURE-OK port=... flags=ingress,transcribe,wake,notify,speak. Serves no HTTP. The server is scripts/server.mjs (started by scripts/start.mjs).",
+     "evidence": "fittings/seed/capture-service/scripts/capture.mjs:1-20; apm.yml:376-379 verify command"
+    },
+    {
+     "topic": "deepgram-live.mjs",
+     "fact": "Exports deepgramUrl(cfg), segmentFromResults(msg), class TranscriptionLane {available(), openSession(sessionId)->bool, feed(sessionId, opusBytes), liveSegments(sessionId), subscribe(sessionId, listener), end(sessionId)->segments, close()} plus internal SessionTranscription {connect, feed, armMuteWatchdog, end, subscribe}. One Deepgram websocket per capture session (wss://api.deepgram.com or cfg.dgBaseUrl), params model=cfg.sttModel (nova-3), language=cfg.sttLanguage (pt), encoding=opus, sample_rate=16000, channels=1, interim_results, smart_format, endpointing=300; header authorization: Token <DEEPGRAM_API_KEY>. Streaming ONLY - no batch/prerecorded call; input must be raw Opus packets (normalizeOpusPacket), not webm/wav. A browser push-to-talk clip would need either a new lane path (openSession + feed + end per clip, or Deepgram /v1/listen REST) - nothing exists today. Reconnects with a FEED_QUEUE_MAX 1024-packet buffer; wsFactory injectable for the mock.",
+     "evidence": "lib/deepgram-live.mjs:1-47, :95-101, :323-386"
+    },
+    {
+     "topic": "tts.mjs",
+     "fact": "Exports textSeed, clipId({text,voiceId,model,lang}) sha256 first 32 hex, looksPortuguese, class ZecaVoice {pin(id), cachedClipFor(text,{lang}), available(), clipPath(id), readClip(id), clipFor(text,{lang}) -> {id,cached}|null, generate(text,id,lang), pruneCache()}. POST https://api.elevenlabs.io/v1/text-to-speech/<ttsVoiceId>?output_format=mp3_44100_128 with model_id cfg.ttsModel (default eleven_multilingual_v2), deterministic seed, stability/similarity 0.75. Voice id default RlGHmE2fztwdBDat0jYf ('Diogo', pt-PT). Cache dir <stateDir>/tts-cache/<id>.mp3, oldest-first prune to ttsCacheMaxClips (500), pinned ids exempt. Text above MAX_TEXT_CHARS -> null (tts_skipped_too_long). Served to phones by GET /speak/<id>.mp3.",
+     "evidence": "lib/tts.mjs:34, :41-60, :80-123, :147-215, :221-246; lib/config.mjs:135-144"
+    },
+    {
+     "topic": "ELEVENLABS_API_KEY absence",
+     "fact": "Only capture-service reads ELEVENLABS_API_KEY (cfg.secrets.elevenLabsApiKey). ZecaVoice.available() returns {ok:false, reason:'no ElevenLabs key'}; clipFor returns null; ack-sink then sends the speak frame without audioPath so the phone uses its own synthesizer. No throw, no startup failure; verify probe does not need it. apm.yml documents this degrade.",
+     "evidence": "lib/config.mjs:50; lib/tts.mjs:115-121, :150; lib/ack-sink.mjs:192-200; apm.yml:124-126, :359"
+    },
+    {
+     "topic": "wake.mjs",
+     "fact": "2160 lines. Exports wakeRegex, endsSentence, normalizeTitle, shortRef, humanTime, vagueTimeAnchors, buildWakePrompt, parseWakeReply, buildFollowupPrompt, buildDelegatePrompt, buildRevisionPrompt, parseRevisionReply, DISCUSS_END, buildVoiceDiscussPrompt, buildVoiceDiscussTurn, splitForSpeech, OMI_WAKE_SOURCE, class WakeBus. WakeBus ctor takes {cfg, store, counters, runFn (cheap classifier), operativeFn (full turn), board, memoryWriter, notifier, speakFn, discussFn, connectorFn, cortexFn, screenContextFn, onLifecycle, language}. In-memory only per capture session: discussions Map, answers Map (clarifying-question window, wakeFollowupWindowMs default 12000), revisions Map. Delegation calls operativeFn with sessionId `${source.originPrefix}-wake:${captureSessionId}` and sessionTitle 'Omi spoken request' so follow-ups share one gateway session. cfg.wakeCommandWindowMs (default 60000) bounds the command capture.",
+     "evidence": "lib/wake.mjs:40-667 exports, :667-713 ctor, :875-905 answer window, :894, :1234, :1910-1926"
+    },
+    {
+     "topic": "echo-guard.mjs",
+     "fact": "Exports normalizeTokens(text) and class EchoGuard {prune(), registerShort(text,{ttlMs}), register({text, echo}), shouldSuppress(segmentText)}. Token-containment match of incoming transcript segments against a TTL window of what Garrison just spoke, to stop spoken acks being re-ingested as user speech. Wired as TranscriptionLane suppressFilter.",
+     "evidence": "lib/echo-guard.mjs:1-25, :43-94; lib/deepgram-live.mjs:331-334"
+    },
+    {
+     "topic": "screen-context.mjs",
+     "fact": "class ScreenContextIndex {maxAgeMs(), latest({atMs})}. Scans ingress.sessions for mode==='screen_audio', takes the newest JPEG frame from session.media.latestFrame(), returns {stale, sessionId, seq, file, ageMs} or null; stale when older than cfg.screenContextMaxAgeMs (30000). Gated by cfg.screenContextEnabled. NO digest or summary logic - it only selects a frame file; interpretation happens in the delegate prompt (buildDelegatePrompt screen param). Screen_audio transcription can be skipped via screen_audio_transcribe=false.",
+     "evidence": "lib/screen-context.mjs:25-69; lib/wake.mjs:486; lib/ingress.mjs:315-318; lib/config.mjs:197-203"
+    },
+    {
+     "topic": "notify.mjs / POST /notify contract",
+     "fact": "POST /notify body: {text (required), title? (<=120, default 'Garrison'), link? (string; loopback URLs stripped), tag? (default 'relay'; priorityForTag -> interactive|routine), idempotencyKey?}. Returns array of receipts [{means:'companion-push'|'web-channel'|'none', ok, target?, skipped?, error?}]. CompanionNotifier.deliver -> sendPush via APNs (payload {title, body, data:{link, tag}}) with daily caps per priority, dead-token pruning, retries; degrades to sendWebChannelFallback posting into web-channel thread COMPANION_THREAD_ID 'companion-reports' resolved from ui-fittings/web-channel-default.json. Deep link field is `link` (single bare URL; boardCardUrl pairs loopback board url to tailnet). No other deep-link fields (no route/node/thread).",
+     "evidence": "scripts/server.mjs:551-586; lib/notify.mjs:19, :68, :93-110, :241-300; lib/apns.mjs"
+    },
+    {
+     "topic": "gateway-client.mjs",
+     "fact": "Gateway URL from cfg.gatewayUrl = resolveGatewayUrl(env): GARRISON_GATEWAY_URL, else GARRISON_GATEWAY_HOST(127.0.0.1)+GARRISON_GATEWAY_PORT, else null (server refuses gateway lanes). Single endpoint POST ${gatewayUrl}/chat, headers content-type json + x-garrison-origin: channel, body channel:'garrison', message, suppressContinuations:true, timeoutMs. inferenceRunFn adds classification {taskType:'other', tier:'T0-trivial'} and optional routing:{target}; operativeRunFn adds sessionId/sessionTitle; discussRunFn adds routing:{duty:'discuss', level} + sessionTitle 'Spoken discussion'. Response {reply|text, session_id}. No mode words ('James,'/'Joe,') used; continuity is sessionId. 502/503/504 or network -> err.transport=true (requeue).",
+     "evidence": "lib/config.mjs:65-77; lib/gateway-client.mjs:29-60, :82-110, :136-173; scripts/server.mjs:657-660, :766-767, :990"
+    },
+    {
+     "topic": "store.mjs",
+     "fact": "Root = $GARRISON_CAPTURE_DIR or $GARRISON_HOME/capture. Layout: sessions/<sessionId>.json, transcripts/<sessionId>.json, media/<sessionId>/ (frames/<seq>.jpg + audio log), events/<id>.json (capture_event), index.json (dedupe), devices.json (APNs tokens), notify-ledger.json, counters-<name>.json; plus tts-cache/ (tts.mjs) and status file at ~/.garrison/ui-fittings/capture-service.json ({url:'http://localhost:<port>', ...}). Exports ulid, atomicWrite, atomicWriteJSON, readJSON, CaptureStore, Counters, mergedCounters.",
+     "evidence": "lib/store.mjs:6-15, :79-90; lib/config.mjs:28-33; lib/tts.mjs:87; scripts/server.mjs:86-94"
+    },
+    {
+     "topic": "config.mjs",
+     "fact": "loadConfig(env) reads GARRISON_CAPTURESERVICE_<KEY> per apm config key: PORT (default 7097 base; prod shifted), BIND_HOST/GARRISON_BIND_HOST, flags ENABLED, TRANSCRIBE_ENABLED, WAKE_ENABLED, NOTIFY_ENABLED, SPEAK_ENABLED, PENDANT_ENABLED, CAPTURE_POLICY (wake_only|ambient), STT_MODEL/STT_LANGUAGE/STT_KEYTERMS, TTS_ENABLED/TTS_VOICE_ID/TTS_MODEL/TTS_CACHE_MAX_CLIPS, CUE_ENABLED, VOICE_LANGUAGE, LANGUAGE_MEMORY_TTL_MS, DISCUSS_*, SEND_*, CONFIRM_*, AUTOMATE_ENABLED, CORTEX_*, SCREEN_CONTEXT_ENABLED/MAX_AGE_MS, SCREEN_AUDIO_TRANSCRIBE, TRANSCRIBE_MUTE_TIMEOUT_MS, DG_URL, APNS_URL, APNS_ENVIRONMENT, CLASSIFY_TARGET, DELEGATE_ENABLED/TIMEOUT_MS, WAKE_* windows. Secrets from exact vault names: DEEPGRAM_API_KEY, CAPTURE_TOKEN, APNS_TEAM_ID, APNS_KEY_ID, APNS_P8, ELEVENLABS_API_KEY. All flags default OFF.",
+     "evidence": "lib/config.mjs:13-15, :79-245, :288-296; apm.yml:357-363"
+    },
+    {
+     "topic": "Tests",
+     "fact": "tests/capture-service*.test.ts: ack-sink, apns, cues, ingress, replay, screen-context, transcribe, triage, voice (ZecaVoice with fetch stub), wake, and capture-service.test.ts (config + server boot in sandboxed GARRISON_HOME, /health). Also pendant-capture, pendant-e2e, pendant-answer-window, pendant-voice-intents, companion-e2e, drill-*-capture-e2e, lang-detect. Harness: injected env with GARRISON_HOME sandbox, mock Deepgram websocket (cfg.wsFactory / scripts/mock-deepgram.mjs), scripts/replay-client.mjs + fixtures/ for E2E replay. No 'sandbox' harness keyword beyond apnsEnvironment.",
+     "evidence": "ls tests | grep capture (15 files); tests/capture-service.test.ts:6, :71; tests/capture-service-ingress.test.ts:4; tests/capture-service-transcribe.test.ts:147-269; tests/capture-service-voice.test.ts:15-16"
+    },
+    {
+     "topic": "Existing kind:voice contract (deepgram-voice, web-channel consumer)",
+     "fact": "deepgram-voice (faculty connectors, port 8085) provides kind:voice name deepgram + kind:connector, serving POST /stt (audio in, content-type default audio/webm -> {transcript}), POST /tts ({text} -> audio bytes), WS /stream (live STT), WS /tts-stream (Aura-2 read-aloud), GET /health. web-channel-default consumes kind:voice but discovers the provider by HARDCODED status filename ~/.garrison/ui-fittings/deepgram-voice.json and proxies /api/voice/health, /api/voice/stt, /api/voice/tts, /api/voice/stream, /api/voice/tts-stream to it.",
+     "evidence": "fittings/seed/deepgram-voice/apm.yml:8-12, :54-57; fittings/seed/deepgram-voice/scripts/server.mjs:144-150, :744-767; fittings/seed/web-channel-default/scripts/server.mjs:97, :164-171, :286, :3323-3326, :3396-3402; web-channel-default/apm.yml:42, :92-97"
+    },
+    {
+     "topic": "Composition state",
+     "fact": "compositions/default/apm.yml stations both capture-service (id at :100) and deepgram-voice (:300). Working tree has an uncommitted 7-line comment deletion (whatsapp/8087 rationale) plus apm.lock.yaml modified. Next shell has src/app/api/conversation and no /talk route yet; app routes: accounts api armory compose connectors coordination embed file fitting host-map memory mesh muster quarters results run settings vault.",
+     "evidence": "compositions/default/apm.yml:10, :15, :100, :300; git diff --stat; ls src/app"
+    }
+   ],
+   "stalePremises": [
+    {
+     "premise": "Plan/CLAUDE.md: `voice` own-port residue is port 27085 and lives under sessions/channels/observability",
+     "reality": "Committed map is 8xxx family: deepgram-voice default_port 8085 (faculty connectors), capture-service 8097 (faculty channels). config.mjs DEFAULT_PORT 7097 is the old base-family literal and disagrees with apm.yml default_port 8097 (prod arrives via GARRISON_CAPTURESERVICE_PORT so it is harmless at runtime, but the comment is stale).",
+     "evidence": "fittings/seed/capture-service/apm.yml:13; lib/config.mjs:15; fittings/seed/deepgram-voice/apm.yml:12"
+    },
+    {
+     "premise": "Plan G2: capture-service can 'become the voice provider' by adding `provides: kind: voice`",
+     "reality": "capture-service has no REST /stt or /tts and its STT lane is Opus-streaming-only per session; the consumer contract web-channel expects is POST /stt (webm/any audio -> {transcript}), POST /tts ({text} -> audio bytes), WS /stream, WS /tts-stream, discovered via the hardcoded status filename deepgram-voice.json. Declaring the kind alone changes nothing for consumers.",
+     "evidence": "lib/deepgram-live.mjs:26-47, :343-360; web-channel-default/scripts/server.mjs:97, :3323-3326; server.mjs:588-596 (other /capture/* -> 501)"
+    },
+    {
+     "premise": "Plan G5: capture-service has digest/summary logic for screen_audio sessions to reuse for a 'digest message'",
+     "reality": "screen-context.mjs only picks the freshest JPEG frame from a live screen_audio session; no digest/summary exists. Transcript finals are stored per session (transcripts/<id>.json) and triaged by the kanban heartbeat, not summarised here.",
+     "evidence": "lib/screen-context.mjs:25-69; lib/store.mjs:8; apm.yml for_consumers :17-20"
+    },
+    {
+     "premise": "CLAUDE.md memory: gateway mode comes from leading 'James,'/'Joe,' words in the message",
+     "reality": "capture-service never uses mode words; it pins routing explicitly (routing:{target} or routing:{duty:'discuss',level}) and keeps continuity via sessionId. A Conversations route reusing gateway-client should follow the sessionId pattern.",
+     "evidence": "lib/gateway-client.mjs:43-46, :93-95, :147-150"
+    },
+    {
+     "premise": "Plan: /notify carries deep-link fields for node switching / route deep links",
+     "reality": "Only a single `link` string (loopback stripped) and `tag` travel in APNs data; no node, route, thread or conversation fields exist.",
+     "evidence": "scripts/server.mjs:565-580; lib/notify.mjs:266"
+    },
+    {
+     "premise": "CLAUDE.md: capture.mjs is the fitting server",
+     "reality": "scripts/capture.mjs is the --probe verify hook only; scripts/server.mjs (started by start.mjs) is the server.",
+     "evidence": "scripts/capture.mjs:1-20; apm.yml:376-379"
+    }
+   ],
+   "seams": [
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/capture-service/apm.yml",
+     "change": "Under x-garrison.provides add `- kind: voice\\n  name: companion` beside the existing channel entry (line ~364). Keep secret_scope (DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, CAPTURE_TOKEN). Add config keys stt_rest_enabled/tts_rest_enabled if the browser lanes need their own flags; update description/for_consumers to state the voice contract."
+    },
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/capture-service/scripts/server.mjs",
+     "change": "In makeRequestHandler (line ~288) BEFORE the `p.startsWith('/capture/')` 501 catch-all (line ~594): add `POST /stt` (or /capture/stt) - authorizeHttp Bearer CAPTURE_TOKEN, read binary body, transcribe, respond {transcript}; add `POST /tts` - Bearer, body {text, lang?}, call voice.clipFor(text) then stream readClip bytes as audio/mpeg (or 204 when unavailable so the browser falls back to Web Speech); add `GET /health` fields voice:{stt, tts} from transcriber.available()/voice.available(). Register WS `/stream` in ingress.handleUpgrade (lib/ingress.mjs:123 currently rejects any pathname other than /capture/stream) that opens a TranscriptionLane session keyed by a generated id and relays segments as JSON. Write status file url (line 94) unchanged; add `voice: true` marker."
+    },
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/capture-service/lib/deepgram-live.mjs",
+     "change": "Add a one-shot path for browser clips: either `transcribeClip(bytes, contentType)` calling Deepgram REST https://api.deepgram.com/v1/listen?model=&language=&smart_format=true with Authorization Token <key> (reuse cfg.sttModel/sttLanguage/dgBaseUrl for the mock), or make TranscriptionLane accept a non-Opus encoding param per session (deepgramUrl hardcodes encoding=opus sample_rate=16000 at lines 30-31). Browser MediaRecorder yields webm/opus containers, not raw Opus packets, so the REST path is the honest one."
+    },
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/web-channel-default/scripts/server.mjs",
+     "change": "Replace VOICE_STATUS_FILE hardcoded 'deepgram-voice.json' (line 97) with discovery of the stationed kind:voice provider (env from runner e.g. GARRISON_VOICE_URL, or scan ui-fittings/*.json for a `voice` marker / capture-service.json); forward the Bearer CAPTURE_TOKEN (needs CAPTURE_TOKEN added to web-channel secret_scope or a runner-projected env) on /api/voice/stt|tts proxies (lines 3323-3326) if the new endpoints stay token-gated. If G1 moves the UI into the Next shell, mirror these proxies as src/app/api/voice/* routes instead."
+    },
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/compositions/default/apm.yml",
+     "change": "Remove the deepgram-voice dependency (line 15) and its selection block (line ~300); keep capture-service (line 10/100) and set tts_enabled/transcribe_enabled/speak flags on. Also data/library.json entry for deepgram-voice de-listed; then `npm run node:redeploy`."
+    },
+    {
+     "gate": "G1",
+     "file": "/Users/ggomes/dev/garrison/src/app/talk/page.tsx (new) + src/app/api/conversation/*",
+     "change": "New shell route reading capture-service `GET /capture/exchanges` (Bearer from vault via server-side route, never exposed to the browser) for the spoken-exchange history, and posting turns to the gateway with the same body shape as lib/gateway-client.mjs operativeRunFn (channel 'garrison', sessionId, sessionTitle, x-garrison-origin: channel). Add 'nav:talk' as a pinnable Command route in sidebar pins."
+    },
+    {
+     "gate": "G5",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/capture-service/lib/wake.mjs + lib/gateway-client.mjs",
+     "change": "Active-conversation 5-minute window: add cfg.activeConversationWindowMs (config.mjs, GARRISON_CAPTURESERVICE_ACTIVE_CONVERSATION_WINDOW_MS default 300000) and in WakeBus keep `lastGatewaySession = {sessionId, at}` per capture session; in the delegate call (wake.mjs ~1910-1926) reuse that sessionId when now - at < window instead of the fixed `${originPrefix}-wake:${captureSessionId}`, and when the new /talk route posts a turn, publish its gateway session_id back (POST /capture/conversation/active {sessionId}) so the spoken path attaches to the browser conversation. operativeRunFn already returns sessionId from data.session_id (only discussRunFn surfaces it today at line 170 - make operativeRunFn return it too)."
+    },
+    {
+     "gate": "G5",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/capture-service/scripts/server.mjs",
+     "change": "Digest message after a session ends: in the ingress onSessionEnd hook (server wires CaptureIngress with onSessionEnd, ingress.mjs:94) read transcripts/<id>.json, run inferenceRunFn on the cheap lane with a summary prompt, and append the digest to the exchanges store consumed by GET /capture/exchanges so the Conversations route shows it; optionally POST /notify with link to /talk."
+    },
+    {
+     "gate": "G4",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/capture-service/lib/notify.mjs + lib/apns.mjs",
+     "change": "Extend APNs `data` (notify.mjs:266) with structured deep-link fields {route, node, conversationId} alongside `link`; extend POST /notify parsing (server.mjs:565-580) to accept them; keep loopback stripping. Register devices per node via POST /capture/devices adding node id to the registry entry."
+    },
+    {
+     "gate": "G6/G7",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/capture-service/lib/ingress.mjs",
+     "change": "Pendant via Capacitor plugin keeps using WS /capture/stream with mode 'pendant' and codec opus|opus_fs320 (MODES/PENDANT_CODECS lines 42-46); no server change needed unless the plugin cannot produce raw Opus packets, in which case add a codec value and normalise in opus-normalize.mjs."
+    }
+   ],
+   "openQuestions": [
+    "Should browser STT/TTS endpoints on capture-service be Bearer CAPTURE_TOKEN gated (then the Next shell must proxy server-side and hold the token) or unauthenticated like /speak and the own-port surfaces? web-channel today proxies to an unauthenticated deepgram-voice.",
+    "Does the plan keep Deepgram for STT (DEEPGRAM_API_KEY) and ElevenLabs for TTS, or must the kind:voice provider also offer the Aura-2 style WS /tts-stream read-aloud that web-channel proxies at /api/voice/tts-stream? ElevenLabs streaming is not implemented in tts.mjs.",
+    "How does the runner project the voice provider to consumers (no GARRISON_VOICE_URL env exists; web-channel reads a hardcoded status filename) - is a capabilities.ts change wanted so consumes kind:voice yields an env var?",
+    "Where should the 'active conversation' state live so spoken turns and the /talk browser turns share one gateway sessionId across nodes - capture-service memory (per node) or the state service?",
+    "tests/capture-service.test.ts boots the server against a sandboxed GARRISON_HOME; new /stt and /tts routes need mock Deepgram REST and mock ElevenLabs fetch stubs (fetchImpl already injectable in ZecaVoice) - confirm the plan budgets test work for the sandbox."
+   ]
+  }
+ },
+ {
+  "agentId": "a08475ff31848c737",
+  "result": {
+   "summary": "Mapped three areas. (A) omi-channel is a channels-faculty own-port fitting (port 8094) whose Omi chat tool `ask_zeca` is a manifest served at GET /omi/tools-manifest and answered at POST /omi/chat; both live in fittings/seed/omi-channel/lib/chat.mjs and scripts/server.mjs. Omi transcripts arrive at POST /omi/realtime (in-memory wake detection) and POST /omi/memory and /omi/day-summary (triage); everything reaches the operative through the gateway's POST /chat via lib/gateway-client.mjs (fast lane pins classification T0-trivial; operative lane passes sessionId per capture session). Tests: 10 tests/omi-channel*.test.ts files plus tests/omi-wake-card-commands.test.ts. (B) screen-share-default (surfaces, port 8079) is a 1fps `screencapture -x` JPEG poller with GET /health, /state, /frame and POST /start, /stop; no video, no audio, no recordings - the only artifact is /tmp/garrison-screen-latest.jpg. capture-service (channels, port 8097) already stores 1.5fps frames from the iOS broadcast extension under media/<sessionId>/frames but nothing reads them back; Deepgram live STT is embedded in capture-service (lib/deepgram-live.mjs) and it does not consume deepgram-voice. (C) Gateway = fittings/seed/http-gateway/scripts/gateway-pty.mjs (5512 lines; gateway.mjs is a 6-line shim). Channels POST /chat (blocking JSON {reply, session_id,...}) or POST /chat/stream (SSE events open, route, chunk, tool, activity, session_event, done, error); a conversation is identified by body.sessionId (or web's `thread`) parsed in routeHintsFromBody; web-channel stores messages one file per thread under $GARRISON_HOME/web-channel/threads/<id>.json with a debounced index in the state service (config doc web-channel.threads / node:<name>, sorted by lastMessageAt). There is no gateway-side \"active conversation\" notion; the nearest is web-channel's runningThreadIds()/runningSince in handleThreadsList. The James/Joe mode-word engine is RETIRED per docs/CAPABILITIES.md:332 and nothing in the gateway or web-channel matches \"James\". No Watch aptidao (screen-recording digest) exists anywhere in docs or roadmap.json.",
+   "facts": [
+    {
+     "topic": "A omi chat tool",
+     "fact": "Omi chat tool is named `ask_zeca`, one parameter {query}, auth_required:false, served by buildManifest() with endpoint `${publicBaseUrl}/omi/chat?key=<webhookSecret>`; manifest root also declares chat_messages {enabled, target:\"main\", notify:false} so the fitting can push proactive chat messages.",
+     "evidence": "fittings/seed/omi-channel/lib/chat.mjs:29-66"
+    },
+    {
+     "topic": "A omi chat routes",
+     "fact": "Server routes: POST /omi/chat (chat tool answer) and GET /omi/tools-manifest (manifest), both gated on `chatTool` being constructed; chat disabled returns 403 \"This tool is currently disabled.\"",
+     "evidence": "fittings/seed/omi-channel/scripts/server.mjs:631,643; lib/chat.mjs:173,277"
+    },
+    {
+     "topic": "A omi chat behaviour",
+     "fact": "ask_zeca tries a fast tool-free lane first (small pinned classifier via gateway /chat with classification {taskType:\"other\", tier:\"T0-trivial\"}, ~8.5s budget) and replies WORKING_ANSWER then delegates to the full operative lane asynchronously, pushing the answer later via omi chat_messages/push.",
+     "evidence": "fittings/seed/omi-channel/lib/chat.mjs:26-27,70-96,117-165; lib/gateway-client.mjs:14-28,39-49"
+    },
+    {
+     "topic": "A omi transcript ingress",
+     "fact": "Omi transcripts reach the fitting at POST /omi/realtime (ingress.acceptRealtime, in-memory only, keyed by query.session_id), POST /omi/memory and POST /omi/day-summary (ingress.accept -> store -> triage). Also POST /internal/omi-push, POST /ack, POST /api/threads (thread-append contract, loopback/tailnet only).",
+     "evidence": "fittings/seed/omi-channel/scripts/server.mjs:448-526"
+    },
+    {
+     "topic": "A omi -> operative path",
+     "fact": "All model calls go to the http-gateway `${gatewayUrl}/chat` with header x-garrison-origin: channel and channel:\"garrison\"; the operative lane (operativeRunFn) passes sessionId/sessionTitle so a capture session maps to one gateway session; gatewayUrl resolves from GARRISON_GATEWAY_URL or GARRISON_GATEWAY_HOST/PORT. No capture-service endpoint is called by omi-channel today.",
+     "evidence": "fittings/seed/omi-channel/lib/gateway-client.mjs:39-49,89-100; lib/config.mjs:89-98; lib/wake.mjs:497-503"
+    },
+    {
+     "topic": "A omi tests",
+     "fact": "omi-channel tests: tests/omi-channel.test.ts (sandboxed boot with GARRISON_HOME tmpdir, status file, /health), omi-channel-backfeed/chat/e2e/ingress/notify/triage/wake .test.ts, omi-channel-mjs.d.ts, omi-wake-card-commands.test.ts. apm.yml has no `sandbox` key.",
+     "evidence": "ls tests | grep omi; tests/omi-channel.test.ts:6,93-101,272-293"
+    },
+    {
+     "topic": "A omi manifest",
+     "fact": "omi-channel: faculty channels, own_port true, default_port 8094, provides kind:channel, consumes vault + memory-store.",
+     "evidence": "fittings/seed/omi-channel/apm.yml:8-13,149-155"
+    },
+    {
+     "topic": "A capture-service already knows pendant/omi sources",
+     "fact": "triage.mjs already models capture channels including 'Pendant Direct (capture-service mode \"pendant\")' and joins $GARRISON_HOME/capture events into the same triage tick; wake.mjs exists in BOTH fittings (capture-service/lib/wake.mjs is a superset with speak/discuss lanes; cross-fitting imports are forbidden so it is a copy).",
+     "evidence": "fittings/seed/omi-channel/lib/triage.mjs:26-56,207-216; fittings/seed/capture-service/lib/wake.mjs:664-684,872,1615; capture-service/lib/store.mjs:18"
+    },
+    {
+     "topic": "B screen-share manifest",
+     "fact": "screen-share-default: faculty surfaces, own_port true, default_port 8079, provides kind:screen-share, consumes []; setup `node ui/build.mjs`; verify probe.mjs --probe; config keys port, bind_host, capture_interval_ms.",
+     "evidence": "fittings/seed/screen-share-default/apm.yml:7-42"
+    },
+    {
+     "topic": "B screen-share routes",
+     "fact": "HTTP routes: GET /health, GET /state, GET /frame, POST /start, POST /stop, plus static dist/ files. Capture = `screencapture -x -t jpg /tmp/garrison-screen-latest.jpg` in a polling loop (~1fps). No ffmpeg/avfoundation, no audio, no video recording, no recordings directory - the only artifact is the single latest JPEG.",
+     "evidence": "fittings/seed/screen-share-default/scripts/server.mjs:21,60,243-249"
+    },
+    {
+     "topic": "B capture-service frames",
+     "fact": "capture-service already receives 1.5fps JPEG stills from the iOS broadcast extension over WS /capture/stream and media-log writes them to media/<sessionId>/frames/<seq>.jpg; screen-context.mjs reads them back only for wake context (screenContextEnabled).",
+     "evidence": "fittings/seed/capture-service/lib/screen-context.mjs:3-5,36-45; lib/ingress.mjs:122-147,255-269"
+    },
+    {
+     "topic": "B/G2 capture-service manifest",
+     "fact": "capture-service: faculty channels, own_port true, default_port 8097, provides kind:channel name:companion; consumes vault + memory-store. It does NOT provide kind:voice. HTTP routes: GET /capture/exchanges, /health, /, /capture/sessions; POST /capture/devices, /notify, /ack; WS upgrade at /capture/stream; any other /capture/* returns 501.",
+     "evidence": "fittings/seed/capture-service/apm.yml:8-13,365-370; scripts/server.mjs:318-603,970"
+    },
+    {
+     "topic": "G2 deepgram-voice",
+     "fact": "deepgram-voice: faculty connectors, own_port 8085, provides kind:voice name:deepgram AND kind:connector name:deepgram (actions transcribe/synthesize); HTTP /stt, /tts, /stream, /tts-stream. Stationed in compositions/default/apm.yml (path dep line 15, selection line 300, port 8085).",
+     "evidence": "fittings/seed/deepgram-voice/apm.yml:8-59; compositions/default/apm.yml:15,300-302"
+    },
+    {
+     "topic": "G2 deepgram-voice consumers",
+     "fact": "Consumers of deepgram-voice: web-channel-default (consumes kind:voice; reads ui-fittings/deepgram-voice.json; proxies /api/voice/stt,/tts,/stream,/tts-stream), dev-env server (VOICE_STATUS_FILE deepgram-voice.json; POST /voice/tts, /voice/stt bridge), automations connector-invoke (connectorId \"deepgram\" -> \"deepgram-voice\"), Sidebar icon map, own-port-lifecycle.ts. capture-service embeds its own Deepgram live client (lib/deepgram-live.mjs, DEEPGRAM_API_KEY from env) and does not call deepgram-voice.",
+     "evidence": "fittings/seed/web-channel-default/apm.yml:42,92-100; web-channel-default/scripts/server.mjs:97,3325-3326,3396-3402; fittings/seed/dev-env/scripts/server.mjs:95,860,909-954; fittings/seed/automations/lib/connector-invoke.mjs:102; src/components/chrome/Sidebar.tsx:324; src/lib/own-port-lifecycle.ts; capture-service/lib/deepgram-live.mjs:339; capture-service/lib/config.mjs:290"
+    },
+    {
+     "topic": "C gateway location",
+     "fact": "Gateway = fittings/seed/http-gateway; scripts/gateway.mjs is a 6-line shim importing scripts/gateway-pty.mjs (5512 lines); routing helpers in scripts/lib/gateway-routing.mjs, routing-table.mjs, session-registry.mjs.",
+     "evidence": "fittings/seed/http-gateway/scripts/gateway.mjs:1-6; ls fittings/seed/http-gateway/scripts/lib"
+    },
+    {
+     "topic": "C gateway routes",
+     "fact": "Routes: GET /health, GET /route/options, POST /control/reload-prompt, POST /chat/interrupt, /chat/generation, /chat/recover, /chat/permission, GET /screen, GET /screen/stream, POST /chat, POST /chat/stream, /conversation/{open,advance,message,kick,cancel} (+ findings sub-routes), POST /escalate, /chat/answer, /attachments, /jobs, /feedback/override, /compact/boundary, GET /compact/log, GET /materialized/status, /claude/{stream,status,commands,message,keys,mode,interrupt,answer}.",
+     "evidence": "fittings/seed/http-gateway/scripts/gateway-pty.mjs:4273-5299"
+    },
+    {
+     "topic": "C post + reply",
+     "fact": "POST /chat: body {message, channel, sessionId|thread, sessionTitle, classification?, routing?, suppressContinuations?, timeoutMs?, mode?, images?, skill?, inputId?, turnSeq?} -> blocking JSON {reply, session_id, cost_usd, ...} (400 if channel==\"web\", which must use the stream). POST /chat/stream: same body, SSE events `open` {ts, generationId}, `route` (pending then final), `chunk`, `tool`, `activity`, `session_event`, `done` {...result, context}, `error`; keepalive comments every 15s. Web channel requires sessionId (thread) + inputId and ROUTING_ENABLED (503 otherwise).",
+     "evidence": "fittings/seed/http-gateway/scripts/gateway-pty.mjs:4408-4470,4541-4560; routeHintsFromBody at 3842-3900"
+    },
+    {
+     "topic": "C conversation identity",
+     "fact": "Conversation identity in the gateway = hints.sessionId (body.sessionId or web's body.thread) plus per-request generationId; card conversations use /conversation/* with conversationId (= cardId, regex ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$). Session registry in the state service holds RUN metadata only (node, composition, runtime, cwd, busy), never transcripts.",
+     "evidence": "gateway-pty.mjs:3878-3886,2340,4721; scripts/lib/session-registry.mjs:1-22"
+    },
+    {
+     "topic": "C web-channel thread storage",
+     "fact": "web-channel threads: messages one file per thread at $GARRISON_HOME/web-channel/threads/<id>.json on the owning node; compact index in state service config doc \"web-channel.threads\"/\"node:<name>\" {threads:[{id,title,lastMessageAt,messageCount,cardId}],updatedAt}, debounced and capped to most recent MAX_THREADS. API: GET/POST /api/threads, /api/threads/:id/*, GET /api/mesh-threads.",
+     "evidence": "fittings/seed/web-channel-default/lib/thread-registry.mjs:1-28,96-131; scripts/server.mjs:2244-2300,2546-2549,3343"
+    },
+    {
+     "topic": "C active conversation",
+     "fact": "No gateway-side 'active conversation' or 'last conversation touched' concept exists (grep active|lastActive|recent in gateway lib returns nothing relevant). The closest is web-channel's handleThreadsList which stamps runningSince from runningThreadIds()/remote-shell state/conversationRunningSince and orders by updatedAt/lastMessageAt.",
+     "evidence": "fittings/seed/web-channel-default/scripts/server.mjs:2244-2280; thread-registry.mjs:22,91"
+    },
+    {
+     "topic": "C mode words",
+     "fact": "No James,/Joe, prefix parsing exists in the gateway or web-channel (zero matches in gateway-pty.mjs, gateway-routing.mjs, web-channel server). Only surviving mentions are the retired-notice in docs/CAPABILITIES.md and a legacy dogfood-dev orchestrator command file. Gateway `mode` today is body.mode passed through hints (and /claude/mode target).",
+     "evidence": "docs/CAPABILITIES.md:329-334; compositions/dogfood-dev/.claude/commands/orchestrator.md:22-32; gateway-pty.mjs:3888,5291"
+    },
+    {
+     "topic": "Watch aptidao",
+     "fact": "No Watch aptidao / screen-recording digest exists: grep of docs/*.md and roadmap.json for watch yields only chokidar/file watching, 'watch and summarize a video' in FACULTIES.md, and the retired 'screen capture surface watchable' roadmap line.",
+     "evidence": "docs/FACULTIES.md:58; docs/GARRISON_ROADMAP.md:436; roadmap.json:363,811"
+    },
+    {
+     "topic": "G1 shell routes",
+     "fact": "src/app has no talk/ route; web-channel-default is embedded via /embed/[fittingId] (Sidebar activeMatch on /fitting|/embed) and stationed at port 8083 in compositions/default/apm.yml.",
+     "evidence": "ls src/app; src/app/embed/[fittingId]; src/components/chrome/Sidebar.tsx:325,577,636; compositions/default/apm.yml:48,79-81"
+    },
+    {
+     "topic": "G3 ios dir",
+     "fact": "ios/ is a native Xcode project (project.yml, GarrisonApp, BroadcastExtension, Shared, Tests, fastlane) with no Capacitor files.",
+     "evidence": "ls ios"
+    }
+   ],
+   "stalePremises": [
+    {
+     "premise": "Plan/CLAUDE.md: gateway announces mode words (James,/Joe,) and reads mode from leading message text.",
+     "reality": "Mode-word engine retired; no James/Joe parsing anywhere in gateway or web-channel. Mode is an opaque body.mode hint.",
+     "evidence": "docs/CAPABILITIES.md:329-334; grep James in fittings/seed/http-gateway -> 0 hits"
+    },
+    {
+     "premise": "Plan G2: capture-service becomes the single voice provider (kind: voice).",
+     "reality": "capture-service provides only kind:channel (name companion); it has no /stt or /tts HTTP routes (other /capture/* returns 501) and embeds Deepgram live STT + ElevenLabs TTS for its own sessions. web-channel and dev-env consume kind:voice via deepgram-voice's /stt,/tts,/stream,/tts-stream; automations maps connector 'deepgram' to deepgram-voice.",
+     "evidence": "capture-service/apm.yml:365-370; capture-service/scripts/server.mjs:593-596; web-channel-default/apm.yml:42,92-100; dev-env/scripts/server.mjs:909-954; automations/lib/connector-invoke.mjs:102"
+    },
+    {
+     "premise": "Plan G5/Watch: screen-share can record the Mac screen (start/stop recording, recordings on disk).",
+     "reality": "screen-share-default only polls `screencapture -x` to one JPEG (/tmp/garrison-screen-latest.jpg); /start and /stop toggle the poll loop; no video, no audio, no recording files.",
+     "evidence": "screen-share-default/scripts/server.mjs:21,60,243-249; apm.yml:16"
+    },
+    {
+     "premise": "CLAUDE.md: own-port residue lists screen-share (27079), web-channel (27083), voice (27085), monitor etc. in 27xxx.",
+     "reality": "Committed map is 8xxx: screen-share 8079, web-channel 8083, deepgram-voice 8085, omi-channel 8094, capture-service 8097.",
+     "evidence": "respective apm.yml default_port lines; compositions/default/apm.yml:81,302"
+    },
+    {
+     "premise": "Omi transcripts reach the operative via a capture-service endpoint.",
+     "reality": "omi-channel talks straight to the gateway POST /chat; capture-service is not in the path.",
+     "evidence": "omi-channel/lib/gateway-client.mjs:39,89,143"
+    }
+   ],
+   "seams": [
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/omi-channel/scripts/server.mjs",
+     "change": "Delete the /omi/chat (line 631) and /omi/tools-manifest (line 643) routes and the chatTool construction; keep /omi/realtime, /omi/memory, /omi/day-summary."
+    },
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/omi-channel/lib/chat.mjs",
+     "change": "Delete the file (ask_zeca tool) and drop tests/omi-channel-chat.test.ts plus the chat_enabled/publicBaseUrl chat-tools config keys in lib/config.mjs:133-152 and apm.yml config_schema."
+    },
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/omi-channel/lib/ingress.mjs",
+     "change": "Rewire acceptRealtime/accept to forward Omi segments into capture-service's session model (POST to a new capture-service HTTP ingest route or open WS /capture/stream with a synthetic session_id matching SESSION_ID_RE, ingress.mjs:82) instead of running the local wake.mjs copy; capture-service/lib/wake.mjs already carries the pendant/omi source (triage.mjs:47-56)."
+    },
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/capture-service/apm.yml",
+     "change": "Add provides {kind: voice, name: capture} and (if web-channel/dev-env keep push-to-talk) HTTP /stt, /tts, /stream, /tts-stream routes in scripts/server.mjs (currently /capture/* -> 501 at line 593) backed by lib/deepgram-live.mjs and lib/tts.mjs."
+    },
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/compositions/default/apm.yml",
+     "change": "Remove deepgram-voice path dependency (line 15) and selection (lines 300-302, port 8085); regenerate apm.lock.yaml."
+    },
+    {
+     "gate": "G2",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/web-channel-default/scripts/server.mjs",
+     "change": "Replace VOICE_STATUS_FILE = ui-fittings/deepgram-voice.json (line 97) with kind:voice discovery of capture-service (and same in fittings/seed/dev-env/scripts/server.mjs:95); update automations/lib/connector-invoke.mjs:102 mapping and src/components/chrome/Sidebar.tsx:324 icon key; move DEEPGRAM_API_KEY secret_scope to capture-service."
+    },
+    {
+     "gate": "G5",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/screen-share-default/scripts/server.mjs",
+     "change": "Add POST /record/start and POST /record/stop spawning ffmpeg -f avfoundation (screen + mic) or `screencapture -v` to a file under $GARRISON_HOME/recordings/<id>.mp4, plus GET /record/state; today only /start,/stop toggle the JPEG poll (lines 243-249). Declare the new routes in apm.yml for_consumers (lines 42-52)."
+    },
+    {
+     "gate": "G5",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/capture-service/scripts/server.mjs",
+     "change": "Alternative home for the recording: a Mac-local capture session (session_id, media/<sessionId>/frames + audio via lib/media-log.mjs) so the digest reuses the existing triage/wake pipeline; expose POST /capture/record/{start,stop} where /capture/* currently returns 501 (line 593)."
+    },
+    {
+     "gate": "G5",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/http-gateway/scripts/gateway-pty.mjs",
+     "change": "Digest is produced by POSTing the transcript+frame paths to /chat/stream with body.images (max 16, routeHintsFromBody line 3862) and sessionId = the Conversations thread id, so the digest message lands in that thread; no new gateway route needed."
+    },
+    {
+     "gate": "G5",
+     "file": "/Users/ggomes/dev/garrison/fittings/seed/web-channel-default/scripts/server.mjs",
+     "change": "Record button lives in the conversation UI (moved to src/app/talk in G1); it calls the recorder's start/stop and, on stop, POST /api/threads/:id/... (routeThreads line 2542) to append the digest message so it is persisted at $GARRISON_HOME/web-channel/threads/<id>.json and indexed via lib/thread-registry.mjs noteThread."
+    },
+    {
+     "gate": "G1",
+     "file": "/Users/ggomes/dev/garrison/src/app/talk/page.tsx",
+     "change": "New Next route; proxy /api/threads*, /api/mesh-threads and the SSE stream to the web-channel server (relative URLs only, per tailnet hard rule); add `nav:talk` to Sidebar Command group in src/components/chrome/Sidebar.tsx and drop the web-channel embed entry (line 325/636)."
+    }
+   ],
+   "openQuestions": [
+    "Should Omi transcripts after G2 enter capture-service as a WS /capture/stream session (reusing media-log + wake) or via a new HTTP text-ingest route? capture-service ingress today only accepts websocket sessions with a 10-40 char session_id.",
+    "Which process should own Mac screen+audio recording: screen-share-default (surfaces, already has Screen Recording permission) or capture-service (already has session/media/triage plumbing)? Both are viable; neither records today.",
+    "Does the Conversations UI need the 'last conversation touched' notion server-side (a new field in the web-channel.threads index) or is client-side ordering by lastMessageAt/updatedAt enough?",
+    "web-channel-default's kind:voice consumer (apm.yml:42) and dev-env's /voice bridge must be re-pointed; confirm whether dev-env push-to-talk is still wanted or dropped with deepgram-voice.",
+    "Where does DEEPGRAM_API_KEY secret_scope move when deepgram-voice is retired - capture-service already reads env.DEEPGRAM_API_KEY (config.mjs:290) but its apm.yml secret_scope was not inspected within budget."
+   ]
+  }
+ }
+]

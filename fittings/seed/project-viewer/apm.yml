@@ -31,7 +31,7 @@ x-garrison:
   # the serve axis, before claiming one. 8078 is free on every count.
   default_port: 8078
   # No `lifecycle`: the parser now warns that it is deprecated and ignored, since
-  # every own-port Fitting shares the operative's lifecycle.
+  # every own-port Fitting shares the session's lifecycle.
   platforms:
     - claude-code
   summary: A navigator that explains a project as end-to-end flows rather than as a file tree, with no diagrams and no screenshots. Each flow is a JSON manifest under the target repo's viewer/ directory; the server renders it on request as half-screen code samples plus half-screen plain-language descriptions. Every sample is extracted mechanically from the repository at an anchored commit SHA and carries the sha256 of the extracted bytes, which the renderer re-checks before it will show code — a sample that no longer matches renders an integrity error instead of the wrong lines. Also serves a findings area, a per-file "which flows use this" view, an uncommitted-changes view, commit walkthroughs whose spine is the diff hunks, and buttons that compose prompts re-invoking the garrison-project-viewer skill.
@@ -46,7 +46,7 @@ x-garrison:
       description: The repository to analyse and serve. Read from GARRISON_PROJECTVIEWER_TARGET_REPO at runtime; must be a git repo, since every sample is anchored to a commit.
     - key: store
       type: string
-      default: ~/.garrison/project-viewer
+      default: ""
       description: Machine-local store for runtime captures and derived caches. Flow manifests do NOT live here — they live in the target repo's viewer/ directory so they travel with the code they describe.
     - key: language
       type: string

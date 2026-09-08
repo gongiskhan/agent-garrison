@@ -9,7 +9,7 @@
 // bodies (FINDING 10). Under the conversation sits the raw layer: the card's
 // phase log over SSE, in its own sheet - it never tmux-attaches.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type MutableRefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type MutableRefObject, type RefObject } from "react";
 import { createRoot } from "react-dom/client";
 import { SessionStream as SharedSessionStream, RoutingModal, type TurnRouting } from "@garrison/claude-chat";
 import { applyPinPatch, pinnedSummary, railOptionsFor } from "./run-spec";
@@ -87,10 +87,13 @@ import {
   UnarchiveIcon,
   ChevronIcon,
   PencilIcon,
+  MoreIcon,
   BoardMark
 } from "./icons";
+import { usePhoneLayout, activeColumnIndex, columnOffsets } from "./phone-layout";
 import { TerminalPane } from "./terminal-pane";
 import { CardConversation, CONVERSATION_BASE } from "./card-conversation";
+import { boardUrl, cardHistoryPlan, overlayFromHistory, type CardOverlay } from "./card-history";
 import { HistoryView } from "./history-view";
 import { rewriteHostUrl } from "./host-rewrite";
 import { execBadges } from "./exec-badges";
@@ -2573,6 +2576,12 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // On a phone the card is two full-screen pages under one header - the card
+  // itself, and its conversation with the composer pinned at the bottom -
+  // rather than one long sheet with a chat box scrolling somewhere inside it.
+  // Discuss lands on the conversation page; everything else opens the card.
+  const phone = usePhoneLayout();
+  const [phoneTab, setPhoneTab] = useState<"card" | "conversation">(focus === "conversation" ? "conversation" : "card");
 
   const occurrenceCards = useMemo(() => {
     if (!detail?.card.id) return [] as CardSummary[];
@@ -3090,11 +3099,36 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
   const placementReady = placementDraft === "host" || Boolean(
     machineSupportsRuntime(selectedMachine, placementRuntime) && placementProjectReady
   );
+  const phoneTabs = phone && conversationId;
   return (
     <Sheet
       title={<EditableSheetTitle value={card.title} locked={lockedCard} onSave={(t) => patchCard({ title: t })} />}
       onClose={onClose}
       size="mid"
+      className={phoneTabs ? (phoneTab === "conversation" ? "phone-conv" : "phone-card") : undefined}
+      tabs={phoneTabs ? (
+        <div className="sheet-tabs" role="tablist" aria-label="Card pages">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={phoneTab === "card"}
+            className={`sheet-tab${phoneTab === "card" ? " is-active" : ""}`}
+            onClick={() => setPhoneTab("card")}
+          >
+            Card
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={phoneTab === "conversation"}
+            className={`sheet-tab${phoneTab === "conversation" ? " is-active" : ""}`}
+            onClick={() => setPhoneTab("conversation")}
+          >
+            Conversation
+            {running && <span className="run-spin" aria-hidden />}
+          </button>
+        </div>
+      ) : undefined}
     >
       <div className="detail-meta">
         <button
@@ -4644,7 +4678,15 @@ function EditableSheetTitle({ value, locked, onSave }: {
   );
 }
 
-function Sheet({ title, onClose, children, size = "default" }: { title: ReactNode; onClose: () => void; children: ReactNode; size?: "default" | "mid" | "wide" | "conv" }) {
+function Sheet({ title, onClose, children, size = "default", tabs, className }: {
+  title: ReactNode;
+  onClose: () => void;
+  children: ReactNode;
+  size?: "default" | "mid" | "wide" | "conv";
+  /** A row under the header - the phone's section tabs. */
+  tabs?: ReactNode;
+  className?: string;
+}) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -4652,11 +4694,15 @@ function Sheet({ title, onClose, children, size = "default" }: { title: ReactNod
   }, [onClose]);
   return (
     <div className="sheet-backdrop" onClick={onClose}>
-      <div className={`sheet${size === "wide" ? " wide" : size === "mid" ? " mid" : size === "conv" ? " wide conv" : ""}`} onClick={(e) => e.stopPropagation()}>
+      <div
+        className={`sheet${size === "wide" ? " wide" : size === "mid" ? " mid" : size === "conv" ? " wide conv" : ""}${className ? ` ${className}` : ""}`}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="sh-head">
           <h3>{title}</h3>
-          <button className="btn small" onClick={onClose} aria-label="Close"><CloseIcon /></button>
+          <button className="btn small sh-close" onClick={onClose} aria-label="Close"><CloseIcon /></button>
         </div>
+        {tabs}
         <div className="sh-body">{children}</div>
       </div>
     </div>
@@ -4977,29 +5023,67 @@ function App() {
   useEffect(() => {
     try { window.localStorage.setItem("garrison.kanban.showAllLists", showAllLists ? "1" : "0"); } catch { /* private mode: the session-only default is fine */ }
   }, [showAllLists]);
-  // A hash-only navigation does NOT reload the document, so a card link opened
-  // while the board is already up (the common case - the board is a standing
-  // tab) reaches us only through hashchange. Without this, the first card link
-  // works and every later one silently does nothing.
+  // ── card overlays and the browser's Back (card-history.ts has the why) ───
+  // React state says WHICH sheet is open; the session history is kept in step
+  // with it, so the shell's Back control (and a phone swipe) pops the card
+  // first and lands on the board - not on whatever page linked here. popstate
+  // flows the other way: the entry the user went back or forward to becomes
+  // the overlay it stands for.
+  const mountedWithCardRef = useRef(typeof window !== "undefined" && Boolean(cardIdFromLocation(window.location)));
   useEffect(() => {
-    const onHashCard = () => {
-      const cardId = cardIdFromLocation(window.location);
-      if (cardId) setOverlay({ kind: "detail", cardId });
-    };
-    window.addEventListener("hashchange", onHashCard);
-    return () => window.removeEventListener("hashchange", onHashCard);
-  }, []);
-  // Closing the sheet must also drop the card out of the URL, or re-clicking the
-  // SAME link fires no hashchange (the hash never changed) and nothing opens.
-  const closeCardOverlay = useCallback(() => {
-    setOverlay(null);
     if (typeof window === "undefined") return;
-    if (!cardIdFromLocation(window.location)) return;
-    const url = new URL(window.location.href);
-    url.hash = "";
-    url.searchParams.delete("card");
-    window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+    const cardOverlay: CardOverlay | null = overlay && (overlay.kind === "detail" || overlay.kind === "conversation")
+      ? { kind: overlay.kind, cardId: overlay.cardId }
+      : null;
+    const steps = cardHistoryPlan({
+      overlay: cardOverlay,
+      state: window.history.state,
+      location: window.location,
+      mountedWithCard: mountedWithCardRef.current,
+    });
+    mountedWithCardRef.current = false;
+    // History is a convenience for Back, never a precondition for the board:
+    // a document that refuses history writes (an opaque origin, a sandboxed
+    // frame) keeps every sheet working, it just cannot be backed out of.
+    try {
+      for (const step of steps) {
+        if (step.op === "push") window.history.pushState(step.state, "", step.url);
+        else if (step.op === "replace") window.history.replaceState(step.state, "", step.url);
+        // Going back past our entries is asynchronous: popstate arrives after
+        // and finds the overlay already closed, a no-op. An out-of-range go is
+        // ignored by the browser, so the URL is cleaned by hand in that case.
+        else if (window.history.length > step.depth) window.history.go(-step.depth);
+        else window.history.replaceState(null, "", boardUrl(window.location));
+      }
+    } catch {
+      /* see above */
+    }
+  }, [overlay]);
+  useEffect(() => {
+    const onPop = () => {
+      const next = overlayFromHistory(window.location, window.history.state);
+      setOverlay((current) => {
+        const onCard = current && (current.kind === "detail" || current.kind === "conversation");
+        if (!next) return onCard ? null : current;
+        if (onCard && current.kind === next.kind && current.cardId === next.cardId) return current;
+        return { kind: next.kind, cardId: next.cardId };
+      });
+    };
+    window.addEventListener("popstate", onPop);
+    // A hash-only navigation (a `#/cards/<id>` link opened while the board is
+    // already up - the common case, the board is a standing tab) fires
+    // popstate too, but hashchange is listened to as well so an engine that
+    // skips popstate for fragment navigations still opens the card. Without
+    // either, the first card link worked and every later one did nothing.
+    window.addEventListener("hashchange", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      window.removeEventListener("hashchange", onPop);
+    };
   }, []);
+  // Closing the sheet: the history effect above pops every entry of ours and
+  // takes the card out of the URL, so re-clicking the SAME link opens it again.
+  const closeCardOverlay = useCallback(() => { setOverlay(null); }, []);
   const dragActiveRef = useRef(false);
   // Item 5: a completed pointer-drag synthesises a trailing click on mouse-up, which
   // would otherwise open the card's detail sheet after every reorder. Raised on
@@ -5007,6 +5091,10 @@ function App() {
   // can suppress exactly that one trailing click. (dragActiveRef is already false by
   // the time the trailing click fires, so it can't be reused for this.)
   const dragJustEndedRef = useRef(false);
+  // The horizontal scroller, shared with the phone column strip so a tap on a
+  // chip can scroll its column into view and the strip can follow a swipe.
+  const boardScrollRef = useRef<HTMLDivElement>(null);
+  const phone = usePhoneLayout();
   const markDragJustEnded = useCallback(() => {
     dragJustEndedRef.current = true;
     setTimeout(() => { dragJustEndedRef.current = false; }, 0);
@@ -5118,9 +5206,9 @@ function App() {
     }
   }, []);
 
-  // /board/runtime carries the live channel id (for Discuss) and the noGateway
-  // flag. Refreshed alongside the board so a gateway start/stop or a channel
-  // install/remove flips the relevant UI within one tick.
+  // /board/runtime carries the gateway state (noGateway, gatewayBaseUrl) and the
+  // Conversations route. Refreshed alongside the board so a gateway start/stop
+  // flips the relevant UI within one tick.
   const loadRuntime = useCallback(async () => {
     try {
       const r = await api.runtime();
@@ -5696,147 +5784,152 @@ function App() {
           onOpenCard={(cardId) => setOverlay({ kind: "detail", cardId })}
         />
       ) : (
-        <div className="board-scroll">
-          <DndContext
-            sensors={dndSensors}
-            collisionDetection={boardCollisions}
-            onDragStart={onDragStart}
-            onDragOver={onDragOver}
-            onDragEnd={(e) => void onDragEnd(e)}
-            onDragCancel={onDragCancel}
-          >
-            <div className="board">
-              <SortableContext items={boardLists.map((l) => `col:${l.id}`)} strategy={horizontalListSortingStrategy}>
-                {boardLists.map((list) => (
-                  <SortableColumn
-                    key={list.id}
-                    list={list}
-                    className={listClass(list)}
-                    header={
-                      <div className="lh">
-                        <div className="lname">
-                          <span className="lname-text">{list.title}</span>
-                          <span className="count">{list.cards.length}</span>
-                          {!list.system && (
-                            <button
-                              className="gear"
-                              title={`Configure ${list.title}`}
-                              aria-label={`Configure ${list.title}`}
-                              onClick={() => setOverlay({ kind: "config", listId: list.id })}
-                            >
-                              <GearIcon />
-                            </button>
-                          )}
-                        </div>
-                        <div className="lkind">
-                          {list.id === "scheduled" ? (
-                            "system · schedules"
-                          ) : list.id === "running" ? (
-                            "system · conversations"
-                          ) : (
-                            `${list.kind} · ${list.trigger}`
-                          )}
-                        </div>
-                      </div>
-                    }
-                  >
-                    <ListBodyDroppable listId={list.id}>
-                      {/* Backlog and To Do lead with direct-create affordances. The
-                          server inserts into that list under the same top-order lock,
-                          so there is no transient Backlog card or create-then-move
-                          activity. These controls replace the bare empty state. */}
-                      {canAddCardDirectly(list.id) && (
-                        <ListAddCard
-                          listId={list.id}
-                          listTitle={list.title}
-                          onCreated={() => void load()}
-                        />
-                      )}
-                      {list.cards.length === 0 && !canAddCardDirectly(list.id) && (
-                        <div className="lempty">{list.id === "scheduled" ? "No scheduled tasks" : "empty"}</div>
-                      )}
-                      {(() => {
-                        const renderCard = (card: CardSummary, sortable = true) => {
-                          const inner = (
-                            <Card
-                              key={sortable ? undefined : card.id}
-                              card={card}
-                              list={list}
-                              busy={busyCard === card.id}
-                              selected={selected.has(card.id)}
-                              onToggleSelect={toggleSelected}
-                              onStart={onStart}
-                              onApprove={onApprove}
-                              onInfer={onInfer}
-                              onDiscuss={onDiscuss}
-                              onRevert={onRevert}
-                              onMove={(c) => {
-                                // Item 2: Move is the MANUAL gate — it ALWAYS opens the sheet, which
-                                // now offers every list (not just validNext). Advance is the separate
-                                // next-list-only control. No single-target short-circuit: even a
-                                // one-exit list shows the picker so a card can be moved anywhere.
-                                setOverlay({ kind: "move", card: c });
-                              }}
-                              onQuickMove={onQuickMove}
-                              onDelete={onDelete}
-                              onWatch={(c) => setOverlay({ kind: "watch", card: c })}
-                              onTerminal={(c) => setOverlay({ kind: "terminal", card: c })}
-                              onOpen={(c) => setOverlay({ kind: "detail", cardId: c.id })}
-                              onRenamed={load}
-                              onContinue={onContinue}
-                              onDrill={onDrill}
-                              onFeedback={(c) => setOverlay({ kind: "feedback", card: c })}
-                              onRunSchedule={onRunSchedule}
-                              dragJustEnded={dragJustEndedRef}
-                            />
-                          );
-                          return sortable ? (
-                            <SortableCardWrap key={card.id} card={card} listId={list.id}>
-                              {inner}
-                            </SortableCardWrap>
-                          ) : inner;
-                        };
-                        // D19: the Done column groups quick cards (trivial-plan inline tasks)
-                        // under a collapsed "quick tasks" strip so the real runs stay legible.
-                        // Quick cards are not drag-sortable (they are archive, not queue).
-                        const mainCards = list.id === "done" ? list.cards.filter((c) => !c.quick) : list.cards;
-                        const quickCards = list.id === "done" ? list.cards.filter((c) => c.quick) : [];
-                        return (
-                          <SortableContext items={mainCards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
-                            {mainCards.map((c) => renderCard(c))}
-                            {quickCards.length > 0 && (
-                              <details className="quick-strip">
-                                <summary className="quick-strip-head">
-                                  <span className="quick-strip-title">quick tasks</span>
-                                  <span className="count">{quickCards.length}</span>
-                                </summary>
-                                <div className="quick-strip-body">{quickCards.map((c) => renderCard(c, false))}</div>
-                              </details>
+        <>
+          {phone && <ColumnStrip lists={boardLists} scrollRef={boardScrollRef} />}
+          {/* `dragging` lifts the phone carousel's scroll snap for the duration of a
+              drag so it cannot fight the sensor's auto-scroll toward the edge. */}
+          <div className={`board-scroll${activeDrag ? " dragging" : ""}`} ref={boardScrollRef}>
+            <DndContext
+              sensors={dndSensors}
+              collisionDetection={boardCollisions}
+              onDragStart={onDragStart}
+              onDragOver={onDragOver}
+              onDragEnd={(e) => void onDragEnd(e)}
+              onDragCancel={onDragCancel}
+            >
+              <div className="board">
+                <SortableContext items={boardLists.map((l) => `col:${l.id}`)} strategy={horizontalListSortingStrategy}>
+                  {boardLists.map((list) => (
+                    <SortableColumn
+                      key={list.id}
+                      list={list}
+                      className={listClass(list)}
+                      header={
+                        <div className="lh">
+                          <div className="lname">
+                            <span className="lname-text">{list.title}</span>
+                            <span className="count">{list.cards.length}</span>
+                            {!list.system && (
+                              <button
+                                className="gear"
+                                title={`Configure ${list.title}`}
+                                aria-label={`Configure ${list.title}`}
+                                onClick={() => setOverlay({ kind: "config", listId: list.id })}
+                              >
+                                <GearIcon />
+                              </button>
                             )}
-                          </SortableContext>
-                        );
-                      })()}
-                    </ListBodyDroppable>
-                  </SortableColumn>
-                ))}
-              </SortableContext>
-            </div>
-            <DragOverlay>
-              {activeDrag?.type === "card" ? (
-                <div className="card drag-ghost">
-                  <div className="ct">
-                    <span className="title">{activeDrag.card.title}</span>
+                          </div>
+                          <div className="lkind">
+                            {list.id === "scheduled" ? (
+                              "system · schedules"
+                            ) : list.id === "running" ? (
+                              "system · conversations"
+                            ) : (
+                              `${list.kind} · ${list.trigger}`
+                            )}
+                          </div>
+                        </div>
+                      }
+                    >
+                      <ListBodyDroppable listId={list.id}>
+                        {/* Backlog and To Do lead with direct-create affordances. The
+                            server inserts into that list under the same top-order lock,
+                            so there is no transient Backlog card or create-then-move
+                            activity. These controls replace the bare empty state. */}
+                        {canAddCardDirectly(list.id) && (
+                          <ListAddCard
+                            listId={list.id}
+                            listTitle={list.title}
+                            onCreated={() => void load()}
+                          />
+                        )}
+                        {list.cards.length === 0 && !canAddCardDirectly(list.id) && (
+                          <div className="lempty">{list.id === "scheduled" ? "No scheduled tasks" : "empty"}</div>
+                        )}
+                        {(() => {
+                          const renderCard = (card: CardSummary, sortable = true) => {
+                            const inner = (
+                              <Card
+                                key={sortable ? undefined : card.id}
+                                card={card}
+                                list={list}
+                                busy={busyCard === card.id}
+                                selected={selected.has(card.id)}
+                                onToggleSelect={toggleSelected}
+                                onStart={onStart}
+                                onApprove={onApprove}
+                                onInfer={onInfer}
+                                onDiscuss={onDiscuss}
+                                onRevert={onRevert}
+                                onMove={(c) => {
+                                  // Item 2: Move is the MANUAL gate — it ALWAYS opens the sheet, which
+                                  // now offers every list (not just validNext). Advance is the separate
+                                  // next-list-only control. No single-target short-circuit: even a
+                                  // one-exit list shows the picker so a card can be moved anywhere.
+                                  setOverlay({ kind: "move", card: c });
+                                }}
+                                onQuickMove={onQuickMove}
+                                onDelete={onDelete}
+                                onWatch={(c) => setOverlay({ kind: "watch", card: c })}
+                                onTerminal={(c) => setOverlay({ kind: "terminal", card: c })}
+                                onOpen={(c) => setOverlay({ kind: "detail", cardId: c.id })}
+                                onRenamed={load}
+                                onContinue={onContinue}
+                                onDrill={onDrill}
+                                onFeedback={(c) => setOverlay({ kind: "feedback", card: c })}
+                                onRunSchedule={onRunSchedule}
+                                dragJustEnded={dragJustEndedRef}
+                              />
+                            );
+                            return sortable ? (
+                              <SortableCardWrap key={card.id} card={card} listId={list.id}>
+                                {inner}
+                              </SortableCardWrap>
+                            ) : inner;
+                          };
+                          // D19: the Done column groups quick cards (trivial-plan inline tasks)
+                          // under a collapsed "quick tasks" strip so the real runs stay legible.
+                          // Quick cards are not drag-sortable (they are archive, not queue).
+                          const mainCards = list.id === "done" ? list.cards.filter((c) => !c.quick) : list.cards;
+                          const quickCards = list.id === "done" ? list.cards.filter((c) => c.quick) : [];
+                          return (
+                            <SortableContext items={mainCards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+                              {mainCards.map((c) => renderCard(c))}
+                              {quickCards.length > 0 && (
+                                <details className="quick-strip">
+                                  <summary className="quick-strip-head">
+                                    <span className="quick-strip-title">quick tasks</span>
+                                    <span className="count">{quickCards.length}</span>
+                                  </summary>
+                                  <div className="quick-strip-body">{quickCards.map((c) => renderCard(c, false))}</div>
+                                </details>
+                              )}
+                            </SortableContext>
+                          );
+                        })()}
+                      </ListBodyDroppable>
+                    </SortableColumn>
+                  ))}
+                </SortableContext>
+              </div>
+              <DragOverlay>
+                {activeDrag?.type === "card" ? (
+                  <div className="card drag-ghost">
+                    <div className="ct">
+                      <span className="title">{activeDrag.card.title}</span>
+                    </div>
+                    {activeDrag.card.project && <div className="cmeta"><span className="chip">{activeDrag.card.project}</span></div>}
                   </div>
-                  {activeDrag.card.project && <div className="cmeta"><span className="chip">{activeDrag.card.project}</span></div>}
-                </div>
-              ) : activeDrag?.type === "column" ? (
-                <div className="list drag-ghost-col">
-                  <div className="lh"><div className="lname"><span className="lname-text">{displayLists.find((l) => l.id === activeDrag.listId)?.title ?? activeDrag.listId}</span></div></div>
-                </div>
-              ) : null}
-            </DragOverlay>
-          </DndContext>
-        </div>
+                ) : activeDrag?.type === "column" ? (
+                  <div className="list drag-ghost-col">
+                    <div className="lh"><div className="lname"><span className="lname-text">{displayLists.find((l) => l.id === activeDrag.listId)?.title ?? activeDrag.listId}</span></div></div>
+                  </div>
+                ) : null}
+              </DragOverlay>
+            </DndContext>
+          </div>
+        </>
       )}
 
       {overlay?.kind === "new" && (
@@ -5920,6 +6013,24 @@ function TopBar({ onNew, onImport, onHistory, status, hiddenLists, showAllLists,
   showAllLists?: boolean;
   onToggleAllLists?: () => void;
 }) {
+  const phone = usePhoneLayout();
+  // Offered only when it would change something: either columns are hidden
+  // right now, or every column is showing BECAUSE the human asked.
+  const listToggle = onToggleAllLists && (showAllLists || (hiddenLists ?? 0) > 0) ? (
+    <button
+      className="btn"
+      aria-pressed={Boolean(showAllLists)}
+      title={showAllLists
+        ? "hide autonomous phases that hold no cards"
+        : `show ${hiddenLists} empty autonomous phase${hiddenLists === 1 ? "" : "s"}`}
+      onClick={onToggleAllLists}
+    >
+      {showAllLists ? "Hide empty" : `Show all (${hiddenLists})`}
+    </button>
+  ) : null;
+  const history = onHistory ? <button className="btn" onClick={onHistory}>History</button> : null;
+  const exportLink = <a className="btn" href={api.exportBoardUrl()} download>Export</a>;
+  const importBtn = onImport ? <button className="btn" onClick={onImport}>Import</button> : null;
   return (
     <header className="topbar">
       <div className="brand">
@@ -5931,25 +6042,130 @@ function TopBar({ onNew, onImport, onHistory, status, hiddenLists, showAllLists,
       </div>
       <span className="status">{status}</span>
       <div className="spacer" />
-      {/* Offered only when it would change something: either columns are hidden
-          right now, or every column is showing BECAUSE the human asked. */}
-      {onToggleAllLists && (showAllLists || (hiddenLists ?? 0) > 0) && (
-        <button
-          className="btn"
-          aria-pressed={Boolean(showAllLists)}
-          title={showAllLists
-            ? "hide autonomous phases that hold no cards"
-            : `show ${hiddenLists} empty autonomous phase${hiddenLists === 1 ? "" : "s"}`}
-          onClick={onToggleAllLists}
-        >
-          {showAllLists ? "Hide empty" : `Show all (${hiddenLists})`}
-        </button>
+      {phone ? (
+        <>
+          <button className="btn primary" onClick={onNew}><PlusIcon /> New card</button>
+          <TopBarMore>{listToggle}{history}{exportLink}{importBtn}</TopBarMore>
+        </>
+      ) : (
+        <>
+          {listToggle}
+          {history}
+          {exportLink}
+          {importBtn}
+          <button className="btn primary" onClick={onNew}><PlusIcon /> New card</button>
+        </>
       )}
-      {onHistory && <button className="btn" onClick={onHistory}>History</button>}
-      <a className="btn" href={api.exportBoardUrl()} download>Export</a>
-      {onImport && <button className="btn" onClick={onImport}>Import</button>}
-      <button className="btn primary" onClick={onNew}><PlusIcon /> New card</button>
     </header>
+  );
+}
+
+// The phone topbar's overflow: one 44px control opening a menu of the secondary
+// board actions, so the row keeps brand, count and New card and nothing wraps.
+// Closes on any pick, on a tap outside, and on Escape.
+function TopBarMore({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  return (
+    <div className="topbar-overflow" ref={rootRef}>
+      <button
+        className="btn topbar-more"
+        aria-label="More board actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="more board actions"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <MoreIcon />
+      </button>
+      {open && (
+        <div className="topbar-menu" role="menu" onClick={() => setOpen(false)}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── phone column strip ───────────────────────────────────────────────────────
+// On a phone the board is a one-column-at-a-time carousel, so the strip under
+// the topbar is the only place the whole board is visible at once: every column
+// with its count, the one in view highlighted, a tap scrolling to any other.
+function ColumnStrip({ lists, scrollRef }: { lists: ListView[]; scrollRef: RefObject<HTMLDivElement | null> }) {
+  const [active, setActive] = useState(0);
+  const stripRef = useRef<HTMLDivElement>(null);
+  const columns = useCallback((scroller: HTMLElement) =>
+    Array.from(scroller.querySelectorAll<HTMLElement>(":scope > .board > .list")), []);
+
+  // Track the column in view from the scroll position, one measure per frame.
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      setActive(activeColumnIndex(scroller.scrollLeft, columnOffsets(scroller, columns(scroller))));
+    };
+    const onScroll = () => { if (!frame) frame = requestAnimationFrame(measure); };
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    measure();
+    return () => {
+      scroller.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [scrollRef, columns, lists.length]);
+
+  // Keep the highlighted chip inside the strip's own viewport.
+  useEffect(() => {
+    const strip = stripRef.current;
+    const chip = strip?.children[active] as HTMLElement | undefined;
+    if (!strip || !chip) return;
+    const s = strip.getBoundingClientRect();
+    const c = chip.getBoundingClientRect();
+    const pad = 12;
+    if (c.left < s.left + pad) strip.scrollBy({ left: c.left - s.left - pad, behavior: "smooth" });
+    else if (c.right > s.right - pad) strip.scrollBy({ left: c.right - s.right + pad, behavior: "smooth" });
+  }, [active]);
+
+  const goTo = (index: number) => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    const offsets = columnOffsets(scroller, columns(scroller));
+    if (offsets[index] === undefined) return;
+    setActive(index);
+    scroller.scrollTo({ left: offsets[index], behavior: "smooth" });
+  };
+
+  return (
+    <nav className="col-strip" aria-label="Board columns" ref={stripRef}>
+      {lists.map((list, i) => (
+        <button
+          key={list.id}
+          type="button"
+          className={`col-chip${i === active ? " active" : ""}${list.id === "needs-attention" && list.cards.length > 0 ? " attn" : ""}`}
+          aria-current={i === active ? "true" : undefined}
+          onClick={() => goTo(i)}
+        >
+          <span className="col-chip-name">{list.title}</span>
+          <span className="col-chip-count">{list.cards.length}</span>
+        </button>
+      ))}
+    </nav>
   );
 }
 

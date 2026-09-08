@@ -63,6 +63,17 @@ platform :ios do
     key = api_key
     generate_project
 
+    # Native fixes must pass the same XCTest suite as the mini before signing
+    # or uploading. CI supplies Xcode and a simulator even when the mini is off.
+    run_tests(
+      project: PROJECT,
+      scheme: SCHEME,
+      device: "iPhone 17 Pro",
+      xcargs: "CODE_SIGNING_ALLOWED=NO",
+      output_directory: "build/tests",
+      result_bundle: true
+    )
+
     build_number = ENV["GITHUB_RUN_NUMBER"] || Time.now.strftime("%Y%m%d%H%M")
     ext_id = "#{BUNDLE_ID}.broadcast"
 

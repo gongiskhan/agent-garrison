@@ -353,4 +353,21 @@ describe("screen_audio transcription gate", () => {
     expect(handle.counters.read().screen_audio_transcription_skipped ?? 0).toBe(0);
     c.ws.close();
   });
+
+  // A connected pendant with no audio cannot silence the phone. Packet-level
+  // priority and fallback are exercised in capture-service-audio-fallback.
+  it("keeps a broadcast eligible when an audio-less pendant session is connected, flag on", async () => {
+    const { handle, base } = await boot({ screenAudioTranscribe: true, pendantEnabled: true });
+    const pendant = connect(base);
+    await pendant.opened;
+    pendant.ws.send(startMsg("01PENDANTLIVE0001", { mode: "pendant", codec: "opus" }));
+    await pendant.next((m) => m.type === "session_started");
+    const screen = connect(base);
+    await screen.opened;
+    screen.ws.send(startMsg("01SCREENWITHPEND1", { mode: "screen_audio" }));
+    await screen.next((m) => m.type === "session_started");
+    expect(handle.counters.read().screen_audio_transcription_skipped ?? 0).toBe(0);
+    screen.ws.close();
+    pendant.ws.close();
+  });
 });

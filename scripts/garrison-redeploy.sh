@@ -22,6 +22,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
+# shellcheck source=lib/app-server.sh
+. "$SCRIPT_DIR/lib/app-server.sh"
 
 PROD_PORT="$(bash scripts/garrison-instance.sh prod env | sed -n 's/^GARRISON_APP_PORT=//p')"
 PROD_HOME="$(bash scripts/garrison-instance.sh prod env | sed -n 's/^GARRISON_HOME=//p')"
@@ -96,8 +98,12 @@ restart_supervised() {
     launchctl kickstart -k "gui/$(id -u)/$LAUNCHD_LABEL"
     return 0
   fi
-  return 1
+  restart_node_supervisor "$PROD_HOME"
 }
+# The pid serving the app port right now is the server we are replacing; the
+# supervisor only signals its parent (`concurrently`), so we track it ourselves
+# and make sure it is gone afterwards (scripts/lib/app-server.sh says why).
+old_server_pid="$(app_server_pid_on_port "$PROD_PORT")"
 if ! restart_supervised; then
   echo "[redeploy] no app supervisor found (systemd: $UNIT, launchd: $LAUNCHD_LABEL," >&2
   echo "           watcher: $RESTART_WATCH_LABEL). If this box runs them under other" >&2
@@ -107,6 +113,7 @@ if ! restart_supervised; then
   echo "           bash scripts/garrison-instance.sh prod start" >&2
   exit 1
 fi
+ensure_old_app_server_gone "$old_server_pid"
 
 # --- wait for the new server ------------------------------------------------
 say "waiting for $BASE"
@@ -142,6 +149,7 @@ curl -sf -X POST --max-time 15 -H 'content-type: application/json' -d '{}' \
   || echo "[redeploy] vault unlock failed - up may HOLD on account: auto"
 
 # --- 4. bring the operative + its fittings back on the new code -------------
+start_tether_shells "$PROD_HOME" "$BASE"
 say "starting operative + fittings ($composition)"
 curl -sf -X POST --max-time 600 "$BASE/api/runner/$composition/up" >/dev/null
 
@@ -159,6 +167,13 @@ say "publishing own-port views to the tailnet"
 GARRISON_INSTANCE_ID=prod GARRISON_HOME="$PROD_HOME" \
   node "$REPO_ROOT/scripts/tailnet-serve-views.mjs" || \
   echo "[redeploy] tailnet publish failed (views may be unreachable off-box)"
+
+# Any tethered node this machine owns (csg) - its app/Shells ports become
+# reachable through THIS machine's own tailnet identity, not its own (it has
+# none). A no-op, quietly, when this machine owns no tether.
+GARRISON_INSTANCE_ID=prod GARRISON_HOME="$PROD_HOME" \
+  node "$REPO_ROOT/scripts/tailnet-serve-tether.mjs" || \
+  echo "[redeploy] tether publish failed"
 
 # Name THIS node's tailnet address, not a hardcoded one - the same script runs
 # on every mesh machine.

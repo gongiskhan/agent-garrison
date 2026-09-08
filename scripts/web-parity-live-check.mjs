@@ -9,20 +9,32 @@
 //
 // Terminal side: packages/claude-pty drives the real TUI under node-pty and the
 // xterm screen is dumped as text. Web side: a real Chromium drives the live
-// web-channel port and screenshots each state. Everything lands under
+// Conversations route (/talk) on this node's app and screenshots each state.
+// Everything lands under
 //   evidence/web-parity-live/<side>-<scenario>.*
 //
 // Usage: node scripts/web-parity-live-check.mjs [--side terminal|web|both]
-//        WEB_CHANNEL_URL=http://127.0.0.1:8083 (default: prod's port)
+//        WEB_CHANNEL_URL=<app base> overrides the app; the default is the
+//        runner-projected GARRISON_APP_URL, else the node profile's app port
+//        from scripts/garrison-instance.sh (never a literal port).
 
 import fs from "node:fs";
+import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.join(REPO, "evidence", "web-parity-live");
-const WEB_URL = process.env.WEB_CHANNEL_URL ?? "http://127.0.0.1:8083";
+function localAppBase() {
+  const projected = (process.env.GARRISON_APP_URL ?? process.env.GARRISON_BASE_URL ?? "").trim();
+  if (projected) return projected.replace(/\/+$/, "");
+  const env = execFileSync("bash", [path.join(REPO, "scripts", "garrison-instance.sh"), "node", "env"], { encoding: "utf8" });
+  const port = env.match(/^GARRISON_APP_PORT=(\d+)$/m)?.[1];
+  if (!port) throw new Error("could not resolve the node app port from scripts/garrison-instance.sh; set WEB_CHANNEL_URL");
+  return `http://127.0.0.1:${port}`;
+}
+const WEB_URL = (process.env.WEB_CHANNEL_URL ?? localAppBase()).replace(/\/+$/, "");
 const MODEL = process.env.WEB_PARITY_MODEL ?? "claude-opus-5";
 
 const args = process.argv.slice(2);
@@ -223,7 +235,7 @@ async function runWeb() {
   };
 
   try {
-    await page.goto(`${WEB_URL}/?thread=${encodeURIComponent(threadId)}`, { waitUntil: "domcontentloaded" });
+    await page.goto(`${WEB_URL}/talk/${encodeURIComponent(threadId)}`, { waitUntil: "domcontentloaded" });
     await page.locator(".cc-input").waitFor({ state: "visible", timeout: 30_000 });
 
     // (a) plain question — capture mid-stream and settled.

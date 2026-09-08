@@ -17,7 +17,14 @@
 // cardTurnRouting, the pure function that DECIDES the routing block, survives and
 // is tested directly here, as does the whole gateway-side half (the edge
 // validator, the cwd resolution, and the badges a refusal renders on the card).
-import { describe, it, expect } from "vitest";
+import { afterAll, beforeAll, describe, it, expect, vi } from "vitest";
+import type { MockInstance } from "vitest";
+import { createHash } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { Server } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 // @ts-ignore pure mjs
 import { cardTurnRouting, routeFromDone, projectNameForRouting } from "../fittings/seed/kanban-loop/lib/gateway-client.mjs";
@@ -27,12 +34,56 @@ import { PERSONAL_SCOPE_TOKEN } from "../fittings/seed/kanban-loop/lib/personal-
 import { routeStamp } from "../fittings/seed/kanban-loop/lib/engine.mjs";
 import { execBadges } from "../fittings/seed/kanban-loop/ui/exec-badges";
 // @ts-ignore pure mjs
-import { sanitizeRouting } from "../fittings/seed/http-gateway/scripts/gateway-pty.mjs";
-// @ts-ignore pure mjs
 import { applyTurnOverride } from "../fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs";
 
 // Nothing here touches the card store — every subject is a pure function over a
-// card object — so this file boots no state service.
+// card object. The gateway normally starts on import, so use its helpers-only
+// seam before loading it, with an isolated composition even if startup regresses.
+const repoRoot = join(__dirname, "..");
+const repoMcpPath = join(repoRoot, ".garrison", "mcp.json");
+const savedEnv = {
+  GARRISON_GATEWAY_NO_LISTEN: process.env.GARRISON_GATEWAY_NO_LISTEN,
+  GARRISON_COMPOSITION_DIR: process.env.GARRISON_COMPOSITION_DIR,
+};
+let compositionDir: string;
+let sanitizeRouting: (input: Record<string, unknown>) => { routing: Record<string, unknown> };
+let listenGuard: MockInstance<typeof Server.prototype.listen>;
+let originalMcpDigest: string | null;
+let originalSignalCounts: number[];
+
+function repoMcpDigest() {
+  return existsSync(repoMcpPath) ? createHash("sha256").update(readFileSync(repoMcpPath)).digest("hex") : null;
+}
+
+beforeAll(async () => {
+  compositionDir = mkdtempSync(join(tmpdir(), "gar-kanban-routing-"));
+  process.env.GARRISON_GATEWAY_NO_LISTEN = "1";
+  process.env.GARRISON_COMPOSITION_DIR = compositionDir;
+  originalMcpDigest = repoMcpDigest();
+  originalSignalCounts = [process.listenerCount("SIGTERM"), process.listenerCount("SIGINT")];
+  // Prevent a future import regression from opening any real port or executing
+  // a listen callback that spawns a runtime. The assertion below still fails.
+  listenGuard = vi.spyOn(Server.prototype, "listen").mockImplementation(function (this: Server) { return this; });
+  const gateway = await import(pathToFileURL(join(repoRoot, "fittings/seed/http-gateway/scripts/gateway-pty.mjs")).href);
+  sanitizeRouting = gateway.sanitizeRouting;
+});
+
+afterAll(() => {
+  listenGuard?.mockRestore();
+  for (const [key, value] of Object.entries(savedEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  if (compositionDir) rmSync(compositionDir, { recursive: true, force: true });
+});
+
+it("imports gateway helpers without listening, signal ownership, or composition artifacts", async () => {
+  await new Promise<void>(resolve => setImmediate(resolve));
+  expect(listenGuard).not.toHaveBeenCalled();
+  expect([process.listenerCount("SIGTERM"), process.listenerCount("SIGINT")]).toEqual(originalSignalCounts);
+  expect(readdirSync(compositionDir)).toEqual([]);
+  expect(repoMcpDigest()).toBe(originalMcpDigest);
+});
 
 describe("cardTurnRouting — which project a card's turn should run in", () => {
   it("sends the card's project as routing.project", () => {

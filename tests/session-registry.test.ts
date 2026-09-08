@@ -7,7 +7,7 @@
 //     run is homed on, and completely inert on a box that is not enrolled in a
 //     mesh. Never throws, never blocks a turn.
 //
-//   fittings/seed/web-channel-default/lib/thread-registry.mjs
+//   packages/talk/src/thread-registry.mjs
 //     A compact, debounced, capped INDEX of this node's threads in a node-scoped
 //     config doc. Messages stay on disk here; only the index travels.
 //
@@ -27,7 +27,7 @@ const SESSION_LIB = pathToFileURL(
   path.join(ROOT, "fittings/seed/http-gateway/scripts/lib/session-registry.mjs")
 ).href;
 const THREAD_LIB = pathToFileURL(
-  path.join(ROOT, "fittings/seed/web-channel-default/lib/thread-registry.mjs")
+  path.join(ROOT, "packages/talk/src/thread-registry.mjs")
 ).href;
 
 const sessionLib = () => import(SESSION_LIB);
@@ -169,10 +169,23 @@ describe("session-registry — the run lifecycle", () => {
     expect(await h.client.listSessions()).toEqual([]);
   });
 
-  it("controlUrl comes from the web-channel status file, and is omitted when it is absent", async () => {
+  it("controlUrl is the app the runner projected, else the legacy web-channel status file, else omitted", async () => {
+    const priorApp = process.env.GARRISON_APP_URL;
+    delete process.env.GARRISON_APP_URL;
     const reg = await sessionLib();
+    reg._resetForTests();
     await reg.announceSession({ id: "no-surface", compositionId: "default" });
     expect((await h.client.getSession("no-surface"))!.controlUrl).toBeNull();
+
+    // The app hosts Conversations, so the app IS the control surface.
+    process.env.GARRISON_APP_URL = "http://127.0.0.1:8777";
+    reg._resetForTests();
+    await reg.announceSession({ id: "app-surface", compositionId: "default" });
+    const appRow = (await h.client.getSession("app-surface"))!;
+    expect(appRow.controlUrl).toBe("http://127.0.0.1:8777");
+    expect(appRow.body.controlPort).toBe(8777);
+    delete process.env.GARRISON_APP_URL;
+    reg._resetForTests();
 
     const { mkdirSync, writeFileSync } = await import("node:fs");
     mkdirSync(path.join(home, "ui-fittings"), { recursive: true });
@@ -188,6 +201,7 @@ describe("session-registry — the run lifecycle", () => {
     // The port rides in the body so the peer proxy can rehost it on the node's
     // tailnet address — a loopback URL alone is not dialable from another node.
     expect(row.body.controlPort).toBe(8083);
+    if (priorApp !== undefined) process.env.GARRISON_APP_URL = priorApp;
   });
 });
 

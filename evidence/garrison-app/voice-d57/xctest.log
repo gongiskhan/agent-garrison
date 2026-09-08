@@ -1,0 +1,42 @@
+6a75549d
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.004 (0.006) seconds
+Test Case '-[GarrisonTests.SessionSpoolTests testAppendScanAndResumeFilter]' passed (0.004 seconds).
+Test Case '-[GarrisonTests.SessionSpoolTests testRingRotationBoundsDiskAndDropsOldest]' passed (0.005 seconds).
+Test Case '-[GarrisonTests.SessionSpoolTests testSurvivesReopenAndSkipsTruncatedTail]' passed (0.002 seconds).
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.011 (0.012) seconds
+Test Case '-[GarrisonTests.SettingsAndConsentTests testAuthedRequestCarriesBearerAndPath]' passed (0.002 seconds).
+Test Case '-[GarrisonTests.SettingsAndConsentTests testBroadcastLivenessIsAHeartbeatNotAFlag]' passed (0.003 seconds).
+Test Case '-[GarrisonTests.SettingsAndConsentTests testConsentSuppressionPersists]' passed (0.002 seconds).
+Test Case '-[GarrisonTests.SettingsAndConsentTests testEndpointSettingsRoundTrip]' passed (0.002 seconds).
+Test Case '-[GarrisonTests.SettingsAndConsentTests testTheExtensionCanExplainWhyItRefusedToStart]' passed (0.004 seconds).
+Test Case '-[GarrisonTests.SettingsAndConsentTests testUnsetEndpointYieldsNilNotGarbage]' passed (0.001 seconds).
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.012 (0.014) seconds
+Test Case '-[GarrisonTests.SpeechSinkTests testACueNeverQueuesAndNeverDisturbsTheAckQueue]' passed (0.066 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testCeilingNeverSacrificesAnError]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testCuesSpeakEvenWhenInfoAcksAreMuted]' passed (0.033 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testDropsAStaleCue]' passed (0.011 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testFallsBackToTheOnDeviceVoiceWhenTheClipFails]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testFallsBackToTheSynthesizerWhenTheCueClipFails]' passed (0.013 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testMasterAndInfoTogglesWithErrorOverride]' passed (0.003 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testMasterSwitchAndMuteSilenceCues]' passed (0.002 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testMuteForMinutesAndQuietHours]' passed (0.002 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testNeverSettlesForABrazilianVoiceSilently]' passed (0.021 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testPicksAVoiceMatchingTheLanguage]' passed (0.023 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testPlaysTheRenderedClipInsteadOfSynthesizing]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testPrefersTheRenderedClipForACue]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testReceiptSaysWhichVoiceSpoke]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testSpeaksAWakeCue]' passed (0.013 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testSpeaksTextVerbatimAndReportsReceipt]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testStaleAcksAreDroppedHonestly]' passed (0.005 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testSynthesizesWhenNoClipWasRendered]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testTenAcksInFiveSecondsDoNotProduceTenSentences]' passed (0.001 seconds).
+Test Case '-[GarrisonTests.SpeechSinkTests testTheCueToggleSilencesCuesOnly]' passed (0.002 seconds).
+	 Executed 20 tests, with 0 failures (0 unexpected) in 0.203 (0.206) seconds
+Test Case '-[GarrisonTests.UploaderResumeTests testResumesFromLastAckedSeqAfterDrop]' passed (1.243 seconds).
+Test Case '-[GarrisonTests.UploaderResumeTests testSpeakReachesHandlerAndReceiptRidesBack]' passed (0.106 seconds).
+Test Case '-[GarrisonTests.UploaderResumeTests testStreamsFramesAndReceivesContiguousAcks]' passed (0.106 seconds).
+	 Executed 3 tests, with 0 failures (0 unexpected) in 1.455 (1.457) seconds
+	 Executed 101 tests, with 0 failures (0 unexpected) in 15.946 (16.031) seconds
+	 Executed 101 tests, with 0 failures (0 unexpected) in 15.946 (16.032) seconds
+** TEST SUCCEEDED **
+exit 0

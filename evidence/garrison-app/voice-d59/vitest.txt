@@ -1,0 +1,5 @@
+ ✓ |unit| tests/talk-capture-feedback.test.ts (12 tests) 25ms
+ ✓ |unit| tests/vault-mesh-write-through.test.ts (4 tests) 98ms
+ ✓ |unit| tests/capture-service-voice.test.ts (22 tests) 113ms
+ Test Files  3 passed (3)
+      Tests  38 passed (38)

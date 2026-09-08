@@ -2,20 +2,25 @@
 //
 // speak.mjs - drive the Omi integration end to end as if the user had spoken.
 //
-// Three injection points, matching the three ways speech actually reaches
-// Garrison. Each one enters the system at the same place a real utterance does
-// and then FOLLOWS it: the script waits for the downstream effect and prints
-// what happened, so a run either shows the card/answer/notification or says
-// plainly that nothing arrived.
+// Two injection points, matching the two ways speech actually reaches
+// Garrison through Omi. Each one enters the system at the same place a real
+// utterance does and then FOLLOWS it: the script waits for the downstream
+// effect and prints what happened, so a run either shows the card/answer/
+// notification or says plainly that nothing arrived.
 //
 //   say       the realtime pipe (wake word -> spoken command). Posts segments
 //             to the live /omi/realtime webhook in Omi's exact wire shape,
-//             including the malformed double-'?' query Omi really sends.
+//             including the malformed double-'?' query Omi really sends. The
+//             fitting forwards them to the voice layer (capture-service, D24),
+//             so the wake result is read from THAT fitting's state dir.
 //   converse  the conversation pipe, THROUGH THE OMI CLOUD. Writes a real
 //             conversation into the user's Omi account via the Developer API;
 //             Omi transcribes/structures it and calls our public webhook back.
 //             This is the only mode that exercises Omi's own processing.
-//   ask       the Omi chat tool (ask_zeca), called exactly as Omi calls it.
+//
+// The former `ask` mode (the ask_zeca chat tool) is gone with the tool: Omi's
+// chat has no Garrison endpoint any more; replies arrive through the Garrison
+// app.
 //
 // What this canNOT do, stated so nobody mistakes a green run for more coverage
 // than it gives: Omi exposes no inbound audio API, so the `say` path starts at
@@ -28,7 +33,6 @@
 //   node scripts/speak.mjs say "Zeca, cria uma tarefa para comprar peixe"
 //   node scripts/speak.mjs say "Zeca, what is on my board?" --garble --wait 180
 //   node scripts/speak.mjs converse "I decided we ship on Friday. Remind me to call the bank."
-//   node scripts/speak.mjs ask "which cards are in progress?"
 //
 // Options:
 //   --base <url>     omi-channel base URL (default: from the status file)
@@ -64,9 +68,9 @@ const say = (...a) => {
   if (!QUIET) console.log(...a);
 };
 
-if (!["say", "converse", "ask"].includes(mode) || !text) {
+if (!["say", "converse"].includes(mode) || !text) {
   console.error(
-    "usage: speak.mjs <say|converse|ask> \"<text>\" [--base URL] [--wait SEC] [--garble] [--clean-url] [--quiet]"
+    "usage: speak.mjs <say|converse> \"<text>\" [--base URL] [--wait SEC] [--garble] [--clean-url] [--quiet]"
   );
   process.exit(2);
 }
@@ -75,6 +79,8 @@ if (!["say", "converse", "ask"].includes(mode) || !text) {
 
 const HOME = process.env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison");
 const OMI_DIR = process.env.GARRISON_OMI_DIR?.trim() || path.join(HOME, "omi");
+// The voice layer's state dir: wake results land there now, not under omi/.
+const CAPTURE_DIR = process.env.GARRISON_CAPTURE_DIR?.trim() || path.join(HOME, "capture");
 
 function readJson(file, fallback = null) {
   try {
@@ -207,10 +213,10 @@ async function runSay() {
   const sessionId = `speak-${Date.now()}`;
   const segments = toSegments(text, { garble: has("garble") });
   const url = realtimeUrl(sessionId);
-  const resultsDir = path.join(OMI_DIR, "wake-results");
+  const resultsDir = path.join(CAPTURE_DIR, "wake-results");
   const before = newestFiles(resultsDir);
 
-  say(`\n[say] session ${sessionId} -> ${BASE}/omi/realtime`);
+  say(`\n[say] session ${sessionId} -> ${BASE}/omi/realtime (forwarded to capture-service)`);
   say(`[say] ${segments.length} segments${has("garble") ? " (with background speech)" : ""}`);
 
   // Delivered across several calls, the way Omi streams a conversation.
@@ -232,7 +238,14 @@ async function runSay() {
   say(`[say] delivered; waiting for the capture window to close and Zeca to answer...`);
   const deadline = Date.now() + WAIT_MS;
   const hit = await waitForNew(resultsDir, before, deadline, "wake result");
-  if (!hit) return { ok: false, reason: "no wake result - was the wake word recognised?" };
+  if (!hit) {
+    return {
+      ok: false,
+      reason:
+        "no wake result - was the wake word recognised? Check omi-channel /health " +
+        "(forward.reason, realtime_forward_* counters) and that capture-service is up"
+    };
+  }
 
   const result = readJson(hit.file, {});
   say(`\n[wake] command assembled: ${JSON.stringify(result.command)}`);
@@ -334,46 +347,9 @@ async function runConverse() {
   };
 }
 
-// ---- mode: ask (the Omi chat tool) -----------------------------------------
-
-async function runAsk() {
-  const key = requireValue(secrets.OMI_WEBHOOK_SECRET, "OMI_WEBHOOK_SECRET");
-  const url = `${BASE}/omi/chat?key=${encodeURIComponent(key)}`;
-  say(`\n[ask] calling the chat tool exactly as Omi does...`);
-  const startedAt = Date.now();
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      uid: requireValue(UID, "pinned uid"),
-      app_id: secrets.OMI_APP_ID,
-      tool_name: "ask_zeca",
-      query: text
-    })
-  });
-  const body = await res.json().catch(() => ({}));
-  const elapsed = Math.round((Date.now() - startedAt) / 1000);
-  say(`[ask] HTTP ${res.status} in ${elapsed}s`);
-  say(`[ask] ${JSON.stringify(body)}`);
-  if (body.error) return { ok: false, reason: body.error };
-
-  // An escalated question answers on a notification, not in this response.
-  if (/looking into that/i.test(String(body.result ?? ""))) {
-    const resultsDir = path.join(OMI_DIR, "chat-results");
-    const before = newestFiles(resultsDir);
-    say(`\n[ask] escalated to the operative; waiting for the real answer...`);
-    const hit = await waitForNew(resultsDir, before, Date.now() + WAIT_MS, "answer");
-    if (!hit) return { ok: false, reason: "escalated, but no answer arrived" };
-    const d = readJson(hit.file, {});
-    say(`[ask] answered in ${Math.round((d.elapsedMs ?? 0) / 1000)}s and pushed to the wearer`);
-    return { ok: true, answer: d.reply };
-  }
-  return { ok: true, answer: body.result };
-}
-
 // ---- run --------------------------------------------------------------------
 
-const outcome = await (mode === "say" ? runSay() : mode === "converse" ? runConverse() : runAsk());
+const outcome = await (mode === "say" ? runSay() : runConverse());
 if (outcome.ok) {
   console.log(`\nOK${outcome.answer ? `: ${outcome.answer}` : outcome.reply ? `: ${outcome.reply}` : ""}`);
   process.exit(0);

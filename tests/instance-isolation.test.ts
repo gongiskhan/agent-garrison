@@ -358,8 +358,8 @@ describe("Codex secondary-instance isolation", () => {
     expect(failed, "publishing a dev instance to the tailnet must fail").toBe(true);
   });
 
-  // Two-instance topology on the dev box: THIS checkout is the PRIMARY (main)
-  // instance — app :7777, gateway :4777, fittings 7xxx, real ~/.garrison — and
+  // Two-instance topology on the dev box: THIS checkout is the PRIMARY (node)
+  // instance - app :8777, gateway :5777, fittings 8xxx, real ~/.garrison - and
   // the committed compositions carry the primary scheme. The codex SECONDARY
   // instance runs from its own checkout; its isolation is the launcher ENV
   // (tested above) plus per-instance composition config there, never this

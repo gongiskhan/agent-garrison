@@ -16,7 +16,7 @@ import vm from "node:vm";
 import zlib from "node:zlib";
 import { fileURLToPath } from "node:url";
 // @ts-ignore — plain .mjs, typed via tests/web-channel-mjs.d.ts
-import { emitPwaAssets, renderIconPng, iconSvg, PWA_DIST_ASSETS } from "../fittings/seed/web-channel-default/ui/pwa-assets.mjs";
+import { emitPwaAssets, renderIconPng, iconSvg, PWA_DIST_ASSETS } from "../packages/talk/ui/pwa-assets.mjs";
 
 const UI_DIR = fileURLToPath(new URL("../fittings/seed/web-channel-default/ui", import.meta.url));
 

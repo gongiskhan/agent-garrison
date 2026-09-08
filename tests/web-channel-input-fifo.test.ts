@@ -8,9 +8,9 @@ const TMP_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "wc-input-fifo-"));
 process.env.GARRISON_HOME = TMP_HOME;
 
 // @ts-ignore plain ESM modules
-const { startServer } = await import("../fittings/seed/web-channel-default/scripts/server.mjs");
+const { startServer } = await import("../packages/talk/src/server.mjs");
 // @ts-ignore plain ESM modules
-const threads = await import("../fittings/seed/web-channel-default/scripts/threads.mjs");
+const threads = await import("../packages/talk/src/threads.mjs");
 
 const sse = (event: string, data: unknown) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 

@@ -1,17 +1,25 @@
 #!/usr/bin/env node
 // Bundle the Web Channel UI into ../dist/.
-// Resolves react / react-dom / marked / @garrison/claude-chat from the Garrison
-// root node_modules.
+// The application is @garrison/talk/ui (packages/talk/ui); main.tsx here is the
+// mount. Resolves react / react-dom / marked / @garrison/* from the Garrison root
+// node_modules by walk-up, which also covers the installed-fitting layout under
+// compositions/<id>/apm_modules/_local/.
 
 import { build } from "esbuild";
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import url from "node:url";
-import { emitPwaAssets } from "./pwa-assets.mjs";
+import { createRequire } from "node:module";
 
 const HERE = path.dirname(url.fileURLToPath(import.meta.url));
 const DIST = path.resolve(HERE, "..", "dist");
 mkdirSync(DIST, { recursive: true });
+
+// The talk package on disk, wherever node resolves it from (the workspace link
+// in the checkout, the root node_modules for an installed copy).
+const require = createRequire(import.meta.url);
+const TALK_UI = path.dirname(require.resolve("@garrison/talk/ui"));
+const { emitPwaAssets } = await import(url.pathToFileURL(path.join(TALK_UI, "pwa-assets.mjs")).href);
 
 await build({
   entryPoints: [path.join(HERE, "main.tsx")],
@@ -28,16 +36,12 @@ await build({
 });
 
 copyFileSync(path.join(HERE, "index.html"), path.join(DIST, "index.html"));
-// The PCM capture worklet is loaded at runtime via AudioContext.audioWorklet
-// .addModule("/pcm-worklet.js"), so it must ship as a standalone static asset
-// (NOT bundled into the main module — worklets run in a separate global scope).
-copyFileSync(path.join(HERE, "pcm-worklet.js"), path.join(DIST, "pcm-worklet.js"));
 
 // web-channel.css = the shared claude-chat stylesheet FIRST, then the
 // web-channel skin (styles.css) LAST, so the skin's Garrison palette/chrome
 // overrides the component's dark default on equal specificity. Order matters:
 // styles.css is the override layer and must win, so it is appended last.
-const skinCss = readFileSync(path.join(HERE, "styles.css"), "utf8");
+const skinCss = readFileSync(path.join(TALK_UI, "styles.css"), "utf8");
 const chatCssPath = path.resolve(HERE, "..", "..", "..", "..", "packages", "claude-chat", "src", "claude-chat.css");
 let chatCss = "";
 if (existsSync(chatCssPath)) {

@@ -72,7 +72,7 @@ export type {
 } from "./journal";
 export type { ClaudeChatProps, ChatFeatures, ComposerAdornmentApi } from "./ClaudeChat";
 export { ChatTransportError, createHttpTransport, isChatInputReceipt } from "./transport";
-export { createVoiceClient } from "./voice";
+export { createVoiceClient, chunkSpeech, chunkCharsFor, DEFAULT_CHUNK_CHARS } from "./voice";
 export type { VoiceClient, VoiceHealth } from "./voice";
 export { sanitizeAssistantBadges, sanitizeAssistantText, routeChipLabel, routeChipFromAttribution } from "./sanitize";
 export type { SanitizedReply, AssistantRouteMeta } from "./sanitize";

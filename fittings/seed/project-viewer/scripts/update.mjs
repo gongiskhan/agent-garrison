@@ -100,8 +100,15 @@ export async function updateRepo(repo, { to = null, only = null, dry = false } =
     }
 
     const byFile = await diffFrom(oldSha);
+    for (const state of flow.states) for (const step of state.steps) {
+      if (step.sample?.sha) await diffFrom(step.sample.sha);
+    }
     const readAt = await readerAt(repo, newSha, sampleFilesOf(flow));
-    const { flow: next, report } = refreshFlow(flow, byFile, newSha, readAt);
+    const { flow: next, report } = refreshFlow(flow, byFile, newSha, readAt, { diffBySha: diffCache });
+    if (next.anchoredAt.sha === newSha) {
+      const meta = await git.commitMeta(repo, newSha);
+      next.anchoredAt = { ...next.anchoredAt, shortSha: meta.shortSha, committedAt: meta.committedAt };
+    }
     if (!dry) await store.saveFlow(repo, next);
     reports.push({ ...report, from: oldSha, advanced: next.anchoredAt.sha === newSha });
   }
@@ -109,8 +116,7 @@ export async function updateRepo(repo, { to = null, only = null, dry = false } =
   // Findings carry no anchor of their own, so they are checked against EVERY diff
   // computed above and the touched sets are unioned. Working out which anchor is
   // genuinely oldest would need more git; unioning needs none and errs the safe way:
-  // a finding gets reopened for a human to look at again rather than staying quietly
-  // dismissed over code that has since changed.
+  // an open finding gets refreshed while explicit fixed/dismissed decisions survive.
   let findingsReport = null;
   const coll = await store.getFindings(repo);
   if (coll.findings.length) {

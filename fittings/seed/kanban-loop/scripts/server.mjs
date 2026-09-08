@@ -1054,6 +1054,22 @@ export function isValidCardId(id) {
   return typeof id === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(id);
 }
 
+// The weaker guard: ONE path segment of an unambiguous charset. `/`, `\` and `.`
+// cannot appear, so `..` cannot either and path.join(root,"cards",id) can only
+// land inside the board root. Every ULID satisfies it.
+//
+// It exists because the board does not mint every card it holds. A peer node, an
+// external harness, or an older schema can put a row on the board under an id
+// this server would never have generated, and a card that cannot be deleted is a
+// permanent one. So reading and deleting a card accept this weaker id; every
+// route that starts work, dispatches, or writes lifecycle state still demands a
+// real ULID. The state store refuses to create anything outside this shape, which
+// is what makes "every card on the board can be deleted" total rather than
+// best-effort.
+export function isSafeCardIdSegment(id) {
+  return typeof id === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(id);
+}
+
 // isValidSliceId / isSafeEvidenceName / isEvidenceImage moved to lib/links.mjs
 // (shared with the handoff generator) and imported/re-exported at the top.
 
@@ -2791,7 +2807,7 @@ async function handlePatchCard(req, res, opts, id) {
     // look for the brief the Discuss duty was asked to write (briefs/<slug>.md — the
     // buildDiscussUrl convention) and link it onto the card if present + not already
     // linked. The card LINKS the brief (FINDING 10); it never inlines it. This keeps
-    // the web channel generic — the BOARD does the linking, not the channel — so a
+    // Conversations generic - the BOARD does the linking, not the channel - so a
     // brief shows on the card without a manual POST /cards/:id/brief.
     const fromList = getList(board, card.list);
     if (body.list !== card.list && fromList && isInteractive(fromList) && !next.briefPath) {
@@ -3271,7 +3287,10 @@ async function handlePatchCard(req, res, opts, id) {
 // What is NEVER deleted: the Claude Code session transcripts (shared ~/.claude), the
 // external walkthrough video, and any code the operative committed to the repo (that
 // lives in version control, not "the card's" to remove). originAllowed guard like the
-// other mutating routes; the id is already validated (clean ULID) by the router.
+// other mutating routes; the router has already validated the id as a safe single
+// path segment - NOT necessarily a ULID, because a card the board did not mint must
+// still be removable. Everything below that is keyed by a minted ULID (the run dir)
+// re-checks isValidCardId for itself.
 async function handleDeleteCard(req, res, opts, id) {
   if (!originAllowed(req)) return jsonRes(res, 403, { error: "cross-origin delete rejected" });
   let card;
@@ -5215,63 +5234,30 @@ function handleHealth(req, res, opts) {
   jsonRes(res, 200, { ok: true, fittingId: FITTING_ID, port: opts.port, pid: process.pid });
 }
 
-// GET /board/runtime — runtime context the UI needs to wire deep-links the
-// composition's actual fittings serve. Channel embed id is NOT hardcoded
-// (`web-channel-default` is just the seed name); we scan the
-// ~/.garrison/ui-fittings/ status files and pick the first one whose fittingId
-// starts with `web-channel` (the channel id convention) and which carries a
-// reachable live URL. Returns:
-//   - webChannelEmbedId   the fitting id (e.g. "web-channel-default") whose
-//                         /embed/<id> route the board UI should link to. null
-//                         when no web channel is installed/running, so the
-//                         Discuss WatchSheet can show "no web channel
-//                         installed" instead of a dead `<a>`.
-//   - webChannelUrl       the channel's live own-port URL (for callers that
-//                         want the direct, non-embedded URL).
+// GET /board/runtime - runtime context the UI needs to wire deep-links the
+// composition's actual surfaces serve. Returns:
+//   - conversationsRoute  the shell route hosting Conversations ("/talk").
+//                         Always present: Conversations is a route of the
+//                         Garrison shell, not an embedded fitting, so there is
+//                         no status file to scan and nothing to be "not
+//                         installed". RELATIVE on purpose - the browser is
+//                         usually on another machine over the tailnet, so it
+//                         must resolve against the origin the page was reached
+//                         on, never this box's loopback.
 //   - gatewayBaseUrl      the gateway URL injected by the runner.
 //   - noGateway           true when no GARRISON_GATEWAY_URL is set at all,
 //                         so the UI can render a global "no gateway running"
 //                         banner without polling /health.
-export async function readWebChannelStatus(statusDir = STATUS_ROOT) {
-  try {
-    const dir = statusDir;
-    const fs = await import("node:fs/promises");
-    let names;
-    try { names = await fs.readdir(dir); } catch { return { id: null, url: null }; }
-    // Prefer the conventional name when present so the test surface is stable.
-    const preferred = "web-channel-default.json";
-    const sorted = names
-      .filter((n) => n.endsWith(".json") && n.startsWith("web-channel"))
-      .sort((a, b) => (a === preferred ? -1 : b === preferred ? 1 : a.localeCompare(b)));
-    for (const name of sorted) {
-      try {
-        const raw = await fs.readFile(path.join(dir, name), "utf8");
-        const parsed = JSON.parse(raw);
-        const fittingId = typeof parsed?.fittingId === "string" ? parsed.fittingId : null;
-        const url = typeof parsed?.url === "string" ? parsed.url : null;
-        // Trust the status file's own pid liveness check: if the pid is dead
-        // the runner's startup sweep removes the file, so a present file is
-        // good enough for a UI hint. We don't HEAD the URL here — the WatchSheet
-        // navigates to /embed/<id> on the parent Next app, not directly to the
-        // channel's port, so a live status file means /embed/<id> will resolve.
-        if (fittingId && fittingId.startsWith("web-channel")) {
-          return { id: fittingId, url };
-        }
-      } catch { /* ignore one bad file */ }
-    }
-  } catch { /* ignore */ }
-  return { id: null, url: null };
-}
+//   - cardsAbsDir         the absolute kanban-store cards dir (below).
+const CONVERSATIONS_ROUTE = "/talk";
 
 async function handleBoardRuntime(req, res, opts) {
-  const channel = await readWebChannelStatus();
-  // Absolute kanban-store cards dir, so the board can hand the web channel an absolute,
+  // Absolute kanban-store cards dir, so the board can hand Conversations an absolute,
   // card-owned briefAbsPath (<cardsAbsDir>/<cardId>/brief.md) for the Brief editor — the
   // same file the Discuss duty writes and the engine reads. Deterministic; no project-dir guessing.
   const cardsAbsDir = path.join(kanbanRoot(), "cards");
   jsonRes(res, 200, {
-    webChannelEmbedId: channel.id,
-    webChannelUrl: channel.url,
+    conversationsRoute: CONVERSATIONS_ROUTE,
     gatewayBaseUrl: opts.gatewayUrl || null,
     noGateway: !opts.gatewayUrl,
     cardsAbsDir
@@ -5577,14 +5563,22 @@ export function makeRequestHandler(opts, distDir) {
         return jsonRes(res, 200, { ok: true, order: [...rank.entries()].sort((a, b) => a[1] - b[1]).map(([id]) => id) });
       }
 
-      // Any /cards/:id route: decode + VALIDATE the id (a clean ULID) before it can
-      // reach the filesystem, so an encoded `..%2f` id cannot traverse out of the
-      // board root via loadCard/saveCardCAS/appendCardLog.
+      // Any /cards/:id route: decode + VALIDATE the id before it can reach the
+      // filesystem, so an encoded `..%2f` id cannot traverse out of the board root
+      // via loadCard/saveCardCAS/appendCardLog. TWO tiers: every route needs a safe
+      // single path segment, and every route BUT reading or deleting the card itself
+      // additionally needs a real ULID. That one exception is what keeps a card the
+      // board did not mint (a peer node's, an external writer's, an older schema's)
+      // inspectable and removable instead of stuck on the board for good - the
+      // routes it opens only read a record and take it off the board, while the ones
+      // it does not open mint runs and write lifecycle state keyed by ULID.
       const idMatch = pathname.match(/^\/cards\/([^/]+)(\/artifact|\/attachments|\/attachment|\/session-stream|\/start|\/panic|\/dispatch-complete|\/dispatch-cancel|\/snooze|\/run-now|\/watch|\/brief|\/infer-project|\/abandon|\/revert|\/handoff|\/steer|\/drill|\/drill-result)?$/);
       if (idMatch) {
         const id = decodeURIComponent(idMatch[1]);
         const sub = idMatch[2] || "";
-        if (!isValidCardId(id)) return jsonRes(res, 400, { error: "invalid card id" });
+        if (!isSafeCardIdSegment(id)) return jsonRes(res, 400, { error: "invalid card id" });
+        const readOrRemove = sub === "" && (method === "GET" || method === "DELETE");
+        if (!readOrRemove && !isValidCardId(id)) return jsonRes(res, 400, { error: "invalid card id" });
         if (sub === "/snooze" && method === "POST") return await handleSnoozeCard(req, res, opts, id);
         if (sub === "/run-now" && method === "POST") return await handleRunScheduleNow(req, res, opts, id);
         if (sub === "/attachments" && method === "POST") return await handleAttachmentUpload(req, res, opts, id);

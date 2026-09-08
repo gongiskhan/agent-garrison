@@ -379,3 +379,17 @@ Also fixed alongside: the emulator now line-buffers stdout. Its output is
 the rehearsal evidence and is nearly always redirected to a log, where block
 buffering silently discarded whatever had not flushed when the process was
 interrupted.
+
+## D19 - The pendant is driven through `GarrisonPendant`; the mock harness sits on the plugin (2026-09-02)
+
+The capture page never touches `PendantController` or a transport. It calls
+the Capacitor plugin `GarrisonPendant` (`status/connect/disconnect/forget`,
+events `pendantState` and `pendantBattery`; payload vocabulary in
+`docs/pendant-protocol.md` section 10) and reads the session's words back
+through the shell's `GET /api/voice/sessions/<id>/events` relay. Mock before
+hardware: `ios/Tests/PendantPluginMockTests.swift` hands the plugin a
+controller built on `MockPendantTransport` through a test-only
+`controllerOverride`, then drives it exactly as the bridge does (a bare
+`CAPPlugin` has no listener tables; the harness mirrors Capacitor's
+`load(on:)` before `load()`). The app itself still owns the one controller,
+`PendantController.shared`.

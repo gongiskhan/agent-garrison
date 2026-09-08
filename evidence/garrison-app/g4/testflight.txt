@@ -1,0 +1,8 @@
+TestFlight dispatch for G4
+
+workflow: gongiskhan/ios-thing garrison-ios.yml (lane=beta)
+garrison ref: node/goncalos-macbook-pro at 66107576 (G4 commit)
+run: https://github.com/gongiskhan/ios-thing/actions/runs/33629754605
+dispatched: 2026-09-02 12:24Z
+outcome: pending at commit time; appended below when the run finishes.
+Outcome: success (completed 2026-09-02T12:27:20Z). https://github.com/gongiskhan/ios-thing/actions/runs/33629754605

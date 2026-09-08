@@ -189,20 +189,20 @@
   },
   {
     "id": "remote-shell-runtime",
-    "name": "Remote shell runtime",
+    "name": "Shells",
     "repo": "local:fittings/seed/remote-shell-runtime",
     "localPath": "fittings/seed/remote-shell-runtime",
-    "summary": "Runtimes Faculty - general attach-and-stream runtime: attaches a live tmux session on a remote machine over ssh (optionally through a Microsoft Dev Tunnel), streams the real TUI two-way into an xterm pane, and drives running/idle lifecycle from the remote agent's own start/stop hooks via an events file followed over the same ssh channel. Transports are config; the CSG VM over the existing VS Code Dev Tunnel is the first. As a delegate target, a turn types the instruction into the remote agent's TUI and completes on the stop-hook event.",
+    "summary": "Runtimes Faculty - general attach-and-stream runtime, including a `local` transport for this machine itself. Attaches a live tmux session (local or over ssh, optionally through a Microsoft Dev Tunnel), streams the real TUI two-way into an xterm pane, and drives running/idle lifecycle from the agent's own hooks via an events file. A runtime catalog (claude/codex/cursor/gemini/shell) starts or resumes any of them in a pane; a node-wide session index (owned shells plus every listed external session) is served at GET /index and published to the mesh. As a delegate target, a turn types the instruction into the remote agent's TUI and completes on the stop-hook event.",
     "platforms": [
       "all"
     ]
   },
   {
     "id": "deepgram-voice",
-    "name": "Voice (Deepgram)",
+    "name": "Voice (Deepgram, legacy)",
     "repo": "local:fittings/seed/deepgram-voice",
     "localPath": "fittings/seed/deepgram-voice",
-    "summary": "Speech I/O on port 27085. Proxies Deepgram speech-to-text and text-to-speech, keeping the API key server-side; provides a kind:voice capability that channels consume for push-to-talk and read-aloud.",
+    "summary": "Legacy speech proxy, retired 2026-09-02: capture-service is the one voice layer (POST /stt, POST /tts behind the capture token). Not stationed anywhere; the package stays on disk until the operator triggers the removal patch.",
     "platforms": [
       "claude-code"
     ],
@@ -210,6 +210,21 @@
       "github_stars_url": "https://github.com/gongiskhan/garrison-deepgram-voice",
       "global": 4.4,
       "claude_code": 4.4
+    }
+  },
+  {
+    "id": "local-voice",
+    "name": "Voice (Local)",
+    "repo": "local:fittings/seed/local-voice",
+    "localPath": "fittings/seed/local-voice",
+    "summary": "Optional local speech provider: a supervised faster-whisper engine for transcription and Kokoro/Piper for WAV speech, with explicit readiness and request limits. Models stay in an external cache; host microphone wake detection is off by default.",
+    "platforms": [
+      "claude-code"
+    ],
+    "ratings": {
+      "github_stars_url": "https://github.com/gongiskhan/garrison-local-voice",
+      "global": 4.5,
+      "claude_code": 4.5
     }
   },
   {
@@ -493,6 +508,16 @@
     }
   },
   {
+    "id": "project-viewer",
+    "name": "Project Viewer",
+    "repo": "local:fittings/seed/project-viewer",
+    "localPath": "fittings/seed/project-viewer",
+    "summary": "Flow-based codebase navigator.",
+    "platforms": [
+      "claude-code"
+    ]
+  },
+  {
     "id": "http-gateway",
     "name": "HTTP gateway",
     "repo": "local:fittings/seed/http-gateway",
@@ -621,6 +646,16 @@
     }
   },
   {
+    "id": "preflight",
+    "name": "Preflight",
+    "repo": "local:fittings/seed/preflight",
+    "localPath": "fittings/seed/preflight",
+    "summary": "Composition doctor: verify results, registration, ports, view coverage, process ledger and drift checks. Passive reports plus explicit repairs with fresh finding checks, authority-backed composition writes, guarded node publication and reviewed file-scoped registry commits. Verify sweeps require a stopped composition.",
+    "platforms": [
+      "claude-code"
+    ]
+  },
+  {
     "id": "morning-briefing",
     "name": "Morning Briefing",
     "repo": "local:fittings/seed/morning-briefing",
@@ -666,10 +701,10 @@
   },
   {
     "id": "capture-service",
-    "name": "iOS companion capture",
+    "name": "Voice and companion capture",
     "repo": "local:fittings/seed/capture-service",
     "localPath": "fittings/seed/capture-service",
-    "summary": "iOS companion capture channel: session-based websocket ingress (audio + screen stills), Deepgram live transcription, wake-word commands, capture events into the shared triage, APNs push out, spoken-acknowledgement sink.",
+    "summary": "The voice layer: browser push-to-talk and read-aloud (POST /stt, POST /tts behind the capture token), phone capture over a session-based websocket ingress (audio + screen stills) with Deepgram live transcription and wake-word commands, Omi realtime segments forwarded onto the same wake bus, capture events into the shared triage, APNs push out, spoken-acknowledgement sink.",
     "platforms": [
       "claude-code"
     ],
@@ -933,6 +968,20 @@
     }
   },
   {
+    "id": "spotify",
+    "name": "Spotify connector",
+    "repo": "local:fittings/seed/spotify",
+    "localPath": "fittings/seed/spotify",
+    "summary": "Spotify connector — control playback (pause/next/play-by-search/volume) on the active Spotify Connect device over the Web API. Needs Premium; OAuth2 sealed in the Vault.",
+    "platforms": [
+      "all"
+    ],
+    "ratings": {
+      "global": 4.5,
+      "claude_code": 4.5
+    }
+  },
+  {
     "id": "vault-git-sync",
     "name": "Vault Git Sync",
     "repo": "local:fittings/seed/vault-git-sync",
@@ -958,10 +1007,10 @@
   },
   {
     "id": "web-channel-default",
-    "name": "Web channel",
+    "name": "Web channel (legacy host)",
     "repo": "local:fittings/seed/web-channel-default",
     "localPath": "fittings/seed/web-channel-default",
-    "summary": "Mobile-first browser chat surface. Serves a React UI on its own port (default 27083) and proxies the http-gateway for streaming replies.",
+    "summary": "Legacy own-port host of Conversations. The shell serves the same engine at /talk; station this only to keep the old port-bound surface (default 8083) alive.",
     "platforms": [
       "claude-code"
     ],
@@ -1003,21 +1052,11 @@
     }
   },
   {
-    "id": "project-viewer",
-    "name": "Project Viewer",
-    "repo": "local:fittings/seed/project-viewer",
-    "localPath": "fittings/seed/project-viewer",
-    "summary": "Flow-based codebase navigator.",
-    "platforms": [
-      "claude-code"
-    ]
-  },
-  {
     "id": "jarvis-os",
     "name": "Jarvis Agentic OS",
     "repo": "local:fittings/seed/jarvis-os",
     "localPath": "fittings/seed/jarvis-os",
-    "summary": "Voice-first Jarvis-style HUD on port 8082. Central audio-reactive core (DitherCore), hold-to-talk → Orchestrator (via the gateway) → reply read aloud. Consumes a kind:voice Fitting. Visual layer reused from the Fable jarvis-hud reference.",
+    "summary": "Optional voice HUD with an audio-reactive core, hands-free speech, streamed replies and read-aloud through the composition-selected voice provider. A dedicated fitting surface alongside Conversations.",
     "platforms": [
       "claude-code"
     ],
@@ -1026,44 +1065,5 @@
       "global": 4.6,
       "claude_code": 4.6
     }
-  },
-  {
-    "id": "local-voice",
-    "name": "Voice (Local)",
-    "repo": "local:fittings/seed/local-voice",
-    "localPath": "fittings/seed/local-voice",
-    "summary": "Fully local, multilingual speech I/O on port 8100. No cloud, no API key: a Node wrapper supervises a faster-whisper STT + Kokoro/Piper TTS voice-server and exposes the same kind:voice contract as deepgram-voice. STT auto-detects the spoken language (PT/FR/EN/ES/IT) and TTS replies in that language's own voice — Portuguese via Piper's native European pt_PT voice, the rest via Kokoro — so channels consume it unchanged for push-to-talk and read-aloud.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-local-voice",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "spotify",
-    "name": "Spotify connector",
-    "repo": "local:fittings/seed/spotify",
-    "localPath": "fittings/seed/spotify",
-    "summary": "Spotify connector — control playback (pause/next/play-by-search/volume) on the active Spotify Connect device over the Web API. Needs Premium; OAuth2 sealed in the Vault.",
-    "platforms": [
-      "all"
-    ],
-    "ratings": {
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
-    "id": "knowledge",
-    "name": "Knowledge",
-    "repo": "local:fittings/seed/knowledge",
-    "localPath": "fittings/seed/knowledge",
-    "summary": "Fills the memory role with the Knowledge composite. v1: a canonical markdown vault + idempotent cross-runtime projections (AGENTS.md canonical; CLAUDE.md + GEMINI.md thin imports of @AGENTS.md) + a minimal stdio MCP server (recall over the vault) + idempotent provisioning that wires the knowledge/codegraph/serena MCP servers into a project. CodeGraph + Serena join as consumed sub-fittings.",
-    "platforms": [
-      "all"
-    ]
   }
 ]

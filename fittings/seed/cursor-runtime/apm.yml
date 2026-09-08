@@ -84,10 +84,62 @@ x-garrison:
       key: mcpServers
     log_paths:
       - ~/.cursor/projects
+    # G5: directory-of-files surfaces - shapes verified against a real
+    # ~/.cursor on the mini. hooks writes by MERGE (never replace) because
+    # Garrison's own two hook entries (install-hooks.mjs, the Shells fitting)
+    # must coexist with anything the operator hand-authored. desktop is
+    # darwin-only (the mini's actual install path); project-rules is the one
+    # entry scoped to a project instead of this machine's home.
+    file_sets:
+      - id: rules
+        label: Rules
+        root: ~/.cursor/rules
+        glob: "*.mdc"
+        format: markdown
+        frontmatter: [description, globs, alwaysApply]
+        create: true
+      - id: skills
+        label: Skills
+        root: ~/.cursor/skills
+        glob: "*/SKILL.md"
+        format: markdown
+        frontmatter: [name, description]
+        create: true
+      - id: agents
+        label: Agents
+        root: ~/.cursor/agents
+        glob: "*.md"
+        format: markdown
+        create: true
+      - id: hooks
+        label: Hooks
+        root: ~/.cursor
+        glob: hooks.json
+        format: json
+        write: merge
+      - id: desktop
+        label: Desktop
+        root: ~/Library/Application Support/Cursor/User
+        glob: "{settings,keybindings}.json"
+        format: json
+        platform: darwin
+      - id: project-rules
+        label: Project rules
+        root: .cursor/rules
+        glob: "*.mdc"
+        format: markdown
+        scope: project
+        create: true
     categories:
       - settings
       - context
       - mcps
+      - rules
+      - skills
+      - agents
+      - hooks
+      - desktop
+      - project-rules
       - logs
   setup:
     # Every instance profile redirects XDG_CONFIG_HOME to $GARRISON_HOME/xdg/config,
@@ -119,6 +171,16 @@ x-garrison:
     shared-token revocation issue, so concurrent cursor-agent processes are safe.
     CLI:  echo '<task_spec_json>' | node scripts/bridge.mjs delegate
     Probe: node scripts/bridge.mjs --probe   → prints "ok"
+
+    Degraded probe. Most nodes in a mesh do not run Cursor, so the probe treats
+    a MISSING cursor-agent binary as degraded rather than fatal: it still exits 0
+    (verify passes, `up()` proceeds for every other fitting) but prints a second
+    "degraded: no cursor-agent on this node (...)" line. A node that HAS the
+    binary but is not logged in still fails `up` loudly (exit 1) - that only
+    happens on a box someone specifically set up for Cursor, so it is always a
+    real problem. Set GARRISON_REQUIRE_CURSOR=1 in a node's environment (the
+    mini's launchd plist does this) to make a missing binary fatal too, for a
+    node where Cursor is expected to always be present.
 
     Models. `cursor-agent --list-models` is the authoritative catalog for the
     signed-in account; it spans labs (gpt-5.x / Codex, claude-opus-5 / fable,

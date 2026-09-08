@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import http, { type ServerResponse } from "node:http";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { build } from "esbuild";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
@@ -9,9 +10,10 @@ let browser: Browser;
 let context: BrowserContext;
 let page: Page;
 let bundle = "";
+let nativeBundle = "";
 const css = [
   readFileSync(path.join(REPO, "packages/claude-chat/src/claude-chat.css"), "utf8"),
-  readFileSync(path.join(REPO, "fittings/seed/web-channel-default/ui/styles.css"), "utf8"),
+  readFileSync(path.join(REPO, "packages/talk/ui/styles.css"), "utf8"),
 ].join("\n");
 
 beforeAll(async () => {
@@ -134,6 +136,29 @@ beforeAll(async () => {
     define: { "process.env.NODE_ENV": '"production"' },
   });
   bundle = built.outputFiles[0].text;
+  const nativeBuilt = await build({
+    stdin: {
+      sourcefile: "native-terminal-browser-entry.tsx", resolveDir: REPO, loader: "tsx",
+      contents: `import React from "react"; import {createRoot} from "react-dom/client";
+        import {Terminal} from "@xterm/xterm";
+        import {NativeTerminal} from "./packages/talk/ui/native-terminal";
+        const originalOpen = Terminal.prototype.open;
+        Terminal.prototype.open = function(...args) { window.__nativeTerminal = this; return originalOpen.apply(this, args); };
+        const BrowserEventSource = window.EventSource;
+        window.__nativeSources = []; window.__nativeErrors = [];
+        window.EventSource = class extends BrowserEventSource {
+          constructor(url) { super(url); window.__nativeSources.push(this);
+            this.addEventListener("error", () => window.__nativeErrors.push(this.readyState)); }
+        };
+        const root = createRoot(document.getElementById("root"));
+        root.render(<NativeTerminal streamUrl="/stream"/>);
+        window.__unmountNative = () => root.unmount();
+        window.__nativeText = () => { const b=window.__nativeTerminal?.buffer.active;
+          return b ? Array.from({length:b.length}, (_,i)=>b.getLine(i)?.translateToString(true)).join("\\n") : ""; };`,
+    }, bundle: true, write: false, platform: "browser", format: "iife", jsx: "automatic",
+    define: { "process.env.NODE_ENV": '"production"' },
+  });
+  nativeBundle = nativeBuilt.outputFiles[0].text;
   browser = await chromium.launch({ headless: true });
   context = await browser.newContext({ viewport: { width: 320, height: 700 }, hasTouch: true, isMobile: true });
   page = await context.newPage();
@@ -143,9 +168,14 @@ beforeEach(async () => {
   await page.setContent(
     `<meta name="viewport" content="width=device-width, initial-scale=1">` +
     `<style>${css.replace(/<\/style/gi, "<\\/style")}</style>` +
+    // Every real host mounts the talk UI under a `.talk-host` element (the
+    // fitting's `#root`, the shell's `/talk` page); the skin's tokens live
+    // there, so the document needs the same ancestor or nothing resolves.
+    `<div class="talk-host" style="height:100%">` +
     `<div class="wc-xscript" style="position:relative;height:700px">` +
     `<div class="wc-xscript-head"><button type="button" class="wc-xscript-close" aria-label="Close session transcript">×</button></div>` +
-    `<div class="wc-xscript-body"><div id="root"></div></div></div>`
+    `<div class="wc-xscript-body"><div id="root"></div></div></div>` +
+    `</div>`
   );
   await page.addScriptTag({ content: bundle });
   // Reset Chromium's focus-visible input modality between cases. Pointer clicks
@@ -182,6 +212,103 @@ const mount = async (
   );
 };
 
+async function nativeFixture(reply: (res: ServerResponse, requestNumber: number) => void) {
+  let requests = 0;
+  const server = http.createServer((req, res) => {
+    if (req.url === "/stream") return reply(res, ++requests);
+    res.setHeader("Content-Type", "text/html");
+    res.end('<div id="root" style="height:400px"></div><style>.wc-native-terminal-mount{height:350px}</style>');
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject); server.listen(0, "127.0.0.1", resolve);
+  });
+  const nativeContext = await browser.newContext();
+  const nativePage = await nativeContext.newPage();
+  await nativePage.goto(`http://127.0.0.1:${(server.address() as {port:number}).port}/`);
+  await nativePage.addStyleTag({ content: readFileSync(path.join(REPO, "node_modules/@xterm/xterm/css/xterm.css"), "utf8") });
+  await nativePage.clock.install();
+  await nativePage.addScriptTag({ content: nativeBundle });
+  return {
+    page: nativePage, requests: () => requests,
+    close: async () => {
+      await nativeContext.close();
+      server.closeAllConnections();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    },
+  };
+}
+
+function nativeOutput(res: ServerResponse, end = false) {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.write(`data: ${JSON.stringify({type:"init", available:true, live:true, events:[
+    {id:"native-output", role:"assistant", blocks:[{type:"text",text:"Recovered native output"}]}
+  ]})}\n\n`);
+  if (end) res.end('data: {"type":"end"}\n\n');
+}
+
+describe("native terminal real EventSource recovery", () => {
+  it("recovers CLOSED HTTP502 with one replacement source and renders actual terminal output", async () => {
+    const fixture = await nativeFixture((res, n) => {
+      if (n === 1) { res.writeHead(502); res.end("temporary peer failure"); }
+      else nativeOutput(res);
+    });
+    try {
+      await expect.poll(() => fixture.page.evaluate(() => (window as any).__nativeErrors)).toContain(2);
+      await fixture.page.clock.fastForward(1000);
+      await expect.poll(() => fixture.page.evaluate(() => (window as any).__nativeText())).toContain("Recovered native output");
+      expect(fixture.requests()).toBe(2);
+      expect(await fixture.page.evaluate(() => (window as any).__nativeSources.length)).toBe(2);
+    } finally { await fixture.close(); }
+  });
+
+  it("leaves CONNECTING retries to the browser without creating duplicate sources", async () => {
+    const fixture = await nativeFixture((res, n) => {
+      if (n === 1) { res.writeHead(200, {"Content-Type":"text/event-stream"}); res.end("retry: 100\n: temporary interruption\n\n"); }
+      else nativeOutput(res);
+    });
+    try {
+      await expect.poll(() => fixture.page.evaluate(() => (window as any).__nativeText())).toContain("Recovered native output");
+      expect(await fixture.page.evaluate(() => (window as any).__nativeErrors)).toContain(0);
+      expect(await fixture.page.evaluate(() => (window as any).__nativeSources.length)).toBe(1);
+      expect(fixture.requests()).toBe(2);
+    } finally { await fixture.close(); }
+  });
+
+  it("cancels a pending manual retry on unmount", async () => {
+    const fixture = await nativeFixture(res => { res.writeHead(502); res.end("temporary peer failure"); });
+    try {
+      await expect.poll(() => fixture.page.evaluate(() => (window as any).__nativeErrors)).toContain(2);
+      await fixture.page.evaluate(() => (window as any).__unmountNative());
+      await fixture.page.clock.fastForward(60_000);
+      expect(fixture.requests()).toBe(1);
+      expect(await fixture.page.evaluate(() => (window as any).__nativeSources.every((s: EventSource) => s.readyState === 2))).toBe(true);
+    } finally { await fixture.close(); }
+  });
+
+  it("never reconnects after an intentional terminal end", async () => {
+    const fixture = await nativeFixture(res => nativeOutput(res, true));
+    try {
+      await expect.poll(() => fixture.page.locator(".wc-native-terminal-state").textContent()).toBe("Session output · read only");
+      await fixture.page.clock.fastForward(60_000);
+      expect(fixture.requests()).toBe(1);
+      expect(await fixture.page.evaluate(() => (window as any).__nativeSources.every((s: EventSource) => s.readyState === 2))).toBe(true);
+    } finally { await fixture.close(); }
+  });
+
+  it("bounds consecutive CLOSED retries and reports exhaustion honestly", async () => {
+    const fixture = await nativeFixture(res => { res.writeHead(502); res.end("temporary peer failure"); });
+    try {
+      for (const [index, delay] of [1000, 2000, 4000, 8000, 10_000].entries()) {
+        await expect.poll(() => fixture.page.evaluate(() => (window as any).__nativeErrors.length)).toBe(index + 1);
+        await fixture.page.clock.fastForward(delay);
+      }
+      await expect.poll(() => fixture.page.locator(".wc-native-terminal-state").textContent()).toBe("Session output unavailable. Reopen to retry.");
+      await fixture.page.clock.fastForward(60_000);
+      expect(fixture.requests()).toBe(6);
+    } finally { await fixture.close(); }
+  });
+});
+
 describe("claude-chat canonical timeline in a real browser", () => {
   it("preserves the stable outer Markdown node while a revision completes its fence", async () => {
     const first = [{
@@ -197,6 +324,23 @@ describe("claude-chat canonical timeline in a real browser", () => {
     });
 
     await mount([{ ...first[0], revision: 2, blocks: [{ type: "text", text: "```js\nconst answer = 42;\n```" }] }], true);
+    // Live prose TYPES in (StreamingText reveals a few chars per frame), so the
+    // revision passes through intermediate renders on its way to the closed
+    // fence: "...42;" (auto-closed, already equal to the target), then a stray
+    // backtick, then the real fence. Sampling once, or waiting for the first
+    // equal frame, both catch a transient. The claim is about the settled
+    // text, so require it to hold across more frames than the reveal can
+    // spend on the eight-char backlog.
+    await page.waitForFunction(
+      () => {
+        const w = window as any;
+        const equal = document.querySelector("pre code")?.textContent === "const answer = 42;\n";
+        w.__settledFrames = equal ? (w.__settledFrames ?? 0) + 1 : 0;
+        return w.__settledFrames >= 6;
+      },
+      undefined,
+      { polling: "raf", timeout: 5000 }
+    );
     expect(await page.evaluate(() => (window as any).__stableNode === document.querySelector('[data-session-event-id="stable-text"]'))).toBe(true);
     expect(await page.locator("pre code").textContent()).toBe("const answer = 42;\n");
   });

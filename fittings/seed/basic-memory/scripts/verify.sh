@@ -114,8 +114,12 @@ if [ "$CAPTURE_ENABLED" = "true" ]; then
 import json, sys
 from pathlib import Path
 hooks = json.loads(Path(sys.argv[1]).read_text() or "{}").get("hooks", {})
-for event in ("SessionEnd", "PreCompact"):
-    ok = any("basic-memory/capture-session.py" in h.get("command","")
+shared = any("agent-continuity.py" in h.get("command", "")
+             for entries in hooks.values() for e in entries for h in e.get("hooks", []))
+events = ("SessionStart", "UserPromptSubmit", "PostToolUse", "PreCompact", "Stop", "SessionEnd") if shared else ("SessionEnd", "PreCompact")
+needle = "agent-continuity.py" if shared else "basic-memory/capture-session.py"
+for event in events:
+    ok = any(needle in h.get("command","")
              for e in hooks.get(event, []) for h in e.get("hooks", []))
     if not ok:
         print(f"verify failed: capture hook for {event} not wired", file=sys.stderr)

@@ -238,6 +238,23 @@ final class PendantBLETransportMockTests: XCTestCase {
         transport.disconnect()
     }
 
+    func testRepeatedConnectDoesNotRestartAnEstablishedConnection() {
+        let transport = connectTransport()
+        let changed = expectation(description: "duplicate connect does not change connection state")
+        changed.isInverted = true
+        transport.onConnectionState = { _ in changed.fulfill() }
+        transport.connect()
+        transport.connect()
+        let read = expectation(description: "established connection still answers")
+        transport.readBattery { level in
+            XCTAssertEqual(level, 87)
+            read.fulfill()
+        }
+        wait(for: [read, changed], timeout: 0.5)
+        transport.onConnectionState = nil
+        transport.disconnect()
+    }
+
     func testStreamsFramedAudioThroughTheRealReassembler() {
         let transport = connectTransport()
         waitForAudioSubscription()

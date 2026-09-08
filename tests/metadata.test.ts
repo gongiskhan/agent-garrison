@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseGarrisonMetadata, validateSelection } from "@/lib/metadata";
+import { connectorSecretScope, parseGarrisonMetadata, validateSelection } from "@/lib/metadata";
 
 const baseMetadata = {
   faculty: "memory" as const,
@@ -487,5 +487,73 @@ describe("discriminated narrowing guard (S1 ratchet)", () => {
       const hd: string = qd.home_dir;
       expect(hd).toBe("~/.codex");
     }
+  });
+});
+
+// D26 (docs/decisions/2026-09-garrison-app.md): a Fitting that seals more than
+// its connector needs declares `connector.secrets`, the subset a connector call
+// receives. capture-service seals the Deepgram, ElevenLabs and APNs keys plus the
+// capture token, and its `voice` connector receives ONLY the capture token: the
+// connector calls the running service's /stt and /tts over its Bearer, and the
+// provider keys never leave the service process.
+describe("connector.secrets (D26)", () => {
+  const voiceProvider = {
+    ...baseMetadata,
+    faculty: "channels" as const,
+    component_shape: "script" as const,
+    own_port: true,
+    provides: [
+      { kind: "voice", name: "capture-service", summary: "STT + TTS" },
+      { kind: "connector", name: "voice", summary: "transcribe / synthesize" }
+    ],
+    secret_scope: ["CAPTURE_TOKEN", "DEEPGRAM_API_KEY", "ELEVENLABS_API_KEY"],
+    connector: { auth: "api_key", actions: [{ name: "transcribe", description: "audio to text" }] }
+  };
+
+  it("parses an optional list of secret names", () => {
+    const m = parseGarrisonMetadata({
+      ...voiceProvider,
+      connector: { ...voiceProvider.connector, secrets: ["CAPTURE_TOKEN"] }
+    });
+    expect(m.connector?.secrets).toEqual(["CAPTURE_TOKEN"]);
+    expect(connectorSecretScope(m)).toEqual(["CAPTURE_TOKEN"]);
+    expect(() => parseGarrisonMetadata({ ...voiceProvider, connector: { ...voiceProvider.connector, secrets: [""] } })).toThrow();
+    expect(() => parseGarrisonMetadata({ ...voiceProvider, connector: { ...voiceProvider.connector, secrets: "DEEPGRAM_API_KEY" } })).toThrow();
+  });
+
+  it("connectorSecretScope is the whole secret_scope when the subset is absent", () => {
+    const m = parseGarrisonMetadata(voiceProvider);
+    expect(connectorSecretScope(m)).toEqual(["CAPTURE_TOKEN", "DEEPGRAM_API_KEY", "ELEVENLABS_API_KEY"]);
+    expect(connectorSecretScope(parseGarrisonMetadata({ ...baseMetadata }))).toEqual([]);
+  });
+
+  it("connectorSecretScope is the declared subset, in declared order, without the rest of the scope", () => {
+    const m = parseGarrisonMetadata({
+      ...voiceProvider,
+      connector: { ...voiceProvider.connector, secrets: ["ELEVENLABS_API_KEY", "DEEPGRAM_API_KEY"] }
+    });
+    expect(connectorSecretScope(m)).toEqual(["ELEVENLABS_API_KEY", "DEEPGRAM_API_KEY"]);
+  });
+
+  it("a declared name outside secret_scope is a manifest error: the subset can narrow the scope, never widen it", () => {
+    expect(() =>
+      parseGarrisonMetadata({
+        ...voiceProvider,
+        connector: { ...voiceProvider.connector, secrets: ["DEEPGRAM_API_KEY", "NOT_SEALED_HERE"] }
+      })
+    ).toThrow(/connector\.secrets names NOT_SEALED_HERE outside x-garrison\.secret_scope/);
+    expect(() =>
+      parseGarrisonMetadata({ ...voiceProvider, secret_scope: undefined, connector: { ...voiceProvider.connector, secrets: ["CAPTURE_TOKEN"] } })
+    ).toThrow(/outside x-garrison\.secret_scope/);
+  });
+
+  it("connectorSecretScope collapses duplicates and, on a hand-built metadata object, still drops out-of-scope names", () => {
+    const m = parseGarrisonMetadata({
+      ...voiceProvider,
+      connector: { ...voiceProvider.connector, secrets: ["DEEPGRAM_API_KEY", "DEEPGRAM_API_KEY"] }
+    });
+    expect(connectorSecretScope(m)).toEqual(["DEEPGRAM_API_KEY"]);
+    const handBuilt = { ...m, connector: { ...m.connector!, secrets: ["DEEPGRAM_API_KEY", "NOT_SEALED_HERE"] } };
+    expect(connectorSecretScope(handBuilt)).toEqual(["DEEPGRAM_API_KEY"]);
   });
 });

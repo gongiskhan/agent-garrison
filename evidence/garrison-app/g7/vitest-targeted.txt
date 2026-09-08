@@ -1,0 +1,15 @@
+[capture-service] wake command dispatched (create_task) in 312ms
+
+ ✓ |unit| tests/pendant-e2e.test.ts (6 tests) 16101ms
+   ✓ e2e:pendant - the full loop from a clean sandbox > wake-to-card at real cadence: tier sequence, timestamps, and latency targets 7917ms
+   ✓ e2e:pendant - the full loop from a clean sandbox > near-miss audio never wakes and leaves nothing behind 1668ms
+   ✓ e2e:pendant - the full loop from a clean sandbox > duplicate segments dispatch exactly once 2681ms
+   ✓ e2e:pendant - the full loop from a clean sandbox > a mid-stream disconnect resumes from the last ack and still yields one card 2736ms
+   ✓ e2e:pendant - the full loop from a clean sandbox > ambient policy stores the session transcript with pendant identity 681ms
+   ✓ e2e:pendant - the full loop from a clean sandbox > feedback-unsupported fallback: an unacking client still gets the card; the loop degrades honestly 418ms
+
+ Test Files  3 passed (3)
+      Tests  37 passed (37)
+   Start at  14:49:41
+   Duration  16.59s (transform 382ms, setup 18ms, collect 334ms, tests 17.02s, environment 0ms, prepare 152ms)
+

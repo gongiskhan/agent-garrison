@@ -111,3 +111,12 @@ declare module "*/automations/lib/planner.mjs" {
   export function parsePlan(text: string): any;
   export const PLANNER_SKILL_ID: string;
 }
+
+// The connector-invoke leaf, for tests/automations-connector-invoke.test.ts.
+declare module "*/automations/lib/connector-invoke.mjs" {
+  export const CONNECTOR_ID_ALIASES: Readonly<Record<string, string>>;
+  export function canonicalConnectorId(connectorId: string): string;
+  export function connectorScriptPath(connectorId: string): string;
+  export function resolveGarrisonBaseUrl(env?: Record<string, string | undefined>): string | null;
+  export function defaultConnectorAuthEnv(connectorId: string, fetchImpl?: unknown): Promise<Record<string, unknown>>;
+}

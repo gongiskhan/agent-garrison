@@ -29,9 +29,9 @@ describe("matrix-harness classifyAction (S2c)", () => {
 
   it("a connector catalog → catalog-parse (BEFORE own-port health)", () => {
     const a = classifyAction(
-      fit("deepgram-voice", "connectors", {
+      fit("capture-service", "channels", {
         own_port: true,
-        provides: [{ kind: "voice", name: "deepgram" }, { kind: "connector", name: "deepgram" }],
+        provides: [{ kind: "voice", name: "companion" }, { kind: "connector", name: "voice" }],
         connector: { actions: [{ name: "transcribe", mutates: false }] }
       })
     );

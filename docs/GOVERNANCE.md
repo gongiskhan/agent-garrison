@@ -79,11 +79,19 @@ Concrete forms of leakage that the Honesty Test rejects:
   used to justify a Garrison capability. State the capability on its
   own merits; the consumer name is irrelevant.
 - **Garrison shell surfaces that duplicate Channel-Fitting work.** A
-  built-in chat tab, a "send a test message to the operative" box,
-  or an Operative-specific debugging UI in Garrison itself is leakage.
-  Talking to the Operative is what Channel Fittings exist for; if a
-  user needs a browser surface, the Web Channel Fitting is the right
-  place for it.
+  "send a test message to the operative" box or an Operative-specific
+  debugging UI in Garrison itself is leakage. Talking to the Operative
+  is what Channel Fittings exist for. **One documented exception
+  (2026-09-01):** the browser conversation surface, Conversations at
+  `/talk`, is served by the shell. It began as the Web Channel Fitting
+  and is the same engine (`packages/talk`); it moved into the shell
+  because the phone app needs one origin for the shell, the
+  conversation and push, and a channel on its own port cannot give it
+  that. The exception is bounded: the shell hosts the surface, the
+  gateway still owns the turn, and every other channel (Slack,
+  WhatsApp, Omi, email) remains a Fitting. See AGENTS.md "The web
+  channel exception" and
+  `docs/decisions/2026-09-garrison-app.md` D2.
 - **Garrison shell surfaces that duplicate a Fitting's own UI.** A
   global "tools" surface that treats certain Faculties as a privileged
   category, a sub-agent inspector that knows about a specific Fitting's

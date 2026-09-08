@@ -1,10 +1,10 @@
 # Local Voice
 
 Fully **local, multilingual** speech I/O for Agent Garrison — no cloud, no API
-key. A drop-in alternative to `deepgram-voice`: it provides the same
-`kind:voice` capability, so any channel that consumes voice (the web channel,
-the Jarvis HUD) works against it unchanged. `voice` is a singleton, so you
-station **one** voice Fitting per composition.
+key. It provides the REST `kind:voice` capability as a local alternative to
+`capture-service`. Consumers discover the selected provider and its advertised
+capabilities. It does not implement capture-service's phone, pendant, screen
+capture or incremental STT features. Station one voice Fitting per composition.
 
 **Multilingual.** `/stt` auto-detects the spoken language (PT, FR, EN, ES, IT, …)
 and returns it; `/tts` speaks the reply back in the language of the *response
@@ -40,9 +40,9 @@ Kokoro, so the voice changes with the language — an accepted consequence.
 
 | Method | Path | Body | Returns |
 |---|---|---|---|
-| `GET`  | `/health` | — | `{ ok, port, pid, host, enginesReady }` |
+| `GET`  | `/health` | — | `{ ok, enginesReady, voice, wake }` |
 | `POST` | `/stt` | raw audio bytes (`audio/webm`/`audio/wav`) | `{ transcript, confidence, detected_language }` (confidence is `null`; `detected_language` is an ISO-639-1 code) |
-| `POST` | `/tts` | `{ "text": "...", "format": "wav" }` | `audio/wav` bytes, streamed sentence-by-sentence, in the text's own language |
+| `POST` | `/tts` | `{ "text": "...", "lang": "en" }` | Complete `audio/wav`; optional language pin, otherwise detected from text |
 
 `enginesReady` is `false` while the Python models warm up on first boot
 (whisper JITs, ~10s); `/stt` and `/tts` return `503` until ready. The WS
@@ -52,9 +52,9 @@ Kokoro, so the voice changes with the language — an accepted consequence.
 ## Setup
 
 `scripts/setup.sh` runs on every `up` (idempotent): creates a Python venv under
-`voice-server/.venv`, installs the deps, and fetches the model files if missing —
+`~/.cache/garrison-local-voice/venv` (`LOCAL_VOICE_VENV` override), installs the deps, and fetches missing model files into `~/.cache/garrison-local-voice/models` (`LOCAL_VOICE_MODEL_DIR` override). No venv or model assets are written inside the installed package. Models include
 Kokoro (`kokoro-v1.0.onnx` ~325MB + `voices-v1.0.bin` ~28MB) and the Piper
-European-Portuguese voice (`piper-voices/pt_PT-tugão-medium.onnx` ~63MB).
+European-Portuguese voice (`piper-voices/pt_PT-tugao-medium.onnx` ~63MB). An explicit `piper_voices: "{}"` disables Piper and its download; blank means the default voice. Custom paths require both the ONNX file and its `.onnx.json` configuration. Whisper downloads its selected checkpoint into the same cache under `whisper/` during first warmup.
 
 - Needs **Python 3.10+** with `curl`/`wget` on PATH. Override the interpreter
   with `LOCAL_VOICE_PYTHON`.
@@ -98,14 +98,34 @@ mv out/ggml-model.bin ~/.cache/whisper-cpp/ggml-WhisperLv3-FT-EP-f16.bin
 Keep a copy off the host. This file is **not reproducible from this repo alone**,
 and re-deriving it costs a multi-GB download plus the conversion.
 
-### Measured latency (Phase 0, this host — Apple Silicon CPU int8)
+### Limits and lifecycle
 
-STT (multilingual `small`) ~1.7s for a ~4s clip; language auto-detected with
-p≥0.98 for EN/PT/FR. Kokoro TTS runs at RTF ~0.4–0.5 and streams
-sentence-by-sentence, so time-to-first-audio is a fraction of a second. The
-whisper model loads once (~6s) and is warmed at boot, so the first real request
-doesn't pay it. No cloud round-trip — comparable to or better than the prior
-Deepgram path. See `scripts/spike/voice-multilingual.mjs`.
+`/health.voice` advertises `stt`, `tts`, `restEnabled`, `maxTextChars: 900`,
+`ttsFormat: "wav"`, `stream: false`, and `wakeEvents`. Availability remains false
+until the Python models finish warmup. Wake events require a configured,
+working wake listener; no host microphone is opened by default.
+
+STT accepts at most 25 MiB and 120 seconds of decoded audio. TTS rejects text
+above 900 Unicode characters with `413`; it never silently truncates. Consumers
+split long replies at sentence or word boundaries using `maxTextChars`.
+Synthesis returns a bounded complete WAV with valid lengths and checks for
+non-silent samples before success. Busy workers return `429`. Both HTTP engine
+requests have a 120-second deadline and bounded responses. The wrapper cancels
+its upstream connection when the browser disconnects. Native inference already
+running finishes under its worker gate, preventing a new request from piling
+another job onto that engine.
+
+Browser HTTP and WebSocket origins must match the incoming Host, including
+port. Native loopback callers need no token; off-box callers require the
+optional `LOCAL_VOICE_AUTH_TOKEN`. The status record belongs to the publishing
+PID/startup id. Shutdown waits for the Python child (TERM then KILL if needed)
+before removing its record. Python watches the supplied Node PID before heavy
+imports and reaps its own whisper.cpp child if the parent disappears.
+
+The microphone-free acceptance fixture uses Kokoro with `tiny.en`, Piper and
+wake disabled. It checks non-silent WAV samples, exact synthetic transcription,
+901-character rejection and malformed-audio rejection. This is file-based
+speech evidence, not a microphone or multilingual accuracy claim.
 
 ## Config (env / `config_schema`)
 
@@ -116,7 +136,7 @@ Garrison projects composition config into the spawn env as
 Bare names (`WHISPER_MODEL`, `KOKORO_VOICE`, …) are the PYTHON voice-server's
 own env contract; the Node wrapper translates config into them when it spawns
 the child. Host env keeps its own names: `LOCAL_VOICE_PYTHON` (setup
-interpreter), `LOCAL_VOICE_VENV`, `LOCAL_VOICE_AUTH_TOKEN`, `GARRISON_HOME`.
+interpreter), `LOCAL_VOICE_VENV`, `LOCAL_VOICE_MODEL_DIR`, `LOCAL_VOICE_AUTH_TOKEN`, `GARRISON_HOME`.
 
 - `whisper_model` defaults to `small` (**multilingual**, auto-detects the spoken
   language). The `*.en` checkpoints (`small.en`…) are English-only — use them
@@ -147,7 +167,7 @@ free internal port; (2) **multilingual** — STT drops the hardcoded `language="
 and the English-only `small.en` model so it auto-detects and reports the spoken
 language, and TTS picks the voice from the response text's language (`lingua`)
 instead of always speaking British English; (3) **Piper** is added as a second
-TTS engine so Portuguese gets a native European (pt_PT) voice Kokoro lacks.
+TTS engine so Portuguese gets a native European (pt_PT) voice Kokoro lacks; (4) bounded REST processing, external caches and early process supervision.
 Engines: [Piper](https://github.com/OHF-Voice/piper1-gpl) (pt_PT TTS),
 [Kokoro](https://github.com/thewh1teagle/kokoro-onnx)
 (TTS), [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (STT),

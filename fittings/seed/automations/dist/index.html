@@ -276,22 +276,33 @@ function renderResult(el, type, result) {
   out.appendChild(fb);
 }
 
-// H1 — chat-to-build authoring: open the web-channel Discuss conversation.
-// This UI runs on the automations own port, so a relative/own-port URL would
-// resolve against THIS server, not Garrison. When embedded in Garrison (the
-// normal path), post a navigate request to the top window so Garrison opens
-// /embed/<web-channel>; standalone, fall back to the absolute Garrison URL.
+// H1 - chat-to-build authoring: open the Discuss conversation in Conversations,
+// a Garrison shell route (/talk). This UI runs on the automations own port, so a
+// relative URL would resolve against THIS server, not Garrison. When embedded in
+// Garrison (the normal path), post a navigate request to the top window so the
+// shell pushes /talk?<params>. Standalone, the target depends on where THIS page
+// is: the server's `url` is the loopback app address, right only when the page
+// is on loopback too; from any other host the app is at that host's tailnet
+// root (the serve mapping every node makes), and a loopback URL would be
+// unreachable and mixed content.
+function standaloneDiscussUrl(r) {
+  const here = window.location.hostname;
+  if (!here || here === "127.0.0.1" || here === "localhost") return r.url || "";
+  return r.path ? `https://${here}${r.path}` : "";
+}
 const discussBtn = document.getElementById("discussBtn");
 if (discussBtn) discussBtn.onclick = async () => {
   try {
     const res = await fetch("/api/automations/discuss-url");
     const r = await res.json();
-    if (!res.ok || !r.fittingId) { toast(r.error || "No web channel installed/running."); return; }
+    if (!res.ok || !r.route) { toast(r.error || "Could not open Discuss."); return; }
     if (window.top && window.top !== window.self) {
-      window.top.postMessage({ type: "garrison:navigate-fitting", fittingId: r.fittingId, params: r.params }, "*");
-    } else if (r.url) {
-      window.location.href = r.url; // standalone (not embedded in Garrison)
+      window.top.postMessage({ type: "garrison:navigate-route", route: r.route, params: r.params }, "*");
+      return;
     }
+    const target = standaloneDiscussUrl(r);
+    if (target) window.location.href = target;
+    else toast("Open Discuss from the Garrison shell.");
   } catch (e) { toast("Could not open Discuss."); }
 };
 

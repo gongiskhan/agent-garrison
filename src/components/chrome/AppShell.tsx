@@ -10,11 +10,14 @@ import {
   useState
 } from "react";
 import type { ReactNode } from "react";
+import clsx from "clsx";
 import { usePathname } from "next/navigation";
-import { Sidebar } from "./Sidebar";
+import { CAPTURE_ITEM, COMMAND_ITEMS, Sidebar } from "./Sidebar";
+import { AppBar, AppBarProvider } from "./AppBar";
+import { useNodeChrome } from "./NodeBadge";
+import { PushRouteListener } from "./PushRouteListener";
 import { FittingEditor } from "@/components/FittingEditor";
 import { TourEngine } from "@/components/tours/TourEngine";
-import { JarvisPersistentFrame } from "./JarvisPersistentFrame";
 import type {
   Composition,
   FittingSelectionMap,
@@ -70,10 +73,6 @@ export interface AppShellState {
   editingFitting: LibraryEntry | null;
   openFittingEditor: (entry: LibraryEntry) => void;
   closeFittingEditor: () => void;
-  // jarvis-os persistent HUD (Phase 1) - lit while something is happening in
-  // the always-mounted iframe (see JarvisPersistentFrame) and the user is on
-  // a different route. Read by the Sidebar's Jarvis Views entry.
-  jarvisActive: boolean;
 }
 
 const Ctx = createContext<AppShellState | null>(null);
@@ -89,6 +88,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   // controls would overlay it. See the CompositionCreator render below.
   const pathname = usePathname() ?? "";
   const isEmbeddedView = pathname.startsWith("/embed/");
+  // /frame/<...> is this node's page rendered inside ANOTHER node's shell (D48:
+  // /mesh/talk/<node>/<id> frames /frame/talk/<id> from the owning node). The
+  // parent owns the sidebar, the app bar and the floating controls, so this
+  // render carries none - only the page, at the frame's full size.
+  const isFramed = pathname.startsWith("/frame/");
   const [composition, setComposition] = useState<Composition | null>(null);
   const [compositions, setCompositions] = useState<Composition[]>([]);
   const [activePointer, setActivePointer] = useState<string | null>(null);
@@ -105,7 +109,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editingFitting, setEditingFitting] = useState<LibraryEntry | null>(null);
-  const [jarvisActive, setJarvisActive] = useState(false);
   // Auto-collapse sidebar on narrow viewports — at < 720px the 244px sidebar
   // dominates the available content area. Initial state matches the server
   // render (false) and we apply the narrow-viewport collapse in a
@@ -556,8 +559,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       narrowViewport,
       editingFitting,
       openFittingEditor: setEditingFitting,
-      closeFittingEditor: () => setEditingFitting(null),
-      jarvisActive
+      closeFittingEditor: () => setEditingFitting(null)
     }),
     [
       composition,
@@ -587,30 +589,57 @@ export function AppShell({ children }: { children: ReactNode }) {
       sidebarCollapsed,
       toggleSidebar,
       narrowViewport,
-      editingFitting,
-      jarvisActive
+      editingFitting
     ]
+  );
+
+  const node = useNodeChrome();
+  const sessionState: "running" | "idle" | "error" | null = runnerState
+    ? runnerState.status === "running"
+      ? "running"
+      : runnerState.status === "failed"
+        ? "error"
+        : "idle"
+    : null;
+  const creator = isEmbeddedView || isFramed ? null : (
+    <CompositionCreator
+      activeName={composition?.name ?? composition?.id ?? null}
+      disabled={switching || activeExternal || !composition}
+      onCreate={createAndSwitch}
+      inBar={narrowViewport}
+    />
   );
 
   return (
     <Ctx.Provider value={value}>
+      <AppBarProvider>
       <a className="skip-link" href="#main-content">
         Skip to main content
       </a>
-      <div className={`app-shell ${sidebarCollapsed || narrowViewport ? "shell-rail" : ""}`}>
-        <Sidebar />
+      <PushRouteListener />
+      {/* Phone width (.shell-phone): no rail. The app bar at the top of the
+          content column carries the menu button and the shell controls, and
+          the sidebar is a drawer that slides in over the page. */}
+      <div
+        className={clsx(
+          "app-shell",
+          isFramed && "shell-frame",
+          narrowViewport ? "shell-phone" : sidebarCollapsed && "shell-rail"
+        )}
+      >
+        {isFramed ? null : <Sidebar />}
         <div className="shell-content">
           <span id="main-content" className="shell-main-anchor" tabIndex={-1} />
+          {narrowViewport && !isFramed ? (
+            <AppBar
+              fallbackTitle={routeTitle(pathname, library)}
+              subtitle={node?.name ?? null}
+              state={sessionState}
+              onMenu={toggleSidebar}
+              trailing={creator}
+            />
+          ) : null}
           {children}
-          {/* Mounted once, here, so client-side route navigation never tears it
-              down - see JarvisPersistentFrame for why. Rendered after
-              {children} so it paints on top of whatever /embed/jarvis-os
-              itself renders (nothing, by design) while visible there. */}
-          <JarvisPersistentFrame
-            composition={composition}
-            library={library}
-            onActivityChange={setJarvisActive}
-          />
         </div>
       </div>
       {error ? (
@@ -631,13 +660,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           PROJECT selector). Embedded views are the Fitting's surface, not a
           Garrison page; composition creation stays one click away on every
           real route. */}
-      {isEmbeddedView ? null : (
-        <CompositionCreator
-          activeName={composition?.name ?? composition?.id ?? null}
-          disabled={switching || activeExternal || !composition}
-          onCreate={createAndSwitch}
-        />
-      )}
+      {narrowViewport ? null : creator}
       {editingFitting ? (
         <FittingEditor
           entry={editingFitting}
@@ -647,8 +670,21 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* WS6: the in-app tour engine — watches ?tour=<name>&mode= and overlays
           the demo/guided player on the current surface. */}
       <TourEngine />
+      </AppBarProvider>
     </Ctx.Provider>
   );
+}
+
+// The app bar's title when the page registers none: the Command item that owns
+// the route, or the Fitting a /fitting or /embed route shows.
+function routeTitle(pathname: string, library: LibraryEntry[]): string {
+  const fitting = /^\/(?:fitting|embed)\/([^/]+)/.exec(pathname);
+  if (fitting) {
+    const id = decodeURIComponent(fitting[1]);
+    return library.find((entry) => entry.id === id)?.name ?? id;
+  }
+  const item = [...COMMAND_ITEMS, CAPTURE_ITEM].find((entry) => entry.isActive(pathname));
+  return item?.label ?? "Garrison";
 }
 
 // Creation remains a shell-level action because it clones the active
@@ -656,8 +692,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 // Sidebar selector. The selector itself lives in Sidebar; keeping this component
 // creation-only avoids two controls with the same composition-switcher id.
 // The non-composition "New" targets. Each points at the surface that OWNS the
-// create affordance, verified to exist rather than guessed: the web channel has a
-// "+ New" conversation button, the Kanban board has a new-card sheet, and Muster
+// create affordance, verified to exist rather than guessed: Conversations honours
+// ?new=1 (a fresh thread on load), the Kanban board has a new-card sheet, and Muster
 // owns both duty creation and Fitting stationing/cloning. Deep-linking straight
 // into each create dialog would need a query contract per fitting; landing on the
 // right surface is honest and never dead-ends.
@@ -671,7 +707,7 @@ const NEW_TARGETS: ReadonlyArray<{ label: string; href: string; hint: string }> 
     href: "/muster?section=transfer",
     hint: "import a .garrison.json bundle"
   },
-  { label: "Conversation", href: "/fitting/web-channel-default", hint: "a new Web Channel conversation" },
+  { label: "Conversation", href: "/talk?new=1", hint: "a new conversation" },
   { label: "Card", href: "/fitting/kanban-loop", hint: "a new Kanban card" },
   { label: "Duty", href: "/muster", hint: "add a duty to the composition" },
   { label: "Fitting", href: "/compose", hint: "station or clone a Fitting" }
@@ -680,11 +716,15 @@ const NEW_TARGETS: ReadonlyArray<{ label: string; href: string; hint: string }> 
 function CompositionCreator({
   activeName,
   disabled,
-  onCreate
+  onCreate,
+  inBar = false
 }: {
   activeName: string | null;
   disabled: boolean;
   onCreate: (name: string) => Promise<boolean>;
+  // Inside the phone app bar the control sits in the bar's flow instead of
+  // floating in the viewport corner.
+  inBar?: boolean;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -758,7 +798,7 @@ function CompositionCreator({
   }, [createOpen]);
 
   return (
-    <div className="composition-creator">
+    <div className={clsx("composition-creator", inBar && "composition-creator--bar")}>
       {/* menuRef must wrap BOTH the trigger and the menu. It was declared but
           never attached, so `menuRef.current?.contains(...)` was always
           undefined and the outside-click handler below treated EVERY mousedown

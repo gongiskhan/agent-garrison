@@ -20,7 +20,7 @@ x-garrison:
   config_schema:
     - key: device_name
       type: string
-      description: Preferred Spotify Connect device to target (SPOTIFY_DEVICE_NAME) — e.g. the phone's name as it shows in Spotify. Empty = act on the currently active device. Case-insensitive substring match.
+      description: Preferred Spotify Connect device to target (SPOTIFY_DEVICE_NAME). Empty = the currently active device. Exact names take priority, otherwise a case-insensitive substring must match exactly one controllable device. Missing or ambiguous names fail without playing elsewhere.
       required: false
   connector:
     auth: oauth2
@@ -33,16 +33,16 @@ x-garrison:
         description: Available Spotify Connect devices (id, name, is_active).
       - name: pause
         mutates: true
-        description: Pause playback on the active device.
+        description: Pause playback on the active or configured target device.
       - name: resume
         mutates: true
         description: Resume playback on the active/target device.
       - name: next
         mutates: true
-        description: Skip to the next track.
+        description: Skip to the next track on the active or configured target device.
       - name: previous
         mutates: true
-        description: Go back to the previous track.
+        description: Go back to the previous track on the active or configured target device.
       - name: play
         args:
           - query
@@ -122,3 +122,11 @@ x-garrison:
     when Spotify is not connected (prompt the user to connect it), or
     { ok:false, error } carrying a human hint when there is no active device
     ("open Spotify on the phone") or the account is not Premium (403).
+
+    With SPOTIFY_DEVICE_NAME set, all playback controls except explicit transfer
+    must resolve that name to one controllable device. They never fall back to
+    another device. Without a preference, Spotify targets its active device.
+    Search uses the user token's country; optional SPOTIFY_MARKET is a two-letter
+    country code. Calls have a ten-second deadline including auth and reads.
+    A timed-out playback request may already have reached Spotify: check current
+    playback before retrying. No mutating request is automatically retried.

@@ -101,8 +101,27 @@ const connectorSpecSchema = z.object({
   auth: z.enum(["oauth2", "api_key", "none"]),
   actions: z.array(connectorActionSchema).default([]),
   triggers: z.array(connectorTriggerSchema).optional(),
-  oauth: connectorOAuthSchema.optional()
+  oauth: connectorOAuthSchema.optional(),
+  // The subset of the Fitting's secret_scope a connector CALL receives (the
+  // auth-env route, the Connectors page's sealed check). Absent = the whole
+  // scope. A Fitting that is also an own-port service seals more than its
+  // connector needs (capture-service: the Deepgram, ElevenLabs and APNs keys
+  // beside the capture token); this keeps an automation child from seeing them.
+  secrets: z.array(z.string().min(1)).optional()
 });
+
+// The secret names a connector call may receive: `connector.secrets` when
+// declared (the schema rejects a name outside `secret_scope`, so the subset can
+// never widen the vault contract; this filter is belt-and-braces for a metadata
+// object built by hand), else the whole `secret_scope`. One helper so the
+// auth-env route and the Connectors view cannot disagree on what "sealed" covers.
+export function connectorSecretScope(metadata: GarrisonMetadata): string[] {
+  const scope = metadata.secret_scope ?? [];
+  const declared = metadata.connector?.secrets;
+  if (!declared) return [...scope];
+  const inScope = new Set(scope);
+  return declared.filter((name, i) => inScope.has(name) && declared.indexOf(name) === i);
+}
 
 // Duty sub-block (MARATHON-V3 D2/D3/D4): one spec per kind:duty provision
 // (provision name === duty id). A level is leaf (cell) XOR composite
@@ -253,6 +272,59 @@ const quartersDescriptorIdSchema = z
   .string()
   .regex(/^[a-z][a-z0-9-]*$/, "quarters_descriptor id must be kebab-case");
 
+// G5: a restricted glob for a file_sets entry - literal path segments, "*",
+// "*.ext", or "{a,b}.ext", at most two segments deep, never ".." or a leading
+// "/". Deliberately narrower than a real glob library: the same string is
+// matched against the real filesystem by `matchRestrictedGlob` in
+// quarters-runtimes.ts (path/containment safety, not just authoring lint), so
+// the grammar stays small enough to reason about at both ends.
+const QUARTERS_GLOB_SEGMENT =
+  /^(?:\*(?:\.[A-Za-z0-9]+)?|\{[A-Za-z0-9_-]+(?:,[A-Za-z0-9_-]+)+\}\.[A-Za-z0-9]+|[A-Za-z0-9][A-Za-z0-9._-]*)$/;
+
+export function isRestrictedQuartersGlob(glob: string): boolean {
+  if (!glob || glob.includes("..") || glob.startsWith("/")) return false;
+  const segments = glob.split("/");
+  if (segments.length === 0 || segments.length > 2) return false;
+  return segments.every((seg) => seg.length > 0 && QUARTERS_GLOB_SEGMENT.test(seg));
+}
+
+const quartersFileSetSchema = z
+  .object({
+    id: z.string().regex(/^[a-z][a-z0-9-]*$/, "file_sets id must be kebab-case"),
+    label: z.string().min(1),
+    root: z.string().min(1),
+    glob: z
+      .string()
+      .min(1)
+      .refine(
+        isRestrictedQuartersGlob,
+        "file_sets glob must be a restricted pattern (literal segments, '*', '*.ext', or '{a,b}.ext'; at most two segments deep; no '..' or a leading '/')"
+      ),
+    format: z.enum(["markdown", "json"]),
+    frontmatter: z.array(z.string().min(1)).optional(),
+    create: z.boolean().optional(),
+    write: z.enum(["replace", "merge"]).optional(),
+    platform: z.enum(["darwin", "linux", "win32"]).optional(),
+    scope: z.enum(["home", "project"]).optional()
+  })
+  .strict()
+  .refine((fs) => fs.format === "markdown" || !fs.frontmatter, {
+    message: "file_sets frontmatter is only valid when format is markdown",
+    path: ["frontmatter"]
+  })
+  .refine((fs) => fs.write !== "merge" || fs.format === "json", {
+    message: "file_sets write:'merge' is only valid when format is json (a markdown file has no field-level merge)",
+    path: ["write"]
+  });
+
+const quartersFileSetsSchema = z
+  .array(quartersFileSetSchema)
+  .optional()
+  .refine(
+    (sets) => !sets || new Set(sets.map((s) => s.id)).size === sets.length,
+    "quarters_descriptor file_sets ids must be unique within one descriptor"
+  );
+
 const quartersDescriptorSchema = z.discriminatedUnion("tier", [
   z
     .object({
@@ -263,7 +335,8 @@ const quartersDescriptorSchema = z.discriminatedUnion("tier", [
       context_file: z.string().min(1).optional(),
       mcp_config: quartersMcpConfigSchema.optional(),
       log_paths: z.array(z.string().min(1)).optional(),
-      categories: z.array(z.string().min(1)).optional()
+      categories: z.array(z.string().min(1)).optional(),
+      file_sets: quartersFileSetsSchema
     })
     .strict(),
   z
@@ -280,7 +353,8 @@ const quartersDescriptorSchema = z.discriminatedUnion("tier", [
       context_file: z.string().min(1).optional(),
       mcp_config: quartersMcpConfigSchema.optional(),
       log_paths: z.array(z.string().min(1)).optional(),
-      categories: z.array(z.string().min(1)).optional()
+      categories: z.array(z.string().min(1)).optional(),
+      file_sets: quartersFileSetsSchema
     })
     .strict()
 ]);
@@ -497,6 +571,18 @@ export const garrisonMetadataSchema = z.object({
         code: z.ZodIssueCode.custom,
         path: ["provides"],
         message: `duplicate duty provisions: ${[...new Set(dupeProvisions)].join(", ")}`
+      });
+    }
+    // `connector.secrets` narrows `secret_scope`; it can never widen it. A name
+    // outside the scope is a manifest error, not something to drop quietly: the
+    // author believes the connector receives that key and it silently would not.
+    const scope = new Set(metadata.secret_scope ?? []);
+    const outside = (metadata.connector?.secrets ?? []).filter((name) => !scope.has(name));
+    if (outside.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["connector", "secrets"],
+        message: `connector.secrets names ${[...new Set(outside)].join(", ")} outside x-garrison.secret_scope; a connector subset must be drawn from the scope`
       });
     }
   });

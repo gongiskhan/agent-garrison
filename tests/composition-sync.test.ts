@@ -8,12 +8,13 @@ import os from "node:os";
 import path from "node:path";
 import { startStateService } from "./state-service-harness";
 import { resetStateClient } from "../src/lib/state-client";
+import type { LibraryEntry } from "../src/lib/types";
 
 let h: Awaited<ReturnType<typeof startStateService>>;
 let dir: string;
 
 beforeAll(async () => {
-  h = await startStateService({ nodes: ["sync-test"] });
+  h = await startStateService({ nodes: ["sync-test", "sync-nogrant"] });
   process.env.GARRISON_STATE_URL = h.url;
   process.env.GARRISON_STATE_TOKEN = h.token;
   process.env.GARRISON_NODE_NAME = "sync-test";
@@ -28,6 +29,30 @@ afterAll(async () => {
   resetStateClient();
   await h?.stop();
 });
+
+// A vault consumer with an explicit secret_scope, the shape capture-service has.
+function vaultConsumer(id: string, scope: string[]): LibraryEntry {
+  return {
+    id,
+    name: id,
+    faculty: "channels",
+    repo: "local",
+    summary: "",
+    platforms: ["claude-code"],
+    ratings: {},
+    metadata: {
+      faculty: "channels",
+      cardinality_hint: "single",
+      component_shape: "script",
+      platforms: ["claude-code"],
+      config_schema: [],
+      provides: [{ kind: "voice", name: id }],
+      consumes: [{ kind: "vault", cardinality: "one" }],
+      verify: { command: "echo ok", expect: "ok", timeout_ms: 1000 },
+      secret_scope: scope
+    }
+  } as unknown as LibraryEntry;
+}
 
 describe("composition sync", () => {
   it("first contact seeds the service from the local tree", async () => {
@@ -81,6 +106,70 @@ describe("composition sync", () => {
     const env = readFileSync(envPath, "utf8");
     expect(env).toContain("SYNC_TEST_KEY=v1");
     expect((statSync(envPath).mode & 0o777).toString(8)).toBe("600");
+  });
+
+  it("scopedSecretsViaAuthority resolves ONLY the named keys from the authority and names what it lacks", async () => {
+    const { scopedSecretsViaAuthority } = await import("../src/lib/composition-sync");
+    await h.client.putSecret("SCOPE_PROBE_TOKEN", "probe-token-value");
+    await h.client.putSecret("SCOPE_OTHER_KEY", "never-delivered");
+    await h.client.putGrant("sync-test", "*");
+    const out = await scopedSecretsViaAuthority(["SCOPE_PROBE_TOKEN", "SCOPE_UNSTORED_KEY"]);
+    expect(out.source).toBe("authority");
+    expect(out.values).toEqual({ SCOPE_PROBE_TOKEN: "probe-token-value" });
+    expect(out.missing).toEqual(["SCOPE_UNSTORED_KEY"]);
+  });
+
+  it("vaultEnvForEntry on an enrolled node delivers the scoped secrets from the authority, not the empty local vault", async () => {
+    // Every mesh peer's local vault is empty by design; before this seam the
+    // own-port spawn read it anyway and the voice layer started keyless on
+    // every node but the authority. The local vault here does not even exist.
+    const { vaultEnvForEntry } = await import("../src/lib/own-port-lifecycle");
+    const { readVaultAudit } = await import("../src/lib/vault-audit");
+    const sandbox = mkdtempSync(path.join(os.tmpdir(), "gar-scoped-"));
+    process.env.GARRISON_VAULT_PATH = path.join(sandbox, "absent-vault.json");
+    process.env.GARRISON_VAULT_AUDIT_PATH = path.join(sandbox, "audit.jsonl");
+    try {
+      const env = await vaultEnvForEntry(vaultConsumer("scoped-probe", ["SCOPE_PROBE_TOKEN", "SCOPE_UNSTORED_KEY"]));
+      expect(env).toEqual({ SCOPE_PROBE_TOKEN: "probe-token-value" });
+      const last = (await readVaultAudit()).at(-1);
+      expect(last).toMatchObject({
+        connector: "scoped-probe",
+        action: "deliver",
+        outcome: "ok",
+        secrets: ["SCOPE_PROBE_TOKEN"],
+        detail: "authority; missing: SCOPE_UNSTORED_KEY"
+      });
+    } finally {
+      delete process.env.GARRISON_VAULT_PATH;
+      delete process.env.GARRISON_VAULT_AUDIT_PATH;
+    }
+  });
+
+  it("a node the authority has not granted the keys to starts keyless, audited as denied by the authority", async () => {
+    const { vaultEnvForEntry } = await import("../src/lib/own-port-lifecycle");
+    const { readVaultAudit } = await import("../src/lib/vault-audit");
+    const sandbox = mkdtempSync(path.join(os.tmpdir(), "gar-scoped-denied-"));
+    process.env.GARRISON_VAULT_AUDIT_PATH = path.join(sandbox, "audit.jsonl");
+    process.env.GARRISON_STATE_TOKEN = h.tokens["sync-nogrant"];
+    process.env.GARRISON_NODE_NAME = "sync-nogrant";
+    resetStateClient();
+    try {
+      const env = await vaultEnvForEntry(vaultConsumer("denied-probe", ["SCOPE_PROBE_TOKEN"]));
+      expect(env).toEqual({});
+      const last = (await readVaultAudit()).at(-1);
+      expect(last).toMatchObject({
+        connector: "denied-probe",
+        action: "denied",
+        outcome: "denied",
+        secrets: ["SCOPE_PROBE_TOKEN"],
+        detail: "authority-grant"
+      });
+    } finally {
+      delete process.env.GARRISON_VAULT_AUDIT_PATH;
+      process.env.GARRISON_STATE_TOKEN = h.token;
+      process.env.GARRISON_NODE_NAME = "sync-test";
+      resetStateClient();
+    }
   });
 
   it("an unenrolled process reports unenrolled and touches nothing", async () => {

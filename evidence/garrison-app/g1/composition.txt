@@ -1,0 +1,20 @@
+# web-channel-default stationing, 2026-09-02T00:59:02Z, 4bc970a7 (compositions/ clean)
+
+## compositions/default/apm.yml
+(no web-channel reference: unstationed)
+## compositions/default/apm.lock.yaml
+(no web-channel entry)
+
+## compositions/openai/apm.yml
+(no web-channel reference: unstationed)
+## compositions/openai/apm.lock.yaml
+(no web-channel entry)
+
+## channels selections (x-garrison.composition.selections.channels)
+default: ['slack-channel', 'omi-channel', 'capture-service', 'whatsapp-web', 'email-channel']  -> web-channel-default stationed: False
+openai: ['slack-channel', 'omi-channel', 'capture-service']  -> web-channel-default stationed: False
+
+## live node after the state-service push (GET /api/runner/default/state)
+status=running startedAt=2026-09-02T00:58:08.529Z verified=43 all_ok=True web-channel-default_verified=False
+~/.garrison/ui-fittings/web-channel-default.json: absent
+listeners on 8083: 0

@@ -4,8 +4,9 @@ import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 // S2b — garrison-call LIVE against the local Ollama (http://localhost:11434,
-// qwen2.5:3b). Guarded: the whole block skips when Ollama is unreachable, so CI /
-// a box without Ollama stays green (the mocked suite covers the wiring). When it
+// qwen2.5:3b). Guarded: the whole block skips when Ollama is unreachable or the
+// model is not pulled, so CI / a box without Ollama stays green (the mocked
+// suite covers the wiring). When it
 // IS up, all three wire shapes + a structured call run for real, and the STDIN →
 // STDOUT script contract is exercised end-to-end.
 const REPO = path.resolve(__dirname, "..");
@@ -15,10 +16,13 @@ const MODEL = "qwen2.5:3b";
 
 const core = await import(pathToFileURL(CALL_CORE).href);
 
-const OLLAMA_UP = await fetch("http://localhost:11434/api/version", {
+// Reachable AND holding the model: a box that runs Ollama without this exact
+// tag pulled is as much "no live target" as one without Ollama, and the suite
+// would otherwise fail on every call instead of skipping.
+const OLLAMA_UP = await fetch("http://localhost:11434/api/tags", {
   signal: AbortSignal.timeout(2000)
 })
-  .then((r) => r.ok)
+  .then(async (r) => r.ok && ((await r.json()) as { models?: Array<{ name: string }> }).models?.some((m) => m.name === MODEL) === true)
   .catch(() => false);
 
 function runCli(spec: unknown): Promise<{ code: number | null; out: string }> {

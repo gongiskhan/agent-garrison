@@ -7,6 +7,7 @@ import { writeFileAtomic, writeJsonAtomic } from "./atomic-write";
 import { getVaultMasterKey, masterKeySource } from "./keychain";
 import { recordVaultAccess } from "./vault-audit";
 import type { MaskedVaultSecret, VaultSecret, VaultSecretUpdate } from "./types";
+import { stateEnrolled, withState } from "./state-client";
 
 // An OAuth grant the vault holds on a connector's behalf. The refresh token is
 // stored sealed; getAccessToken auto-rotates an expired access token. A revoked
@@ -212,8 +213,23 @@ export async function vaultViewMasked(): Promise<{
   secrets: MaskedVaultSecret[];
 }> {
   const view = await vaultView();
-  return { ...view, secrets: maskSecrets(view.secrets) };
+  const secrets = maskSecrets(view.secrets);
+  if (stateEnrolled()) {
+    // Mesh: the authority's keys are the ones up() renders from, so the Vault
+    // surface lists them even though their values never leave dev-madrid.
+    const local = new Set(secrets.map((s) => s.key));
+    const held = await withState((client) => client.listSecretKeys());
+    for (const row of held) {
+      if (!local.has(row.key)) secrets.push({ key: row.key, set: true, preview: MESH_HELD_PREVIEW });
+    }
+    secrets.sort((a, b) => a.key.localeCompare(b.key));
+  }
+  return { ...view, secrets };
 }
+
+// What the Vault surface shows for a key the mesh authority holds and this
+// node's local file does not. Not a mask of the value: the value is never here.
+export const MESH_HELD_PREVIEW = "held by the mesh (dev-madrid)";
 
 // Reveal exactly ONE value, by name, and record it. Bulk extraction is the
 // thing being prevented; a named single read is the legitimate case (the user
@@ -245,26 +261,50 @@ export async function revealVaultSecret(key: string): Promise<string | null> {
 // remove rows) without ever having seen the plaintext. Keys absent from
 // `updates` entirely are DELETED — the list is still authoritative about which
 // secrets exist, exactly as the old whole-array PUT was.
+//
+// Mesh (2026-09-04): the state service on dev-madrid is the secret authority
+// every node's up() and every own-port fitting renders from; this file is the
+// standalone store, which the mesh leaves empty. The Vault surface used to
+// write only this file, so a key saved here after enrolment (the ElevenLabs
+// key on dev-madrid) reached no node, its own included. An enrolled node now
+// writes through: every value the user saves goes to the authority FIRST (an
+// unreachable authority fails the save loudly, nothing half-written), then to
+// this file. Removing a row does not delete from the authority - a page that
+// never listed a mesh key must not be able to drop it - so the row comes back
+// on reload; a mesh secret is deleted through the state service.
 export async function applyVaultSecretUpdates(
   updates: readonly VaultSecretUpdate[]
 ): Promise<MaskedVaultSecret[]> {
   await ensureUnlock();
   if (!runtime().plaintext) await unlockVault();
+  const enrolled = stateEnrolled();
+  if (enrolled) {
+    const changed = updates.flatMap((u) =>
+      u.key.trim() && typeof u.value === "string" ? [{ key: u.key.trim(), value: u.value }] : []
+    );
+    if (changed.length > 0) {
+      await withState(async (client) => {
+        for (const u of changed) await client.putSecret(u.key, u.value);
+      });
+    }
+  }
   const existing = runtime().plaintext?.secrets ?? {};
   const merged: VaultSecret[] = [];
   for (const update of updates) {
     const key = update.key.trim();
     if (!key) continue;
-    const value =
-      update.value === undefined
-        ? Object.prototype.hasOwnProperty.call(existing, key)
-          ? existing[key]
-          : ""
-        : update.value;
-    merged.push({ key, value });
+    if (update.value === undefined) {
+      // A round-tripped row keeps what is stored. A key this file never held
+      // (a mesh-held row) is not invented as "" on an enrolled node.
+      if (Object.prototype.hasOwnProperty.call(existing, key)) merged.push({ key, value: existing[key] });
+      else if (!enrolled) merged.push({ key, value: "" });
+      continue;
+    }
+    merged.push({ key, value: update.value });
   }
   const written = await writeVaultSecrets(merged);
-  return maskSecrets(written);
+  if (!enrolled) return maskSecrets(written);
+  return (await vaultViewMasked()).secrets;
 }
 
 export async function writeVaultSecrets(secrets: VaultSecret[]): Promise<VaultSecret[]> {

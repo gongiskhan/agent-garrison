@@ -179,8 +179,43 @@ describe("readNodeIdentity", () => {
       accentInk: "#ffffff",
       tailnetHost: "mac-pro.tail31efa.ts.net",
       createdAt: "2026-08-25T09:00:00Z",
+      tetherHost: null,
+      appOrigin: null,
+      shellOrigin: null,
       source: "file"
     });
+  });
+
+  it("reads a tethered node's fields - tethered/tetherHost, and https-only origins", () => {
+    writeNodeJson({
+      id: "csg",
+      name: "csg",
+      tethered: true,
+      tetherHost: "dev-madrid",
+      appOrigin: "https://dev-madrid.tail31efa.ts.net:8977",
+      shellOrigin: "https://dev-madrid.tail31efa.ts.net:8998/"
+    });
+    resetNodeIdentityCache();
+    const identity = readNodeIdentity();
+    expect(identity.tethered).toBe(true);
+    expect(identity.tetherHost).toBe("dev-madrid");
+    expect(identity.appOrigin).toBe("https://dev-madrid.tail31efa.ts.net:8977");
+    // a trailing slash is stripped, so peers can string-concatenate a path onto it
+    expect(identity.shellOrigin).toBe("https://dev-madrid.tail31efa.ts.net:8998");
+  });
+
+  it("treats a non-https appOrigin/shellOrigin as absent (mixed content on an https page)", () => {
+    writeNodeJson({ id: "csg", appOrigin: "http://dev-madrid.tail31efa.ts.net:8977", shellOrigin: "not a url" });
+    resetNodeIdentityCache();
+    const identity = readNodeIdentity();
+    expect(identity.appOrigin).toBeNull();
+    expect(identity.shellOrigin).toBeNull();
+  });
+
+  it("omits `tethered` entirely (not false) on an ordinary node", () => {
+    writeNodeJson({ id: "dev-madrid" });
+    resetNodeIdentityCache();
+    expect("tethered" in readNodeIdentity()).toBe(false);
   });
 
   it("degrades to the fallback on malformed JSON or a missing id", () => {

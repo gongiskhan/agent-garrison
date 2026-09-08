@@ -1,6 +1,6 @@
 name: jarvis-os
 version: 0.1.0
-description: Jarvis Agentic OS — a voice-first, Jarvis-style HUD (channels role, own-port). Serves a React HUD on its own port (default 8082) with a central audio-reactive core (DitherCore), push-to-talk, and reply read-aloud. Talks to the Operative through the http-gateway (same proven path as web-channel) and to a kind:voice Fitting for STT/TTS. Visual layer reused from the Fable jarvis-hud reference.
+description: Jarvis Agentic OS — a voice-first, Jarvis-style HUD (channels role, own-port). Serves a React HUD on its own port (default 8082) with a central audio-reactive core, push-to-talk, and reply read-aloud. Talks to the configured session through the http-gateway and to a kind:voice Fitting for STT/TTS. Visual layer reused from the Fable jarvis-hud reference.
 target: claude
 type: hybrid
 includes: auto
@@ -12,7 +12,7 @@ x-garrison:
   component_shape: plugin
   platforms:
     - claude-code
-  summary: Voice-first Jarvis HUD on its own port (default 8082). Hold-to-talk → STT → Orchestrator (via the gateway) → reply read aloud, with a central core that pulses to the live audio. Consumes a kind:voice Fitting (local-voice or deepgram-voice); never spawns Claude itself.
+  summary: Voice-first Jarvis HUD on its own port (default 8082). Tap or Space to start hands-free voice → STT → Orchestrator (via the gateway) → reply read aloud, with a central core that pulses to the live audio. Consumes the composition-selected kind:voice Fitting; never spawns Claude itself.
   config_schema:
     - key: port
       type: integer
@@ -25,7 +25,7 @@ x-garrison:
     - key: gateway_url
       type: string
       default: ""
-      description: Optional override for the upstream http-gateway URL. Defaults to GARRISON_GATEWAY_URL env or http://127.0.0.1:4777.
+      description: Optional override for the upstream http-gateway URL. Defaults to the runner-projected GARRISON_GATEWAY_URL; no instance port is guessed.
     - key: tls_cert
       type: path
       default: ""
@@ -72,6 +72,10 @@ x-garrison:
   consumes:
     - kind: voice
       cardinality: one
+    - kind: vault
+      cardinality: one
+  secret_scope:
+    - CAPTURE_TOKEN
   setup:
     command: node ui/build.mjs
     idempotent: true
@@ -81,37 +85,37 @@ x-garrison:
     expect: ok
     timeout_ms: 10000
   for_consumers: |
-    The Jarvis HUD is a voice-first front-end to the session. The browser
+    The Jarvis HUD is an optional voice-first front-end to the configured session. The browser
     drives; the Orchestrator does not call it directly. It reuses the proven
     web-channel path: POST /api/chat → gateway /chat/stream, and assistant
     replies are read aloud via the stationed voice Fitting.
 
-    Channel id: "web" — replies multiplexed into the gateway's "web" ring
-    buffer. Station EITHER jarvis-os OR web-channel-default, not both (they
-    share the channel).
+    Channel id: "jarvis". Its reply stream is separate from Conversations at
+    /talk. It does not replace the shell conversation surface or phone capture.
 
     Status file at ~/.garrison/ui-fittings/jarvis-os.json:
       { fittingId, port, url, pid, startedAt }
 
     Endpoints (served by this Fitting on its own port):
       GET  /health            → liveness
-      GET  /api/stream        → SSE proxy of gateway /channels/web/stream
+      GET  /api/stream        → SSE proxy of gateway /channels/jarvis/stream
       POST /api/chat          → SSE proxy of gateway /chat/stream (body: {message})
-      GET  /api/voice         → { available, url? } — voice Fitting discovery
+      GET  /api/voice         → { available, fittingId, stt, tts, maxTextChars, ttsFormat, wakeEvents, stream } — selected voice provider readiness
       POST /api/voice/stt     → binary proxy to the voice Fitting's /stt
       POST /api/voice/tts     → binary proxy to the voice Fitting's /tts
       GET  /api/project       → read-only repo state for the Workspace panel
                                 (branch, ahead/behind, recent commits, `gh` PRs;
                                 15s cache; { available:false } when no repo)
-      GET  /api/session       → runtime health + agent surface for the session
-                                panel (gateway /health, voice /health, souls /
-                                skills / commands read from disk; 10s cache)
+      GET  /api/runtime     → runtime health for the composition panel
+                                (gateway /health, voice /health, current skills
+                                and commands; 10s cache)
       GET  /api/sessions      → JSON proxy of gateway /sessions ({sessions:[]} on error)
       GET  /api/worktrees     → JSON proxy of gateway /worktrees ({worktrees:[]} when
                                 the dev-env worktrees proxy isn't stationed)
       GET  /                  → React Jarvis HUD (dist/index.html)
 
-    Voice (push-to-talk) needs a kind:voice Fitting stationed — local-voice
-    (fully local) or deepgram-voice. The HUD discovers it via the voice status
-    file; STT keeps the recording, TTS streams audio back, and the central core
-    pulses to both (mic while listening, TTS while speaking).
+    Voice needs a kind:voice Fitting stationed. The runner selects its identity;
+    the HUD reads that provider's readiness and supported capabilities. Capture
+    service requests carry the scoped CAPTURE_TOKEN only on the server hop.
+    Wake events are used only when supported. Audio remains on this dedicated
+    fitting surface; it does not alter Conversations or native phone capture.

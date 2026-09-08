@@ -33,8 +33,8 @@ afterAll(async () => {
 
 const tmp = () => mkdtempSync(join(tmpdir(), "kanban-discuss-"));
 
-// A FAITHFUL copy of the web-channel's decodeContext (web-channel-default/ui/
-// main.tsx): un-wrap a base64 transport layer iff it round-trips, else forward
+// A FAITHFUL copy of the web-channel's decodeContext (packages/talk/ui/
+// app.tsx): un-wrap a base64 transport layer iff it round-trips, else forward
 // the (already url-decoded) string verbatim. This is the channel's ONLY handling
 // of context — it never JSON-parses or inspects it, proving the blob is opaque to
 // the channel and only James (downstream) interprets it.
@@ -57,9 +57,10 @@ describe("kanban discuss — buildDiscussUrl (generic web-channel contract)", ()
     const card = { id: "01HZX5K3QABCDEFGHJKMNPQRS0", title: "Add a Discuss brief", project: "garrison" };
     const url = buildDiscussUrl(card);
 
-    // The URL targets a thread whose host pins the Discuss duty.
-    // The seed web-channel fitting id is `web-channel-default` (the /embed/<id>).
-    expect(url.startsWith("/embed/web-channel-default?")).toBe(true);
+    // The URL targets a thread whose host pins the Discuss duty. That host is
+    // Conversations, a route of the Garrison shell (/talk) - relative, because the
+    // browser is usually on another machine over the tailnet.
+    expect(url.startsWith("/talk?")).toBe(true);
     const q = new URLSearchParams(url.slice(url.indexOf("?") + 1));
     expect(q.get("source")).toBe("discuss");
     expect(q.get("mode")).toBeNull();
@@ -482,13 +483,13 @@ describe("kanban discuss — the card's checklist is part of what it says", () =
   });
 
   it("carries the items in the context blob a channel decodes", () => {
-    const url = buildDiscussUrl(CARD, { webChannelBase: "/embed/web-channel-default" });
+    const url = buildDiscussUrl(CARD, { webChannelBase: "/talk" });
     const context = new URL(url, "http://x").searchParams.get("context")!;
     const decoded = JSON.parse(Buffer.from(decodeURIComponent(context), "base64").toString("utf8"));
     expect(decoded.checklist).toHaveLength(3);
     expect(decoded.checklist[0].text).toContain("named after the provider");
     // A card with no items must not carry an empty key.
-    const bare = buildDiscussUrl({ id: "x", title: "t" }, { webChannelBase: "/embed/web-channel-default" });
+    const bare = buildDiscussUrl({ id: "x", title: "t" }, { webChannelBase: "/talk" });
     const bareCtx = new URL(bare, "http://x").searchParams.get("context")!;
     expect(JSON.parse(Buffer.from(decodeURIComponent(bareCtx), "base64").toString("utf8"))).not.toHaveProperty("checklist");
   });

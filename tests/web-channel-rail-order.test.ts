@@ -8,7 +8,7 @@
 // 80-key order.
 
 import { describe, expect, it } from "vitest";
-import { orderSectionRows } from "../fittings/seed/web-channel-default/ui/sessions-rail";
+import { orderSectionRows } from "../packages/talk/ui/sessions-rail";
 
 const row = (key: string, activity: string | null) => ({ key, activity });
 

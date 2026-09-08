@@ -1,0 +1,5 @@
+G5 TestFlight dispatch
+Workflow: gongiskhan/ios-thing garrison-ios.yml, lane=beta, garrison_ref=node/goncalos-macbook-pro
+Garrison commit: 46c8f228 (G5: record button in conversations, digest posted back into the thread)
+Run: https://github.com/gongiskhan/ios-thing/actions/runs/33633051836 (dispatched 2026-09-02T12:59:25Z)
+Outcome: completed success at 2026-09-02T13:02:39Z (checked 2026-09-02T14:30Z)

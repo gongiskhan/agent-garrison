@@ -1,6 +1,8 @@
-# CLAUDE.md
+# Garrison agent instructions
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This is the canonical project context for Claude Code, ChatGPT/Codex and
+Garrison sessions. `AGENTS.md` is a relative symlink to this file; edit this
+file to change either entry point.
 
 The full v1 spec lives at [`docs/SPEC.md`](./docs/SPEC.md) (the former
 `AGENTS.md`). The plan of record is [`roadmap.json`](./roadmap.json) at
@@ -8,6 +10,200 @@ the repo root, edited through the Roadmaps view and the roadmap CLI;
 [`docs/GARRISON_ROADMAP.md`](./docs/GARRISON_ROADMAP.md) is kept only for
 its decision log and history. All other docs are under
 [`docs/`](./docs/) — drill in as needed.
+
+## Before meaningful work
+
+Check `PRD.md`, `PLANING.md` and `TASKS.md` in the project when present and keep
+them current after meaningful changes. If the repository has `.codegraph/`, use
+`codegraph explore` / `codegraph node` or the matching MCP tools before text
+searches or file reads to understand code. If it is absent, do not index it
+without the user's request.
+
+## Shared memory and session continuity
+
+All clients read and write **Basic Memory project `main`**, under
+`Projects/Garrison/Memory`. Read `Agent Startup Brief` and relevant topic notes
+at the start of work, then check the `Agent Sessions` notes and current mesh
+sessions for overlapping work. Coordinate ownership before changing the same
+files. Preserve other sessions' uncommitted work.
+
+Write durable decisions, evidence, current status and exact next steps to the
+same shared topic notes at meaningful milestones and before finishing. Read
+before editing; use scoped updates or dated corrections. Claude-native and
+Codex-native memory are local indexes, so new durable project facts must also
+be saved to the shared topic. Generated Claude mirrors remain read-only.
+
+The common lifecycle bridge records only hashed session keys, node, client,
+status, timestamps, model, branch, commit and tracked paths. Start, user-turn,
+throttled tool heartbeat, compaction, stop and end events keep peers aware;
+observations expire after ten minutes without a heartbeat. A stale or missing
+row does not prove that work stopped. Verify on the owning node. Raw sessions,
+transcripts and evidence stay there; never copy raw transcripts, secrets or
+full configuration files into memory. See
+[the shared continuity workflow](./docs/CODEX_MEMORY_WORKFLOW.md) for host
+installation, project enrollment, diagnostics and client activation limits.
+
+
+## Roadmap
+
+The plan of record is [`roadmap.json`](./roadmap.json) at the repo root, edited through the Roadmaps view and the roadmap CLI. Agents are the main authors and maintain it as work lands; notes hold decisions. See [docs/GARRISON_ROADMAP.md](./docs/GARRISON_ROADMAP.md) for the decision log and history.
+
+## The mesh, in one paragraph
+
+Garrison is installed as a **full node on every machine** (dev-madrid, Mac
+Pro, Mac mini, MacBook Air), all live, no main/dev asymmetry. Safety comes
+from a strict state split, and every agent working in this repo must know it:
+**shared state** lives in exactly one place - the state service on dev-madrid
+(SQLite behind an authenticated, tailnet-only HTTP API at
+`services/state/`; no process ever opens the DB file directly); **code**
+moves only through git (one clone per node, each on its permanent
+`node/<id>` branch); **session artifacts** (plans, evidence, logs,
+transcripts) stay on the node that produced them, with a nightly one-way
+plans/evidence backup to dev-madrid and 7-day retention; **memory** moves
+through git via the vault-git-sync fitting (15-minute cadence on every node,
+session-start pull, session-end push, staggered nightly backstop). Nothing
+is ever synchronized by ad-hoc file copy.
+
+A node is enrolled by `~/.garrison/state.json` (url + bearer token + node
+name, minted on dev-madrid by `services/state/scripts/issue-node-token.mjs`)
+and identified by `~/.garrison/node.json` (permanent name + closed-palette
+accent). Sessions are pinned to their home node; viewing, steering,
+answering and stopping route through `/api/mesh/nodes/<node>/...` from
+anywhere. Cards are pure state: created anywhere, run on the card's
+placement target.
+
+## Availability property (accepted deliberately)
+
+**When dev-madrid is down, no node can bring a composition or project up** -
+`up()` and project bootstrap render secrets from the state service's secret
+authority, and there is no offline mode, no cache, and no write queue by
+design. A running session keeps running; new work blocks with a clear error.
+The same authority serves the per-fitting scoped delivery: an own-port
+fitting's `secret_scope` is resolved through `POST /v1/secrets/resolve`
+(`scopedSecretsViaAuthority` in `src/lib/composition-sync.ts`), never from the
+node's local vault, which the mesh leaves empty. A fitting started while the
+authority is unreachable or refuses the grant runs keyless with a spawn record
+that says so (`secretsDelivered: false`), and the next `up()` heals it.
+This is consistent with Garrison's online-only positioning: a fork of shared
+state is worse than a clear stop. The state DB itself is snapshotted hourly
+(VACUUM INTO) and the newest daily snapshot ships off-box to a Mac -
+durability never has a single home even when state does.
+
+## Merge policy (aggressive, two rails, one revert command)
+
+Merges run **fully autonomously**. Merge whenever there is a reason -
+breakage, schema mismatch, an explicit request, the nightly convergence card
+- not on every push. Two mandatory rails on every non-trivial merge:
+
+1. **Preserve the pre-merge ref**: tag
+   `garrison/premerge/<project>/<node>/<stamp>` before resolving anything.
+   Reverting a bad merge is one command:
+   `node scripts/garrison-converge.mjs revert <project> <tag>`.
+2. **File a decision card** recording what was decided and why, so morning
+   review is a skim. Trivial fast-forwards file nothing.
+
+Never `git merge -X ours` / `-X theirs` (how a day's work vanishes
+politely). Lockfiles (`package-lock.json`, `apm.lock.yaml`) are
+**regenerated, never merged**. Binaries are refused and escalated. Conflicts
+are resolved file-by-file with both sides read in full, and the result must
+parse. The merge duty lives in `fittings/seed/merge-agent/`; the doctrine is
+its `garrison-merge` skill.
+
+The nightly convergence card (03:00, systemKey `mesh-convergence`) converges
+the Garrison codebase and every dev project: clean nodes only ("clean" =
+empty tree AND nothing unpushed AND no merge in progress AND **no running
+session with the repo as cwd**), dirty nodes are skipped with a
+notification, and a 3-night skip streak escalates to needs-attention naming
+the drift. Per-node redeploys are delegated to the converge one-shot
+(`scripts/garrison-converge.mjs`) and POLLED through a convergence intent -
+the card never owns the process that kills it.
+
+## Branch discipline
+
+Every node works on its permanent `node/<id>` branch, dev-madrid included;
+`main` is updated by the nightly card (or an on-demand converge). The
+no-new-branches hard rule stands: node branches are created ONCE by
+`scripts/install-node.sh`, never by an agent.
+
+## The web channel exception
+
+Garrison's rule is that it ships no chat surface: talking to the operative is
+Channel-Fitting work. Since 2026-09-01 there is one bounded exception. The
+conversation surface (the former `web-channel-default` UI and API) is served by
+the shell at `/talk` as "Conversations", from the `@garrison/talk` package
+mounted by the app's `/api` catch-all. The reason is the Garrison iOS app: a
+webview needs one origin for the shell, the conversation and web push, and a
+channel on its own port breaks that (a second origin, a second service worker,
+mixed-content over the tailnet). What did NOT move: the gateway still owns the
+turn, the thread store stays at `<GARRISON_HOME>/web-channel/threads/`, and
+Slack, WhatsApp, Omi and email stay Fittings. The legacy own-port host is kept
+in `fittings/seed/web-channel-default`, unstationed by default, until the
+operator triggers its removal (`docs/decisions/2026-09-garrison-app.md`, D2,
+D16, I12). Servers reach Conversations through `GARRISON_APP_URL`; browsers
+through the relative `/talk` routes (docs/UI-FITTINGS.md "Conversations is a
+shell route").
+
+## The Garrison iOS app
+
+`ios/` is the one Garrison app (September 2026, `docs/decisions/2026-09-garrison-app.md`):
+the former Companion Swift project with a Capacitor webview pointed at a node
+over the tailnet (`server.url`, one origin for the shell, Conversations and
+push). The webview is a viewer: the phone's real work stays in Swift
+(`GarrisonCapturePlugin` for the microphone and broadcast lanes,
+`GarrisonPendantPlugin` for the pendant, `GarrisonPushPlugin` for APNs,
+`GarrisonNodePlugin` for the node list) and the audio never crosses the bridge;
+it goes from the phone straight to `capture-service`, the one voice layer
+(`deepgram-voice` is retired and goes out with the same operator-triggered
+patch as `web-channel-default`). The shell shows the capture page only when the
+native bridge is present. Secrets stay on the node: the phone holds the capture
+token and the node URL. Builds go to TestFlight through the `ios-thing`
+repository's `garrison-ios.yml` workflow (`fastlane beta`); XCTest runs on the
+mini (no Xcode on the MacBook Pro). The phone, not the simulator, is the
+criterion for every native gate; what still needs a real phone is listed in
+`HANDOFF-garrison-app.md`.
+
+## Codex on macOS
+
+Every machine in the mesh runs its own full Garrison node, so a Mac is no
+longer an editing-only client: it builds, tests and serves locally. Two
+rules from the retired remote workflow still hold and are enforced by
+`scripts/install-node.sh` - refuse to adopt a checkout reached through a
+symlink, and never sync a working tree into a checkout a service is
+executing from. Code moves between nodes through git and nothing else. See
+[docs/INSTANCES.md](./docs/INSTANCES.md).
+
+Before meaningful work, check for `PRD.md`, `PLANING.md`, and `TASKS.md` and use
+them when present. Search the authoritative Basic Memory project `main` on
+`dev-madrid` before re-asking historical Garrison decisions, then verify memory
+against the repository and live VM. After a meaningful decision or non-obvious
+operational discovery, update a stable Garrison topic note without secrets or
+raw transcript material. See
+[docs/CODEX_MEMORY_WORKFLOW.md](./docs/CODEX_MEMORY_WORKFLOW.md).
+
+Claude's existing and future Garrison-native memory notes are mirrored into
+`Projects/Garrison/Memory/Claude Native` in that same vault before its scheduled
+Git sync. Use the curated topic notes first and the generated native mirror for
+detailed historical context; never edit the generated copies or copy raw
+Claude sessions into the vault.
+
+The Codex workflow is intentionally selective. Do not import Claude settings,
+hooks, transcripts, Auto-thing or phase skills, Improver probes, the old
+`run-garrison` skill, or the archived `garrison-codex` profile. Durable required
+behavior belongs in this canonical file; generated agent memory is supporting
+context, never authority.
+
+A Fitting that wraps a **remote capability provider** follows the consumer rules in
+[docs/CAPABILITY_CONTRACT.md](./docs/CAPABILITY_CONTRACT.md): public contract only (generated
+client/CLI, never provider internals), never ask a provider to special-case Garrison, every call
+carries a user-scoped key delivered through `secret_scope`, no tenancy machinery in this repo, a
+local or null backend as the shipped default with the remote one opt-in, and no bridge code here.
+
+One rule worth repeating here because it shapes every UI decision: a Garrison
+node runs on its machine but is **used from other machines and mobile over the
+HTTPS tailnet address** - never hand the browser a machine-local absolute URL
+(see "Instances, ports, and deploying" in CLAUDE.md for the full rule and the
+loopback + tailnet URL-pair pattern).
+
 
 ## What this project is
 
@@ -37,7 +233,7 @@ and spawns Claude Code via the Anthropic Agent SDK in-process.
 > machine. Shared state (cards, config, compositions, coordination, secrets)
 > lives in the state service on dev-madrid (`services/state/`); code moves
 > only through git on per-node branches; session artifacts stay on their
-> node; memory rides vault-git-sync. See AGENTS.md for the state split,
+> node; memory rides vault-git-sync. See the mesh sections above for the state split,
 > merge policy, and the accepted availability property (dev-madrid down =
 > no new up() anywhere).
 
@@ -82,7 +278,7 @@ and never syncing a working tree into a checkout a service is executing from
 ## Terminology — don't drift
 
 - **Garrison** — the platform (this app). Its job is **compose · run · observe · quarters**. Anything beyond that lives in Fittings.
-- **Faculty** — a **role** slot in a composition. **16 in total** (`facultyIds` in `src/lib/types.ts`): **8 core roles** (`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`, `sessions`, `surfaces`) plus **7 optional capability faculties** added 2026-06-24 (`knowledge`, `research`, `building`, `code-intelligence`, `design`, `browser-qa`, `coordination`) — the purpose-named homes the promoted Claude Code primitives fill (the primitive type — skill/hook/mcp/plugin — survives only as an internal `component_shape`, never as a user-facing label) — plus the **`connectors`** faculty added 2026-06-26 (Agent-tier, multi): authenticated, Vault-sealed connections to external services (Trello, Google, Slack, Deepgram, …), each a Fitting providing the `connector` kind with an action catalog + sealed auth + optional triggers (it absorbs the dropped read-only `data-source` case). The former flat 24-Faculty list collapsed into the core roles and Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans became Quarters platform primitives. The 2026-06-18 split moved the runtime engines into `runtimes` and the auxiliary own-port viewers (screen-share, browser, outpost) into `surfaces`, slimming the overloaded `sessions` role to the Dev Env surface + artifact store. A subset of runtime Fittings is **own-port** — they serve their own React UI on their own HTTP port under the `sessions`/`surfaces`/`channels`/`observability` roles via the `own_port` flag. Garrison links to those views from the sidebar's Fittings section. Every faculty also carries a display **tier** (`agent`/`dev`) driving the Compose grid's two headers. Legacy `modes` selections are removed during composition migration; live identity is authored inside Orchestrator.
+- **Faculty** - a **role** slot in a composition. **16 in total** (`facultyIds` in `src/lib/types.ts`): **8 core roles** (`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`, `sessions`, `surfaces`) plus **7 optional capability faculties** added 2026-06-24 (`knowledge`, `research`, `building`, `code-intelligence`, `design`, `browser-qa`, `coordination`) - the purpose-named homes the promoted Claude Code primitives fill (the primitive type - skill/hook/mcp/plugin - survives only as an internal `component_shape`, never as a user-facing label) - plus the **`connectors`** faculty added 2026-06-26 (Agent-tier, multi): authenticated, Vault-sealed connections to external services (Trello, Google, Slack, WhatsApp, the `voice` connector on capture-service, …), each a Fitting providing the `connector` kind with an action catalog + sealed auth + optional triggers (it absorbs the dropped read-only `data-source` case). The former flat 24-Faculty list collapsed into the core roles and Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans became Quarters platform primitives. The 2026-06-18 split moved the runtime engines into `runtimes` and the auxiliary own-port viewers (screen-share, browser, outpost) into `surfaces`, slimming the overloaded `sessions` role to the Dev Env surface + artifact store. A subset of runtime Fittings is **own-port** - they serve their own React UI on their own HTTP port under the `sessions`/`surfaces`/`channels`/`observability` roles via the `own_port` flag. Garrison links to those views from the sidebar's Fittings section. Every faculty also carries a display **tier** (`agent`/`dev`) driving the Compose grid's two headers. Legacy `modes` selections are removed during composition migration; live identity is authored inside Orchestrator.
 - **Quarters** — the `~/.claude` config surface (Skills, Hooks, MCPs, Plugins, Scripts, Settings, Context, Plans, Commands, Rules) surfaced at `/quarters`. APM is the single writer; Garrison autosaves via `reconcile.ts`. State = owned / loose / parked.
 - **The menu (sidebar)** — three groups: **Pinned** on top (always open), then **Command** and **Fittings**, both collapsible and both FLAT alphabetical (the 2026-08-26 refit dropped the category sub-groups; category survives as the Compose/library axis). Pinned takes both kinds — a `nav:`-prefixed Command route or a Fitting id — dragged in and dragged out, and it lives in the state service (`sidebar.pins` / `global`), so **the menu is the same on every node**; `~/.garrison/sidebar-pins.json` is only the standalone store and this node's degraded-read materialisation, and a pin write REFUSES when the service is unreachable. The Fittings group is auto-populated for the current composition and lists EVERY equipped Fitting (2026-07-29 refit: every Fitting has a view). Embedded views open at `/fitting/<id>` (the view IS the page — the old per-fitting overview/config page is gone); own-port live links embed at `/embed/<id>` (status read from `~/.garrison/ui-fittings/*.json` via `/api/fittings/views`).
 - **Lifecycle for own-port Fittings** — fittings share the operative's lifecycle, always (2026-07-29 refit: the eager/detached split is gone; `x-garrison.lifecycle` is parsed-and-ignored with a deprecation warning). `up` starts EVERY own-port Fitting with the runner-projected env (gateway URL, composition id, selection config, vault) and heals running ones on env drift; `down` stops every one by killing the PID found in `~/.garrison/ui-fittings/<id>.json`. The status file is the single source of truth; `lsof` is never consulted. The startup orphan sweep reaps anything not protected by a RUNNING composition. `/api/fittings/[id]/start|restart` remain as recovery/code-reload controls (env parity via `operativeEnvForFitting`). Every spawn writes a record under `~/.garrison/ui-fittings/spawn/<id>.json` tracking `secretsDelivered`, so a vault-consuming Fitting started keyless is healed (restarted with secrets) on vault unlock or `up`.
@@ -94,7 +290,7 @@ and never syncing a working tree into a checkout a service is executing from
   **mesh**. The word survives only in internal identifiers and historical
   docs; `tests/vocabulary.test.ts` keeps it out of UI copy and manifest
   prose. Zeca remains the assistant persona defined inside a composition.
-- **Channel** — the way external surfaces (Slack, Web Channel) reach the Operative through the gateway. Garrison does not ship a built-in chat surface.
+- **Channel** — the way external surfaces (Slack, WhatsApp, Omi, email) reach the Operative through the gateway. Garrison ships no chat surface, with one documented exception: **Conversations** at `/talk`, the former Web Channel, is served by the shell from `packages/talk` (AGENTS.md "The web channel exception"). The legacy own-port host `web-channel-default` is unstationed by default.
 - **`x-garrison`** — Garrison's metadata block inside the APM `apm.yml` manifest. APM preserves `x-*` keys. Schema in [`docs/METADATA.md`](./docs/METADATA.md).
 
 Legacy aliases the parser still accepts (with deprecation warnings):
@@ -150,6 +346,10 @@ packages/claude-pty/ PTY substrate — drives the interactive Claude Code TUI
                      streaming, xterm screen reader. Used by dev-env Fitting
                      and web-channel. Entry: src/index.mjs.
 packages/claude-chat/ Chat client built on claude-pty.
+packages/talk/       The conversation engine (threads, chat/SSE, push, voice
+                     REST, notify) + its React UI. Mounted by the shell at
+                     /talk and /api/* (src/app/api/[[...path]]/route.ts);
+                     the legacy own-port host web-channel-default imports it.
 compositions/<id>/   apm.yml = source of truth per composition.
                      Filesystem is authoritative; no JSON shadow.
                      Portable form: a single `<id>.garrison.json` bundle
@@ -170,10 +370,22 @@ Quarters**, plus the collapsible sidebar **Quarters** and **Fittings** groups
 `/fitting/<id>/...`. As of the 2026-06-18 shell refit the **Run panel
 merged into the Garrison dashboard** (the home route; `/run` redirects to
 `/`) and the **Armory folded into Composition** (Fitting discovery is the
-cross-Faculty search box on `/compose`; `/armory` redirects there). There is
-no built-in Chat surface. Operative interaction goes through Channel
-Fittings; observability is the runtime log on the dashboard plus per-Fitting
-logs under `/fitting/<id>`.
+cross-Faculty search box on `/compose`; `/armory` redirects there). The one
+shell-hosted conversation surface is **Conversations** at `/talk` (2026-09-01,
+the web channel moved into the shell for the iOS app; the talk API is mounted
+by the `/api` catch-all). Every other Operative interaction goes through
+Channel Fittings; observability is the runtime log on the dashboard plus
+per-Fitting logs under `/fitting/<id>`.
+
+**The Garrison iOS app (2026-09-02).** `ios/` is one app: the Companion Swift
+project plus a Capacitor webview pointed at a node's shell over the tailnet, so
+the phone sees the same shell (Conversations, Kanban Loop, every fitting view, a
+node switcher) and the capture page only when the native bridge is present.
+Audio never crosses the webview: Swift streams it to `capture-service`, the one
+voice layer. Native plugins: `GarrisonCapturePlugin`, `GarrisonPendantPlugin`,
+`GarrisonPushPlugin`, `GarrisonNodePlugin`. TestFlight through `ios-thing`
+(`garrison-ios.yml`, `fastlane beta`); XCTest on the mini. Decisions and gates:
+`docs/decisions/2026-09-garrison-app.md`; open phone checks: `HANDOFF-garrison-app.md`.
 
 ### Faculties — 8 core roles (Quarters pivot + 2026-06-18 sessions split)
 
@@ -190,8 +402,11 @@ Context, Plans — is now a **Quarters platform primitive** surfaced over the re
 
 **Own-port runtime residue** — survives at runtime under
 `sessions`/`channels`/`observability` via the per-Fitting `own_port` metadata
-flag: `dev-env` (27086), `screen-share` (27079), `outposts` (27082),
-`monitor` (27077), `web-channel` (27083), `browser` (27084), `voice` (27085).
+flag: `dev-env` (8086), `screen-share` (8079), `drill` (8096, the outpost stream),
+`monitor` (8077), `browser` (8084), `capture-service` (8097, the voice layer
+since 2026-09-02 - `deepgram-voice` is retired); `web-channel` (8083)
+survives as the legacy host of the shell-served Conversations and is
+unstationed by default.
 The Dev Env Fitting is one tabbed surface: every Claude Code session is a tab
 holding a Claude PTY + shell PTY (left) and the live browser pane (right), with
 PR / commit-and-push actions on the current branch in the menu. Sessions run in
@@ -403,7 +618,7 @@ depends on none; these rules keep such a Fitting swappable, honest, and safe on 
   bridge. This repo ships no counterpart daemon, no inbound listener, no delegation endpoint.
 
 The "talks only to `localhost`" positioning above describes Garrison's own shell. User-equipped Fittings have
-always egressed with vault-held keys (`deepgram-voice`, the model runtimes). An opt-in, key-scoped capability
+always egressed with vault-held keys (`capture-service` speaking to Deepgram and ElevenLabs, the model runtimes). An opt-in, key-scoped capability
 client is that same shape, not a new category.
 
 ## Roadmap status
@@ -553,11 +768,16 @@ blocks the deploy; commits are authored as gabrielsvarela1). Skip it with
 ### Deploying — reload for app changes, redeploy when a long-lived process holds the code
 
 **Reach for `npm run node:reload` first.** It builds and restarts the Next app
-server and leaves the operative and the own-port fittings running. That is enough
-for anything confined to the app: `src/app/**`, `src/components/**`, and the
-`src/lib/**` modules the app imports. A full redeploy for those costs minutes,
-drops the running session, and re-runs 44 verify hooks to prove nothing that
-changed.
+server, then brings the operative back on `up()`'s fast path (fingerprint
+unchanged = no install, no setup, no verify hooks). It does NOT keep the
+gateway or the own-port fittings alive across the restart: they are children of
+the service unit / launchd job and go down with it, so the voice layer and every
+fitting are unreachable for roughly a minute and any open capture or pendant
+socket drops (the 2026-09-04 pendant error was exactly this window). That is
+still the right tool for anything confined to the app: `src/app/**`,
+`src/components/**`, and the `src/lib/**` modules the app imports. A full
+redeploy for those costs minutes and re-runs 44 verify hooks to prove nothing
+that changed.
 
 **Use `npm run node:redeploy` when the change is in code a LONG-LIVED process is
 holding in memory**: `fittings/seed/**` (fitting servers, runtime adapters, the
@@ -673,16 +893,12 @@ file double-fires every scheduled job.
 
 ## Memory
 
-Durable knowledge lives in **two tiers** — use these, not ad-hoc note stores:
-
-- **Hot index — the native memory tool** (`~/.claude/projects/<slug>/memory/MEMORY.md`
-  plus per-topic notes): small, hand-curated, **auto-loaded into every session**.
-  This is the default place to record a durable fact, preference, or piece of
-  project context. Keep it short; it is always in context.
-- **Cold archive — Basic Memory** (Obsidian vault at `~/ObsidianVault`, searchable +
-  shared across Claude/Codex/Gemini): the long-term, query-on-demand store. A
-  SessionEnd/PreCompact hook auto-captures session checkpoints into it; use its
-  `search` / `read_note` tools to recall older context.
+Basic Memory project `main` is the shared durable store for every client.
+The startup brief and topic notes under `Projects/<project>/Memory` are the
+maintained entry points. Claude-native and Codex-native memories are local hot
+indexes, not separate write authorities: publish durable facts and handoffs to
+the shared topic as described above. Lifecycle hooks capture structural
+metadata only; semantic decisions still require an explicit note update.
 
 Kanban cards explicitly labelled `personal` add a second, deterministic ingestion
 path: each Done generation is retained under `Personal/Kanban Completions` as a
@@ -697,5 +913,5 @@ Do not scatter knowledge across other stores. `bd remember`, Serena memories, an
 the former `knowledge`-fitting recall MCP are **not** part of this setup.
 
 For task tracking, do not use TodoWrite/markdown TODO files for anything durable —
-prefer the in-session task tools for transient work and the memory tiers above for
+prefer the in-session task tools for transient work and the shared memory above for
 anything that must survive the session.

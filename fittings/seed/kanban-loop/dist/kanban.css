@@ -410,10 +410,17 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 }
 .cc-mic-spin { width: 13px; height: 13px; }
 
-.cc-composer { position: relative; border-top: 1px solid var(--cc-border); background: var(--cc-bg-elev); padding: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
-.cc-composerrow { display: flex; gap: 8px; align-items: flex-end; min-width: 0; }
+.cc-composer { position: relative; flex: 0 0 auto; border-top: 1px solid var(--cc-border); background: var(--cc-bg-elev); padding: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+/* Two rows: the message box alone on top (it grows with its text within the
+   available pane, see the autosize effect), the controls beneath it with
+   Send at the right-hand end. */
+.cc-composerrow { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 0; }
+.cc-composertools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
+.cc-composertools > button { flex: 0 0 auto; width: auto; align-self: center; }
+.cc-toolspacer { flex: 1 1 0; min-width: 0; }
+.cc-btnlabel { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; line-height: 1; white-space: nowrap; }
 .cc-input {
-  flex: 1 1 auto; width: 100%; min-width: 0; resize: none; max-height: 160px; min-height: 38px;
+  box-sizing: border-box; flex: 0 0 auto; width: 100%; min-width: 0; resize: none; max-height: min(240px, 32vh); min-height: 38px;
   background: var(--cc-bg); color: var(--cc-fg); border: 1px solid var(--cc-border-strong); border-radius: 8px;
   padding: 9px 12px; font: 14px/1.4 inherit; outline: none;
 }
@@ -426,7 +433,8 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 
 /* ── Mic (push-to-talk) ── */
 .cc-mic {
-  min-height: 38px; min-width: 40px; display: inline-flex; align-items: center; justify-content: center;
+  min-height: 38px; min-width: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 0 10px;
   background: var(--cc-bg); color: var(--cc-fg-dim); border: 1px solid var(--cc-border-strong);
   border-radius: 8px; cursor: pointer; line-height: 0; flex-shrink: 0;
 }
@@ -878,7 +886,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-session-md { font-size: 14px; line-height: 1.55; }
 .cc-session-md > :first-child { margin-top: 0; }
 .cc-session-md > :last-child { margin-bottom: 0; }
-.cc-session-longtext > summary { cursor: pointer; color: var(--cc-fg-dim); }
+.cc-session-longtext > summary { cursor: pointer; color: var(--cc-fg-dim); overflow-wrap: anywhere; }
 :is(
   .cc-session-longtext,
   .cc-session-interim,
@@ -1601,8 +1609,20 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
    one set of affordances rather than a mix of words and icons. */
 .cc-routebtn-active { border-color: var(--cc-fg); color: var(--cc-fg); }
 .cc-send-icon {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: 44px; padding-left: 10px; padding-right: 10px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-width: 44px; min-height: 44px; padding-left: 12px; padding-right: 14px;
+}
+
+/* Familiar secondary actions stay small without losing their accessible name.
+   Explicit dimensions prevent host button rules from turning Attach into a bar. */
+.cc-root .cc-composertools > :is(.cc-attach, .cc-routebtn) {
+  width: 36px; height: 36px; min-width: 36px; min-height: 36px; padding: 0;
+}
+.cc-root :is(.cc-attach, .cc-routebtn) .cc-btnlabel { display: none; }
+@media (max-width: 600px), (any-pointer: coarse) {
+  .cc-root .cc-composertools > :is(.cc-attach, .cc-routebtn) {
+    width: 44px; height: 44px; min-width: 44px; min-height: 44px;
+  }
 }
 
 /* The per-message action bar is a finger target like everything else. Without
@@ -2175,7 +2195,14 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 
 @media (max-width: 600px) {
   .cc-conv-head { flex-wrap: wrap; }
-  .cc-conv-search { flex: 1 1 100%; margin-left: 0; }
+  /* Two rows on a phone, not three. The search takes a row of its own, so it
+     goes LAST: whatever the host appends after it (a channel chip, a Brief
+     control) then shares the title's row. A wrapping row breaks lines on the
+     items' hypothetical sizes BEFORE anything shrinks, so the title's auto
+     basis alone would push that chip onto a line of its own; basis 0 lets the
+     title claim the leftover instead and ellipsise like it already does. */
+  .cc-conv-title { flex: 1 1 0; }
+  .cc-conv-search { flex: 1 1 100%; margin-left: 0; order: 1; }
   .cc-conv-hits { width: 100%; right: auto; left: 0; }
   .cc-paymodal { padding: 0; }
   .cc-paymodal-card { width: 100%; max-height: 100dvh; height: 100dvh; border-radius: 0; border: 0; }
@@ -2250,13 +2277,16 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-session-jumpwrap {
   position: sticky; bottom: 16px; z-index: 4;
   height: 0; overflow: visible;
-  /* flex-start, NOT the default stretch: a stretched item in a 0-height flex
+  /* flex-end, NOT the default stretch: a stretched item in a 0-height flex
      container gets height 0, which squashed the pill to a ~12px hit target
-     that real clicks landed just under. */
-  display: flex; justify-content: center; align-items: flex-start;
+     that real clicks landed just under. flex-end (not flex-start plus a
+     translateY(-100%)) is what lifts the pill above the wrapper's zero-height
+     line: the press feedback every button gets is a `transform`, and it
+     REPLACED the lift, so the pill dropped its own height out from under the
+     finger on pointerdown and the tap's click landed on the transcript. */
+  display: flex; justify-content: center; align-items: flex-end;
 }
 .cc-session-jump {
-  transform: translateY(-100%);
   padding: 6px 16px; border: 1px solid var(--cc-border-strong); border-radius: 999px;
   background: var(--cc-bg-elev); color: var(--cc-fg); font-size: 12px; font-weight: 600;
   cursor: pointer; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
@@ -2857,9 +2887,9 @@ body {
 /* Bulk-selection tick, first thing on the title row. */
 .card .ct .card-select {
   flex: 0 0 auto;
-  width: 15px;
-  height: 15px;
-  margin: 2px 0 0;
+  width: 17px;
+  height: 17px;
+  margin: 3px 0 0;
   accent-color: var(--ink);
   cursor: pointer;
 }
@@ -3026,6 +3056,10 @@ body {
   /* Stay intrinsic-width even under the mobile rule that stretches labelled
      buttons full width — icon buttons should read as compact taps, not bars. */
   flex: 0 0 auto;
+  /* The containing block for the hidden label below. Without it the absolute
+     span resolves against the viewport and every card past the fold stretches
+     the document by its own height, so the page scrolls into blank space. */
+  position: relative;
 }
 .btns.icon-only .btn-label {
   position: absolute;
@@ -3360,8 +3394,10 @@ body {
 .tag .tag-x:hover { background: white; color: var(--alarm); }
 .tag-add { margin-top: 8px; }
 
-/* list-config: the scheduler-beat schedule builder */
-.sched { display: flex; flex-direction: column; gap: 9px; }
+/* list-config: the scheduler-beat schedule builder. Element-qualified because
+   the card front's schedule chip is `.chip.sched`, and a bare `.sched` turned
+   that chip into a column flex box (clock on one line, text on the next). */
+div.sched { display: flex; flex-direction: column; gap: 9px; }
 .sched input[type="number"],
 .sched input[type="time"],
 .sched select,
@@ -4330,8 +4366,16 @@ button:active, .btn:active { transform: translateY(1px); }
 }
 
 @media (pointer: coarse) {
-  button, .btn, input, select, textarea, .gear { min-height: 44px; }
+  /* Checkboxes/radios are excluded: a native checkbox keeps its own
+     width/height rule (see input[type="checkbox"] below and .card-select),
+     and a blanket min-height here only stretches its hit box vertically
+     while the drawn tick stays put in the top-left corner - a checkbox that
+     reads as a tall, skinny rectangle instead of a square. */
+  button, .btn, input:not([type="checkbox"]):not([type="radio"]), select, textarea, .gear { min-height: 44px; }
   .gear { min-width: 44px; }
+  /* The exemptions from this floor - checklist boxes, native checkboxes, the
+     inline icon controls - live at the END of this file, after the base rules
+     they have to outrank. */
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -4374,7 +4418,7 @@ button:active, .btn:active { transform: translateY(1px); }
    conversation read as part of the card rather than as a transplanted chat. */
 .conv-block { margin: 16px 0 4px; }
 .kanban-conversation {
-  height: min(60vh, 520px);
+  height: min(72vh, 720px);
   border: 1px solid var(--rule-2);
   background: var(--paper);
 }
@@ -4411,6 +4455,12 @@ button:active, .btn:active { transform: translateY(1px); }
    not drawn on this surface. */
 .kanban-conversation .cc-root > .cc-header,
 .kanban-conversation .cc-statusstrip { display: none; }
+/* The card already names the conversation. Keep its search and log controls on
+   one line, leaving the space below for the actual messages. */
+.kanban-conversation .cc-conv-title { display: none; }
+.kanban-conversation .cc-conv-head { flex-wrap: nowrap; padding: 6px 8px; gap: 6px; }
+.kanban-conversation .cc-conv-search { flex: 1 1 0; order: 0; margin-left: 0; }
+.kanban-conversation .cc-composer { padding: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
 /* A frozen card's conversation is a record, not a place to write. The transport
    refuses the write too - this only stops the board offering a dead control.
    Replace with ConversationView's own read-only prop once it has one. */
@@ -4757,8 +4807,6 @@ button:active, .btn:active { transform: translateY(1px); }
 .import-preview ul { margin: 6px 0 0; padding-left: 20px; }
 @media (max-width: 620px) {
   .transfer-row { align-items: stretch; flex-direction: column; }
-  .topbar { flex-wrap: wrap; }
-  .topbar .spacer { min-width: 20px; }
 }
 
 /* Schedule rows */
@@ -5055,3 +5103,382 @@ label.row { display: flex; align-items: center; gap: 8px; }
 .conv-state-chip.is-running { background: var(--sage-soft); color: var(--ink); border-color: var(--sage-2); }
 .conv-state-chip.is-needs-attention { background: var(--alarm-soft); color: var(--alarm); border-color: rgba(155, 54, 45, 0.35); font-weight: 700; }
 .conv-state-chip.is-done { background: var(--paper-3); color: var(--ink); }
+
+/* ── phone layout (<=640px, one query shared with ui/phone-layout.ts) ────────
+   The board under a thumb: a compact single-row topbar with an overflow menu, a
+   column strip over a snapping one-column carousel, cards sized for touch, and
+   every sheet as a full-height bottom sheet. Lives at the END of the file so it
+   outranks the older 780/620/480 rules above without a specificity contest;
+   desktop keeps every rule it had. */
+@media (max-width: 640px) {
+  /* topbar: brand + count on the left, New card + More on the right, one row */
+  .topbar { gap: 8px; padding: 6px 12px; min-height: 52px; }
+  .topbar .brand { flex: 1 1 auto; min-width: 0; gap: 8px; }
+  .topbar .brand-mark { width: 24px; height: 24px; }
+  .topbar .brand-mark svg { width: 20px; height: 20px; }
+  .topbar .brand-text { min-width: 0; }
+  .topbar .brand-text .name {
+    font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .topbar .brand-text .sub { display: none; }
+  .topbar .status {
+    flex: 0 0 auto;
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    padding: 3px 6px;
+    white-space: nowrap;
+  }
+  .topbar .spacer { display: none; }
+  .topbar .btn.primary {
+    flex: 0 0 auto;
+    min-height: 40px;
+    padding: 0 11px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .topbar-overflow { position: relative; flex: 0 0 auto; }
+  .topbar .topbar-more {
+    width: 44px;
+    min-width: 44px;
+    min-height: 40px;
+    padding: 0;
+    justify-content: center;
+  }
+  .topbar .topbar-more svg { width: 16px; height: 16px; }
+  .topbar .topbar-more[aria-expanded="true"] { background: rgba(255, 255, 255, 0.16); border-color: #f5efdf; }
+  /* the overflow menu: a paper panel hanging off the More control */
+  .topbar-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 6px);
+    min-width: 188px;
+    display: flex;
+    flex-direction: column;
+    padding: 6px;
+    background: var(--paper);
+    border: 1px solid var(--rule-2);
+    box-shadow: 0 14px 36px rgba(24, 33, 28, 0.28);
+    z-index: 6;
+  }
+  .topbar-menu .btn {
+    width: 100%;
+    justify-content: flex-start;
+    min-height: 44px;
+    padding: 0 12px;
+    font-size: 14px;
+    color: var(--ink);
+    background: transparent;
+    border-color: transparent;
+  }
+  .topbar-menu .btn:hover:not(:disabled) { background: var(--paper-2); border-color: transparent; }
+  .topbar-menu .btn[aria-pressed="true"] { color: var(--sage); }
+
+  /* column strip: every column with its count; the one in view is filled */
+  .col-strip {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 6px;
+    padding: 6px 12px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    background: var(--paper);
+    border-bottom: 1px solid var(--rule);
+    -webkit-overflow-scrolling: touch;
+  }
+  .col-strip::-webkit-scrollbar { display: none; }
+  .col-chip {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 40px;
+    padding: 0 10px 0 11px;
+    border: 1px solid var(--rule);
+    background: var(--paper-2);
+    color: var(--ink-2);
+    font-family: var(--sans);
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .col-chip-count {
+    font-family: var(--mono);
+    font-size: 10px;
+    min-width: 20px;
+    padding: 2px 4px;
+    text-align: center;
+    color: var(--mute);
+    background: var(--paper);
+    border: 1px solid var(--rule);
+  }
+  .col-chip.active { background: var(--sage); border-color: var(--sage); color: var(--paper); }
+  .col-chip.active .col-chip-count {
+    color: var(--paper);
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.28);
+  }
+  .col-chip.attn { border-color: var(--alarm); color: var(--alarm); }
+  .col-chip.attn .col-chip-count { color: var(--alarm); border-color: rgba(155, 54, 45, 0.35); }
+  .col-chip.attn.active { background: var(--alarm); color: var(--paper); }
+  .col-chip.attn.active .col-chip-count { color: var(--paper); }
+
+  /* board: a snapping carousel, one column per swipe with the next one peeking */
+  .board-scroll {
+    padding: 0 0 6px;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 12px;
+    overscroll-behavior-x: contain;
+  }
+  /* a live drag auto-scrolls toward the edge; snapping would yank it back */
+  .board-scroll.dragging { scroll-snap-type: none; }
+  .board { padding: 12px 12px 10px; gap: 10px; }
+  .list {
+    flex: 0 0 auto;
+    width: calc(100vw - 48px);
+    max-width: none;
+    scroll-snap-align: start;
+  }
+  .list .lh { padding: 11px 13px 9px; }
+  .list .lbody { padding: 11px 12px; gap: 10px; }
+  .list.drag-ghost-col { width: calc(100vw - 48px); }
+
+  /* cards: touch spacing, a readable title, 40px actions on an 8px grid */
+  .card { padding: 11px 12px 10px; font-size: 13px; }
+  .card .ct { gap: 8px; }
+  .card .ct .title { font-size: 15px; line-height: 1.35; }
+  /* The coarse-pointer floor stretches the title button and the tick to 44px
+     and centres their content, which floats the title a line below its dot.
+     The whole card is the tap target that opens it, so the title needs no floor. */
+  .card .ct .card-title-open { min-height: 0; }
+  .card .ct .card-select { width: 20px; height: 20px; min-height: 0; margin-top: 0; }
+  .card .ct .dot { margin-top: 6px; }
+  .card .ct .card-rename { width: 40px; height: 40px; margin: -10px -12px -10px 0; }
+  .card .cmeta { gap: 5px 6px; }
+  .chip { font-size: 10px; padding: 2px 6px; }
+  .card .btns { gap: 8px; margin-top: 12px; }
+  .card .btns .btn { flex: 0 0 auto; }
+  .card .btns.icon-only .btn {
+    min-width: 40px;
+    min-height: 40px;
+    padding: 0 10px;
+    justify-content: center;
+  }
+  .card .btns.icon-only .btn svg { width: 14px; height: 14px; }
+  .card .btns .ct-date { font-size: 11px; }
+  .card.drag-ghost { width: calc(100vw - 74px); }
+
+  /* sheets: full-height bottom sheets, a 44px close, the body scrolls alone */
+  .sheet-backdrop { padding: 0; align-items: flex-end; }
+  .sheet,
+  .sheet.mid,
+  .sheet.wide {
+    position: fixed;
+    inset: auto 0 0 0;
+    width: 100%;
+    max-width: none;
+    height: 96dvh;
+    max-height: 96dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+    box-shadow: 0 -12px 40px rgba(24, 33, 28, 0.3);
+  }
+  .sheet .sh-head {
+    flex: 0 0 auto;
+    position: static;
+    gap: 10px;
+    padding: 8px 10px 8px 16px;
+  }
+  .sheet .sh-head h3 { font-size: 17px; }
+  .sheet .sh-head .btn {
+    flex: 0 0 auto;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    justify-content: center;
+  }
+  .sheet .sh-head .btn svg { width: 16px; height: 16px; }
+  /* the title's pencil: a 40px target that does not grow the heading line */
+  .sheet .sh-head h3 .sheet-title-edit { width: 40px; height: 40px; min-height: 0; margin: -8px 0; }
+  /* the opened card's meta chips: the coarse-pointer floor made the id and the
+     autonomous toggle 44px boxes and stretched the plain chips beside them */
+  .detail-meta { align-items: center; }
+  .detail-meta .chip { display: inline-flex; align-items: center; min-height: 32px; padding: 0 8px; }
+  /* the conversation sheet's meta row: id chip, state chip and the details
+     button share one 36px line, tappable without dwarfing the state chip; the
+     row does not wrap, the id gives way (ellipsis) when the state runs long */
+  .sheet.conv .conv-meta { flex-wrap: nowrap; }
+  .sheet.conv .conv-meta .chip { display: inline-flex; align-items: center; flex: 0 0 auto; min-height: 36px; padding: 0 8px; white-space: nowrap; }
+  .sheet.conv .conv-meta .chip-id {
+    display: block;
+    flex: 0 1 auto;
+    min-width: 0;
+    line-height: 34px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .sheet.conv .conv-meta .btn.small { flex: 0 0 auto; min-height: 36px; padding: 0 12px; font-size: 13px; white-space: nowrap; }
+  .sheet .sh-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 14px 14px calc(22px + env(safe-area-inset-bottom));
+  }
+  /* the conversation sheet keeps its pinned composer: the stream scrolls, not the body */
+  .sheet.conv { height: 96dvh; }
+  .sheet.conv .sh-body { overflow: hidden; padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); }
+  /* footer actions stack full width; the margin keeps a full-width button off
+     the last field, which carries no bottom margin of its own */
+  .sheet .sh-body > .btn { width: 100%; justify-content: center; min-height: 48px; margin-top: 14px; font-size: 15px; }
+  .sheet .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .sheet .btns .btn { min-height: 44px; justify-content: center; font-size: 12.5px; }
+  .sheet .btns .ct-date { grid-column: 1 / -1; margin-left: 0; text-align: right; }
+  .seg .btn { flex: 1 1 0; justify-content: center; min-height: 44px; }
+  .danger-zone { gap: 8px; }
+  .danger-zone > .btn { flex: 1 1 100%; justify-content: center; min-height: 44px; }
+  .confirm-del { flex: 1 1 100%; }
+  .confirm-del .row { flex-direction: column; }
+  .confirm-del .row .btn { width: 100%; justify-content: center; min-height: 44px; }
+
+  /* every field at 16px so a focused input does not zoom the page; the id
+     outranks the class-scoped sizes above and in the conversation skin */
+  #root input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  #root select,
+  #root textarea { font-size: 16px; }
+}
+
+/* ── The composer's delivery switch (2026-09-03) ──────────────────────────────
+   Shown only while the card is WORKING: steer the stretch in flight (the
+   default) or queue the message as a follow-up. A visible two-way choice, not
+   a dropdown, so the armed option is readable at a glance on a phone. The
+   hint line under it says what the next message will do, and briefly what
+   the last one did. */
+/* Adornments now live in the tools row beneath a full-width message box. Keep
+   the delivery choice together without changing the textarea's flex sizing. */
+.kanban-conversation .conv-delivery,
+.kanban-conversation .conv-quickreplies { flex: 1 1 100%; order: -1; min-width: 0; }
+.kanban-conversation .conv-quickreplies { padding: 0 0 4px; }
+.conv-delivery { display: flex; flex-direction: column; gap: 4px; padding: 0 0 4px; min-width: 0; }
+.conv-delivery-switch {
+  display: inline-flex; align-self: flex-start;
+  border: 1px solid var(--cc-border-strong); background: var(--cc-bg);
+}
+.conv-delivery-option {
+  font: inherit; font-size: 11.5px; font-weight: 600; letter-spacing: 0.01em;
+  padding: 0 12px; min-height: 30px; border: 0; background: transparent;
+  color: var(--cc-fg-dim); cursor: pointer; white-space: nowrap;
+}
+.conv-delivery-option + .conv-delivery-option { border-left: 1px solid var(--cc-border-strong); }
+.conv-delivery-option:hover { color: var(--cc-fg); }
+.conv-delivery-option.is-active { background: var(--cc-accent); color: var(--cc-accent-fg); }
+.conv-delivery-hint { font-size: 11px; color: var(--cc-fg-dim); line-height: 1.35; overflow-wrap: anywhere; }
+@media (pointer: coarse) {
+  .conv-delivery-switch { align-self: stretch; }
+  .conv-delivery-option { flex: 1 1 0; min-height: 40px; padding: 0 12px; font-size: 12.5px; }
+}
+
+/* ── Touch: what the 44px floor is NOT for (2026-09-03) ──────────────────────
+   The coarse-pointer floor (above, with the scrollbars) is for controls a
+   finger presses ON THEIR OWN. A checklist box sits in a row that is itself
+   the target, an inline icon control sits beside its text, a native checkbox
+   lives inside a label - stretched to 44px they read as broken (the phone's
+   "checkboxes are too tall"). These keep a comfortable target another way: a
+   bigger box, a taller row. Last in the file on purpose: the base rules they
+   override share their specificity, so order decides. */
+@media (pointer: coarse) {
+  .checklist .cl-box,
+  .checklist .cl-del,
+  .checklist .cl-text-button,
+  .ev-item .ev-del,
+  .btn.tiny,
+  input[type="checkbox"],
+  input[type="radio"] { min-height: 0; }
+  .checklist .cl-box { width: 22px; height: 22px; margin-top: 0; }
+  .checklist .cl-box.checked::after { left: 7px; top: 3px; width: 6px; height: 11px; }
+  .checklist .cl-items li { align-items: center; min-height: 36px; padding: 4px 2px; font-size: 13.5px; }
+  .checklist .cl-text-button { min-height: 28px; display: inline-flex; align-items: center; }
+  .checklist .cl-del { min-width: 36px; min-height: 36px; display: inline-flex; align-items: center; justify-content: center; }
+  .checklist .cl-del svg { width: 13px; height: 13px; }
+  .ev-item .ev-del { width: 28px; height: 28px; }
+  input[type="checkbox"],
+  .field .row input[type="checkbox"] { width: 20px; height: 20px; }
+  .btn.tiny { min-height: 32px; padding: 0 10px; font-size: 11px; }
+}
+
+/* ── Phone: the card as a full-screen sheet (2026-09-03) ──────────────────────
+   Under 640px a sheet IS the screen: no backdrop margin, no rounded card
+   floating over a dimmed board, a header row with the close control at the
+   thumb's reach, and a body that scrolls on its own. The detail sheet becomes
+   two pages under that header - Card and Conversation - so the conversation
+   gets the whole viewport with its composer pinned to the bottom edge instead
+   of a chat box scrolling somewhere inside a long form. */
+@media (max-width: 640px) {
+  .sheet-backdrop { padding: 0; align-items: stretch; }
+  .sheet,
+  .sheet.mid,
+  .sheet.wide,
+  .sheet.conv {
+    width: 100vw; max-width: none;
+    height: 100vh; height: 100dvh; max-height: none;
+    border: 0; box-shadow: none;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .sheet .sh-head { flex: 0 0 auto; position: static; padding: 10px 10px 10px 16px; gap: 8px; }
+  .sheet .sh-head h3 { font-size: 17px; }
+  .sheet .sh-head .sh-close {
+    width: 40px; min-width: 40px; height: 40px; min-height: 40px;
+    padding: 0; justify-content: center;
+  }
+  .sheet .sh-head .sh-close svg { width: 14px; height: 14px; }
+  .sheet .sh-body {
+    flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    padding: 14px 16px calc(24px + env(safe-area-inset-bottom));
+  }
+  .sheet.conv .sh-body { padding: 8px 10px calc(6px + env(safe-area-inset-bottom)); overflow: hidden; }
+
+  /* the two pages */
+  .sheet-tabs { display: flex; flex: 0 0 auto; border-bottom: 1px solid var(--rule); background: white; }
+  .sheet-tab {
+    flex: 1 1 0; min-height: 44px; padding: 0 8px;
+    border: 0; border-bottom: 2px solid transparent; background: transparent;
+    font: inherit; font-size: 13px; font-weight: 600; letter-spacing: 0.01em; color: var(--mute);
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer;
+  }
+  .sheet-tab.is-active { color: var(--ink); border-bottom-color: var(--ink); }
+  /* Conversation page: the conversation IS the body. The other sections stay
+     mounted (a half-typed checklist item survives a tab switch) but hidden. */
+  .sheet.phone-conv .sh-body { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+  .sheet.phone-conv .sh-body > :not(.conv-block) { display: none; }
+  .sheet.phone-conv .conv-block { flex: 1 1 auto; min-height: 0; margin: 0; display: flex; flex-direction: column; }
+  .sheet.phone-conv .kanban-conversation { height: auto; flex: 1 1 auto; min-height: 0; border: 0; }
+  /* The conversation's own header repeats the sheet title one row down;
+     on this page the search field and the raw-log control are what earn the
+     space, on one row. */
+  .sheet.phone-conv .cc-conv-head { padding: 8px 10px; gap: 8px; }
+  .sheet.phone-conv .cc-conv-title { display: none; }
+  .sheet.phone-conv .cc-conv-search { flex: 1 1 auto; margin-left: 0; }
+  .sheet.phone-conv .cc-conv-searchinput { min-height: 38px; }
+  .sheet.phone-conv .conv-rawlog { min-height: 38px; }
+  /* Card page: the conversation has its own page, so it is not also a box here. */
+  .sheet.phone-card .sh-body > .conv-block { display: none; }
+  /* A card without a conversation yet (never started) keeps the single page;
+     the sections simply stack. */
+  .detail-meta { gap: 5px; }
+  .detail-actions { gap: 6px; }
+  .detail-actions .btn { flex: 1 1 calc(50% - 6px); justify-content: center; min-height: 40px; }
+  .detail-actions-footer .btn { flex: 1 1 auto; }
+  .lrow { grid-template-columns: 1fr; gap: 3px; }
+  .conv-meta .btn { min-height: 36px; }
+  .conv-rawlog { min-height: 36px; }
+}

@@ -1,0 +1,10 @@
+
+ RUN  v2.1.9 /Users/ggomes/dev/garrison
+
+ ✓ |unit| tests/talk-capture-feedback.test.ts (7 tests) 63ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  07:50:03
+   Duration  923ms (transform 87ms, setup 19ms, collect 112ms, tests 63ms, environment 0ms, prepare 170ms)
+

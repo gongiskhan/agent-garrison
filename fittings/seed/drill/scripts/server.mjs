@@ -93,6 +93,9 @@ const FINISHED_RUN_LINGER_MS = 60_000;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Every SSE route calls res.flushHeaders() right after writeHead: Node holds
+// the status line until the first body write, so a stream with nothing to say
+// yet would leave the EventSource "connecting" until its first keep-alive.
 const SSE_HEADERS = {
   "content-type": "text/event-stream",
   "cache-control": "no-cache, no-transform",
@@ -848,6 +851,7 @@ async function handle(req, res) {
       }
 
       res.writeHead(200, SSE_HEADERS);
+      res.flushHeaders();
       let closed = false;
       req.on("close", () => { closed = true; });
       const emit = (payload) => {
@@ -2219,6 +2223,7 @@ async function handle(req, res) {
         let record = null;
         try { record = await getDrillRun(runId); } catch { record = null; }
         res.writeHead(200, SSE_HEADERS);
+        res.flushHeaders();
         res.write(`data: ${JSON.stringify({
           type: record?.endedAt ? "run_finished" : "run_unknown",
           runId,
@@ -2228,6 +2233,7 @@ async function handle(req, res) {
         return void res.end();
       }
       res.writeHead(200, SSE_HEADERS);
+      res.flushHeaders();
       for (const ev of entry.events) res.write(`data: ${JSON.stringify(ev)}\n\n`);
       if (entry.done) return void res.end();
       entry.listeners.add(res);
@@ -2280,6 +2286,7 @@ async function handle(req, res) {
       const liveEntry = entry && !entry.done ? entry : null;
 
       res.writeHead(200, SSE_HEADERS);
+      res.flushHeaders();
       let closed = false;
       req.on("close", () => { closed = true; });
       const emit = (payload) => {

@@ -11,7 +11,7 @@
 // duties}; everything else in the manifest round-trips untouched.
 
 import path from "node:path";
-import { pushManifestToState } from "@/lib/composition-sync";
+import { persistManifest } from "@/lib/manifest-write";
 import fs from "node:fs/promises";
 import {
   resolveModel,
@@ -42,10 +42,8 @@ import { ROOT_DIR } from "@/lib/paths";
 import { cloneFitting } from "@/lib/clone";
 import { getFaculty, facultyRoleCopy } from "@/lib/faculties";
 import { readYamlFile } from "@/lib/yaml";
-import { writeFileAtomic } from "@/lib/atomic-write";
 import { resolvePrimaryFromPolicy, writePrimaryRuntimeToPolicy } from "@/lib/routing-primary";
 import { validateCellCompatibility } from "@/lib/router-migrate";
-import { dump as dumpYaml } from "js-yaml";
 import { CATEGORY_BY_FACULTY, dutyEfforts, facultyIds } from "@/lib/types";
 import type {
   Cardinality,
@@ -237,18 +235,13 @@ async function mutateCompositionBlock(
   compositionId: string,
   mutate: (block: CompositionBlock) => void
 ): Promise<void> {
-  const manifestPath = getCompositionManifestPath(compositionId);
-  const manifest = await readYamlFile<Manifest>(manifestPath);
-  const block = manifest?.["x-garrison"]?.composition;
-  if (!manifest || !block) {
-    throw new Error(`composition "${compositionId}" has no x-garrison.composition block`);
-  }
-  mutate(block);
-  // Atomic write (codex S5a finding): a direct truncate-and-write races with a
-  // concurrent autosave and can corrupt the composition. writeFileAtomic does
-  // temp+rename (0600-preserving), so a reader never sees a partial file.
-  const raw = dumpYaml(manifest, { lineWidth: 100, noRefs: true, sortKeys: false });
-  await writeFileAtomic(manifestPath, raw);
+  await mutateManifestAtomic(compositionId, (manifest) => {
+    const block = manifest["x-garrison"]?.composition;
+    if (!block) {
+      throw new Error(`composition "${compositionId}" has no x-garrison.composition block`);
+    }
+    mutate(block);
+  });
 }
 
 // A clean DutySpec (no resolver-added providerFittingId) to persist into the
@@ -1144,20 +1137,12 @@ async function mutateManifestAtomic(
   if (!manifest || !manifest["x-garrison"]?.composition) {
     throw new Error(`composition "${compositionId}" has no x-garrison.composition block`);
   }
+  // The parsed copy BEFORE the mutation is the diff baseline: persistManifest
+  // applies only what the mutation actually changed onto the original
+  // document, so every untouched line - comments included - survives.
+  const before = structuredClone(manifest);
   mutate(manifest);
-  const raw = dumpYaml(manifest, { lineWidth: 100, noRefs: true, sortKeys: false });
-  await writeFileAtomic(manifestPath, raw);
-  // MESH: the manifest edit flows back to the state service (rev CAS). An
-  // enrolled node whose edit cannot reach shared state must hear about it —
-  // the local file already changed, so surface loudly rather than fork
-  // silently; the next up() re-syncs from the service either way.
-  try {
-    await pushManifestToState(compositionId, raw);
-  } catch (err) {
-    throw new Error(
-      `manifest saved locally but NOT to the mesh state service — another node may not see this edit (${err instanceof Error ? err.message : String(err)})`
-    );
-  }
+  await persistManifest(compositionId, manifestPath, before, manifest);
 }
 
 // Persist a whole new selections map: validate first (cardinality + faculty

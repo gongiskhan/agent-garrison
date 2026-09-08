@@ -1,0 +1,7 @@
+# npm run typecheck, 2026-09-02T09:44:01Z, 28a78222 + working tree (final G2 tree)
+
+
+> agent-garrison@0.1.0 typecheck
+> tsc --noEmit
+
+exit=0

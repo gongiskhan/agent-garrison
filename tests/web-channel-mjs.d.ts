@@ -1,6 +1,6 @@
 // Ambient types for the Web Channel fitting's plain-JS (.mjs) lib modules so the
 // TS tests can import them under tsc --noEmit without implicit-any errors.
-declare module "*/web-channel-default/scripts/threads.mjs" {
+declare module "*/talk/src/threads.mjs" {
   interface ThreadMeta {
     id: string;
     /** The conversation this thread IS the channel surface of - derived from the
@@ -54,14 +54,14 @@ declare module "*/web-channel-default/scripts/threads.mjs" {
   export function _readThreadSync(id: string): Thread | null;
 }
 
-declare module "*/web-channel-default/ui/pwa-assets.mjs" {
+declare module "*/talk/ui/pwa-assets.mjs" {
   export function renderIconPng(size: number): Buffer;
   export function iconSvg(size?: number): string;
   export function emitPwaAssets(opts: { srcDir: string; distDir: string }): Promise<string[]>;
   export const PWA_DIST_ASSETS: string[];
 }
 
-declare module "*/web-channel-default/lib/webpush.mjs" {
+declare module "*/talk/src/webpush.mjs" {
   export function b64url(buf: Uint8Array | Buffer): string;
   export function unb64url(str: string): Buffer;
   export function generateVapidKeys(): { publicKey: string; privateKey: string };
@@ -95,7 +95,7 @@ declare module "*/web-channel-default/lib/webpush.mjs" {
   }): Promise<{ ok: boolean; status: number; gone: boolean; error?: string }>;
 }
 
-declare module "*/web-channel-default/lib/push-store.mjs" {
+declare module "*/talk/src/push-store.mjs" {
   interface PushSubscriptionRow {
     endpoint: string;
     keys: { p256dh: string; auth: string };
@@ -113,4 +113,28 @@ declare module "*/web-channel-default/lib/push-store.mjs" {
   export function vapidFromEnv(
     env?: Record<string, string | undefined>
   ): { publicKey: string; privateKey: string; subject: string } | null;
+}
+
+// The talk router (.mjs): only the voice surface is declared, for
+// tests/talk-voice-router.test.ts.
+declare module "*/talk/src/router.mjs" {
+  export function garrisonDir(): string;
+  export const STATUS_ROOT: string;
+  export const VOICE_NO_PROVIDER: string;
+  export const VOICE_NOT_RUNNING: string;
+  export const VOICE_LOCKED: string;
+  export const VOICE_TOKEN_UNSET: string;
+  export const VOICE_TOKEN_DENIED: string;
+  export const VOICE_SECRETS_UNREACHABLE: string;
+  export const VOICE_REST_DISABLED: string;
+  export const VOICE_UNREACHABLE: string;
+  export function readVoiceInfo(fittingId: unknown): { url?: string; [k: string]: unknown } | null;
+  export function createTalkRouter(
+    liveOpts: {
+      gatewayUrl?: string;
+      voice?: { fittingId?: () => unknown; token?: () => unknown; tokenReason?: () => unknown; vaultLocked?: () => unknown } | undefined;
+      [k: string]: unknown;
+    },
+    opts?: { distDir?: string | null; log?: unknown }
+  ): (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => Promise<boolean>;
 }

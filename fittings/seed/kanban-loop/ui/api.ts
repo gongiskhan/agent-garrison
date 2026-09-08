@@ -343,13 +343,15 @@ export interface CardImportResult {
   sourceName: string;
 }
 
-// GET /board/runtime — channel discovery + gateway status for the board UI.
+// GET /board/runtime - where Conversations lives + gateway status for the board UI.
 export interface BoardRuntime {
-  webChannelEmbedId: string | null;
-  webChannelUrl: string | null;
+  /** The shell route hosting Conversations ("/talk"). Always present, and RELATIVE:
+   *  it resolves against the origin the browser reached Garrison on (usually the
+   *  tailnet), never this box's loopback. */
+  conversationsRoute: string;
   gatewayBaseUrl: string | null;
   noGateway: boolean;
-  /** Absolute kanban-store cards dir, so Discuss can hand the web channel an absolute,
+  /** Absolute kanban-store cards dir, so Discuss can hand Conversations an absolute,
    *  card-owned brief path (<cardsAbsDir>/<cardId>/brief.md). */
   cardsAbsDir?: string | null;
 }

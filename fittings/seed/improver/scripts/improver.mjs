@@ -218,11 +218,30 @@ function makeDreamRunTurn() {
 // basic-memory reindex/doctor runner for the deterministic housekeeping step.
 // Best-effort: a missing basic-memory (or IMPROVER_DREAM_NO_INDEX=1) just records
 // "skipped"/"error" — it never fails the run. Returns null to skip entirely.
-function makeBasicMemoryRunner() {
-  if (process.env.IMPROVER_DREAM_NO_INDEX === "1") return null;
+export function makeBasicMemoryRunner({ env = process.env, userHome = os.homedir(), execute = execFileSync } = {}) {
+  if (env.IMPROVER_DREAM_NO_INDEX === "1") return null;
+  const configPath = env.GARRISON_AGENT_CONTINUITY_CONFIG || path.join(userHome, ".config/garrison/agent-continuity.json");
   return async ({ cmd, args }) => {
     try {
-      execFileSync(cmd, args, { stdio: "ignore", timeout: 60_000 });
+      let registered;
+      let enrolled = true;
+      try { registered = JSON.parse(readFileSync(configPath, "utf8")); }
+      catch (error) {
+        if (error.code !== "ENOENT" || env.GARRISON_AGENT_CONTINUITY_CONFIG) throw error;
+        enrolled = false;
+      }
+      if (enrolled) {
+        // A composition's isolated index may have the same vault path but
+        // different visibility. Invalid enrollment must not silently fall back.
+        const bridge = registered?.bridge_command;
+        if (registered?.version !== 1 || !Array.isArray(bridge) || !bridge.length
+          || !bridge.every((value) => typeof value === "string" && value) || cmd !== "basic-memory") {
+          throw new Error("Invalid shared memory transport enrollment");
+        }
+        execute(bridge[0], [...bridge.slice(1), "--config", configPath, "memory-cli", "--", ...args], { stdio: "ignore", timeout: 60_000, env });
+      } else {
+        execute(cmd, args, { stdio: "ignore", timeout: 60_000, env });
+      }
       return { ok: true };
     } catch {
       return { ok: false };

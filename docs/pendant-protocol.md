@@ -262,3 +262,29 @@ From `app/ios/Runner/Ble/OmiBleManager.swift`,
     we do not need). While backgrounded they consume audio natively and
     keep the UI layer idle - our equivalent is relaying frames straight
     from the BLE callback into the existing uploader spool.
+
+## 10. The page-facing surface: `GarrisonPendant` (2026-09-02)
+
+Nothing in sections 1-9 reaches the web page. The pendant belongs to the app
+(`PendantController.shared`, ADR D4 in `docs/decisions/2026-09-garrison-app.md`
+and D44 there) and the capture page sees it only through the Capacitor plugin
+`GarrisonPendant`:
+
+- methods `status()`, `connect()`, `disconnect()`, `forget()`, each resolving
+  the same payload: `connectionState` (the `PendantConnectionState` case
+  names: `disconnected | scanning | connecting | connected | reconnecting |
+  pairingLost | bluetoothOff`), `paired`, `lostFrames`, `ambientConsent`,
+  `uploaderState` (`idle | connecting | streaming | ended | failed`, with
+  `uploaderError` on failure), and when known `battery`, `sessionId`,
+  `hapticSupported`, `capturePolicy`, `pendantFlagOn`;
+- events `pendantState` (the payload above, debounced to one per 150 ms
+  burst) and `pendantBattery` (`{battery}`).
+
+The audio never crosses the bridge: the phone streams it to capture-service as
+a `pendant` session (ADR D5) and the page reads the words back through the
+shell, `GET /api/voice/sessions/<sessionId>/events`, which relays the
+provider's `/sessions/<id>/events` stream (interim and final segments, then
+`{"done":true}`). The mock harness for this seam is
+`ios/Tests/PendantPluginMockTests.swift`: a `PendantController` on
+`MockPendantTransport`, driven through the plugin exactly as the bridge drives
+it.

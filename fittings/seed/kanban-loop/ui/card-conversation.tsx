@@ -21,6 +21,28 @@ import type { ConversationActivity } from "@garrison/claude-chat/journal";
 export const CONVERSATION_BASE = "/api/conversation";
 
 /**
+ * How a message reaches a card that is WORKING right now. This is the seam that
+ * makes a card's conversation feel like a Claude Code session instead of a
+ * mailbox:
+ *
+ *   steer  - the default. The stretch in flight is interrupted and its duty
+ *            runs again with the message in front of it, the way typing into a
+ *            working Claude Code session redirects it now rather than later.
+ *   queue  - a follow-up. The message waits for the next brief the loop builds,
+ *            so the current stretch finishes what it is doing first.
+ *
+ * On a card that is NOT working the distinction does not exist: the message
+ * wakes the responder, and a follow-up ask re-opens the work from there.
+ */
+export type ConversationDelivery = "steer" | "queue";
+
+/** What the responder said it did with an admitted message. */
+export interface ConversationDeliveryReport {
+  delivery: ConversationDelivery | null;
+  pickedUpBy: string | null;
+}
+
+/**
  * The composer's transport. Deliberately minimal: the conversation stream IS the
  * transcript (ConversationView renders it from the SSE route), so this object
  * only has to ADMIT a message and report what the router said. The rest of the
@@ -31,8 +53,19 @@ export const CONVERSATION_BASE = "/api/conversation";
  * The receipt settles at the 202 because the INPUT's life ends there - it is
  * durably in the ledger. The work it triggers is a stretch, which the stream
  * renders on its own account.
+ *
+ * `delivery` is read AT SEND TIME (a getter, not a value) so the composer's
+ * toggle never has to rebuild the transport - and therefore never remounts the
+ * chat - to change how the next message is delivered.
  */
-export function createConversationTransport(conversationId: string, opts: { frozen?: boolean } = {}): ChatTransport {
+export function createConversationTransport(
+  conversationId: string,
+  opts: {
+    frozen?: boolean;
+    delivery?: () => ConversationDelivery | null;
+    onDelivered?: (report: ConversationDeliveryReport) => void;
+  } = {}
+): ChatTransport {
   const base = `${CONVERSATION_BASE}/${encodeURIComponent(conversationId)}`;
   return {
     base,
@@ -73,12 +106,18 @@ export function createConversationTransport(conversationId: string, opts: { froz
       // routing field would be a second authority for one fact.
       const clientRequestId = meta?.clientRequestId?.trim() ||
         `conv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      const delivery = opts.delivery?.() ?? null;
       let res: Response;
       try {
         res = await fetch(`${base}/message`, {
           method: "POST",
           headers: { "content-type": "application/json", accept: "application/json" },
-          body: JSON.stringify({ message: text, clientRequestId, origin: "kanban" })
+          body: JSON.stringify({
+            message: text,
+            clientRequestId,
+            origin: "kanban",
+            ...(delivery ? { delivery } : {})
+          })
         });
       } catch {
         throw new ChatTransportError({
@@ -89,21 +128,23 @@ export function createConversationTransport(conversationId: string, opts: { froz
           retryable: true
         });
       }
-      const body = await res.json().catch(() => null) as { error?: unknown; seq?: unknown } | null;
+      const body = await res.json().catch(() => null) as { error?: unknown; detail?: unknown; seq?: unknown; pickedUpBy?: unknown } | null;
       if (!res.ok) {
         // The router accepts only once its forwarder confirms, so a refusal means
         // NOTHING was recorded. Say that, rather than leave the user believing a
-        // delivered message went unanswered.
+        // delivered message went unanswered - and say WHY, when the router knows.
+        const error = typeof body?.error === "string" ? body.error.slice(0, 1_000) : "";
+        const detail = typeof body?.detail === "string" && !error.includes(body.detail) ? ` (${body.detail.slice(0, 300)})` : "";
         throw new ChatTransportError({
           source: res.status === 502 ? "gateway" : "web",
           kind: res.status >= 500 ? "runtime" : "invalid_request",
           code: `conversation_message_${res.status}`,
-          text: (typeof body?.error === "string" && body.error.slice(0, 1_000)) ||
-            `The conversation refused the message (${res.status}).`,
+          text: (error && `${error}${detail}`) || `The conversation refused the message (${res.status}).`,
           retryable: res.status >= 500,
           httpStatus: res.status
         });
       }
+      opts.onDelivered?.({ delivery, pickedUpBy: typeof body?.pickedUpBy === "string" ? body.pickedUpBy : null });
       return {
         clientRequestId,
         // A CLIENT coordinate, deliberately prefixed so it can never be mistaken
@@ -140,6 +181,29 @@ export function createConversationTransport(conversationId: string, opts: { froz
       }
     })
   };
+}
+
+/** The composer's placeholder says what a message will DO, which depends on
+ *  whether the card is working and how the next message is delivered. */
+export function composerPlaceholder({ frozen, running, delivery }: { frozen: boolean; running: boolean; delivery: ConversationDelivery }): string {
+  if (frozen) return "This conversation is frozen";
+  if (running) return delivery === "steer" ? "Steer the work in progress…" : "Queue a follow-up for after this stretch…";
+  return "Ask a question, or give the card more work…";
+}
+
+/** The one-line acknowledgement after a send, from what the responder reported. */
+export function deliveryNote(report: ConversationDeliveryReport): string | null {
+  switch (report.pickedUpBy) {
+    case "steer":
+      return "Steering: the current stretch stops and continues with your message.";
+    case "running-stretch":
+    case "advancing":
+      return "Queued: picked up when the current stretch finishes.";
+    case "responder":
+      return "Sent: the card is picking this up.";
+    default:
+      return null;
+  }
 }
 
 /**
@@ -223,6 +287,56 @@ function QuickReplies({ activity, api }: { activity: ConversationActivity; api: 
 }
 
 /**
+ * The delivery switch, shown only while the card is working: a two-way choice
+ * between steering the stretch in flight (the default) and queueing the message
+ * as a follow-up. A radio group rather than a dropdown so both options - and
+ * which one is armed - are visible at a glance on a phone.
+ */
+function DeliveryControl({
+  delivery,
+  onChange,
+  note
+}: {
+  delivery: ConversationDelivery;
+  onChange: (next: ConversationDelivery) => void;
+  note: string | null;
+}) {
+  const hint = delivery === "steer"
+    ? "Interrupts the current stretch and continues with your message."
+    : "Waits for the current stretch to finish, then picks this up.";
+  return (
+    <div className="conv-delivery">
+      <div className="conv-delivery-switch" role="radiogroup" aria-label="How to deliver your message">
+        <button
+          type="button"
+          role="radio"
+          aria-checked={delivery === "steer"}
+          className={`conv-delivery-option${delivery === "steer" ? " is-active" : ""}`}
+          title="Interrupt the current stretch and continue with your message"
+          onClick={() => onChange("steer")}
+        >
+          Steer now
+        </button>
+        <button
+          type="button"
+          role="radio"
+          aria-checked={delivery === "queue"}
+          className={`conv-delivery-option${delivery === "queue" ? " is-active" : ""}`}
+          title="Let the current stretch finish, then pick this up"
+          onClick={() => onChange("queue")}
+        >
+          After this stretch
+        </button>
+      </div>
+      <div className="conv-delivery-hint" aria-live="polite">{note ?? hint}</div>
+    </div>
+  );
+}
+
+/** How long the post-send acknowledgement stays before the hint returns. */
+const DELIVERY_NOTE_MS = 6000;
+
+/**
  * The card's conversation surface: the stream is the body, the composer writes
  * into it, and the header carries the degraded-cwd marker plus the raw phase log.
  *
@@ -253,12 +367,34 @@ export function CardConversation({
   onRawLog: () => void;
   onOpenRuntimeTranscript: (sessionId: string) => void;
 }) {
+  const [delivery, setDelivery] = useState<ConversationDelivery>("steer");
+  const deliveryRef = useRef(delivery);
+  deliveryRef.current = delivery;
+  const [note, setNote] = useState<string | null>(null);
+  const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (noteTimer.current) clearTimeout(noteTimer.current); }, []);
+  const onDelivered = useCallback((report: ConversationDeliveryReport) => {
+    const text = deliveryNote(report);
+    setNote(text);
+    if (noteTimer.current) clearTimeout(noteTimer.current);
+    if (text) noteTimer.current = setTimeout(() => setNote(null), DELIVERY_NOTE_MS);
+  }, []);
+  const runningRef = useRef(Boolean(running));
+  runningRef.current = Boolean(running);
   const transport = useMemo(
-    () => createConversationTransport(conversationId, { frozen }),
-    [conversationId, frozen]
+    () => createConversationTransport(conversationId, {
+      frozen,
+      // Only a WORKING card has two ways to take a message; anywhere else the
+      // door's default (the responder) is the only one there is.
+      delivery: () => (runningRef.current ? deliveryRef.current : null),
+      onDelivered
+    }),
+    [conversationId, frozen, onDelivered]
   );
   const scope = useLastStretchScope(conversationId, generation);
   const [activity, setActivity] = useState<ConversationActivity | null>(null);
+  const stalled = activity?.mode === "needs-input" || activity?.mode === "awaiting-approval";
+  const showDelivery = !frozen && Boolean(running);
   return (
     <div className={`kanban-conversation${frozen ? " frozen" : ""}`}>
       <ConversationView
@@ -267,11 +403,16 @@ export function CardConversation({
         transport={transport}
         live={frozen ? false : running ? undefined : false}
         title={title}
-        placeholder={frozen ? "This conversation is frozen" : "Write into this conversation"}
+        placeholder={composerPlaceholder({ frozen, running: Boolean(running), delivery })}
         onOpenRuntimeTranscript={onOpenRuntimeTranscript}
         onActivityChange={frozen ? undefined : setActivity}
         composerAdornment={
-          frozen || !activity ? undefined : (api) => <QuickReplies activity={activity} api={api} />
+          frozen || (!showDelivery && !(activity && stalled)) ? undefined : (api) => (
+            <>
+              {showDelivery && <DeliveryControl delivery={delivery} onChange={setDelivery} note={note} />}
+              {activity && stalled && !showDelivery && <QuickReplies activity={activity} api={api} />}
+            </>
+          )
         }
         headerExtra={
           <>

@@ -52,10 +52,10 @@ class NotConnectedError extends Error {
 // The 0600 per-machine capability token that gates Garrison's auth-env route.
 // Absent (or unreadable) => "" and we simply can't self-resolve, which surfaces
 // as awaiting_connector below.
-function internalToken() {
+function internalToken(env) {
   try {
-    const home = process.env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
-    const file = process.env.GARRISON_INTERNAL_TOKEN_PATH || path.join(home, "internal-token");
+    const home = env.GARRISON_HOME || path.join(os.homedir(), ".garrison");
+    const file = env.GARRISON_INTERNAL_TOKEN_PATH || path.join(home, "internal-token");
     return readFileSync(file, "utf8").trim();
   } catch {
     return "";
@@ -66,34 +66,44 @@ function internalToken() {
 // pre-injected it. Mirrors the engine's auth-env fetch: POST with the internal
 // token; a non-2xx (incl. 409 not-connected) yields {} so the caller falls
 // through to awaiting_connector.
-async function fetchInjectedEnv(fetchImpl) {
-  const tok = internalToken();
-  if (!tok) return {};
+async function fetchInjectedEnv(env, fetchImpl, signal) {
   // No port literal (HARD RULE: a fitting must be TOLD a peer address, never
-  // guess it). The runner projects GARRISON_BASE_URL; without it there is no way
+  // guess it). The runner projects GARRISON_APP_URL; the legacy
+  // GARRISON_BASE_URL alias is also accepted. Without either there is no way
   // to know WHICH instance to ask, and a baked 7777 asked DEV on prod"s behalf.
   // Absent env falls through exactly like an absent token: {} -> the caller
   // reports awaiting_connector instead of crossing instances.
-  const base = process.env.GARRISON_BASE_URL;
+  const base = (env.GARRISON_APP_URL || env.GARRISON_BASE_URL || "").replace(/\/+$/, "");
   if (!base) return {};
+  const tok = internalToken(env);
+  if (!tok) return {};
   try {
+    signal.throwIfAborted();
     const res = await fetchImpl(`${base}/api/connectors/spotify/auth-env`, {
       method: "POST",
-      headers: { "x-garrison-internal": tok }
+      headers: { "x-garrison-internal": tok },
+      signal,
+      redirect: "error"
     });
-    if (!res.ok) return {};
+    signal.throwIfAborted();
+    if (!res.ok) {
+      void res.body?.cancel().catch(() => {});
+      return {};
+    }
     const json = await res.json();
-    return json.env ?? {};
+    signal.throwIfAborted();
+    return json?.env ?? {};
   } catch {
+    signal.throwIfAborted();
     return {};
   }
 }
 
-async function resolveToken(env, fetchImpl) {
+async function resolveToken(env, fetchImpl, signal) {
   let t = env.SPOTIFY_ACCESS_TOKEN;
-  if (!t) t = (await fetchInjectedEnv(fetchImpl)).SPOTIFY_ACCESS_TOKEN;
-  if (!t) throw new NotConnectedError("Spotify not connected (connect via OAuth so the Vault holds a grant)");
-  return t;
+  if (!t) t = (await fetchInjectedEnv(env, fetchImpl, signal)).SPOTIFY_ACCESS_TOKEN;
+  if (typeof t !== "string" || !t.trim()) throw new NotConnectedError("Spotify not connected (connect via OAuth so the Vault holds a grant)");
+  return t.trim();
 }
 
 const API = "https://api.spotify.com/v1";
@@ -101,50 +111,69 @@ const API = "https://api.spotify.com/v1";
 // One HTTP call to the Web API. 204 (the common response for control endpoints)
 // and empty bodies return {}. Common failures get a human hint appended so the
 // Operative can tell the user something actionable instead of a bare status.
-function makeCall(access, fetchImpl) {
+function makeCall(access, fetchImpl, signal) {
   return async (method, p, body) => {
-    const res = await fetchImpl(API + p, {
-      method,
-      headers: {
-        Authorization: `Bearer ${access}`,
-        ...(body !== undefined ? { "content-type": "application/json" } : {})
-      },
-      body: body !== undefined ? JSON.stringify(body) : undefined
-    });
-    if (res.status === 204) return {};
-    const text = await res.text();
-    if (!res.ok) {
-      if (res.status === 401) throw new NotConnectedError("Spotify token rejected (reconnect the connector)");
-      if (res.status === 403) throw new Error(`Spotify refused (403) — Premium required for playback control, or the token lacks a scope. ${text}`.trim());
-      if (res.status === 404) throw new Error("No active Spotify device — open the Spotify app on the phone, then try again.");
-      throw new Error(`spotify ${res.status}: ${text}`);
+    signal.throwIfAborted();
+    let res;
+    try {
+      res = await fetchImpl(API + p, {
+        method,
+        headers: {
+          Authorization: `Bearer ${access}`,
+          ...(body !== undefined ? { "content-type": "application/json" } : {})
+        },
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal,
+        redirect: "error"
+      });
+    } catch {
+      signal.throwIfAborted();
+      throw new Error("Spotify request failed; check the connection before trying again");
     }
+    signal.throwIfAborted();
+    if (res.status === 204) return {};
+    if (!res.ok) {
+      void res.body?.cancel().catch(() => {});
+      if (res.status === 401) throw new NotConnectedError("Spotify token rejected (reconnect the connector)");
+      if (res.status === 403) throw new Error("Spotify refused (403) — check Premium, the app's allowed users and the granted scopes");
+      if (res.status === 404 && p.startsWith("/me/player")) throw new Error("No active Spotify device — open the Spotify app on the target device, then try again.");
+      if (res.status === 429) throw new Error("Spotify rate limit reached (429); wait before trying again");
+      // Never copy a provider body or transport exception into the caller's log.
+      throw new Error(`Spotify request failed (HTTP ${res.status})`);
+    }
+    let text;
+    try { text = await res.text(); } catch {
+      signal.throwIfAborted();
+      throw new Error("Spotify response could not be read");
+    }
+    signal.throwIfAborted();
     if (!text) return {};
-    // Spotify sometimes answers 2xx with a non-JSON opaque body (e.g. the
-    // player control endpoints) — the action succeeded, so treat it as empty.
-    try { return JSON.parse(text); } catch { return {}; }
+    try { return JSON.parse(text); } catch { throw new Error("Spotify returned an invalid JSON response"); }
   };
 }
 
-// Resolve the device to target. Prefer a configured name (the phone), else the
-// active device, else the first available; null when Spotify lists none (caller
-// turns that into the "open Spotify" hint). Best-effort — never throws.
+// No preference means Spotify's currently active device (omit device_id).
+// A preference must resolve to one controllable device; never silently play
+// elsewhere when that device is missing or its name matches several devices.
 async function resolveDeviceId(call, env) {
-  const want = String(env.SPOTIFY_DEVICE_NAME || "").trim().toLowerCase();
-  let devices = [];
-  try {
-    const d = await call("GET", "/me/player/devices");
-    devices = Array.isArray(d.devices) ? d.devices : [];
-  } catch {
-    devices = [];
-  }
-  if (want) {
-    const m = devices.find((x) => String(x.name || "").toLowerCase().includes(want));
-    if (m) return m.id;
-  }
-  const active = devices.find((x) => x.is_active);
-  if (active) return active.id;
-  return devices.length ? devices[0].id : null;
+  const want = String(env.GARRISON_SPOTIFY_DEVICE_NAME ?? env.SPOTIFY_DEVICE_NAME ?? "").trim().toLowerCase();
+  if (!want) return null;
+  const d = await call("GET", "/me/player/devices");
+  const devices = Array.isArray(d?.devices) ? d.devices.filter(Boolean) : [];
+  const exact = devices.filter((x) => String(x.name || "").trim().toLowerCase() === want);
+  const matches = exact.length ? exact : devices.filter((x) => String(x.name || "").toLowerCase().includes(want));
+  if (!matches.length) throw new Error("Preferred Spotify device unavailable; open Spotify on that device or update the device name");
+  if (matches.length !== 1) throw new Error("Preferred Spotify device name is ambiguous; use its exact name");
+  const device = matches[0];
+  if (device.is_restricted || typeof device.id !== "string" || !device.id.trim()) throw new Error("Preferred Spotify device cannot be controlled through the Web API");
+  return device.id;
+}
+
+function marketQuery(env) {
+  const market = String(env.GARRISON_SPOTIFY_MARKET ?? env.SPOTIFY_MARKET ?? "").trim().toUpperCase();
+  if (!market) return "";
+  if (!/^[A-Z]{2}$/.test(market)) throw new Error("Spotify market must be a two-letter country code");
+  return `&market=${market}`;
 }
 
 // Body for a play request from free text: prefer a track hit (play that track),
@@ -152,16 +181,14 @@ async function resolveDeviceId(call, env) {
 async function resolvePlayFromQuery(call, query, env = process.env) {
   const q = encodeURIComponent(String(query || "").trim());
   if (!q) throw new Error("play needs a query");
-  // NB: no `market=from_token` — it requires the user-read-private scope (403
-  // "Insufficient client scope" without it, verified 2026-07-15). SPOTIFY_MARKET
-  // (ISO country, e.g. PT) scopes results when set; omitted = global catalog.
-  const mkt = String(env.SPOTIFY_MARKET || "").trim().toUpperCase();
-  const s = await call("GET", `/search?q=${q}&type=track,artist&limit=5${mkt ? `&market=${mkt}` : ""}`);
-  const track = s.tracks?.items?.[0];
+  // A user access token supplies its account country. An explicit market, when
+  // supplied, is an ISO country code; "from_token" is not a documented value.
+  const s = await call("GET", `/search?q=${q}&type=track,artist&limit=5${marketQuery(env)}`);
+  const track = s.tracks?.items?.find((item) => item?.uri && item.is_playable !== false);
   if (track) {
     return { body: { uris: [track.uri] }, label: `${track.name} — ${(track.artists || []).map((a) => a.name).join(", ")}` };
   }
-  const artist = s.artists?.items?.[0];
+  const artist = s.artists?.items?.find((item) => item?.uri);
   if (artist) return { body: { context_uri: artist.uri }, label: `${artist.name} (top tracks)` };
   throw new Error(`Nothing on Spotify matched "${query}"`);
 }
@@ -171,9 +198,9 @@ function withDevice(p, deviceId) {
   return p + (p.includes("?") ? "&" : "?") + `device_id=${encodeURIComponent(deviceId)}`;
 }
 
-export async function runAction({ action, args = {}, env = process.env, fetchImpl = fetch }) {
-  const access = await resolveToken(env, fetchImpl);
-  const call = makeCall(access, fetchImpl);
+async function executeAction({ action, args, env, fetchImpl, signal }) {
+  const access = await resolveToken(env, fetchImpl, signal);
+  const call = makeCall(access, fetchImpl, signal);
 
   switch (action) {
     case "current": {
@@ -193,41 +220,47 @@ export async function runAction({ action, args = {}, env = process.env, fetchImp
     }
     case "devices": {
       const d = await call("GET", "/me/player/devices");
-      return (d.devices || []).map((x) => ({ id: x.id, name: x.name, is_active: Boolean(x.is_active) }));
+      return (Array.isArray(d?.devices) ? d.devices : []).filter(Boolean).map((x) => ({ id: x.id, name: x.name, is_active: Boolean(x.is_active), is_restricted: Boolean(x.is_restricted) }));
     }
-    case "pause":
-      await call("PUT", "/me/player/pause");
+    case "pause": {
+      const dev = await resolveDeviceId(call, env);
+      await call("PUT", withDevice("/me/player/pause", dev));
       return { paused: true };
+    }
     case "resume": {
       const dev = await resolveDeviceId(call, env);
       await call("PUT", withDevice("/me/player/play", dev));
       return { resumed: true, device: dev || "active" };
     }
-    case "next":
-      await call("POST", "/me/player/next");
+    case "next": {
+      const dev = await resolveDeviceId(call, env);
+      await call("POST", withDevice("/me/player/next", dev));
       return { skipped: true };
-    case "previous":
-      await call("POST", "/me/player/previous");
+    }
+    case "previous": {
+      const dev = await resolveDeviceId(call, env);
+      await call("POST", withDevice("/me/player/previous", dev));
       return { back: true };
+    }
     case "play": {
       const { body, label } = await resolvePlayFromQuery(call, args.query, env);
       const dev = await resolveDeviceId(call, env);
-      if (!dev) throw new Error("No Spotify device available — open the Spotify app on the phone, then try again.");
       await call("PUT", withDevice("/me/player/play", dev), body);
-      return { playing: label, device: dev };
+      return { playing: label, device: dev || "active" };
     }
     case "play_uri": {
       const uri = String(args.uri || "").trim();
-      if (!uri) throw new Error("play_uri needs a uri");
+      if (!/^spotify:(track|album|artist|playlist):[A-Za-z0-9]+$/.test(uri)) throw new Error("play_uri needs a Spotify track, album, artist or playlist URI");
       const body = /^spotify:track:/.test(uri) ? { uris: [uri] } : { context_uri: uri };
       const dev = await resolveDeviceId(call, env);
-      if (!dev) throw new Error("No Spotify device available — open the Spotify app on the phone, then try again.");
       await call("PUT", withDevice("/me/player/play", dev), body);
-      return { playing: uri, device: dev };
+      return { playing: uri, device: dev || "active" };
     }
     case "volume": {
-      const pct = Math.max(0, Math.min(100, Math.round(Number(args.percent))));
-      if (!Number.isFinite(pct)) throw new Error("volume needs percent 0-100");
+      const value = args.percent;
+      const numeric = (typeof value === "number" || (typeof value === "string" && value.trim())) ? Number(value) : NaN;
+      if (!Number.isFinite(numeric) || numeric < 0 || numeric > 100) throw new Error("volume needs percent 0-100");
+      const pct = Math.round(numeric);
       const dev = await resolveDeviceId(call, env);
       await call("PUT", withDevice(`/me/player/volume?volume_percent=${pct}`, dev));
       return { volume: pct };
@@ -236,9 +269,9 @@ export async function runAction({ action, args = {}, env = process.env, fetchImp
       const q = encodeURIComponent(String(args.query || "").trim());
       if (!q) throw new Error("search needs a query");
       const type = ["track", "artist", "album", "playlist"].includes(args.type) ? args.type : "track";
-      const s = await call("GET", `/search?q=${q}&type=${type}&limit=5&market=from_token`);
+      const s = await call("GET", `/search?q=${q}&type=${type}&limit=5${marketQuery(env)}`);
       const items = s[`${type}s`]?.items || [];
-      return items.map((it) => ({
+      return items.filter(Boolean).map((it) => ({
         name: it.name,
         uri: it.uri,
         by: (it.artists || []).map((a) => a.name).join(", ") || undefined
@@ -252,6 +285,27 @@ export async function runAction({ action, args = {}, env = process.env, fetchImp
     }
     default:
       throw new Error(`unknown action: ${action}`);
+  }
+}
+
+export async function runAction({ action, args = {}, env = process.env, fetchImpl = fetch }) {
+  if (!CATALOG.actions.some((entry) => entry.name === action)) throw new Error(`unknown action: ${action}`);
+  if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error("args must be a JSON object");
+  // One deadline includes auth, discovery, search and response bodies. Aborting
+  // also prevents a delayed read from starting a playback write after return.
+  const controller = new AbortController();
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const err = new Error("Spotify action timed out; check playback before retrying");
+      controller.abort(err);
+      reject(err);
+    }, 10_000);
+  });
+  try {
+    return await Promise.race([executeAction({ action, args, env, fetchImpl, signal: controller.signal }), deadline]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
