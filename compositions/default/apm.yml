@@ -229,6 +229,7 @@ x-garrison:
             tick_cron: '*/2 * * * *'
             review_cron: 0 8 * * 1
             review_stall_hours: 2
+            morning_brief_email: goncalo.p.gomes@gmail.com
         - id: loop-heartbeat
           config:
             cadence_minutes: 40
