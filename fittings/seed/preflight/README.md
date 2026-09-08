@@ -18,6 +18,27 @@ instead of one failure at a time across repeated failed launches.
 
 Every failing row carries a **`fix`** hint naming the concrete remedy.
 
+## Four bands, and the ranking
+
+`fail` · `warn` · `pass` · **`info`** — "true, checked, and nothing to do about
+it". `info` exists because a doctor that reports FAIL every day for things
+nobody can act on trains you to stop reading it, which is the one failure mode
+this fitting cannot afford. `info` is counted but never decides the verdict.
+
+Findings are ranked against the **active composition**, read straight from
+`~/.garrison/config.json` (`active_composition`) so it still works with the app
+down. Two rules make this a signal mechanism rather than a mute button:
+
+- **Demotion is never suppression.** A demoted row keeps its place and its text,
+  and gains the reason it was demoted. `demote()` refuses to touch anything that
+  is not a `warn`, so no caller can quiet a failure.
+- **Only readiness-class findings may be demoted** — "never brought up", a stale
+  last-up, an uncommitted manifest. Correctness-class findings keep full
+  severity in *every* composition: a failing verify, a silent re-station, a port
+  collision, a retired kind, a registry gap.
+
+With no usable active-composition pointer, nothing is demoted at all.
+
 ## Degraded mode
 
 The doctor works with the Garrison app (8777) **down** — which is exactly when

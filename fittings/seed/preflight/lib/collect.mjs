@@ -77,6 +77,32 @@ export function readSeedManifests(root) {
   return out;
 }
 
+// The canonical active-composition pointer, read straight off disk so it works
+// with the app down — which is exactly when the doctor is needed. Mirrors the
+// semantics of src/lib/active-composition.ts: the pointer is either a plain id
+// or a path to an apm.yml. Returns null when there is no usable pointer, and
+// callers then rank NOTHING, so an unreadable config can never demote a real
+// finding into silence.
+export function readActiveComposition({ home = GARRISON_HOME } = {}) {
+  const doc = readJson(path.join(home, "config.json"));
+  const raw = doc && typeof doc.active_composition === "string" ? doc.active_composition.trim() : "";
+  if (!raw) return null;
+  if (!raw.includes("/") && !raw.includes(path.sep) && !/\.ya?ml$/i.test(raw)) return raw;
+  const abs = path.resolve(raw.replace(/^~(?=\/|$)/, HOME));
+  return path.basename(/\.ya?ml$/i.test(abs) ? path.dirname(abs) : abs) || null;
+}
+
+// A tailscale serve mapping whose local port has no listener is a tailnet URL
+// that resolves to nothing — the same blank page check 4 exists to prevent,
+// arriving from the opposite direction. Tethered PEER forwards are published
+// with an explicit servePort from tether.json and must not be judged as this
+// node's own views (scripts/tailnet-serve-tether.mjs).
+export function readTetheredPorts({ home = GARRISON_HOME } = {}) {
+  const doc = readJson(path.join(home, "remote-shell", "tether.json"));
+  const forwards = Array.isArray(doc?.forwards) ? doc.forwards : [];
+  return new Set(forwards.map((f) => Number(f.localPort)).filter(Number.isInteger));
+}
+
 export function readCuratedLibrary(root) {
   return readJson(path.join(root, "data", "library.json")) || [];
 }

@@ -74,8 +74,11 @@ x-garrison:
     timeout_ms: 10000
   for_consumers: |
     Diagnostic-first doctor. GET /api/report returns {findings[], summary,
-    degraded, appUp, compositions[], generatedAt}; findings are {check, id,
-    status: pass|warn|fail, detail, evidence?, fix?, action?}. GET
+    degraded, appUp, compositions[], activeComposition, generatedAt}; findings
+    are {check, id, status: info|pass|warn|fail, detail, evidence?, fix?,
+    action?}. `info` means "checked, nothing to do" and never decides the
+    verdict; findings are ranked against activeComposition, and that ranking
+    never removes a finding and never touches a fail. GET
     /api/report?checks=a,b runs a subset. Two endpoints accept explicit
     mutations: POST /api/verify-sweep {compositionId} proxies the app's own
     /api/runner/<id>/verify (heavy: flips runner status, may run apm install,

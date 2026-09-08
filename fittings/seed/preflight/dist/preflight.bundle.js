@@ -24575,12 +24575,10 @@ function FindingRow({ f, onSweep }) {
   ] });
 }
 function Section({ check, findings, onSweep }) {
-  const worst = findings.reduce(
-    (acc, f) => f.status === "fail" || acc === "fail" ? "fail" : f.status === "warn" || acc === "warn" ? "warn" : "pass",
-    "pass"
-  );
-  const [open, setOpen] = (0, import_react.useState)(worst !== "pass");
-  (0, import_react.useEffect)(() => setOpen(worst !== "pass"), [worst]);
+  const RANK = { info: 0, pass: 1, warn: 2, fail: 3 };
+  const worst = findings.reduce((acc, f) => RANK[f.status] > RANK[acc] ? f.status : acc, "info");
+  const [open, setOpen] = (0, import_react.useState)(RANK[worst] > 1);
+  (0, import_react.useEffect)(() => setOpen(RANK[worst] > 1), [worst]);
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "check", children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", { className: "check-head", onClick: () => setOpen(!open), children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StatusPip, { status: worst }),
@@ -24763,6 +24761,14 @@ This is heavy: it flips the runner status, may run apm install, and runs every s
         " warn \xB7 ",
         counts.fail,
         " fail"
+      ] }),
+      !!counts.info && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "chip chip-info", children: [
+        counts.info,
+        " info \u2014 checked, nothing to do"
+      ] }),
+      report.activeComposition && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "chip", children: [
+        "active: ",
+        report.activeComposition
       ] }),
       report.degraded && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: "degraded \u2014 app down" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "ts", children: new Date(report.generatedAt).toLocaleTimeString() }),

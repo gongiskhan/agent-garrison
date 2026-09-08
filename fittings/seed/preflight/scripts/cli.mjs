@@ -27,7 +27,7 @@ function parseArgs(argv) {
   return out;
 }
 
-const ICON = { pass: "✓", warn: "!", fail: "✗" };
+const ICON = { info: "·", pass: "✓", warn: "!", fail: "✗" };
 
 function printFindings(findings) {
   let lastCheck = null;
@@ -76,7 +76,9 @@ async function main() {
   } else {
     printFindings(report.findings);
     const { counts, overall } = report.summary;
-    console.log(`\nSummary: ${counts.pass} pass / ${counts.warn} warn / ${counts.fail} fail — ${overall.toUpperCase()}${report.degraded ? " (degraded: app down)" : ""}`);
+    // info is listed apart: it is deliberately not part of the verdict.
+    const info = counts.info ? ` (+${counts.info} info)` : "";
+    console.log(`\nSummary: ${counts.pass} pass / ${counts.warn} warn / ${counts.fail} fail${info} — ${overall.toUpperCase()}${report.degraded ? " (degraded: app down)" : ""}`);
   }
   process.exit(report.summary.counts.fail ? 1 : 0);
 }

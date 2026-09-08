@@ -7,7 +7,7 @@ import { createRoot } from "react-dom/client";
 type Finding = {
   check: string;
   id: string;
-  status: "pass" | "warn" | "fail";
+  status: "info" | "pass" | "warn" | "fail";
   detail: string;
   evidence?: string;
   fix?: string;
@@ -18,7 +18,7 @@ type FixEntry = { at: string; actionId: string; params: Record<string, unknown>;
 
 type Report = {
   findings: Finding[];
-  summary: { overall: string; counts: { pass: number; warn: number; fail: number } };
+  summary: { overall: string; counts: { info?: number; pass: number; warn: number; fail: number } };
   degraded: boolean;
   appUp: boolean;
   compositions?: string[];
@@ -124,12 +124,12 @@ function FindingRow({ f, onSweep }: { f: Finding; onSweep?: (compositionId: stri
 }
 
 function Section({ check, findings, onSweep }: { check: string; findings: Finding[]; onSweep?: (compositionId: string) => void }) {
-  const worst = findings.reduce<string>(
-    (acc, f) => (f.status === "fail" || acc === "fail" ? "fail" : f.status === "warn" || acc === "warn" ? "warn" : "pass"),
-    "pass"
-  );
-  const [open, setOpen] = useState(worst !== "pass");
-  useEffect(() => setOpen(worst !== "pass"), [worst]);
+  // info ranks BELOW pass: a section holding only informational rows is not a
+  // green success, it is "checked, nothing to do" — and it stays collapsed.
+  const RANK: Record<string, number> = { info: 0, pass: 1, warn: 2, fail: 3 };
+  const worst = findings.reduce<string>((acc, f) => (RANK[f.status] > RANK[acc] ? f.status : acc), "info");
+  const [open, setOpen] = useState(RANK[worst] > 1);
+  useEffect(() => setOpen(RANK[worst] > 1), [worst]);
   return (
     <section className="check">
       <header className="check-head" onClick={() => setOpen(!open)}>
@@ -339,6 +339,8 @@ function App() {
       <div className={`banner banner-${overall}`}>
         <strong>{overall.toUpperCase()}</strong>
         <span>{counts.pass} pass · {counts.warn} warn · {counts.fail} fail</span>
+        {!!counts.info && <span className="chip chip-info">{counts.info} info — checked, nothing to do</span>}
+        {report.activeComposition && <span className="chip">active: {report.activeComposition}</span>}
         {report.degraded && <span className="chip">degraded — app down</span>}
         <span className="ts">{new Date(report.generatedAt).toLocaleTimeString()}</span>
         <button onClick={refresh} disabled={sweeping}>refresh</button>

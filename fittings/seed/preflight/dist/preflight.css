@@ -107,6 +107,7 @@ button.linkish {
 .check-head .chev { color: var(--muted); }
 
 .pip { width: 10px; height: 10px; border-radius: 999px; display: inline-block; flex: none; }
+.pip-info { background: var(--muted); }
 .pip-pass { background: var(--pass); }
 .pip-warn { background: var(--warn); }
 .pip-fail { background: var(--fail); }
@@ -114,6 +115,10 @@ button.linkish {
 .finding { padding: 10px 14px; border-top: 1px solid var(--border); }
 .finding-fail { background: var(--fail-bg); }
 .finding-warn { background: var(--warn-bg); }
+/* Informational rows stay on the page and stay quiet: readable, never coloured
+   like a problem, never hidden. Demotion is ranking, not suppression. */
+.finding-info { opacity: 0.72; }
+.chip-info { opacity: 0.8; }
 .finding-head { display: flex; align-items: baseline; gap: 8px; }
 .finding-head .pip { transform: translateY(1px); }
 .finding-id { font-weight: 600; white-space: nowrap; }
