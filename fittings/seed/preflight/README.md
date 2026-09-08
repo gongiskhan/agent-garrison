@@ -8,7 +8,7 @@ instead of one failure at a time across repeated failed launches.
 
 | # | Check | The incident it prevents |
 |---|-------|--------------------------|
-| 1 | **Verify results** — every fitting's verify outcome, from the last up and (on demand) a live sweep | `up()` throws on the FIRST failing verify, alphabetically, so the UI only ever names one fitting; days were lost fixing `vault-git-sync` only to discover `basic-memory` failing behind it |
+| 1 | **Verify results** — every fitting's verify outcome, from the last up and (on demand) a live sweep | `verify()` runs every fitting, but `up()` throws naming only the FIRST failure, so the error and the UI name one fitting; days were lost fixing `vault-git-sync` only to discover `basic-memory` failing behind it |
 | 2 | **Library registration** — `fittings/seed/*` ↔ `data/library.json`, both directions | A fitting missing from the library is silently dropped by the resolver, which then blames whatever consumed its capability |
 | 3 | **Ports, both axes** — canonical (default_port + config_schema port-like defaults + composition pins) and serve (`8400 + port % 1000`) vs live listeners | `improver` hid a claim on 8093 in a config_schema default; 8098 and the retired 7098 collide on the serve axis at 8498 |
 | 4 | **Tailscale serve coverage** — every running own-port view must have a serve mapping | A view with `tailnetUrl: null` makes the UI fall back to `127.0.0.1` — the *viewer's* machine — and renders blank, looking like a slow host |

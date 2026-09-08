@@ -15,12 +15,15 @@ import {
   mk
 } from "./preflight-core.mjs";
 import {
+  FITTING_DIR,
   findRepoRoot,
   readSeedManifests,
   readCuratedLibrary,
   readCompositions,
   readLiveListeners,
   readStatusFiles,
+  readGatewayRecords,
+  readProcessCommands,
   readSpawnRecords,
   readTailscaleServeMap,
   pidAlive
@@ -32,7 +35,7 @@ import { readFixJournal, libraryChange } from "./fixers.mjs";
 // the thing the fix targeted is now in the state the fix aimed for — measured
 // fresh, not taken from the fixer's own success claim. null = cannot re-check
 // cheaply (e.g. serve mappings when tailscale was not consulted this report).
-async function annotateResolution(entries, ctx) {
+function annotateResolution(entries, ctx) {
   const compById = new Map(ctx.compositions.map((c) => [c.compositionId, c]));
   return entries.map((e) => {
     let resolved = null;
@@ -46,7 +49,7 @@ async function annotateResolution(entries, ctx) {
   });
 }
 
-export async function buildReport({ startDir = process.cwd(), checks = null } = {}) {
+export async function buildReport({ startDir = FITTING_DIR, checks = null } = {}) {
   const wanted = checks && checks.length ? new Set(checks) : null;
   const run = (name) => !wanted || wanted.has(name);
   const findings = [];
@@ -87,13 +90,34 @@ export async function buildReport({ startDir = process.cwd(), checks = null } = 
   if (run("port-collisions")) {
     const claims = buildPortClaims(manifests, compositions);
     const listeners = await readLiveListeners();
-    findings.push(...findPortCollisions(claims, listeners, readStatusFiles()));
+    // Gateways own a port without a ui-fittings record; merging both registries
+    // is what separates "Garrison's own process" from a genuine squatter.
+    const registered = [...readStatusFiles(), ...readGatewayRecords()];
+    const accounted = new Set(registered.map((s) => s.port));
+    const claimed = new Set(claims.map((c) => c.port));
+    // Only the listeners that would otherwise be reported need identifying.
+    const suspects = listeners.filter((l) => claimed.has(l.port) && !accounted.has(l.port));
+    const commands = await readProcessCommands(suspects.map((l) => l.pid));
+    const enriched = listeners.map((l) => (commands.has(l.pid) ? { ...l, cmdline: commands.get(l.pid) } : l));
+    findings.push(...findPortCollisions(claims, enriched, registered));
   }
 
   if (run("serve-coverage")) {
     const views = appUp ? await fetchViews() : null;
     if (views) {
-      findings.push(...serveCoverage({ views: views.map((v) => ({ fittingId: v.fittingId ?? v.id, port: v.port, tailnetUrl: v.tailnetUrl ?? null, healthy: v.healthy })) }));
+      const rows = views.map((v) => ({ fittingId: v.fittingId ?? v.id, port: v.port, tailnetUrl: v.tailnetUrl ?? null, healthy: v.healthy }));
+      // A machine with no tailscale reports tailnetUrl null for EVERY view.
+      // That is one missing prerequisite, not N broken views — the degraded
+      // path already said so, and saying it differently just because the app
+      // happens to be up would be the same fact told as a pile of failures.
+      const noTailscale = rows.some((v) => !v.tailnetUrl) && (await readTailscaleServeMap()) === null;
+      if (noTailscale) {
+        findings.push(mk("serve-coverage", "tailscale", "warn",
+          "tailscale binary not found or `serve status --json` failed — serve coverage could not be checked, so unmapped views are unknown rather than broken.",
+          { fix: "Install tailscale, or ignore this check on a node that is deliberately off the tailnet." }));
+      } else {
+        findings.push(...serveCoverage({ views: rows }));
+      }
     } else {
       const serveMap = await readTailscaleServeMap();
       if (serveMap === null) {
@@ -131,7 +155,7 @@ export async function buildReport({ startDir = process.cwd(), checks = null } = 
     // the checks still has a visible, persistent trace. Each entry carries a
     // `resolved` verdict RE-CHECKED against current reality (not the fixer's
     // own claim): the library re-read, the composition re-parse.
-    recentFixes: await annotateResolution(await readFixJournal(20), {
+    recentFixes: annotateResolution(await readFixJournal(20), {
       libraryIds: new Set(readCuratedLibrary(root).map((e) => e.id)),
       compositions
     }),

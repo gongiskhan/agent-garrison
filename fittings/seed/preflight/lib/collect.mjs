@@ -4,11 +4,17 @@
 // "could not check" row rather than a crashed report.
 
 import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 import { parseManifest, parseComposition, RETIRED_SEED_IDS } from "./preflight-core.mjs";
+
+// The fitting's own location. It always sits inside the repo it diagnoses
+// (fittings/seed/preflight, or <composition>/apm_modules/_local/preflight), so
+// it is a far better root-discovery anchor than the caller's cwd.
+export const FITTING_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const HOME = os.homedir();
 export const GARRISON_HOME = process.env.GARRISON_HOME || path.join(HOME, ".garrison");
@@ -147,6 +153,22 @@ export async function readLiveListeners() {
   return [];
 }
 
+// lsof reports only the short process name ("node"), which cannot tell the
+// scheduler daemon apart from a squatter. Some legitimate Garrison processes
+// (the scheduler) register nowhere at all, so identity has to come from the
+// command line. One exec for every pid we care about, never one per pid.
+export async function readProcessCommands(pids) {
+  const wanted = [...new Set(pids.filter((p) => Number.isInteger(p) && p > 0))];
+  if (!wanted.length) return new Map();
+  const out = await execOut("ps", ["-p", wanted.join(","), "-o", "pid=,command="]);
+  const map = new Map();
+  for (const line of (out || "").split("\n")) {
+    const m = line.trim().match(/^(\d+)\s+(.*)$/);
+    if (m) map.set(Number(m[1]), m[2]);
+  }
+  return map;
+}
+
 export function readStatusFiles() {
   const out = [];
   let entries = [];
@@ -155,6 +177,22 @@ export function readStatusFiles() {
     if (!name.endsWith(".json")) continue;
     const data = readJson(path.join(STATUS_ROOT, name));
     if (data && data.fittingId && data.port) out.push(data);
+  }
+  return out;
+}
+
+// Gateways hold a port but write NO ui-fittings status file — they register in
+// ~/.garrison/gateway-pids/<composition>-<port>.json instead. Without this the
+// port check reads the running gateway as an unknown squatter on 5777.
+export function readGatewayRecords() {
+  const out = [];
+  const dir = path.join(GARRISON_HOME, "gateway-pids");
+  let entries = [];
+  try { entries = readdirSync(dir); } catch { return out; }
+  for (const name of entries) {
+    if (!name.endsWith(".json")) continue;
+    const data = readJson(path.join(dir, name));
+    if (data && data.fittingId && data.port) out.push({ fittingId: data.fittingId, port: Number(data.port), pid: data.pid ?? null });
   }
   return out;
 }

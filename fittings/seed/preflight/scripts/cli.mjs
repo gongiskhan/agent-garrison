@@ -47,11 +47,16 @@ async function main() {
   const report = await buildReport({ checks: args.checks });
 
   if (args.sweep) {
-    const compositionId = args.composition || (report.compositions || [])[0];
-    if (!compositionId) {
-      console.error("--sweep needs --composition <id> (none found in the repo)");
+    // NEVER default the target. A sweep flips runner status, may run
+    // `apm install`, and runs every setup hook — picking a composition for the
+    // operator (it used to take compositions[0]) points that at whatever sorts
+    // first, which is rarely the one they meant.
+    if (!args.composition) {
+      console.error("--sweep requires --composition <id>; it is heavy (flips runner status, may run apm install, runs every setup hook) and is never aimed for you.");
+      console.error(`available: ${(report.compositions || []).join(", ") || "(none found in the repo)"}`);
       process.exit(2);
     }
+    const compositionId = args.composition;
     if (!(await isAppUp())) {
       console.error(`--sweep needs the Garrison app up at ${appUrl()} (it proxies the app's own verify endpoint).`);
       process.exit(2);

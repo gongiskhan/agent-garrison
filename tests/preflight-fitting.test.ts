@@ -195,6 +195,45 @@ describe("port claims + collisions", () => {
     expect(warns(f)[0].detail).toContain("111");
   });
 
+  // B3: the live axis used to require a status file that DISAGREED, so the one
+  // holder that is never Garrison's — a process registering nothing at all —
+  // was the only case it could not see. That is the 8080/java incident this
+  // fitting's own manifest cites as the reason it sits on 8076.
+  it("warns when a claimed port is held by a process that registered nothing", () => {
+    const f = findPortCollisions(
+      [{ port: 8080, claimant: "whatsapp-web", source: "default_port" }],
+      [{ port: 8080, pid: 999, command: "java" }],
+      []
+    ) as Finding[];
+    expect(warns(f)).toHaveLength(1);
+    expect(warns(f)[0].id).toBe("live:8080");
+    expect(warns(f)[0].detail).toContain("whatsapp-web");
+    expect(warns(f)[0].detail).toContain("999");
+  });
+
+  // The regression guard for the noise that fix could have introduced: the
+  // scheduler daemon holds its health port and registers NOWHERE, so absence of
+  // a record must not by itself read as a squatter.
+  it("stays silent when the holder's command line names the claimant", () => {
+    const f = findPortCollisions(
+      [{ port: 8099, claimant: "scheduler", source: "composition pin health_port" }],
+      [{ port: 8099, pid: 29843, command: "node", cmdline: "node /repo/fittings/seed/scheduler/scripts/scheduler.mjs daemon --health-port 8099" }],
+      []
+    ) as Finding[];
+    expect(warns(f)).toHaveLength(0);
+    expect(f[0].status).toBe("pass");
+  });
+
+  // lsof emits one row per socket, so a dual-stack listener appears twice.
+  it("reports a squatted port once even when the listener is dual-stack", () => {
+    const f = findPortCollisions(
+      [{ port: 8080, claimant: "whatsapp-web", source: "default_port" }],
+      [{ port: 8080, pid: 999, command: "java" }, { port: 8080, pid: 999, command: "java" }],
+      []
+    ) as Finding[];
+    expect(warns(f)).toHaveLength(1);
+  });
+
   it("passes a clean inventory", () => {
     const f = findPortCollisions([{ port: 8076, claimant: "preflight", source: "default_port" }]) as Finding[];
     expect(f).toHaveLength(1);

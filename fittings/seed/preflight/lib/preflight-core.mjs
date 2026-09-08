@@ -7,8 +7,6 @@
 // A check that finds nothing wrong emits a single pass row so the report
 // always shows all seven sections, never a silent absence.
 
-const STATUS_RANK = { pass: 0, warn: 1, fail: 2 };
-
 // Historical skeletons deliberately excluded from the registry after the
 // faculties-as-roles pivot (tests/seed.test.ts). Registering them is not a repair.
 export const RETIRED_SEED_IDS = new Set([
@@ -231,14 +229,32 @@ export function findPortCollisions(claims, liveListeners = [], statusFiles = [])
   // Live axis: a listener on a claimed port owned by a different pid than the
   // fitting's own status file says.
   const statusByPort = new Map(statusFiles.map((s) => [s.port, s]));
+  const seenLive = new Set();
   for (const l of liveListeners) {
     const claimsHere = byPort.get(l.port);
-    if (!claimsHere) continue;
+    // lsof reports one row per socket, so a dual-stack listener appears twice.
+    if (!claimsHere || seenLive.has(l.port)) continue;
+    seenLive.add(l.port);
     const status = statusByPort.get(l.port);
     if (status && status.pid !== l.pid) {
       findings.push(mk("port-collisions", `live:${l.port}`, "warn",
         `Port ${l.port} is held by pid ${l.pid} (${l.command || "?"}) but ${status.fittingId}'s status file records pid ${status.pid}.`,
         { fix: `Check whether ${status.fittingId} crashed and something else took its port, or the status file is stale.` }));
+    } else if (!status) {
+      // The 8080-held-by-an-unrelated-Java-service incident this fitting's own
+      // manifest cites. Requiring a status file to disagree meant the squatter
+      // that registers NOTHING — the only kind that is never Garrison's — was
+      // the one case the check could not see.
+      const claimants = [...new Set(claimsHere.map((c) => c.claimant))];
+      // Some Garrison processes register nowhere (the scheduler daemon writes
+      // no status file and no pid record), so absence of a record is not proof
+      // of a squatter. If the command line names the claimant, it IS the
+      // claimant — reporting that every run would be exactly the permanent
+      // noise this check is supposed to cut through.
+      if (l.cmdline && claimants.some((id) => l.cmdline.includes(id))) continue;
+      findings.push(mk("port-collisions", `live:${l.port}`, "warn",
+        `Port ${l.port} is claimed by ${claimants.join(" and ")} but is already held by pid ${l.pid} (${l.command || "?"}), which registered no status file — the claimant cannot bind it.`,
+        { fix: `Identify the holder with \`lsof -nP -iTCP:${l.port} -sTCP:LISTEN\`, then stop it or move the claimant to a free port (both axes).` }));
     }
   }
   if (!findings.length) {
@@ -287,7 +303,7 @@ export function assessVerifyResults(records) {
         `${v.fittingId} failed verify at ${source.label}: exit ${v.exitCode}, expected "${v.expect}" from \`${v.command}\`.`,
         {
           evidence: [v.stderr, v.stdout].filter(Boolean).join("\n").slice(0, 2000),
-          fix: `Fix ${v.fittingId}'s verify and re-run the sweep — or unstation it so up() can proceed without it (one failing fitting blocks the whole composition). Unlike up(), this list is complete.`,
+          fix: `Fix ${v.fittingId}'s verify and re-run the sweep — or unstation it so up() can proceed without it (one failing fitting blocks the whole composition). Unlike up()'s error, which names only the first, this list is complete.`,
           // The clickable half: parking the broken fitting. Repairing the
           // fitting itself (a missing repo, binary, credential) stays human.
           action: { id: "unstation-fitting", params: { compositionId: r.compositionId, fittingId: v.fittingId }, command: `UNSTATION ${v.fittingId} from ${r.compositionId} (through Garrison's manifest writer) — the composition runs without this fitting until you re-add it via Muster` }
@@ -493,6 +509,3 @@ export function summarize(findings) {
   return { overall, counts };
 }
 
-export function worstOf(a, b) {
-  return STATUS_RANK[a] >= STATUS_RANK[b] ? a : b;
-}

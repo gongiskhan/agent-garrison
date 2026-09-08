@@ -27,7 +27,7 @@ x-garrison:
   summary: >-
     One page + CLI answering "why won't my composition come up". Seven checks,
     each born from a real incident: complete verify-result reporting (up()
-    stops at the first failure and hides the rest — this shows all of them),
+    reports only the first failing fitting in its error — this shows all of them),
     library-registration cross-check (an unregistered fitting is silently
     dropped by the resolver), two-axis port collision inventory (canonical AND
     serve = 8400 + port % 1000, counting config_schema defaults), tailscale
@@ -48,6 +48,10 @@ x-garrison:
       type: string
       default: 127.0.0.1
       description: Bind host; 0.0.0.0 to expose beyond loopback.
+    - key: app_url
+      type: string
+      default: ""
+      description: Garrison app base URL. Empty = use the runner-projected GARRISON_APP_URL, else discover the port via scripts/garrison-instance.sh for the resolved profile (node unless GARRISON_INSTANCE_ID says otherwise). Only set this to reach an app the runner did not tell us about.
     - key: repo_root
       type: string
       default: ""

@@ -23,6 +23,7 @@ type Report = {
   appUp: boolean;
   compositions?: string[];
   sweepableCompositions?: string[];
+  activeComposition?: string | null;
   recentFixes?: FixEntry[];
   libraryDiff?: string | null;
   libraryDiffHash?: string | null;
@@ -238,7 +239,17 @@ function App() {
       }
       setReport(data);
       setError(null);
-      if (!comp && data.compositions?.length) setComp(data.compositions[0]);
+      // Never default to compositions[0]: that is whatever sorts first, and it
+      // left the heavy-sweep button armed on a composition nobody uses. The
+      // ACTIVE composition is the one the operator means; when it is running
+      // (and so not sweepable) a disabled button is the correct answer.
+      if (!comp && data.compositions?.length) {
+        const preferred =
+          (data.activeComposition && data.compositions.includes(data.activeComposition) && data.activeComposition) ||
+          data.sweepableCompositions?.[0] ||
+          data.compositions[0];
+        setComp(preferred);
+      }
     } catch (err) {
       setError(String(err));
     }
