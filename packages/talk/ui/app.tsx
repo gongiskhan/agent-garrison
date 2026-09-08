@@ -1314,7 +1314,10 @@ function ThreadedApp({
     return true;
   }, []);
 
-  const openThread = useCallback(async (id: string, opts?: { kickoff?: boolean }) => {
+  const openThread = useCallback(async (id: string, opts?: { kickoff?: boolean; background?: boolean }) => {
+    // Initial restoration must yield to a session the user already selected.
+    if (opts?.background && openThreadEpochRef.current !== 0) return;
+    if (!opts?.background) setSidebarOpen(false);
     setActiveSessionRow(null);
     const epoch = ++openThreadEpochRef.current;
     openThreadAbortRef.current?.abort();
@@ -1335,7 +1338,6 @@ function ThreadedApp({
     setPins(t?.routing ?? null);
     setTranscriptSession(null);
     setKickoffFor(opts?.kickoff && shouldArmDiscussKickoff(t) ? id : null);
-    setSidebarOpen(false);
   }, []);
 
   useEffect(() => () => openThreadAbortRef.current?.abort(), []);
@@ -1400,7 +1402,7 @@ function ThreadedApp({
           // silently demoted it back to a light chat.
           await apiSetRouting(id, { duty: "discuss", level: url.level ?? 1 });
         }
-        await openThread(id, { kickoff: Boolean(url.kickoff) });
+        await openThread(id, { kickoff: Boolean(url.kickoff), background: true });
       } else if (url.context !== undefined || url.source !== undefined || url.kickoff !== undefined) {
         // Context-driven but no stable key → a fresh ad-hoc thread carrying it.
         const ensured = await apiEnsureThread({
@@ -1413,25 +1415,25 @@ function ThreadedApp({
           if (url.source === "discuss" || Boolean(url.kickoff)) {
             await apiSetRouting(ensured.id, { duty: "discuss", level: url.level ?? 1 });
           }
-          await openThread(ensured.id, { kickoff: Boolean(url.kickoff) });
+          await openThread(ensured.id, { kickoff: Boolean(url.kickoff), background: true });
         }
       } else if (url.fresh) {
         // Cross-node "+ New" landing: start a fresh conversation, then drop
         // the ?new=1 from the address bar so a reload doesn't mint another.
         const ensured = await apiEnsureThread({ source: "chat" });
         if (!alive) return;
-        if (ensured) await openThread(ensured.id);
+        if (ensured) await openThread(ensured.id, { background: true });
         try {
           const u = new URL(window.location.href);
           u.searchParams.delete("new");
           window.history.replaceState(null, "", u.toString());
         } catch { /* address bar keeps the param; harmless */ }
       } else if (list.length > 0) {
-        await openThread(list[0].id);
+        await openThread(list[0].id, { background: true });
       } else {
         const ensured = await apiEnsureThread({ source: "chat" });
         if (!alive) return;
-        if (ensured) await openThread(ensured.id);
+        if (ensured) await openThread(ensured.id, { background: true });
       }
       if (alive) setLoading(false);
     })();
@@ -1545,6 +1547,8 @@ function ThreadedApp({
   // threadId) just opens its thread; a bare external row opens the read-live
   // view instead of the chat.
   const selectSessionRow = useCallback((row: RailSession) => {
+    openThreadEpochRef.current += 1;
+    openThreadAbortRef.current?.abort();
     if (row.threadId) { void selectThread(row.threadId); return; }
     if (row.shell?.sessionId && row.shell.tmuxSession) {
       void apiEnsureThread({
@@ -1558,6 +1562,7 @@ function ThreadedApp({
     setActiveId(null);
     setActiveThread(null);
     setActiveSessionRow(row);
+    setLoading(false);
     setSidebarOpen(false);
   }, [selectThread, openThread]);
 

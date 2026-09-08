@@ -26,6 +26,8 @@ it.each(["chromium", "webkit"])("makes recent native sessions directly visible o
   try {
     const page = await context.newPage();
     const requests: string[] = [];
+    let releaseInitial: (() => void) | undefined;
+    let initialFinished = false;
     const now = new Date().toISOString();
     const threads = Array.from({ length: 80 }, (_, i) => ({ id: `conversation-${i}`, conversationId: `conversation-${i}`, title: `Conversation ${i}`, source: "chat", messages: [], messageCount: 0 }));
     const rows = [["pro", "claude"], ["mini", "claude"], ["mini", "cursor"], ["csg", "cursor"]].map(([node, runtime]) => ({
@@ -37,6 +39,12 @@ it.each(["chromium", "webkit"])("makes recent native sessions directly visible o
       const url = new URL(route.request().url());
       requests.push(`${route.request().method()} ${url.pathname}${url.search}`);
       if (url.pathname === "/") return route.fulfill({ contentType: "text/html", body: '<meta name="viewport" content="width=device-width, initial-scale=1"><div class="talk-host" style="height:100dvh"><div id="root" style="height:100%"></div></div>' });
+      if (url.pathname === '/api/threads/conversation-0' && !initialFinished) {
+        await new Promise<void>(resolve => { releaseInitial = resolve; });
+        await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ thread: threads[0] }) });
+        initialFinished = true;
+        return;
+      }
       if (url.pathname.endsWith("/stream")) return route.fulfill({ contentType: "text/event-stream", body: `data: ${JSON.stringify({ type: "init", available: true, events: [{ id: "native-output", role: "assistant", blocks: [{ type: "text", text: "Native session output" }] }] })}\n\ndata: {"type":"end"}\n\n` });
       const data = url.pathname === "/api/threads" ? { threads }
         : url.pathname.startsWith("/api/threads/") ? { thread: threads[0] }
@@ -63,6 +71,15 @@ it.each(["chromium", "webkit"])("makes recent native sessions directly visible o
     expect(requests.some(url => url.includes("/api/remote-shell/projects"))).toBe(false);
     await page.getByRole("combobox", { name: "Session machine" }).selectOption("mini");
     await page.getByRole("combobox", { name: "Session app" }).selectOption("cursor");
+    expect((await page.getByRole("combobox", { name: "Session machine" }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect((await page.getByRole("combobox", { name: "Session app" }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await expect.poll(() => Boolean(releaseInitial)).toBe(true);
+    if (engine === 'chromium') {
+      releaseInitial!();
+      await expect.poll(() => initialFinished).toBe(true);
+      await expect.poll(() => page.locator('.wc-main .cc-conversation').count()).toBe(1);
+      expect(await page.locator('.wc-shell').evaluate(el => el.classList.contains('wc-shell--open'))).toBe(true);
+    }
     const row = page.locator('[data-key="session:mini:mini-cursor"]');
     await expect.poll(() => page.locator('[data-key^="session:"]').count()).toBe(1);
     const box = await row.boundingBox();
@@ -81,6 +98,11 @@ it.each(["chromium", "webkit"])("makes recent native sessions directly visible o
     await projectPicker.getByRole("button", { name: "Close", exact: true }).click();
     await row.getByRole("button").click();
     await page.getByTestId("native-shell-view").waitFor();
+    if (engine === 'webkit') {
+      releaseInitial!();
+      await expect.poll(() => initialFinished).toBe(true);
+      expect(await page.getByTestId('sess-view').count()).toBe(1);
+    }
     await expect.poll(() => page.locator(".wc-native-terminal-state").textContent()).toContain("Session output");
     await expect.poll(() => page.locator(".xterm-rows").textContent()).toContain("Native session output");
     expect(requests.some(url => url === "POST /api/remote-shell/sessions")).toBe(false);

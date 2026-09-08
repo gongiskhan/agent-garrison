@@ -388,7 +388,7 @@
 .wc-session-list-intro button { min-height: 44px; border: 1px solid #64705e; border-radius: 5px; padding: 7px 10px; background: transparent; color: #fff9e8; font: inherit; cursor: pointer; }
 .wc-session-list-intro p { margin: 0; width: 100%; }
 .wc-session-selects { display: flex; gap: 6px; flex: 0 0 auto; padding: 8px 12px; border-bottom: 1px solid #4b584d; }
-.wc-session-selects select { width: 50%; min-width: 0; min-height: 44px; padding: 5px; border: 1px solid #64705e; border-radius: 5px; background: #1f291f; color: #f4ede0; font: 12px var(--wc-sans, sans-serif); }
+.wc-session-selects select { appearance: none; width: 50%; min-width: 0; height: 44px; min-height: 44px; padding: 5px 20px 5px 8px; border: 1px solid #64705e; border-radius: 5px; background: #1f291f url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='m3 4.5 3 3 3-3' fill='none' stroke='%23c8ccbf' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 6px center; color: #f4ede0; font: 12px var(--wc-sans, sans-serif); }
 .wc-shell--rail:not(.wc-shell--compact) .wc-session-filters { display: none; }
 .wc-shell--rail:not(.wc-shell--compact) .wc-session-selects { display: none; }
 .wc-sidebar-title {
