@@ -24,6 +24,7 @@ import * as claudeLister from "./listers/claude.mjs";
 import * as codexLister from "./listers/codex.mjs";
 import * as cursorLister from "./listers/cursor.mjs";
 import * as geminiLister from "./listers/gemini.mjs";
+import { devEnvTerminals } from "./dev-env-terminals.mjs";
 
 const CAP = 2000;
 const RUNNING_TRUST_MS = 6 * 60 * 60_000; // how long a hook-driven "running" is trusted
@@ -247,6 +248,7 @@ export function buildIndex({
       resumeRef: e.runtime === "cursor" ? null : e.session_id, transcript: null });
   }
   const contextCounts = new Map();
+  const terminals = devEnvTerminals(garrisonHomeDir);
   for (const r of listerRows) {
     const key = `${r.runtime}\0${normCwd(r.cwd)}`;
     contextCounts.set(key, (contextCounts.get(key) ?? 0) + 1);
@@ -266,7 +268,8 @@ export function buildIndex({
       : cardSessionIds.has(row.id)
         ? { kind: "card", id: cardSessionIds.get(row.id) }
         : null;
-    rows.push({ ...row, resumeCommand, claimedBy });
+    rows.push({ ...row, resumeCommand, claimedBy,
+      ...(row.runtime === "claude" && terminals.has(row.id) ? { attachable: true, terminalRef: row.id } : {}) });
   }
 
   const rank = (status) => (status === "working" ? 0 : status === "idle" ? 1 : status === "unknown" ? 2 : 3);

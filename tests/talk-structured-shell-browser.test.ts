@@ -17,14 +17,90 @@ beforeAll(async () => {
     import React from 'react'; import {createRoot} from 'react-dom/client';
     import {ExternalSessionView} from './packages/talk/ui/session-view';
     import {ShellPanel} from './packages/talk/ui/shell-panel';
+    import {NewShellModal} from './packages/talk/ui/new-shell-modal';
     import {SessionsRail} from './packages/talk/ui/sessions-rail';
     const root = createRoot(document.getElementById('root'));
-    window.mount = (mode, props) => root.render(mode === 'native' ? <ExternalSessionView {...props}/> : mode === 'shell' ? <ShellPanel {...props}/> : <SessionsRail {...props} onSelect={()=>{}} onToggleList={()=>{}} onNewLocal={()=>{}} onOpenRemote={()=>{}} onOpenRemoteShell={()=>{}} onDeleteLocal={()=>{}} onRenameLocal={()=>{}} />);
+    window.mount = (mode, props) => root.render(mode === 'new' ? <NewShellModal {...props}/> : mode === 'native' ? <ExternalSessionView {...props}/> : mode === 'shell' ? <ShellPanel {...props}/> : <SessionsRail {...props} onSelect={()=>{}} onToggleList={()=>{}} onNewLocal={()=>{}} onOpenRemote={()=>{}} onOpenRemoteShell={()=>{}} onDeleteLocal={()=>{}} onRenameLocal={()=>{}} />);
   ` }, bundle: true, write: false, platform: 'browser', format: 'iife', jsx: 'automatic' });
   bundle = built.outputFiles[0].text;
   browser = await chromium.launch({ headless: true });
 });
 afterAll(async () => { await browser?.close(); });
+
+it('retries a remote Cursor launch through the current node with the same request identity',async()=>{
+  const f=await fixture(); const launches:any[]=[];
+  try {
+    await f.page.route('**/api/mesh/nodes/mini/remote-shell/**',async r=>{
+      const u=new URL(r.request().url());
+      if(u.pathname.endsWith('/runtimes')) return r.fulfill({json:{runtimes:[{id:'cursor',label:'Cursor',available:true}]}});
+      if(u.pathname.endsWith('/projects')) return r.fulfill({json:{projects:[]}});
+      launches.push(r.request().postDataJSON());
+      return r.fulfill(launches.length===1 ? {status:504,json:{error:'signal timed out'}} : {json:{session:{id:'same-shell',tmuxSession:'retry-shell'}}});
+    });
+    await f.page.evaluate(()=>(window as any).mount('new',{self:{node:'madrid',shellOrigin:'https://madrid.test'},nodes:[{node:'mini',shellOrigin:'https://mini.test'}],initialNode:'mini',onClose:()=>{},onStarted:(x:any)=>{(window as any).started=x;}}));
+    await f.page.getByRole('button',{name:'mini',exact:true}).click();
+    await f.page.getByRole('button',{name:'Cursor',exact:true}).click();
+    await f.page.getByPlaceholder('~/dev/my-project').fill('~/dev/indy-api');
+    await f.page.getByRole('button',{name:'Start',exact:true}).click();
+    await expect.poll(()=>f.page.locator('[role="dialog"]').textContent()).toContain('not answering');
+    await f.page.getByRole('button',{name:'Start',exact:true}).click();
+    await expect.poll(()=>f.page.evaluate(()=>(window as any).started?.session.id)).toBe('same-shell');
+    expect(launches).toHaveLength(2);
+    expect(launches[0]).toMatchObject({runtime:'cursor',cwd:'~/dev/indy-api',transport:'local'});
+    expect(launches[0].requestId).toBe(launches[1].requestId);
+  }finally{await f.context.close();}
+});
+
+it('keeps an editable composer on a busy attachable Dev Env session',async()=>{
+  const f=await fixture();
+  try {
+    await f.page.evaluate(() => {
+      (window as any).sent=[];
+      (window as any).mount('native',{row:{id:'native-dev-env',node:'mini',runtime:'claude',kind:'cli',status:'working',attachable:true,terminalRef:'native-dev-env'},streamUrl:'/stream',onContinue:()=>{},onSend:async(text:string)=>{(window as any).sent.push(text);}});
+    });
+    await f.page.getByTestId('wb-composer-input').fill('First line\nSecond line');
+    await f.page.getByTestId('wb-composer-send').click();
+    await expect.poll(()=>f.page.evaluate(()=>(window as any).sent)).toEqual(['First line\nSecond line']);
+    expect(await f.page.getByRole('button',{name:'Open existing terminal'}).isEnabled()).toBe(true);
+  }finally{await f.context.close();}
+});
+
+it('queues a message while the original client is busy and sends it once when idle',async()=>{
+  const f=await fixture();
+  try {
+    await f.page.evaluate(() => {
+      (window as any).sent=[];
+      (window as any).props={row:{id:'busy-native',node:'mini',runtime:'codex',kind:'cli',status:'working',resumable:true},streamUrl:'/stream',onSend:async(text:string)=>{(window as any).sent.push(text);}};
+      (window as any).mount('native',(window as any).props);
+    });
+    await f.page.getByTestId('wb-composer-input').fill('Check the result after this turn.');
+    await f.page.getByRole('button',{name:'Queue message'}).click();
+    expect(await f.page.getByText('Message queued',{exact:true}).isVisible()).toBe(true);
+    expect(await f.page.evaluate(()=>(window as any).sent)).toEqual([]);
+    await f.page.evaluate(()=>{const p=(window as any).props;p.row={...p.row,status:'idle'};(window as any).mount('native',p);});
+    await expect.poll(()=>f.page.evaluate(()=>(window as any).sent)).toEqual(['Check the result after this turn.']);
+  }finally{await f.context.close();}
+});
+
+it('uses the same-origin terminal and input when the direct WebSocket fails',async()=>{
+  const f=await fixture();const raw:string[]=[];
+  try {
+    await f.page.routeWebSocket('ws://unavailable.test/io',ws=>ws.close());
+    await f.page.route('**/sessions/existing/screen?*',r=>r.fulfill({json:{text:'Recovered terminal\n',state:'idle'}}));
+    await f.page.route('**/sessions/existing/bytes',r=>{raw.push(r.request().postDataJSON().data);return r.fulfill({json:{ok:true}});});
+    await f.page.evaluate(() => (window as any).mount('shell',{threadId:'fallback',title:'Remote',binding:{node:'mini',transport:'local',sessionId:'existing'},origin:'http://unavailable.test',controlBase:'/api/mesh/nodes/mini/remote-shell',originError:null,onRetryOrigin:()=>{}}));
+    // The production pane builds /io from the supplied origin; force that
+    // direct socket to close while the ordinary Garrison API remains alive.
+    await expect.poll(()=>f.page.locator('.xterm-rows').textContent(),{timeout:12000}).toContain('Recovered terminal');
+    await f.page.locator('.xterm-helper-textarea').focus();
+    await f.page.keyboard.type('hello');
+    await f.page.keyboard.press('Enter');
+    await expect.poll(()=>raw.join('')).toContain('hello\r');
+    await f.page.getByTestId('wb-composer-input').fill('Send through Garrison');
+    await f.page.getByTestId('wb-composer-send').click();
+    await expect.poll(()=>f.inputs).toEqual([{text:'Send through Garrison'}]);
+  }finally{await f.context.close();}
+},20000);
 
 async function fixture(target = browser, mobile = false, sidebar: object = {}) {
   const context = await target.newContext({ hasTouch: mobile, viewport: mobile ? { width: 393, height: 852 } : { width: 1280, height: 900 } });

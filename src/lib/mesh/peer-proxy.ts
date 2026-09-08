@@ -55,6 +55,12 @@ interface AllowRule {
 // Exactly the endpoints cross-node watch / steer / stop / answer need. Adding a
 // row here widens what every node in the mesh may do to every other node.
 const ALLOW: readonly AllowRule[] = [
+  { shape: ["remote-shell", "runtimes"], methods: ["GET"], upstream: "app" },
+  { shape: ["remote-shell", "projects"], methods: ["GET"], upstream: "app" },
+  { shape: ["remote-shell", "sessions"], methods: ["GET", "POST"], upstream: "app" },
+  { shape: ["remote-shell", "sessions", ID], methods: ["GET"], upstream: "app" },
+  ...["input", "keys", "bytes", "resize"].map((action): AllowRule => ({ shape: ["remote-shell", "sessions", ID, action], methods: ["POST"], upstream: "app" })),
+  { shape: ["remote-shell", "sessions", ID, "screen"], methods: ["GET"], upstream: "app" },
   { shape: ["session-usage", ID], methods: ["GET"], upstream: "app" },
   { shape: ["threads"], methods: ["GET"], upstream: "app" },
   { shape: ["threads", ID], methods: ["GET"], upstream: "app" },
@@ -236,7 +242,8 @@ export interface ForwardInput {
 export async function forwardToPeer(input: ForwardInput): Promise<Response> {
   const doFetch = input.fetchImpl ?? fetch;
   const sse = input.sse === true;
-  const timeoutMs = input.timeoutMs ?? (sse ? SSE_CONNECT_TIMEOUT_MS : PROXY_TIMEOUT_MS);
+  const timeoutMs = input.timeoutMs ?? (sse ? SSE_CONNECT_TIMEOUT_MS
+    : input.method === "POST" && input.path === "/api/remote-shell/sessions" ? 65_000 : PROXY_TIMEOUT_MS);
 
   const timeout = new AbortController();
   const timer = setTimeout(() => timeout.abort(new Error("peer timeout")), timeoutMs);

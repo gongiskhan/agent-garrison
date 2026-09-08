@@ -20,11 +20,13 @@
 // for a human to notice.
 
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import pty from "node-pty";
+import { submitTerminalText } from "@garrison/claude-pty/terminal-input.mjs";
+import { devEnvTerminals } from "./dev-env-terminals.mjs";
 import { attachSpawnSpec, eventsTailSpec, garrisonHome, transportExec } from "./transports.mjs";
 import { shellQuote } from "./shell-quote.mjs";
 import { buildRuntimeProbeScript, commandLine, parseRuntimeProbe, RUNTIMES } from "./runtimes.mjs";
@@ -504,7 +506,9 @@ export class SessionManager {
       runtime: s.runtime ?? null,
       resumeRef: s.resumeRef ?? null,
       nativeSessionId: s.nativeSessionId ?? null,
-      resumeCommand: s.resumeCommand ?? null
+      resumeCommand: s.resumeCommand ?? null,
+      terminalRef: s.terminalRef ?? null,
+      launchRequestId: s.launchRequestId ?? null, launchSpec: s.launchSpec ?? null
     }));
     await writeFile(sessionsFile(), JSON.stringify({ sessions: rows }, null, 2));
   }
@@ -522,7 +526,7 @@ export class SessionManager {
       if (!transport || this.findByTarget(row.transport, row.tmuxSession)) continue;
       this.#register({
         id: row.id,
-        transport,
+        transport: row.terminalRef && transport.kind === "local" ? { ...transport, local: { ...transport.local, socket: path.join(garrisonHome(), "tmux", "dev-env.sock") } } : transport,
         tmuxSession: row.tmuxSession,
         cwd: typeof row.cwd === "string" && row.cwd ? row.cwd : transport.cwd,
         label: row.label,
@@ -538,7 +542,9 @@ export class SessionManager {
         runtimeBin: null,
         resumeRef: typeof row.resumeRef === "string" ? row.resumeRef : null,
         nativeSessionId: typeof row.nativeSessionId === "string" ? row.nativeSessionId : null,
-        resumeCommand: typeof row.resumeCommand === "string" ? row.resumeCommand : null
+        resumeCommand: typeof row.resumeCommand === "string" ? row.resumeCommand : null,
+        terminalRef: row.terminalRef ?? null,
+        launchRequestId: row.launchRequestId ?? null, launchSpec: row.launchSpec ?? null
       });
       n++;
     }
@@ -623,7 +629,35 @@ export class SessionManager {
    * Start (or re-attach) the session for a transport. Idempotent per
    * (transport, tmuxSession): an existing record is revived in place.
    */
-  async start(transportName, {
+  async start(transportName, options = {}) {
+    const requestId = options.requestId;
+    if (requestId == null) return this.#start(transportName, options);
+    if (typeof requestId !== "string" || !/^[A-Za-z0-9_-]{8,100}$/.test(requestId)) throw new HttpError(400, "invalid launch request id");
+    const spec = JSON.stringify([transportName, options.runtime ?? null, options.cwd ?? null, options.resume ?? null, options.attach === true, options.terminalRef ?? null]);
+    const key = `${transportName}:${requestId}`;
+    this.launches ??= new Map();
+    const pending = this.launches.get(key);
+    if (pending) {
+      if (pending.spec !== spec) throw new HttpError(409, "This launch belongs to another project or runtime.");
+      return pending.promise;
+    }
+    const existing = [...this.sessions.values()].find(s => s.transport.name === transportName && s.launchRequestId === requestId);
+    if (existing) {
+      if (existing.launchSpec !== spec) throw new HttpError(409, "This launch belongs to another project or runtime.");
+      this.ensureAttached(existing);
+      return existing;
+    }
+    const promise = this.#start(transportName, { ...options, tmuxSession: `web-${createHash("sha256").update(requestId).digest("hex").slice(0, 40)}`, allocate: false }).then(async session => {
+      session.launchRequestId = requestId;
+      session.launchSpec = spec;
+      await this.persist();
+      return session;
+    });
+    this.launches.set(key, { spec, promise });
+    try { return await promise; } finally { this.launches.delete(key); }
+  }
+
+  async #start(transportName, {
     label,
     recycle = false,
     tmuxSession = null,
@@ -631,10 +665,19 @@ export class SessionManager {
     allocate = false,
     runtime = null,
     resume = null,
-    attach = false
+    attach = false,
+    terminalRef = null
   } = {}) {
-    const transport = this.transports.get(transportName);
+    let transport = this.transports.get(transportName);
     if (!transport) throw new HttpError(404, `unknown transport "${transportName}"`);
+    if (terminalRef != null) {
+      const target = transport.kind === "local" && runtime === "claude" && devEnvTerminals().get(terminalRef);
+      if (!target) throw new HttpError(409, "That Dev Env terminal is no longer running. Refresh the session list.");
+      transport = { ...transport, local: { ...transport.local, socket: target.socket } };
+      tmuxSession = target.tmuxSession;
+      cwd = target.cwd;
+      allocate = false;
+    }
 
     // The runtime catalog, when named, decides what gets typed into a fresh
     // pane below - resolved up front so a bad `runtime`/`resume` combination
@@ -688,6 +731,10 @@ export class SessionManager {
     const tunnel = await this.tunnels.ensure(transport);
     if (!tunnel.ok) throw new HttpError(502, tunnel.error);
 
+    if (runtimeBin && !terminalRef) {
+      const probe = await this.#exec(transport, `${transport.loginShell} -lc ${shellQuote(`command -v ${shellQuote(runtimeBin)}`)}`, { timeoutMs: 10000 });
+      if (probe.code !== 0) throw new HttpError(503, `${RUNTIMES[sessionRuntime]?.label || sessionRuntime} could not be started on ${transport.label || transport.name}. Its command is unavailable or the machine is not answering.`);
+    }
     await this.#ensureRemoteHook(transport);
 
     // `allocate` is the "another agent in this same folder" gesture: the name
@@ -717,6 +764,7 @@ export class SessionManager {
     // a working session until it edits the wrong repo.
     const ensure = await this.#exec(
       transport,
+      terminalRef ? `tmux has-session -t ${shellQuote(sessName)} && tmux display-message -p -t ${shellQuote(sessName)} '#{pane_current_command}'` :
       `[ -d ${remotePath(sessCwd)} ] || { echo "NO_SUCH_DIR"; exit 9; }; ` +
       `tmux has-session -t ${shellQuote(sessName)} 2>/dev/null || ` +
         `tmux new-session -d -s ${shellQuote(sessName)} -c ${remotePath(sessCwd)} -x 220 -y 50; ` +
@@ -765,7 +813,8 @@ export class SessionManager {
         runtime: sessionRuntime,
         runtimeBin,
         resumeRef,
-        resumeCommand
+        resumeCommand,
+        terminalRef
       });
     } else {
       if (label) session.label = label;
@@ -788,7 +837,7 @@ export class SessionManager {
     const paneCommand = ensure.stdout.trim().split("\n").pop()?.trim() ?? "";
     const bareShells = new Set(["bash", "zsh", "sh", "fish", "dash", "-bash", "-zsh"]);
     const toType = typedCommand ?? (runtime == null ? transport.agentCommand : null);
-    if (toType && bareShells.has(paneCommand)) {
+    if (!terminalRef && toType && bareShells.has(paneCommand)) {
       await this.#exec(
         transport,
         `tmux send-keys -t ${shellQuote(sessName)} -l ${shellQuote(toType)} && ` +
@@ -1114,25 +1163,49 @@ export class SessionManager {
 
   /** A line of instruction typed outside the terminal (chat box / delegate
    *  lane): literal text into the TUI's input box, then Enter. Sent through
-   *  tmux send-keys on an exec channel so it works with NO local PTY attached.
-   *  Newlines are flattened — Enter submits in agent TUIs. */
+   *  a named tmux paste buffer, preserving multiline text, followed by a
+   *  separate Enter after the same settling delay used by Dev Env. */
   async sendInstruction(session, text) {
-    const flat = String(text).replace(/\s*\n\s*/g, " ").trim();
-    if (!flat) throw new HttpError(400, "empty instruction");
-    const target = shellQuote(session.tmuxSession);
-    const r = await this.#exec(
-      session.transport,
-      // Leave copy-mode first. Someone scrolling the pane back (in Garrison or
-      // in any other client) leaves it in a mode where keys are copy commands,
-      // not input: the instruction is swallowed without an error and the turn
-      // waits forever for an agent that was never asked anything.
-      `${leaveCopyMode(target)} ` +
-        `tmux send-keys -t ${target} -l ${shellQuote(flat)} && ` +
-        `sleep 0.15 && tmux send-keys -t ${target} Enter`
-    );
-    if (r.code !== 0) {
-      throw new HttpError(502, `send-keys failed: ${(r.stderr || r.stdout).trim().slice(0, 300)}`);
+    const value = String(text);
+    if (!value.trim()) throw new HttpError(400, "empty instruction");
+    if (session.runtime !== "shell" && RUNTIMES[session.runtime]) {
+      const newSession = Date.now() - Date.parse(session.createdAt) < 60000;
+      const deadline = Date.now() + (newSession ? 8000 : 0);
+      for (;;) {
+        const foreground = await this.#exec(session.transport, `tmux display-message -p -t ${shellQuote(session.tmuxSession)} '#{pane_current_command}'`);
+        const bare = /^-?(?:sh|bash|zsh|fish|dash|ksh|tcsh|csh)$/.test(foreground.stdout.trim());
+        if (foreground.code === 0 && !bare) break;
+        if (foreground.code !== 0 || Date.now() >= deadline) throw new HttpError(409, "The agent is not ready in this terminal. Open the shell to finish startup or restart it; your draft is still here.");
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+      if (newSession) {
+        // Read the current screen: old trust dialogs in scrollback must not
+        // block an agent that has already finished setup.
+        await new Promise(resolve => setTimeout(resolve, 600));
+        const screen = await this.capturePane(session, 40, true);
+        if (/Workspace Trust Required|Trusting workspace|Do you trust (?:the contents|this (?:folder|workspace))|Choose how you.d like to log in/i.test(screen)) {
+          throw new HttpError(409, "Finish the agent's setup in the terminal before sending. Your draft is still here.");
+        }
+      }
     }
+    if (session.inputPending) throw new HttpError(409, "A message is already being submitted to this shell.");
+    session.inputPending = true;
+    const target = shellQuote(session.tmuxSession);
+    const buffer = shellQuote(`garrison-input-${randomUUID()}`);
+    try {
+      await submitTerminalText({
+        write: async exact => {
+          const r = await this.#exec(session.transport,
+            `${leaveCopyMode(target)} tmux load-buffer -b ${buffer} - && tmux paste-buffer -p -d -b ${buffer} -t ${target}`,
+            { input: exact });
+          if (r.code !== 0) throw new HttpError(502, "The shell did not accept the message. Your draft is still here.");
+        },
+        enter: async () => {
+          const r = await this.#exec(session.transport, `tmux send-keys -t ${target} Enter`);
+          if (r.code !== 0) throw new HttpError(502, "The message was pasted, but Enter was not confirmed. Open the terminal before retrying.");
+        }
+      }, value);
+    } finally { session.inputPending = false; }
   }
 
   /** Named keys (Escape, C-c, ...) for cancel and control. */
@@ -1151,11 +1224,12 @@ export class SessionManager {
   }
 
   /** Last lines of the pane, ANSI-free — turn summaries, never state. */
-  async capturePane(session, lines = 40) {
+  async capturePane(session, lines = 40, terminal = false) {
     const r = await this.#exec(
       session.transport,
-      `tmux capture-pane -p -t ${shellQuote(session.tmuxSession)} -S -${Math.max(1, Math.min(lines, 200))}`
+      `tmux capture-pane -p ${terminal ? "-e" : ""} -t ${shellQuote(session.tmuxSession)}${terminal ? "" : ` -S -${Math.max(1, Math.min(lines, 200))}`}`
     );
+    if (terminal && r.code !== 0) throw new HttpError(502, "The terminal is not answering. Reattach to retry.");
     return r.code === 0 ? r.stdout : "";
   }
 
@@ -1582,7 +1656,7 @@ export class SessionManager {
   async remove(id, { killRemote = false } = {}) {
     const session = this.sessions.get(id);
     if (!session) return false;
-    if (killRemote) {
+    if (killRemote && !session.terminalRef) {
       await this.#exec(
         session.transport,
         `tmux kill-session -t ${shellQuote(session.tmuxSession)} 2>/dev/null; true`

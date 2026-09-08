@@ -73,6 +73,7 @@ export interface RailTransport {
  *  groupable: this is a derived, transient list, not part of the organizer
  *  document. */
 export interface RailSession {
+  terminalRef?: string | null;
   id: string;
   node: string;
   nodeAccent: string | null;

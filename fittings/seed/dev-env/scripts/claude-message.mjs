@@ -1,4 +1,5 @@
 import { ClaudeCodeAdapter } from "@garrison/claude-pty";
+import { submitTerminalText } from "@garrison/claude-pty/terminal-input.mjs";
 
 // `/effort auto` is Claude Code's native reset-to-model-default control. The
 // remaining values mirror the repository's routing effort vocabulary.
@@ -74,8 +75,5 @@ export async function writeClaudeChatMessage(
     await wait(CLAUDE_CHAT_CONTROL_SETTLE_MS);
     throwIfCancelled(signal);
   }
-  pty.write(text);
-  await wait(delayMs);
-  throwIfCancelled(signal);
-  pty.write("\r");
+  await submitTerminalText({ write: value => pty.write(value), enter: () => pty.write("\r") }, text, { delayMs, wait, signal });
 }

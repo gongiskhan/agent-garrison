@@ -184,3 +184,37 @@ has a visible, 44px Close control; WebKit touch tests cover both paths. The same
 acceptance found dev-madrid publishing its formula-derived Shells address at an
 existing capture-service mapping. Its supported node.json shellOrigin override
 was set from the actual Tailscale serve map (not a new hardcoded code port).
+
+
+## Shell control and Mini Cursor launch — 2026-09-08
+
+The timed-out Mini launch combined an eight-second browser control deadline and
+an independent connection to the owner's fitting. REST controls now traverse the
+current Garrison app and its explicit peer allow-list. Launches have a bounded
+65-second client budget and a persisted request identity: retrying the same
+attempt reconnects to the same tmux session, including after a service restart.
+Arbitrary exec, file access and shell deletion remain outside the peer relay.
+The optional direct terminal WebSocket retains the fast path; its failure enables
+same-origin ANSI screen reads and serialized keyboard input in the real xterm.
+
+Dev Env and Conversations now share the same separate paste/Enter submission
+helper. Multiline text is preserved through a named tmux buffer. Native Claude
+rows can attach to an existing Dev Env terminal only when its native session ID,
+ledger record and live tmux pane agree. Opening or removing this attachment does
+not create, restart or kill the original pane. A bare shell or an unfinished
+agent trust/login screen refuses agent prompts and preserves the draft.
+
+Resumable native sessions expose a composer. An exact attached terminal accepts
+messages directly; a busy, unattached session offers an explicit Queue message
+that waits for idle while its view remains open. Leaving returns the message as
+a recoverable draft, without background submission. Arbitrary Cursor IDE windows
+remain observable; Open shell creates a plain terminal in their project, and
+New shell can start the installed Cursor CLI. This does not claim an IDE input API.
+
+Live Mini diagnostics found the local Cursor CLI start completed in 2.03 seconds.
+The dedicated neutral test reached Workspace Trust Required in indy-api; after
+accepting that scoped workspace, it answered Ready to a prompt forbidding tools
+and file changes. Owner evidence: ~/.garrison/convergence/shell-control-check/.
+No existing client IDE session was altered. Final deployment and browser results
+are recorded in shared Garrison Node Operations; physical iPhone acceptance is
+still separate from phone-sized WebKit evidence.

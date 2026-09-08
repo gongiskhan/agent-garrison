@@ -1,6 +1,6 @@
 // The view for an OWNED shell thread (source:"shell"): a command deck, the
-// xterm pane over the target node's Shells fitting (direct origin, never a
-// same-origin relay), and a composer for typing into it. Deliberately its
+// xterm pane with direct WebSocket and same-origin HTTP fallback, and a
+// composer targeting the exact owner session. Deliberately its
 // own small component rather than a mode on RemoteShellWorkbench - that
 // component's dispatch-ledger/delegate-seam machinery is for the OLDER
 // remote-shell thread shape and stays untouched.
@@ -42,6 +42,7 @@ export function ShellPanel({
   binding,
   title,
   origin,
+  controlBase,
   originError,
   onRetryOrigin,
   streamUrl,
@@ -52,6 +53,7 @@ export function ShellPanel({
   binding: ShellThreadBinding;
   title: string;
   origin: string | null;
+  controlBase?: string;
   originError: ShellOriginError | null;
   onRetryOrigin: () => void;
   streamUrl?: string | null;
@@ -64,33 +66,35 @@ export function ShellPanel({
   const [inputError, setInputError] = useState<string | null>(null);
   const state = disconnected ? "unreachable" : deckState(meta, originError);
   const sessionId = binding.sessionId ?? "";
+  const api = controlBase || origin;
 
   const sendInput = useCallback(async (text: string) => {
-    if (!origin || !sessionId) throw new Error("The shell is not connected.");
-    await shellFetch(origin, `/sessions/${encodeURIComponent(sessionId)}/input`, {
+    if (!api || !sessionId) throw new Error("The shell is not connected.");
+    await shellFetch(api, `/sessions/${encodeURIComponent(sessionId)}/input`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ text })
-    });
-  }, [origin, sessionId]);
+    }, { timeoutMs: 25000 });
+  }, [api, sessionId]);
 
   const sendKeys = useCallback((keys: string) => {
-    if (!origin || !sessionId) return;
-    void shellFetch(origin, `/sessions/${encodeURIComponent(sessionId)}/keys`, {
+    if (!api || !sessionId) return;
+    void shellFetch(api, `/sessions/${encodeURIComponent(sessionId)}/keys`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ keys })
     }).then(() => setInputError(null)).catch(err => setInputError(err instanceof Error ? err.message : String(err)));
-  }, [origin, sessionId]);
+  }, [api, sessionId]);
 
   const reattach = useCallback(() => {
-    if (!origin) { onRetryOrigin(); return; }
-    void shellFetch(origin, "/sessions", {
+    if (!api) { onRetryOrigin(); return; }
+    setInputError(null);
+    void shellFetch(api, "/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ transport: binding.transport, tmuxSession: binding.tmuxSession, cwd: binding.cwd, runtime: binding.runtime, recycle: true })
-    }).then(() => setReconnectNonce((n) => n + 1)).catch(() => {});
-  }, [origin, binding, onRetryOrigin]);
+      body: JSON.stringify({ sessionId, recycle: true })
+    }, { timeoutMs: 65000 }).then(() => setReconnectNonce((n) => n + 1)).catch(err => setInputError(err instanceof Error ? err.message : String(err)));
+  }, [api, sessionId, onRetryOrigin]);
 
   return (
     <div className="wc-wb wc-wb--shell" data-testid="wb-deck-root">
@@ -122,6 +126,7 @@ export function ShellPanel({
               hideBar
               reconnectNonce={reconnectNonce}
               ioUrl={shellSocketUrl(origin)}
+              httpBase={api ?? undefined}
               onMetaChange={setMeta}
             />
           </div>

@@ -18,11 +18,17 @@ export function ShellComposer({
   onSend,
   onKeys,
   disabled = false,
+  sendDisabled = false,
+  hideKeys = false,
+  sendLabel = "Send",
   draftKey,
 }: {
   onSend: (text: string) => void | Promise<void>;
   onKeys: (keys: string) => void;
   disabled?: boolean;
+  sendDisabled?: boolean;
+  hideKeys?: boolean;
+  sendLabel?: string;
   /** localStorage key for the per-thread draft, e.g. `shell-draft:<threadId>`. */
   draftKey?: string;
 }) {
@@ -46,7 +52,7 @@ export function ShellComposer({
   }, [draftKey]);
 
   const send = useCallback(async () => {
-    if (disabled || sendingRef.current) return;
+    if (disabled || sendDisabled || sendingRef.current) return;
     const text = value;
     if (!text.trim() && text.indexOf("\n") < 0) return;
     sendingRef.current = true;
@@ -61,7 +67,7 @@ export function ShellComposer({
       sendingRef.current = false;
       setSending(false);
     }
-  }, [value, onSend, setDraft, disabled]);
+  }, [value, onSend, setDraft, disabled, sendDisabled]);
 
   return (
     <div className="wc-wb-composer">
@@ -75,7 +81,7 @@ export function ShellComposer({
           ))}
         </div>
       )}
-      <button
+      {!hideKeys && <button
         type="button"
         className="wc-wb-key wc-wb-keys-toggle"
         data-testid="wb-keys-toggle"
@@ -84,7 +90,7 @@ export function ShellComposer({
         onClick={() => setKeysOpen((v) => !v)}
       >
         ⌘
-      </button>
+      </button>}
       <textarea
         ref={taRef}
         className="wc-wb-composer-input"
@@ -101,8 +107,8 @@ export function ShellComposer({
           }
         }}
       />
-      <button type="button" className="wc-wb-composer-send" data-testid="wb-composer-send" disabled={disabled || sending || !value.trim()} onClick={() => { void send(); }}>
-        {sending ? "Sending…" : "Send"}
+      <button type="button" className="wc-wb-composer-send" data-testid="wb-composer-send" disabled={disabled || sendDisabled || sending || !value.trim()} onClick={() => { void send(); }}>
+        {sending ? "Sending…" : sendLabel}
       </button>
     </div>
   );

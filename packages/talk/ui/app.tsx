@@ -53,7 +53,7 @@ import { ShellPanel, type ShellThreadBinding } from "./shell-panel";
 import { SessionUsage } from "./session-usage";
 import { ExternalSessionView } from "./session-view";
 import { NewShellModal, type NewShellSpec } from "./new-shell-modal";
-import { errorCopy, resolveShellOrigin, ShellOriginError } from "./shell-origin";
+import { errorCopy, resolveShellOrigin, shellApiBase, newShellRequestId, shellFetch, SHELL_START_TIMEOUT_MS, ShellOriginError } from "./shell-origin";
 import { useConversationLayout } from "./use-conversation-layout";
 
 // The streaming voice surface (S6b): hands-free conversation mode + push-to-talk,
@@ -1185,6 +1185,7 @@ function ThreadedApp({
   const [shellOrigin, setShellOrigin] = useState<string | null>(null);
   const [shellOriginError, setShellOriginError] = useState<ShellOriginError | null>(null);
   const [continueBusy, setContinueBusy] = useState(false);
+  const sessionLaunches = useRef(new Map<string, string>());
 
   const [rshSessionId, setRshSessionId] = useState<string | null>(null);
   const [rshError, setRshError] = useState<string | null>(null);
@@ -1575,7 +1576,7 @@ function ThreadedApp({
   // "Continue in a shell" / "Attach": start (or resume) the session on its
   // owning node and turn it into an owned shell thread - the same
   // ensure-then-open shape start()/spawnProjectShell() already use.
-  const continueSession = useCallback(async (row: RailSession, plainShell = false) => {
+  const continueSession = useCallback(async (row: RailSession, plainShell = false, prompt?: string) => {
     setContinueBusy(true);
     setRshError(null);
     const runtime = plainShell ? "shell" : row.runtime;
@@ -1583,8 +1584,10 @@ function ThreadedApp({
       const origin = await resolveShellOrigin({ node: row.node, shellOrigin: row.shellOrigin }, sessionsResult.self.node);
       if (!origin) throw new ShellOriginError("no-origin", "no reachable origin");
       const transport = row.shell?.transport ?? "local";
-      const body = await fetch(`${origin}/sessions`, {
-        signal: AbortSignal.timeout(20000),
+      const controlBase = shellApiBase(row.node, sessionsResult.self.node);
+      const launchKey = JSON.stringify([row.node, row.id, plainShell]);
+      if (!sessionLaunches.current.has(launchKey)) sessionLaunches.current.set(launchKey, newShellRequestId());
+      const body = await shellFetch<{ session: { id: string; tmuxSession: string; cwd?: string; label?: string } }>(controlBase, "/sessions", {
         method: "POST",
         mode: "cors",
         credentials: "omit",
@@ -1594,17 +1597,18 @@ function ThreadedApp({
           runtime,
           cwd: row.cwd,
           resume: plainShell ? undefined : row.resumeRef,
+          terminalRef: plainShell ? undefined : row.terminalRef,
           attach: !plainShell && row.kind === "bg",
           label: plainShell ? `Shell · ${row.project || row.cwd || row.node}` : row.title || row.project || row.runtime,
-          allocate: true
+          allocate: true,
+          requestId: sessionLaunches.current.get(launchKey)
         })
-      }).then(async (r) => {
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(data?.error || `could not start a session (${r.status})`);
-        return data;
-      });
+      }, { timeoutMs: SHELL_START_TIMEOUT_MS });
       const session = body?.session as { id?: string; tmuxSession?: string; cwd?: string; label?: string } | undefined;
       if (!session?.tmuxSession) throw new Error("the shell started no session");
+      if (prompt) await shellFetch(controlBase, `/sessions/${encodeURIComponent(session.id!)}/input`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: prompt })
+      }, { timeoutMs: 25000 });
       const ensured = await apiEnsureThread({
         id: `shell-${row.node}-${transport}-${session.tmuxSession}`,
         title: session.label || row.title || row.project || row.runtime,
@@ -1623,6 +1627,7 @@ function ThreadedApp({
       await loadSessions();
     } catch (err) {
       setRshError(err instanceof ShellOriginError ? errorCopy(err, row.node).sub : err instanceof Error ? err.message : String(err));
+      if (prompt) throw err;
     } finally {
       setContinueBusy(false);
     }
@@ -2104,6 +2109,7 @@ function ThreadedApp({
                 onRetry={() => { void loadSessions(); }}
                 onOpenShell={activeSessionRow.cwd ? () => { void continueSession(activeSessionRow, true); } : undefined}
                 onContinue={(activeSessionRow.resumable || activeSessionRow.attachable) ? () => { void continueSession(activeSessionRow); } : undefined}
+                onSend={(activeSessionRow.resumable || activeSessionRow.attachable) ? text => continueSession(activeSessionRow, false, text) : undefined}
                 onCopyResume={activeSessionRow.resumeCommand ? () => copyResumeCommand(activeSessionRow) : undefined}
                 onClose={() => setActiveSessionRow(null)}
               />
@@ -2123,6 +2129,7 @@ function ThreadedApp({
                 usageBase={activeShellBinding.node === sessionsResult.self.node ? "/api" : `/api/mesh/nodes/${encodeURIComponent(activeShellBinding.node)}`}
                 title={activeThread?.title || activeShellBinding.label || activeShellBinding.tmuxSession || "Shell"}
                 origin={shellOrigin}
+                controlBase={shellApiBase(activeShellBinding.node, sessionsResult.self.node)}
                 originError={shellOriginError}
                 onRetryOrigin={() => { void resolveActiveShellOrigin(); }}
               />

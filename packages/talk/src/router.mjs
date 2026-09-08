@@ -249,7 +249,7 @@ export function readRemoteShellInfo() {
 // Subpaths the browser may reach through the relay. DELETE (forget session) and
 // anything unlisted stay on the fitting's own surface.
 const REMOTE_SHELL_PROXY_RE =
-  /^\/(transports|projects|sessions|sessions\/[A-Za-z0-9-]+(\/(input|keys|turn|detach|screen|turns\/[A-Za-z0-9-]+))?)$/;
+  /^\/(transports|runtimes|projects|sessions|sessions\/[A-Za-z0-9-]+(\/(input|keys|bytes|resize|turn|detach|screen|turns\/[A-Za-z0-9-]+))?)$/;
 // DELETE relays only for the one shape that supports it: a session teardown.
 const REMOTE_SHELL_DELETE_RE = /^\/sessions\/[A-Za-z0-9-]+$/;
 
@@ -273,7 +273,7 @@ async function handleRemoteShellProxy(req, res, subpath, query) {
       headers: body ? { "content-type": "application/json" } : {},
       body: body ?? undefined,
       // Long-poll turn settlement rides this relay; everything else is quick.
-      signal: AbortSignal.timeout(subpath.includes("/turns/") ? 125_000 : 20_000)
+      signal: AbortSignal.timeout(subpath.includes("/turns/") ? 125_000 : subpath === "/sessions" && req.method === "POST" ? 60_000 : 20_000)
     });
     const text = await upstream.text();
     res.statusCode = upstream.status;
