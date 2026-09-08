@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -68,5 +69,47 @@ describe("the hook-cwd detector still catches the basic-memory divergence", () =
     expect(kanban?.status).toBe("fail");
     expect(kanban?.detail).toContain("fittings/_local/kanban-loop");
     expect(kanban?.detail).toContain("apm_modules/_local/kanban-loop");
+  });
+});
+
+// An inline `basename "$X"` guards ONE branch; a named predicate is a
+// deliberate statement about the whole script. Treating the two the same would
+// have been a silent false negative: basic-memory always had an inline guard on
+// its skill block, and reading that as cover for KANBAN_FITTING_DIR would have
+// hidden the exact bug this check exists to find.
+describe("hook-cwd tells an inline guard from a declared predicate", () => {
+  function tree(setupBody: string) {
+    const root = mkdtempSync(path.join(os.tmpdir(), "preflight-guard-"));
+    const seed = path.join(root, "fittings", "seed", "probe", "scripts");
+    const comp = path.join(root, "compositions", "c1", "apm_modules", "_local");
+    mkdirSync(seed, { recursive: true });
+    mkdirSync(path.join(comp, "kanban-loop"), { recursive: true });
+    writeFileSync(path.join(root, "fittings", "seed", "probe", "apm.yml"),
+      "x-garrison:\n  setup:\n    command: bash scripts/setup.sh\n  verify:\n    command: bash apm_modules/_local/probe/scripts/verify.sh\n");
+    const derive = [
+      'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
+      'MODULES_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"',
+      'TARGET="$MODULES_DIR/_local/kanban-loop"'
+    ].join("\n");
+    writeFileSync(path.join(seed, "setup.sh"), `${derive}\n${setupBody}\n`);
+    writeFileSync(path.join(seed, "verify.sh"), `${derive}\n`);
+    const compositions = [{ compositionId: "c1", parsed: { selections: [{ faculty: "f", id: "probe", pins: [] }], unfitted: [] } }];
+    const entries = readHookScripts(root, compositions, "c1") as Array<{ id: string }>;
+    return findHookCwdAsymmetry(entries) as Array<{ id: string; status: string }>;
+  }
+
+  it("still fails when only an unrelated inline branch tests the base", () => {
+    const f = tree('if [ "$(basename "$MODULES_DIR")" != "apm_modules" ]; then :; fi');
+    expect(f.find((x) => x.id === "probe:TARGET")?.status).toBe("fail");
+  });
+
+  it("quiets once a named predicate states the invariant", () => {
+    const f = tree('installed() { [ "$(basename "$MODULES_DIR")" = "apm_modules" ]; }\nif ! installed; then :; fi');
+    expect(f.find((x) => x.id === "probe:TARGET")?.status).toBe("info");
+  });
+
+  it("ignores a predicate that is defined but never called", () => {
+    const f = tree('installed() { [ "$(basename "$MODULES_DIR")" = "apm_modules" ]; }');
+    expect(f.find((x) => x.id === "probe:TARGET")?.status).toBe("fail");
   });
 });

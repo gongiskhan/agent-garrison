@@ -189,6 +189,44 @@ export function readHookScripts(root, compositions = [], activeCompositionId = n
 
     const fromSetup = resolveScriptPaths(setupText, setupScriptDir, joinRel);
     const fromVerify = resolveScriptPaths(verifyText, verifyScriptDir, joinRel);
+
+    // How a script says "I know this path only means something when I am
+    // actually installed". Two idioms, and the difference matters:
+    //
+    //   inline   if [ "$(basename "$MODULES_DIR")" != apm_modules ]; then ...
+    //   predicate composition_visible() { [ "$(basename "$MODULES_DIR")" = ... ]; }
+    //
+    // An inline test guards ONE branch, so only the variable it names is
+    // covered. A named predicate is a deliberate, reusable statement about the
+    // whole script, so everything DERIVED from the variable it tests is covered
+    // too. Propagating from the inline form as well would have been a silent
+    // false negative: basic-memory has always had an inline guard on its skill
+    // block, and treating that as cover for KANBAN_FITTING_DIR would have
+    // hidden the very bug this check was written to find.
+    const guardedNames = new Set();
+    const predicateBases = new Set();
+    for (const name of fromSetup.keys()) {
+      const basenameTest = new RegExp(`basename[ \t]+"\\$${name}"`);
+      if (basenameTest.test(setupText)) guardedNames.add(name);
+      for (const fn of setupText.matchAll(/^[ \t]*([A-Za-z_][A-Za-z0-9_]*)\s*\(\)\s*\{([^}]*)\}/gm)) {
+        if (basenameTest.test(fn[2]) && new RegExp(`\\b${fn[1]}\\b`).test(setupText.replace(fn[0], ""))) {
+          predicateBases.add(name);
+        }
+      }
+    }
+    for (let changed = true; changed; ) {
+      changed = false;
+      for (const [name, info] of fromSetup) {
+        if (guardedNames.has(name)) continue;
+        const base = (info.expr.match(/^\$([A-Za-z_][A-Za-z0-9_]*)/) || [])[1];
+        if (base && (predicateBases.has(base) || (guardedNames.has(base) && predicateBases.has(base)))) {
+          guardedNames.add(name);
+          predicateBases.add(name);
+          changed = true;
+        }
+      }
+    }
+
     const vars = [];
     for (const [name, s] of fromSetup) {
       if (name === "SCRIPT_DIR") continue;
@@ -196,7 +234,7 @@ export function readHookScripts(root, compositions = [], activeCompositionId = n
       // Only variables BOTH scripts define the same way can be compared; a name
       // that means different things in the two scripts proves nothing.
       if (!v || v.expr !== s.expr) continue;
-      const guarded = new RegExp(`basename[ \t]+"\\$${name}"`).test(setupText);
+      const guarded = guardedNames.has(name);
       vars.push({
         name, expr: s.expr, setupPath: s.path, verifyPath: v.path,
         setupExists: existsSync(s.path), verifyExists: existsSync(v.path), guarded

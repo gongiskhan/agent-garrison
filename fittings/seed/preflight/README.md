@@ -20,6 +20,19 @@ instead of one failure at a time across repeated failed launches.
 
 Every failing row carries a **`fix`** hint naming the concrete remedy.
 
+### What `hook-cwd` can and cannot see
+
+It compares the paths each script *derives*, and recognises a guard only when
+the script declares a named predicate testing the base variable — an inline
+`basename "$X"` guards one branch and is deliberately not read as cover for
+anything else, because basic-memory always had one and treating it as cover
+would have hidden the bug this check was written for.
+
+The limitation is the other direction: a script that gates a block on a
+predicate testing one root still gets reported for divergent paths derived from
+a *different* root. That is an over-report, which is the safe failure mode here
+and the reason `hook-cwd` stays out of the `--gate` blocking set.
+
 ## What changed since the last run
 
 Not a snapshot diff: a report carries `generatedAt`, live pids and counts, so
