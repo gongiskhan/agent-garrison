@@ -4,7 +4,7 @@ type Account = {provider:string; account:string; plan?:string; status:string; ch
 const LABEL:Record<string,string> = {claude:"Claude Code",codex:"Codex",cursor:"Cursor"};
 
 /** Lazy, owner-routed account reads. Opening usage never blocks shell input. */
-export function SessionUsage({base, runtime, node, disconnected = false}: {base:string;runtime?:string;node:string;disconnected?:boolean}) {
+export function SessionUsage({base, runtime, node, disconnected = false, iconOnly = false}: {base:string;runtime?:string;node:string;disconnected?:boolean;iconOnly?:boolean}) {
   const [open,setOpen] = useState(false);
   const [accounts,setAccounts] = useState<Account[]>([]);
   const [busy,setBusy] = useState(false);
@@ -41,8 +41,8 @@ export function SessionUsage({base, runtime, node, disconnected = false}: {base:
     document.addEventListener("keydown",close);document.addEventListener("pointerdown",close);
     return () => {document.removeEventListener("keydown",close);document.removeEventListener("pointerdown",close);};
   },[open]);
-  return <details className="wc-usage" ref={box} onToggle={e=>setOpen(e.currentTarget.open)}>
-    <summary aria-label="Account usage">Usage</summary>
+  return <details className={`wc-usage${iconOnly ? " wc-usage-icon" : ""}`} ref={box} onToggle={e=>setOpen(e.currentTarget.open)}>
+    <summary aria-label="Account usage">{iconOnly ? "📊" : "Usage"}</summary>
     {open && <div className="wc-usage-panel" role="region" aria-label="Account usage">
       <button type="button" className="wc-usage-close" aria-label="Close account usage" onClick={()=>{if(box.current) box.current.open=false; setOpen(false);}}>Close</button>
       <strong>Account usage</strong><span className="wc-usage-scope">{node} · shared across sessions</span>

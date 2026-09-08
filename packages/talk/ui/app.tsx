@@ -1270,9 +1270,15 @@ function ThreadedApp({
           {voiceAdornment(api)}
           <RecordButton bridge={captureBridge} conversationId={conversationId} mode="screen" feedback={false} />
           <RecordButton bridge={captureBridge} conversationId={conversationId} mode="listen" alwaysWatch speech={speechBridge} push={pushBridge} />
+          <SessionUsage base="/api" node={sessionsResult.self.node || "this machine"} iconOnly={true} />
         </>
-      ) : voiceAdornment(api),
-    [captureBridge, speechBridge, pushBridge, conversationId, isZeca]
+      ) : (
+        <>
+          {voiceAdornment(api)}
+          <SessionUsage base="/api" node={sessionsResult.self.node || "this machine"} iconOnly={true} />
+        </>
+      ),
+    [captureBridge, speechBridge, pushBridge, conversationId, isZeca, sessionsResult.self.node]
   );
 
   useEffect(() => {
@@ -2089,8 +2095,8 @@ function ThreadedApp({
         )}
         {/* A compact elapsed-time anchor for a resumed turn. The chat below also
             replays and follows every buffered live frame; this notice is context,
-            no longer the only sign of activity. */}
-        {!activeSessionRow && !activeShellBinding && <div className="wc-conversation-usage"><SessionUsage base="/api" node={sessionsResult.self.node || "this machine"} /></div>}
+            no longer the only sign of activity. The usage button is now in the
+            composer adornment (bottom button row). */}
         {activeThread?.runningSince && nodeConnections[sessionsResult.self.node || ""] !== "disconnected" ? <ResumedWorkingNotice since={activeThread.runningSince} /> : null}
         {activeRshTransport && rshError && <div className="wc-rsh-error">Remote shell: {rshError}</div>}
         {(() => {

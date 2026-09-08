@@ -2746,3 +2746,6 @@
 }
 
 .wc-usage-close { float: right; margin: -5px -4px 4px 8px; min-height: 44px; padding: 5px 10px; border: 1px solid #81878277; border-radius: 4px; color: inherit; background: transparent; font: inherit; cursor: pointer; }
+
+.wc-usage-icon { flex-shrink: 0; }
+.wc-usage-icon summary { min-height: auto; min-width: auto; padding: 6px 8px; font-size: 16px; line-height: 1; border: none; background: transparent; }
