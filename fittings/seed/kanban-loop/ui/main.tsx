@@ -5140,7 +5140,6 @@ function App() {
   // distinguishes an intentional drag from a click, and the click-capture
   // handler below swallows the click that would otherwise fire on mouseup
   // after a drag (e.g. opening a card you only meant to scroll past).
-  const boardScrollRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef({ down: false, moved: false, startX: 0, scrollLeft: 0 });
 
   const onBoardPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
