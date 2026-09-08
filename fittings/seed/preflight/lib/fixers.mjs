@@ -7,6 +7,7 @@ import path from "node:path";
 import { parse as parseYaml } from "yaml";
 import { findRepoRoot, GARRISON_HOME } from "./collect.mjs";
 import { dataDir } from "./ledger.mjs";
+import { BoardClient } from "./board-client.mjs";
 import { RETIRED_SEED_IDS } from "./preflight-core.mjs";
 import { appUrl } from "./app-client.mjs";
 
@@ -19,7 +20,8 @@ const ACTION_KEYS = {
   "unstation-fitting": ["compositionId", "fittingId"],
   "library-add-entry": ["fittingId"],
   "library-remove-entry": ["entryId"],
-  "git-commit-library": ["diffHash"]
+  "git-commit-library": ["diffHash"],
+  "file-card": ["check", "id"]
 };
 
 export function execOk(cmd, args, opts = {}) {
@@ -89,6 +91,9 @@ function validParams(actionId, params) {
   if (Object.keys(params).some((key) => !keys.includes(key)) || keys.some((key) => !Object.hasOwn(params, key))) return false;
   if (actionId === "tailscale-serve-map") return Number.isInteger(params.port) && params.port > 0 && params.port < 65536;
   if (actionId === "git-commit-library") return typeof params.diffHash === "string" && /^[a-f0-9]{64}$/.test(params.diffHash);
+  // A finding id carries composition:fitting pairs and port literals, so it is
+  // looser than ID_RE — but still a shape, never free text from the UI.
+  if (actionId === "file-card") return ["check", "id"].every((k) => typeof params[k] === "string" && /^[\w][\w.:-]{0,199}$/.test(params[k]));
   return keys.every((key) => typeof params[key] === "string" && ID_RE.test(params[key]));
 }
 
@@ -136,6 +141,7 @@ export function createFixRunner({
   env = process.env,
   exec = execOk,
   fetchImpl = fetch,
+  board = null,
   // ledger stays off: revalidation measures fresh reality, it does not record history.
   getReport = async () => (await import("./report.mjs")).buildReport({ startDir: suppliedRoot, ledger: "off" })
 } = {}) {
@@ -146,7 +152,10 @@ export function createFixRunner({
     try {
       const root = suppliedRoot || findRepoRoot(process.cwd());
       if (!root) throw new Error("Garrison repo root not found");
-      if (actionId !== "git-commit-library") {
+      // git-commit-library and file-card are operator actions ABOUT the report
+      // rather than a finding's own offered repair, and each revalidates in its
+      // own terms below.
+      if (!["git-commit-library", "file-card"].includes(actionId)) {
         const report = await getReport();
         const current = report?.findings?.some((finding) => finding.action?.id === actionId && canonical(finding.action.params) === canonical(params));
         if (!current) throw new Error("This finding has changed or no longer needs repair; refresh the report");
@@ -216,6 +225,29 @@ export function createFixRunner({
           if (await exists(path.join(root, "fittings", "seed", match[1]))) throw new Error("The seed directory exists; refresh and inspect its manifest instead");
           await saveLibrary(snapshot, snapshot.entries.filter((item) => item.id !== params.entryId));
           result = { ok: true, detail: `Removed missing seed ${params.entryId}; review the full library diff before committing` };
+          break;
+        }
+        case "file-card": {
+          // The card's text is rendered HERE from the live report's matching
+          // finding: the revalidation above already proved it exists, and no
+          // free text crosses from the browser.
+          if (String(env.GARRISON_PREFLIGHT_FILE_CARDS ?? "").trim().toLowerCase() !== "true") {
+            throw new Error("Filing cards is off; set the file_cards config key to enable it");
+          }
+          const report = await getReport();
+          const finding = report?.findings?.find((f) => f.check === params.check && f.id === params.id);
+          if (!finding) throw new Error("This finding is gone; refresh the report");
+          const client = board || new BoardClient({ env, fetchImpl });
+          const originId = `preflight:${params.check}:${params.id}`;
+          const existing = await client.findByOriginId(originId);
+          if (existing.length) throw new Error(`Already filed as card ${existing[0]?.id ?? "(unknown)"}`);
+          const card = await client.createCard({
+            title: `preflight: ${params.check} — ${params.id}`,
+            description: [finding.detail, finding.fix ? `\nfix: ${finding.fix}` : ""].join("\n").trim(),
+            targetList: "backlog",
+            origin_id: originId
+          });
+          result = { ok: true, detail: `Filed as card ${card?.id ?? "(created)"} in backlog` };
           break;
         }
         case "git-commit-library": {

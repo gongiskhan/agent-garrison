@@ -4,7 +4,7 @@ One page (own port, default 8076) + CLI that answers **"why won't my
 composition come up, and what is silently broken?"** — before `up()` runs,
 instead of one failure at a time across repeated failed launches.
 
-## The seven checks, and the incident behind each
+## The nine checks, and the incident behind each
 
 | # | Check | The incident it prevents |
 |---|-------|--------------------------|
@@ -89,6 +89,19 @@ verify also runs while this fitting is already listening (any restart), a taken
 port is only a failure when the holder is not us — proven by `/health` returning
 a pid that matches `~/.garrison/ui-fittings/preflight.json`. A health responder
 whose pid does not match the record is refused rather than assumed.
+
+## Filing a finding as a card (off by default)
+
+Set the `file_cards` config key to offer a **File as card** button on failures
+that carry no mechanical repair, so it never competes with a "Fix it" that
+would actually solve the problem. Off by default on purpose: a doctor whose
+value is working when everything else is down must not acquire a mandatory
+dependency on another fitting.
+
+Cards go to `backlog` — the only active manual list the board accepts direct
+creation into — keyed `preflight:<check>:<id>` so the same finding is filed
+once. The dedupe probe **throws** rather than reading a transient failure as
+"no card exists", because that would file a duplicate on every report.
 
 ## CLI
 

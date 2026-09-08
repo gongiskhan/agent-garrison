@@ -211,6 +211,9 @@ export async function buildReport({ startDir = FITTING_DIR, checks = null, colle
     appUp,
     root,
     activeComposition: activeCompositionId,
+    // Off unless the composition turns it on; the UI only offers the button
+    // when the board is actually a dependency this node accepted.
+    fileCards: String(process.env.GARRISON_PREFLIGHT_FILE_CARDS ?? "").trim().toLowerCase() === "true",
     compositions: compositions.map((x) => x.compositionId),
     sweepableCompositions: records.filter((r) => ["idle", "failed"].includes(r.runnerState?.status)).map((r) => r.compositionId),
     // What the doctor DID, newest first — so a fixed row that vanishes from
