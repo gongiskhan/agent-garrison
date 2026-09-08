@@ -28,16 +28,18 @@ it.each(["chromium", "webkit"])("makes recent native sessions directly visible o
     const requests: string[] = [];
     let releaseInitial: (() => void) | undefined;
     let initialFinished = false;
+    const launches: any[] = [];
     const now = new Date().toISOString();
     const threads = Array.from({ length: 80 }, (_, i) => ({ id: `conversation-${i}`, conversationId: `conversation-${i}`, title: `Conversation ${i}`, source: "chat", messages: [], messageCount: 0 }));
     const rows = [["pro", "claude"], ["mini", "claude"], ["mini", "cursor"], ["csg", "cursor"]].map(([node, runtime]) => ({
       id: `${node}-${runtime}`, node, runtime, kind: runtime === "cursor" ? "desktop" : "cli", title: `${node} ${runtime}`,
       status: "working", statusSource: "hooks", nodeStatus: "active", startedAt: now, lastActivityAt: now,
-      resumable: false, attachable: false, transcript: { format: "claude-jsonl", path: "/fixture/output.jsonl" },
+      cwd:"/projects/client",shellOrigin:"http://talk.test",resumable: false, attachable: false, transcript: { format: "claude-jsonl", path: "/fixture/output.jsonl" },
     }));
     await page.route("http://talk.test/**", async route => {
       const url = new URL(route.request().url());
       requests.push(`${route.request().method()} ${url.pathname}${url.search}`);
+      if (url.pathname === "/sessions" && route.request().method() === "POST") { launches.push(route.request().postDataJSON()); return route.fulfill({status:502,json:{error:"Owner shell test failure"}}); }
       if (url.pathname === "/") return route.fulfill({ contentType: "text/html", body: '<meta name="viewport" content="width=device-width, initial-scale=1"><div class="talk-host" style="height:100dvh"><div id="root" style="height:100%"></div></div>' });
       if (url.pathname === '/api/threads/conversation-0' && !initialFinished) {
         await new Promise<void>(resolve => { releaseInitial = resolve; });
@@ -111,6 +113,11 @@ it.each(["chromium", "webkit"])("makes recent native sessions directly visible o
     expect(requests.some(url => url === "POST /api/remote-shell/sessions")).toBe(false);
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
     expect(await page.locator(".wc-main .cc-composer").count()).toBe(0);
+    await page.getByTestId("sess-open-shell").tap();
+    await expect.poll(()=>launches.length).toBe(1);
+    expect(launches[0]).toMatchObject({runtime:"shell",transport:"local",cwd:"/projects/client",attach:false,allocate:true});
+    expect(launches[0]).not.toHaveProperty("resume");
+    await expect.poll(()=>page.locator(".wc-session-warning").textContent()).toContain("Owner shell test failure");
   } finally { await context.close(); if (engine === "webkit") await phoneBrowser.close(); }
 }, 45_000);
 

@@ -68,7 +68,8 @@ describe("peer proxy allow-list", () => {
   it("every allowed path is described, and the description is the table", () => {
     // A cheap tripwire on the thing that must never grow by accident: if a row
     // is added to ALLOW, this count changes and the diff is visible in review.
-    expect(allowListDescription()).toHaveLength(11);
+    expect(allowListDescription()).toContain("GET session-usage/:id");
+    expect(allowListDescription()).toHaveLength(12);
   });
 
   // These are the paths a generic passthrough WOULD have exposed. The web

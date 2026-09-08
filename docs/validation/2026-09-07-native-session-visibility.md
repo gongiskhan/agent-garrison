@@ -133,3 +133,46 @@ actually contains that session identity. Existing tmux-server environment cannot
 override that choice. Dev/codex sandboxes keep their isolated profiles. The first
 temporary shell was removed without sending a model prompt. A follow-up also
 restores action-button contrast and compacts the native header on phones.
+
+
+## Mobile shells, owner connectivity and account usage — 2026-09-08
+
+Native sessions with a known project folder now offer **Open shell**, including
+busy or non-resumable Cursor IDE sessions. This opens a plain terminal on the
+same node in that folder; it does not start a second agent or inject a prompt into
+the existing IDE. Resume and attach remain explicit. Launch failures are visible
+inside the selected native session, and stalled launches time out. Owned shells
+render the real xterm on phones and keep the existing input composer.
+
+A bounded owner-only session-status endpoint checks reachability without recursive
+mesh aggregation. Published rows remain available during failures, but failed
+owner reads immediately remove running claims. The rail grays disconnected native,
+Garrison and owned-shell rows, including aggregate indicators. Failure warnings
+stay within the selected session; successful polling restores the same identities.
+Failed mesh/thread-list requests also retain rows without stale running indicators.
+
+The compact Usage disclosure performs lazy, owner-routed reads. Claude uses the
+existing minimal one-token header probe with the machine's native credential
+(file or macOS Keychain), plus explicitly labelled cached Garrison account limits.
+Codex uses the documented read-only app-server account API without creating a
+thread; all returned limit buckets are shown. See the
+[OpenAI app-server account protocol](https://learn.chatgpt.com/docs/app-server).
+Credentials and reset-credit controls are never returned. Reads are bounded,
+deduplicated and cached for five minutes; failed refreshes keep prior numbers
+marked stale. These are account-wide observations, not costs attributed to an
+individual session or proof that an old session used today's machine login.
+
+Cursor's local account email/plan are read through an explicit SQLite key allow-list.
+No reliable quota fields were available in the inspected desktop state; the UI
+says so and links to the authenticated Cursor usage dashboard. No client account,
+IDE project or Cursor prompt was changed. A CSG Windows database read through WSL
+returned an I/O error; it remains an unavailable account observation, not zero usage.
+
+TypeScript passed. Focused checks cover full TalkApp Chromium/WebKit phone actions,
+plain-shell launch payloads and owner failures, actual xterm rendering and input,
+connection failure/recovery across all rail types, usage lazy loading while typing,
+malformed/null multi-bucket usage, credential redaction, read-only proxy scope and
+app-server termination. Live Pro probes returned Claude five-hour/weekly and Codex
+multi-bucket limits. Deployment and live browser evidence are recorded separately
+in shared Garrison Node Operations. These browser checks do not substitute for the
+operator's physical iOS build 35 acceptance.

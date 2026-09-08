@@ -2720,3 +2720,27 @@
   .talk-host .cc-conv-head:has(.wc-conversation-stop) .cc-conv-search { flex-basis: 36%; }
   .talk-host .wc-conversation-error { position: absolute; top: 100%; left: 12px; right: 12px; max-width: none; padding: 10px; z-index: 10; background: #fff0eb; border: 1px solid #9b362d; }
 }
+
+/* Connection failures stay beside the affected session, not over the rail. */
+.wc-session-warning { padding: 8px 12px; font-size: 12px; color: var(--wc-ink-muted, #676b61); background: var(--wc-paper, #f4f1e8); border-bottom: 1px solid #81878255; flex-shrink: 0; }
+.wc-session-warning button { margin-left: 8px; padding: 4px 8px; font: inherit; }
+.wc-sess-actions { flex-wrap: wrap; }
+.wc-usage { position: relative; flex-shrink: 0; font: 12px/1.5 sans-serif; color: #e6e6dc; text-transform: none; letter-spacing: normal; }
+.wc-usage summary { cursor: pointer; list-style: none; border: 1px solid #81878277; border-radius: 4px; padding: 6px 10px; }
+.wc-usage summary::-webkit-details-marker { display: none; }
+.wc-usage summary:focus-visible { outline: 2px solid #b6a35c; outline-offset: 2px; }
+.wc-sess-actions .wc-usage, .wc-conversation-usage .wc-usage { color: #343c30; }
+.wc-usage-panel { position: absolute; top: calc(100% + 6px); right: 0; z-index: 90; width: 320px; max-height: 65dvh; overflow: auto; padding: 14px; background: #f4f1e8; color: #283124; border: 1px solid #818782; border-radius: 6px; box-shadow: 0 6px 20px #0004; text-align: left; }
+.wc-usage-panel section { border-top: 1px solid #81878255; margin-top: 12px; padding-top: 10px; }
+.wc-usage-panel p { margin: 8px 0; }
+.wc-usage-panel small, .wc-usage-scope { display: block; color: #676b61; overflow-wrap: anywhere; }
+.wc-usage-panel a { display: inline-block; margin: 4px 0 8px; text-decoration: underline; color: #405e32; }
+.wc-usage-stale { color: #93642c; }
+.wc-usage-window { display: grid; grid-template-columns: 1fr auto; gap: 3px 8px; margin: 8px 0; }
+.wc-usage-window progress, .wc-usage-window small { grid-column: 1 / -1; width: 100%; accent-color: #718153; }
+.wc-conversation-usage { display: flex; justify-content: flex-end; padding: 3px 10px; flex-shrink: 0; }
+@media (max-width: 640px) {
+  .wc-usage summary, .wc-sess-actions .wc-wb-reattach { min-height: 44px; display: flex; align-items: center; justify-content: center; box-sizing: border-box; }
+  .wc-usage-panel { position: fixed; top: 112px; left: 12px; right: 12px; width: auto; max-height: calc(100dvh - 150px); }
+  .wc-wb--shell .wc-wb-head .wc-usage { grid-column: auto; }
+}

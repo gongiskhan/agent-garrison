@@ -23,7 +23,7 @@
 
 import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { meshThreads } from "./mesh-threads.mjs";
-import { localSessionForStream, meshSessions } from "./mesh-sessions.mjs";
+import { localSessionForStream, localSessionsStatus, meshSessions } from "./mesh-sessions.mjs";
 import { readCursorDesktopTranscript } from "./cursor-desktop-transcript.mjs";
 import { parseByFormat } from "./transcript-formats.mjs";
 import { gatewayCancelForwarder, gatewayMessageForwarder, handleConversationRequest } from "@garrison/claude-pty";
@@ -2864,6 +2864,7 @@ async function handleThreadRename(req, res, id) {
 // Returns true
 // when it handled the request.
 function routeSessions(req, res, pathname, method, log = console) {
+  if (pathname === "/api/sessions/status" && method === "GET") { settle(res, localSessionsStatus().then(body => jsonRes(res, 200, body)), log); return true; }
   if (pathname === "/api/sessions" && method === "GET") { settle(res, handleSessionsList(res), log); return true; }
   const m = pathname.match(/^\/api\/sessions\/([^/]+)\/stream$/);
   if (m && method === "GET") {

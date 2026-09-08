@@ -6,6 +6,8 @@
 import React, { useState } from "react";
 import { SessionStream } from "@garrison/claude-chat";
 import { NativeTerminal } from "./native-terminal";
+import { DISCONNECTED_COLOR, sessionDisconnected, sessionRunning, disconnectedMessage } from "./session-connection";
+import { SessionUsage } from "./session-usage";
 import type { RailSession } from "./sessions-rail";
 
 const RUNTIME_LABEL: Record<string, string> = { claude: "Claude Code", codex: "Codex", cursor: "Cursor", gemini: "Gemini CLI", shell: "Shell" };
@@ -14,6 +16,10 @@ export function ExternalSessionView({
   row,
   streamUrl,
   onContinue,
+  onOpenShell,
+  onRetry,
+  error,
+  usageBase,
   onCopyResume,
   onClose,
   busy = false,
@@ -23,34 +29,42 @@ export function ExternalSessionView({
    *  by the caller, which knows whether `row` is local or a peer's. */
   streamUrl: string | null;
   onContinue?: () => void;
+  onOpenShell?: () => void;
+  onRetry?: () => void;
+  error?: string | null;
+  usageBase?: string;
   onCopyResume?: () => void;
   onClose?: () => void;
   busy?: boolean;
 }) {
   const [plainOutput, setPlainOutput] = useState(false);
+  const disconnected = sessionDisconnected(row);
+  const running = sessionRunning(row);
   const subline = row.kind === "desktop"
     ? `${RUNTIME_LABEL[row.runtime] ?? row.runtime} desktop · ${row.project ?? row.cwd ?? row.node}`
     : row.status === "ended"
       ? `Recent shell session on ${row.node}`
-      : `${row.status === "working" ? "Working" : "Shell session"} on ${row.node}`;
+      : `${running ? "Working" : "Shell session"} on ${row.node}`;
 
   return (
     <div className="wc-sess" data-testid="sess-view">
       <div className="wc-wb-head" data-testid="sess-head">
-        <span className={`wc-wb-lamp wc-wb-lamp--${row.status === "working" ? "running" : row.status === "ended" ? "offline" : "idle"}`} aria-hidden />
+        <span className={`wc-wb-lamp wc-wb-lamp--${disconnected ? "offline" : running ? "running" : row.status === "ended" ? "offline" : "idle"}`} aria-hidden />
         <span className="wc-thread-src wc-thread-rt">{RUNTIME_LABEL[row.runtime] ?? row.runtime}</span>
-        <span className="wc-thread-node" style={{ ["--node-accent" as never]: row.nodeAccent || "#6a746b" }}>{row.node}</span>
+        <span className="wc-thread-node" style={{ ["--node-accent" as never]: disconnected ? DISCONNECTED_COLOR : row.nodeAccent || "#6a746b" }}>{row.node}</span>
         {row.project && <span className="wc-thread-proj">{row.project}</span>}
         <span className="wc-wb-title">{row.title || row.cwd || row.id}</span>
         <span className="wc-wb-sub">{subline}</span>
         {onClose && <button type="button" className="wc-wb-reattach" data-testid="sess-close" onClick={onClose}>Close</button>}
       </div>
       <div className="wc-sess-actions">
+        {onOpenShell && <button type="button" className="wc-wb-reattach" data-testid="sess-open-shell" disabled={busy || disconnected} onClick={onOpenShell} title="Open a terminal in this session’s folder">Open shell</button>}
+        {usageBase && <SessionUsage base={usageBase} runtime={row.runtime} node={row.node} disconnected={disconnected} />}
         {streamUrl && <button type="button" className="wc-wb-reattach" aria-pressed={plainOutput} onClick={() => setPlainOutput(v => !v)}>
           {plainOutput ? "Conversation view" : "Plain output"}
         </button>}
         {onContinue && (row.resumable || row.attachable) && (
-          <button type="button" className="wc-wb-reattach" data-testid={row.kind === "bg" ? "sess-attach" : "sess-continue"} disabled={busy || (row.status === "working" && !row.attachable)} title={row.status === "working" && !row.attachable ? "The original client is still running this session" : undefined} onClick={onContinue}>
+          <button type="button" className="wc-wb-reattach" data-testid={row.kind === "bg" ? "sess-attach" : "sess-continue"} disabled={busy || disconnected || (running && !row.attachable)} title={running && !row.attachable ? "The original client is still running this session" : undefined} onClick={onContinue}>
             {busy ? "Starting…" : row.kind === "bg" ? "Attach" : "Continue in a shell"}
           </button>
         )}
@@ -60,11 +74,12 @@ export function ExternalSessionView({
           </button>
         )}
       </div>
+      {(disconnected || error) && <div className="wc-session-warning" role="status">{disconnected ? disconnectedMessage(row.node) : error} {onRetry && <button type="button" onClick={onRetry}>Retry connection</button>}</div>}
       <div className="wc-sess-body" data-testid="sess-transcript">
         {streamUrl ? (
           plainOutput ? <NativeTerminal streamUrl={streamUrl} /> : (
             <div className="wc-sess-conversation" data-testid="native-conversation-view">
-              <SessionStream url={streamUrl} reconnect live={row.status === "working"} title="Session output" />
+              <SessionStream url={streamUrl} reconnect live={running} title="Session output" />
             </div>
           )
         ) : (

@@ -55,6 +55,7 @@ interface AllowRule {
 // Exactly the endpoints cross-node watch / steer / stop / answer need. Adding a
 // row here widens what every node in the mesh may do to every other node.
 const ALLOW: readonly AllowRule[] = [
+  { shape: ["session-usage", ID], methods: ["GET"], upstream: "app" },
   { shape: ["threads"], methods: ["GET"], upstream: "app" },
   { shape: ["threads", ID], methods: ["GET"], upstream: "app" },
   { shape: ["threads", ID, "live"], methods: ["GET"], upstream: "app", sse: true },

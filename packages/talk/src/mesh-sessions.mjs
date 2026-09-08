@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { createStateClient } from "@garrison/state-client";
 import { listThreads } from "./threads.mjs";
+import { peerThreadsOrigin } from "./mesh-threads.mjs";
 
 const LOCAL_CACHE_MS = 2000;
 const PEER_CACHE_MS = 5000;
@@ -102,6 +103,29 @@ async function fetchLocalIndex(fetchImpl = fetch) {
 }
 
 const peerCache = new Map(); // node -> {at, body}
+const livePeerCache = new Map();
+async function peerConnection(peer, fetchImpl) {
+  const cached = livePeerCache.get(peer.name);
+  if (cached && Date.now() - cached.at < PEER_CACHE_MS) return cached.result;
+  const origin = peerThreadsOrigin(peer);
+  let connected = false;
+  if (origin) {
+    try {
+      const response = await fetchImpl(`${origin}/api/sessions/status`, { signal: AbortSignal.timeout(5000), redirect: "error" });
+      connected = response.ok && (await response.json()).available === true;
+      if (!response.ok) await response.body?.cancel();
+    } catch { /* Retain rows, but never claim that cached work is live. */ }
+  }
+  const result = { connection: connected ? "connected" : "disconnected", lastConnectedAt: connected ? new Date().toISOString() : cached?.result.lastConnectedAt ?? null };
+  livePeerCache.set(peer.name, { at: Date.now(), result });
+  return result;
+}
+
+/** Cheap owner-only status. Never recursively aggregates the mesh. */
+export async function localSessionsStatus({ fetchImpl = fetch } = {}) {
+  const local = await fetchLocalIndex(fetchImpl);
+  return { available: local.available, lastConnectedAt: local.lastSuccessAt ? new Date(local.lastSuccessAt).toISOString() : null };
+}
 async function fetchPeerIndex(c, node) {
   const cached = peerCache.get(node);
   const now = Date.now();
@@ -119,8 +143,8 @@ async function fetchPeerIndex(c, node) {
 const VALID_STATUS = new Set(["working", "idle", "ended", "unknown"]);
 let registryCache = [];
 
-function withSnapshotStatus(row, snapshotAt) {
-  const stale = !Number.isFinite(snapshotAt) || Date.now() - snapshotAt > SNAPSHOT_STALE_MS;
+function withSnapshotStatus(row, snapshotAt, disconnected = false) {
+  const stale = disconnected || !Number.isFinite(snapshotAt) || Date.now() - snapshotAt > SNAPSHOT_STALE_MS;
   return stale && row.status === "working"
     ? { ...row, status: "unknown", statusSource: "stale-node" }
     : row;
@@ -181,12 +205,13 @@ export async function meshSessions({ limitEndedPerNode = DEFAULT_ENDED_CAP_PER_N
   const localRows = (localBody?.rows ?? [])
     .map((r) => normalizeRow(r, self.node))
     .filter(Boolean)
-    .map((r) => ({ ...withSnapshotStatus(r, localSnapshotAt), nodeAccent: self.accentColor, nodeStatus: "active", shellOrigin: null }));
+    .map((r) => ({ ...withSnapshotStatus(r, localSnapshotAt, !local.available), nodeAccent: self.accentColor, nodeStatus: "active", connection: local.available ? "connected" : "disconnected", shellOrigin: null }));
 
   const nodes = [{
     node: self.node,
     accentColor: self.accentColor,
     status: "active",
+    connection: local.available ? "connected" : "disconnected",
     lastSeenAt: null,
     shellOrigin: localBody?.shellOrigin?.public ?? null
   }];
@@ -200,11 +225,12 @@ export async function meshSessions({ limitEndedPerNode = DEFAULT_ENDED_CAP_PER_N
     } catch { /* Failed discovery does not remove previously known owners. */ }
     await Promise.all(registry.map(async (peer) => {
       if (peer.name === self.node) return;
-      const body = await fetchPeerIndex(c, peer.name);
+      const [body, connection] = await Promise.all([fetchPeerIndex(c, peer.name), peerConnection(peer, fetchImpl)]);
       nodes.push({
         node: peer.name,
         accentColor: resolveAccent(peer.accentColor) ?? peer.accentColor ?? null,
         status: peer.status ?? "unknown",
+        ...connection,
         lastSeenAt: peer.lastSeenAt ?? null,
         shellOrigin: body?.shellOrigin?.public ?? null
       });
@@ -212,7 +238,8 @@ export async function meshSessions({ limitEndedPerNode = DEFAULT_ENDED_CAP_PER_N
         .map((r) => normalizeRow(r, peer.name))
         .filter(Boolean)
         .map((r) => ({
-          ...withSnapshotStatus(r, Date.parse(body?.updatedAt)),
+          ...withSnapshotStatus(r, Date.parse(body?.updatedAt), connection.connection === "disconnected"),
+          ...connection,
           nodeAccent: resolveAccent(peer.accentColor) ?? peer.accentColor ?? null,
           nodeStatus: peer.status ?? "unknown",
           shellOrigin: body?.shellOrigin?.public ?? null
@@ -273,6 +300,7 @@ export async function meshSessions({ limitEndedPerNode = DEFAULT_ENDED_CAP_PER_N
 export function _resetCachesForTests() {
   localCache = { at: 0, body: null, available: false, lastSuccessAt: 0 };
   peerCache.clear();
+  livePeerCache.clear();
   registryCache = [];
   cachedClient = undefined;
   clientFailed = false;

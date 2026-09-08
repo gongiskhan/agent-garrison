@@ -14,14 +14,17 @@
 //  - "+ New"      picker: this node, any mesh peer, or a remote shell
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DISCONNECTED_COLOR, sessionDisconnected, sessionRunning } from "./session-connection";
 
 export interface RailThread {
+  connection?: string;
   id: string;
   title: string;
   source: string;
   updatedAt: string | null;
   runningSince?: string | null;
   pendingInputCount?: number;
+  shell?: { node?: string } | null;
   remoteShell?: {
     transport: string;
     target?: string;
@@ -46,6 +49,7 @@ export interface RailMeshNode {
   node: string;
   accentColor: string | null;
   status: string;
+  connection?: string;
   openBase?: string | null;
   threads: RailMeshThread[];
 }
@@ -73,6 +77,7 @@ export interface RailSession {
   node: string;
   nodeAccent: string | null;
   nodeStatus: string;
+  connection?: string;
   shellOrigin: string | null;
   runtime: string;
   kind: "shell" | "cli" | "desktop" | "bg";
@@ -389,11 +394,12 @@ export function SessionsRail(props: {
   onSelectSession?: (row: RailSession) => void;
   onOpenNewShell?: () => void;
   onClose?: () => void;
+  nodeConnections?: Record<string, string>;
 }) {
   const {
     threads, pinnedId = null, meshNodes, self, transports, activeId,
     listOpen, onToggleList, onSelect, onNewLocal, onOpenRemote, onOpenRemoteShell, onDeleteLocal, onRenameLocal,
-    onOpenShells, sessions = [], activeSessionId = null, onSelectSession, onOpenNewShell, onClose
+    onOpenShells, sessions = [], activeSessionId = null, onSelectSession, onOpenNewShell, onClose, nodeConnections = {}
   } = props;
   const [query, setQuery] = useState("");
   const [sessionFilter, setSessionFilter] = useState<"all" | "shells">("all");
@@ -493,22 +499,26 @@ export function SessionsRail(props: {
 
   // ── Unified rows ──
   const rows = useMemo<Row[]>(() => {
-    const local = threads.map((t): Row => ({
+    const local = threads.map((t): Row => {
+      const owner = t.shell?.node || (t.remoteShell?.transport && nodeConnections[t.remoteShell.transport] ? t.remoteShell.transport : self.node) || "";
+      const disconnected = t.connection === "disconnected" || nodeConnections[owner] === "disconnected";
+      return {
       key: `local:${t.id}`,
       kind: "local",
       id: t.id,
       title: t.title || "New conversation",
       nodeName: shortNode(self.node) || null,
-      accent: self.accentColor,
+      accent: disconnected ? DISCONNECTED_COLOR : self.accentColor,
       activity: t.updatedAt,
-      running: Boolean(t.runningSince) || t.remoteShell?.state === "running",
+      running: !disconnected && (Boolean(t.runningSince) || t.remoteShell?.state === "running"),
       queued: t.pendingInputCount ?? 0,
       // A shell row's useful chip is the MACHINE it runs on: every one of them
       // would otherwise read "remote-shell", which distinguishes nothing.
       source: t.remoteShell?.transport ?? (t.source && t.source !== "chat" ? t.source : null),
       openUrl: null,
       ...(pinnedId && t.id === pinnedId ? { pinned: true } : {})
-    }));
+      };
+    });
     const remote = meshNodes.flatMap((n) =>
       n.threads.map((t): Row => ({
         key: `${n.node}:${t.id}`,
@@ -516,16 +526,16 @@ export function SessionsRail(props: {
         id: t.id,
         title: t.title || "New conversation",
         nodeName: shortNode(n.node),
-        accent: n.accentColor,
+        accent: n.connection === "disconnected" || nodeConnections[n.node] === "disconnected" ? DISCONNECTED_COLOR : n.accentColor,
         activity: t.lastMessageAt,
-        running: Boolean(t.runningSince),
+        running: n.connection !== "disconnected" && nodeConnections[n.node] !== "disconnected" && Boolean(t.runningSince),
         queued: 0,
         source: t.source && t.source !== "chat" ? t.source : null,
         openUrl: t.openUrl
       }))
     );
     return [...local, ...remote];
-  }, [threads, meshNodes, self, pinnedId]);
+  }, [threads, meshNodes, self, pinnedId, nodeConnections]);
   const pinnedRow = useMemo(() => rows.find((r) => r.pinned) ?? null, [rows]);
 
   const rowByKey = useMemo(() => new Map(rows.map((r) => [r.key, r])), [rows]);
@@ -856,7 +866,8 @@ export function SessionsRail(props: {
     if (s.kind === "desktop") meta.push(<span key="k" className="wc-thread-src">desktop</span>);
     if (s.kind === "bg") meta.push(<span key="k" className="wc-thread-src">bg</span>);
     if (s.project) meta.push(<span key="p" className="wc-thread-proj" title={s.cwd ?? undefined}>{s.project}</span>);
-    if (s.status === "working") meta.push(<span key="s" className="wc-thread-src wc-thread-working-label">Working</span>);
+    if (sessionDisconnected(s)) meta.push(<span key="s" className="wc-thread-src">Offline</span>);
+    else if (sessionRunning(s)) meta.push(<span key="s" className="wc-thread-src wc-thread-working-label">Working</span>);
     else if (s.status === "idle") meta.push(<span key="s" className="wc-thread-src">Idle</span>);
     else if (s.status === "ended") meta.push(<span key="s" className="wc-thread-src">Ended</span>);
     const when = fmtWhen(s.lastActivityAt);
@@ -866,9 +877,9 @@ export function SessionsRail(props: {
         key={`session:${s.node}:${s.id}`}
         data-testid="rail-row"
         data-key={`session:${s.node}:${s.id}`}
-        className={["wc-thread", "wc-thread--session", isActive ? "wc-thread--active" : "", s.status === "working" ? "wc-thread--working" : "", s.status === "ended" ? "wc-thread--ended" : ""].filter(Boolean).join(" ")}
+        className={["wc-thread", "wc-thread--session", isActive ? "wc-thread--active" : "", sessionRunning(s) ? "wc-thread--working" : "", s.status === "ended" ? "wc-thread--ended" : ""].filter(Boolean).join(" ")}
       >
-        {s.status === "working" ? <span className="wc-thread-spinner" role="status" aria-label="Running" title="Running" /> : <span className="wc-row-dot" style={{ background: s.nodeAccent || "#6a746b" }} aria-hidden />}
+        {sessionRunning(s) ? <span className="wc-thread-spinner" role="status" aria-label="Running" title="Running" /> : <span className="wc-row-dot" style={{ background: sessionDisconnected(s) ? DISCONNECTED_COLOR : s.nodeAccent || "#6a746b" }} title={sessionDisconnected(s) ? "Disconnected" : undefined} aria-hidden />}
         <button type="button" className="wc-thread-open" onClick={() => onSelectSession?.(s)} title={s.title ?? s.id}>
           <span className="wc-thread-main">
             <span className="wc-thread-title">{s.title || s.cwd || s.id}</span>
@@ -963,7 +974,7 @@ export function SessionsRail(props: {
           setSessionFilter("all"); scrollRef.current?.scrollTo({ top: 0 });
         }}>All</button>
         <button type="button" data-testid="rail-filter-shells" aria-pressed={sessionFilter === "shells"} onClick={showShellSessions}>
-          {sessions.some(s => s.status === "working") && <span className="wc-thread-spinner" role="status" aria-label="Running shell sessions" />}
+          {sessions.some(s => sessionRunning(s)) && <span className="wc-thread-spinner" role="status" aria-label="Running shell sessions" />}
           <span>Shell sessions</span><span className="wc-group-count">{sessions.length}</span>
         </button>
       </div>
@@ -1071,7 +1082,7 @@ export function SessionsRail(props: {
                 <path d="M2.5 3.5 5 6l2.5-2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
               </svg>
               <span className="wc-group-name" title="Shell sessions active in the last 5 days">Shell sessions · 5 days</span>
-              {filteredSessions.some(s => s.status === "working") && <span className="wc-thread-spinner" role="status" aria-label="Running in shell sessions" />}
+              {filteredSessions.some(s => sessionRunning(s)) && <span className="wc-thread-spinner" role="status" aria-label="Running in shell sessions" />}
               <span className="wc-group-count">{sessionsByNode.reduce((n, [, l]) => n + l.length, 0)}</span>
             </button>
             {!sessionsCollapsed && sessionsByNode.map(([node, list]) => {
@@ -1084,9 +1095,9 @@ export function SessionsRail(props: {
                     <svg className={`wc-group-chev${collapsed ? " wc-group-chev--closed" : ""}`} width="9" height="9" viewBox="0 0 10 10" aria-hidden="true">
                       <path d="M2.5 3.5 5 6l2.5-2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
                     </svg>
-                    <span className="wc-row-dot" style={{ background: list[0]?.nodeAccent || "#6a746b" }} aria-hidden />
+                    <span className="wc-row-dot" style={{ background: list[0] && sessionDisconnected(list[0]) ? DISCONNECTED_COLOR : list[0]?.nodeAccent || "#6a746b" }} aria-hidden />
                     {shortNode(node) || node}
-                    {shown.some(s => s.status === "working") && <span className="wc-thread-spinner" role="status" aria-label={`Running on ${shortNode(node) || node}`} />}
+                    {shown.some(s => sessionRunning(s)) && <span className="wc-thread-spinner" role="status" aria-label={`Running on ${shortNode(node) || node}`} />}
                     <span className="wc-group-count">{shown.length}</span>
                   </button>
                   {!collapsed && shown.map(renderSessionRow)}

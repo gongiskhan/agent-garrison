@@ -42,6 +42,10 @@ beforeEach(async () => {
     const previous = await harness.client.getConfig("shells.sessions", `node:${node}`);
     if (previous) await harness.client.putConfig("shells.sessions", `node:${node}`, { rows: [] }, { ifMatchRev: previous.rev });
   }
+  const originalListNodes = StateClient.prototype.listNodes;
+  vi.spyOn(StateClient.prototype, "listNodes").mockImplementation(async function(this: StateClient) {
+    return (await originalListNodes.call(this)).map(node => node.name === "peer-node" ? {...node, tailnetHost:"peer.test"} : node);
+  });
   _resetCachesForTests();
 });
 
@@ -57,7 +61,7 @@ afterEach(async () => {
 const NOW = new Date().toISOString();
 
 function fakeFetchWithBody(body: unknown) {
-  return async () => ({ ok: true, json: async () => body });
+  return async (url: string) => ({ ok: true, json: async () => url.endsWith("/api/sessions/status") ? {available:true} : body });
 }
 
 function nativeSnapshot(id: string, at: number) {
@@ -77,9 +81,9 @@ describe("meshSessions", () => {
       signal.addEventListener("abort", () => reject(signal.reason), { once: true });
     }));
     const result = await meshSessions({ fetchImpl: slowFetch });
-    expect(result.rows).toEqual([expect.objectContaining({ id: "slow-owner-session", node: "self-node", status: "working", shellOrigin: null })]);
+    expect(result.rows).toEqual([expect.objectContaining({ id: "slow-owner-session", node: "self-node", status: "unknown", connection: "disconnected", shellOrigin: null })]);
     expect(result.nodes.filter((node: { node: string }) => node.node === "self-node")).toHaveLength(1);
-    expect(slowFetch).toHaveBeenCalledOnce();
+    expect(slowFetch).toHaveBeenCalledTimes(2);
   });
 
   it("retains local sessions after failed refreshes, expires original activity, and honors recovery and empty reads", async () => {
@@ -88,7 +92,7 @@ describe("meshSessions", () => {
     const initial = nativeSnapshot("local-retained", started);
     expect((await meshSessions({ fetchImpl: fakeFetchWithBody(initial) })).rows[0].status).toBe("working");
 
-    clock.mockReturnValue(started + 95_000);
+    clock.mockReturnValue(started + 5_001);
     const failedFetch = async () => { throw new Error("owner temporarily unavailable"); };
     const stale = await meshSessions({ fetchImpl: failedFetch });
     expect(stale.rows).toEqual([expect.objectContaining({ id: "local-retained", status: "unknown", statusSource: "stale-node", lastActivityAt: initial.rows[0].lastActivityAt })]);

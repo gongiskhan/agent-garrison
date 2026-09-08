@@ -8,6 +8,8 @@
 import React, { useCallback, useState } from "react";
 import { SessionStream } from "@garrison/claude-chat";
 import { RemoteShellPane, type RemoteShellMeta } from "./remote-shell-pane";
+import { disconnectedMessage } from "./session-connection";
+import { SessionUsage } from "./session-usage";
 import { ShellComposer } from "./shell-composer";
 import { errorCopy, shellFetch, shellSocketUrl, ShellOriginError } from "./shell-origin";
 
@@ -43,6 +45,8 @@ export function ShellPanel({
   originError,
   onRetryOrigin,
   streamUrl,
+  disconnected = false,
+  usageBase,
 }: {
   threadId: string;
   binding: ShellThreadBinding;
@@ -51,12 +55,14 @@ export function ShellPanel({
   originError: ShellOriginError | null;
   onRetryOrigin: () => void;
   streamUrl?: string | null;
+  disconnected?: boolean;
+  usageBase?: string;
 }) {
   const [meta, setMeta] = useState<RemoteShellMeta | null>(null);
   const [reconnectNonce, setReconnectNonce] = useState(0);
   const [showShell, setShowShell] = useState(false);
   const [inputError, setInputError] = useState<string | null>(null);
-  const state = deckState(meta, originError);
+  const state = disconnected ? "unreachable" : deckState(meta, originError);
   const sessionId = binding.sessionId ?? "";
 
   const sendInput = useCallback(async (text: string) => {
@@ -93,9 +99,11 @@ export function ShellPanel({
         <span className="wc-wb-state">{STATE_WORD[state]}</span>
         <span className="wc-wb-title" title={title}>{title}</span>
         <span className="wc-wb-crumb">{binding.node.toUpperCase()} / {binding.transport} / TMUX:{binding.tmuxSession ?? "?"}</span>
+        {usageBase && <SessionUsage base={usageBase} runtime={binding.runtime} node={binding.node} disconnected={disconnected} />}
         {streamUrl && <button type="button" className="wc-wb-reattach" aria-pressed={showShell} onClick={() => setShowShell(v => !v)}>{showShell ? "Hide shell" : "Show shell"}</button>}
         <button type="button" className="wc-wb-reattach" data-testid="wb-reattach" onClick={reattach}>Reattach</button>
       </div>
+      {disconnected && <div className="wc-session-warning" role="status">{disconnectedMessage(binding.node)}</div>}
       {originError ? (
         <div className="wc-sess-note" data-testid="wb-error">
           <strong>{errorCopy(originError, binding.node).title}</strong>
@@ -122,7 +130,7 @@ export function ShellPanel({
         <div className="wc-sess-note">Connecting…</div>
       )}
       {inputError && <div className="wc-sess-input-error" role="alert">{inputError}</div>}
-      <ShellComposer onSend={sendInput} onKeys={sendKeys} disabled={!origin || !sessionId} draftKey={`shell-draft:${threadId}`} />
+      <ShellComposer onSend={sendInput} onKeys={sendKeys} disabled={disconnected || !origin || !sessionId} draftKey={`shell-draft:${threadId}`} />
     </div>
   );
 }

@@ -27,7 +27,7 @@ beforeAll(async () => {
 afterAll(async () => { await browser?.close(); });
 
 async function fixture(target = browser, mobile = false, sidebar: object = {}) {
-  const context = await target.newContext({ viewport: mobile ? { width: 393, height: 852 } : { width: 1280, height: 900 } });
+  const context = await target.newContext({ hasTouch: mobile, viewport: mobile ? { width: 393, height: 852 } : { width: 1280, height: 900 } });
   const page = await context.newPage();
   let failed = false;
   const inputs: unknown[] = [];
@@ -158,3 +158,62 @@ it('hides all running and selected rows in collapsed groups except Zeca and reme
     expect(f.streamReads()).toBe(3);
   } finally { await f.context.close(); }
 }, 30_000);
+
+it('offers a real shell for a busy Cursor IDE on mobile and shows failures beside that session', async () => {
+  const target=await webkit.launch({headless:true});
+  const f=await fixture(target,true);
+  try {
+    await f.page.evaluate(() => (window as any).mount('native',{row:{id:'cursor',node:'mini',runtime:'cursor',kind:'desktop',status:'working',cwd:'/projects/work',title:'Client workspace',resumable:false},streamUrl:'/stream',onOpenShell:()=>{(window as any).opened=true;},error:'The shell could not connect.'}));
+    const open=f.page.getByTestId('sess-open-shell');
+    expect(await open.isEnabled()).toBe(true);
+    expect((await open.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await open.tap();
+    expect(await f.page.evaluate(()=>(window as any).opened)).toBe(true);
+    expect(await f.page.getByRole('status').textContent()).toContain('The shell could not connect.');
+    await f.page.evaluate(() => (window as any).mount('shell',{threadId:'phone',title:'Shell',binding:{node:'mini',transport:'local',sessionId:'existing'},origin:'http://talk.test',originError:null,onRetryOrigin:()=>{}}));
+    await expect.poll(f.sockets).toBe(1);
+    await expect.poll(()=>f.page.locator('.xterm-rows').textContent()).toContain('Existing shell output');
+    await f.page.getByTestId('wb-composer-input').fill('printf MOBILE_SHELL_OK');
+    await f.page.getByTestId('wb-composer-send').tap();
+    await expect.poll(()=>f.inputs).toEqual([{text:'printf MOBILE_SHELL_OK'}]);
+    expect(await f.page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+  } finally {await f.context.close();await target.close();}
+},30_000);
+
+it('grays disconnected owners, stops every aggregate spinner, and restores the same rows on reconnect', async()=>{
+  const f=await fixture(browser,false,{ungroupedCollapsed:false});
+  f.page.setDefaultTimeout(5000);
+  try {
+    const props={self:{node:'pro',accentColor:'#4a7d5f'},meshNodes:[{node:'mini',accentColor:'#527c91',connection:'connected',threads:[{id:'remote',title:'Remote work',runningSince:new Date().toISOString()}]}],nodeConnections:{mini:'connected'},transports:[],listOpen:true,
+      threads:[{id:'owned',title:'Owned shell',shell:{node:'mini'},runningSince:new Date().toISOString()}],
+      sessions:[{id:'cursor',node:'mini',nodeAccent:'#527c91',runtime:'cursor',kind:'desktop',title:'Cursor work',status:'working',connection:'connected'}]};
+    await f.page.evaluate(p=>(window as any).mount('rail',p),props);
+    await expect.poll(()=>f.page.locator('.wc-thread-spinner').count()).toBeGreaterThan(0);
+    await f.page.evaluate(p=>(window as any).mount('rail',{...p,nodeConnections:{mini:'disconnected'},meshNodes:p.meshNodes.map(n=>({...n,connection:'disconnected'})),sessions:p.sessions.map(s=>({...s,connection:'disconnected'}))}),props);
+    await expect.poll(()=>f.page.locator('.wc-thread-spinner').count()).toBe(0);
+    expect(await f.page.locator('[data-key="session:mini:cursor"] .wc-row-dot').evaluate(el=>getComputedStyle(el).backgroundColor)).toBe('rgb(129, 135, 130)');
+    expect(await f.page.locator('.wc-thread:has(button[title="Owned shell"]) .wc-row-dot').evaluate(el=>getComputedStyle(el).backgroundColor)).toBe('rgb(129, 135, 130)');
+    expect(await f.page.getByText('Cursor work',{exact:true}).isVisible()).toBe(true);
+    await f.page.evaluate(p=>(window as any).mount('rail',p),props);
+    await expect.poll(()=>f.page.locator('[data-key="session:mini:cursor"] .wc-thread-spinner').count()).toBe(1);
+    await f.page.evaluate(()=> (window as any).mount('native',{row:{id:'cursor',node:'mini',runtime:'cursor',status:'working',connection:'disconnected'},streamUrl:'/stream',onOpenShell:()=>{}}));
+    expect(await f.page.getByTestId('sess-open-shell').isEnabled()).toBe(false);
+    expect(await f.page.getByRole('status').textContent()).toContain("Can't connect to mini");
+  }finally {await f.context.close();}
+},30_000);
+
+it('loads owner usage only on demand while the shell composer stays usable',async()=>{
+  const f=await fixture();let reads=0;
+  try {
+    await f.page.route('http://talk.test/api/mesh/nodes/mini/session-usage/codex',route=>{reads++;return route.fulfill({json:{accounts:[{provider:'codex',account:'Machine login',status:'available',windows:[{label:'Weekly',usedPercent:42,resetsAt:null}],checkedAt:null}]}});});
+    await f.page.evaluate(()=>(window as any).mount('shell',{threadId:'usage',title:'Shell',binding:{node:'mini',transport:'local',sessionId:'existing',runtime:'codex'},origin:'http://talk.test',originError:null,onRetryOrigin:()=>{},usageBase:'/api/mesh/nodes/mini'}));
+    expect(reads).toBe(0);
+    await f.page.getByLabel('Account usage',{exact:true}).click();
+    await expect.poll(()=>f.page.getByText('42% used').isVisible()).toBe(true);
+    expect(reads).toBe(1);
+    await f.page.getByTestId('wb-composer-input').fill('Please summarize.');
+    await f.page.getByTestId('wb-composer-send').click();
+    expect(f.inputs).toEqual([{text:'Please summarize.'}]);
+    await expect.poll(()=>f.page.locator('.wc-usage-panel').count()).toBe(0);
+  }finally{await f.context.close();}
+},30_000);
