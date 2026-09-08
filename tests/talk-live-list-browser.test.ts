@@ -97,12 +97,15 @@ it.each(["chromium", "webkit"])("makes recent native sessions directly visible o
     expect(requests.some(url => url.includes("/api/remote-shell/projects?transport=csg"))).toBe(false);
     await projectPicker.getByRole("button", { name: "Close", exact: true }).click();
     await row.getByRole("button").click();
-    await page.getByTestId("native-shell-view").waitFor();
+    await page.getByTestId("native-conversation-view").waitFor();
     if (engine === 'webkit') {
       releaseInitial!();
       await expect.poll(() => initialFinished).toBe(true);
       expect(await page.getByTestId('sess-view').count()).toBe(1);
     }
+    await expect.poll(() => page.getByTestId("native-conversation-view").textContent()).toContain("Native session output");
+    expect(await page.getByTestId("native-shell-view").count()).toBe(0);
+    await page.getByRole("button", { name: "Plain output", exact: true }).click();
     await expect.poll(() => page.locator(".wc-native-terminal-state").textContent()).toContain("Session output");
     await expect.poll(() => page.locator(".xterm-rows").textContent()).toContain("Native session output");
     expect(requests.some(url => url === "POST /api/remote-shell/sessions")).toBe(false);

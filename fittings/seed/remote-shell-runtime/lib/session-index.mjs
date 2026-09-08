@@ -212,6 +212,14 @@ export function buildIndex({
     ...cursorLister.list({ windowDays, now, env }),
     ...geminiLister.list({ windowDays, now, env })
   ];
+  // An owned shell represents its native client in the index. Keep that
+  // client's journal on the shell row before suppressing the duplicate below,
+  // so switching to a controllable shell does not discard the conversation.
+  for (const row of rows) {
+    const native = listerRows.find(r => r.runtime === row.runtime && r.id === (row.nativeSessionId || row.resumeRef));
+    if (native?.transcript) row.transcript = native.transcript;
+    if (Date.parse(native?.lastActivityAt) > (Date.parse(row.lastActivityAt) || 0)) row.lastActivityAt = native.lastActivityAt;
+  }
   // Some native clients emit lifecycle metadata before creating their journal.
   // Keep that session visible immediately; a later lister row supplies its title
   // and transcript without changing the identity.

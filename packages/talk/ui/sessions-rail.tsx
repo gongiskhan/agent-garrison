@@ -423,6 +423,18 @@ export function SessionsRail(props: {
     });
   }, []);
 
+  const [collapsedNodes, setCollapsedNodes] = useState<string[]>(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem("wc.sessions.nodes.collapsed.v1") ?? "[]");
+      return Array.isArray(saved) ? saved.filter(node => typeof node === "string") : [];
+    } catch { return []; }
+  });
+  const toggleNode = (node: string) => setCollapsedNodes(previous => {
+    const next = previous.includes(node) ? previous.filter(n => n !== node) : [...previous, node];
+    try { window.localStorage.setItem("wc.sessions.nodes.collapsed.v1", JSON.stringify(next)); } catch { /* best effort */ }
+    return next;
+  });
+
   const [sidebar, setSidebar] = useState<SidebarState>(EMPTY_SIDEBAR);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [prompt, setPrompt] = useState<{ title: string; initial: string; onSubmit: (v: string) => void } | null>(null);
@@ -751,16 +763,6 @@ export function SessionsRail(props: {
   }, [dragKey, moveTo]);
   const onDragEnd = useCallback(() => { setDragKey(null); setDropHint(null); }, []);
 
-  // What a COLLAPSED section still shows. Collapsing hides the quiet
-  // conversations, not the live ones: the open thread must never disappear from
-  // the rail under the user who just opened it, and a shell whose agent is
-  // working is the one row you collapsed the section to be able to find.
-  const peeking = useCallback(
-    (members: Row[]): Row[] =>
-      members.filter((r) => (r.kind === "local" && r.id === activeId) || r.running),
-    [activeId]
-  );
-
   // ── Row rendering ──
   const renderRow = (r: Row) => {
     const isUnread = unread(r);
@@ -837,7 +839,6 @@ export function SessionsRail(props: {
   const filterRows = (members: Row[]) => members.filter((r) => matches(r.title, r.nodeName, r.source));
   const archivedRows = filterRows(sectionRows(ARCHIVED));
   const ungroupedRows = filterRows(sectionRows(UNGROUPED));
-  const hasGroups = sidebar.groups.length > 0;
   const peersWithBase = meshNodes.filter((n) => n.openBase);
 
   // Derived node groups put active work first, then favor the current node.
@@ -1024,16 +1025,16 @@ export function SessionsRail(props: {
                   <path d="M2.5 3.5 5 6l2.5-2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
                 </svg>
                 <span className="wc-group-name">{g.name}</span>
+                {members.some(r => r.running) && <span className="wc-thread-spinner" role="status" aria-label={`Running in ${g.name}`} />}
                 <span className="wc-group-count">{members.length}</span>
               </button>
-              {(g.collapsed && !searching ? peeking(members) : members).map(renderRow)}
+              {(g.collapsed ? [] : members).map(renderRow)}
             </div>
           );
         })}
 
         {sessionFilter === "all" && <div className="wc-group" onDragOver={onSectionDragOver(UNGROUPED)} onDrop={onSectionDrop(UNGROUPED)}>
-          {hasGroups && (
-            <button
+          <button
               type="button"
               className={`wc-group-head${dropHint?.section === UNGROUPED && !dropHint.beforeKey ? " wc-group-head--drophint" : ""}`}
               onClick={() => update((s) => ({ ...s, ungroupedCollapsed: !s.ungroupedCollapsed }))}
@@ -1043,13 +1044,10 @@ export function SessionsRail(props: {
                 <path d="M2.5 3.5 5 6l2.5-2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
               </svg>
               <span className="wc-group-name">Ungrouped</span>
+              {ungroupedRows.some(r => r.running) && <span className="wc-thread-spinner" role="status" aria-label="Running in Ungrouped" />}
               <span className="wc-group-count">{ungroupedRows.length}</span>
             </button>
-          )}
-          {(searching || !hasGroups || !sidebar.ungroupedCollapsed
-            ? ungroupedRows
-            : peeking(ungroupedRows)
-          ).map(renderRow)}
+          {(sidebar.ungroupedCollapsed ? [] : ungroupedRows).map(renderRow)}
         </div>}
 
         {sessionFilter === "shells" && (
@@ -1073,21 +1071,25 @@ export function SessionsRail(props: {
                 <path d="M2.5 3.5 5 6l2.5-2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
               </svg>
               <span className="wc-group-name" title="Shell sessions active in the last 5 days">Shell sessions · 5 days</span>
+              {filteredSessions.some(s => s.status === "working") && <span className="wc-thread-spinner" role="status" aria-label="Running in shell sessions" />}
               <span className="wc-group-count">{sessionsByNode.reduce((n, [, l]) => n + l.length, 0)}</span>
             </button>
-            {sessionsByNode.map(([node, list]) => {
-              const shown = list.filter((s) => searching
-                ? matches(s.title, s.project, s.cwd, s.node, s.runtime)
-                : !sessionsCollapsed || s.status === "working" || s.id === activeSessionId);
-              if (shown.length === 0) return null;
+            {!sessionsCollapsed && sessionsByNode.map(([node, list]) => {
+              const shown = list.filter(s => matches(s.title, s.project, s.cwd, s.node, s.runtime));
+              if (!shown.length) return null;
+              const collapsed = collapsedNodes.includes(node);
               return (
                 <div key={node}>
-                  <div className="wc-sessions-node" data-testid={`rail-node-${node}`}>
+                  <button type="button" className="wc-sessions-node" data-testid={`rail-node-${node}`} aria-expanded={!collapsed} onClick={() => toggleNode(node)}>
+                    <svg className={`wc-group-chev${collapsed ? " wc-group-chev--closed" : ""}`} width="9" height="9" viewBox="0 0 10 10" aria-hidden="true">
+                      <path d="M2.5 3.5 5 6l2.5-2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                    </svg>
                     <span className="wc-row-dot" style={{ background: list[0]?.nodeAccent || "#6a746b" }} aria-hidden />
                     {shortNode(node) || node}
+                    {shown.some(s => s.status === "working") && <span className="wc-thread-spinner" role="status" aria-label={`Running on ${shortNode(node) || node}`} />}
                     <span className="wc-group-count">{shown.length}</span>
-                  </div>
-                  {shown.map(renderSessionRow)}
+                  </button>
+                  {!collapsed && shown.map(renderSessionRow)}
                 </div>
               );
             })}

@@ -2084,6 +2084,7 @@ function ThreadedApp({
               : `/api/mesh/nodes/${encodeURIComponent(activeSessionRow.node)}/sessions/${encodeURIComponent(activeSessionRow.id)}/stream`;
             return (
               <ExternalSessionView
+                key={`${activeSessionRow.node}:${activeSessionRow.id}`}
                 row={activeSessionRow}
                 streamUrl={streamUrl}
                 busy={continueBusy}
@@ -2094,11 +2095,15 @@ function ThreadedApp({
             );
           }
           if (activeShellBinding) {
+            const indexedShell = sessionsResult.rows.find(row => row.node === activeShellBinding.node &&
+              row.shell?.transport === activeShellBinding.transport && row.shell?.tmuxSession === activeShellBinding.tmuxSession && row.transcript);
+            const streamUrl = indexedShell ? `${indexedShell.node === sessionsResult.self.node ? "/api" : `/api/mesh/nodes/${encodeURIComponent(indexedShell.node)}`}/sessions/${encodeURIComponent(indexedShell.id)}/stream` : null;
             return (
               <ShellPanel
                 key={activeId ?? undefined}
                 threadId={activeId ?? ""}
                 binding={activeShellBinding}
+                streamUrl={streamUrl}
                 title={activeThread?.title || activeShellBinding.label || activeShellBinding.tmuxSession || "Shell"}
                 origin={shellOrigin}
                 originError={shellOriginError}

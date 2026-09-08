@@ -525,6 +525,10 @@ describe("recent native session discovery regressions", () => {
     const rows = buildIndex({ manager, now: NOW, garrisonHomeDir: sandbox, claudeBackgroundAgents: [], env: { HOME: sandbox, GARRISON_HOME: sandbox, CODEX_HOME: home, GARRISON_CURSOR_HOME: sandbox, GEMINI_CLI_HOME: sandbox } });
     expect(rows.map((r: { id: string }) => r.id)).toEqual(expect.arrayContaining(["shell:local:one", "independent-session"]));
     expect(rows.some((r: { id: string }) => r.id === "owned-session")).toBe(false);
+    expect(rows.find((r: { id: string }) => r.id === "shell:local:one")).toMatchObject({
+      transcript: { format: "codex-rollout", path: expect.stringContaining("owned-session") },
+      lastActivityAt: new Date(NOW).toISOString(),
+    });
   });
 
   it("shows Cursor flat text journals with unknown cwd and metadata-only CLI sessions", () => {

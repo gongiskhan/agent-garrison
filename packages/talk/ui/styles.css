@@ -2406,13 +2406,26 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 28px;
+  min-height: 36px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
   padding: 0 10px 0 20px;
   color: #9fa69a;
   font: 10px/1.3 var(--wc-mono);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
+.wc-sessions-node:hover { background: #2b372c; color: #eef0e8; }
+.wc-shell-output, .wc-shell-terminal { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+.wc-shell-output > [hidden] { display: none; }
+.wc-sess-conversation { color: #26332b; background: #f8f4eb; min-width: 0; }
+.wc-sess-conversation .cc-session { max-width: 960px; margin: 0 auto; padding: 12px 18px; }
+.wc-sess-conversation .cc-session-md { overflow-wrap: anywhere; }
+.wc-sess-input-note { padding: 8px 12px; background: #f8f4eb; color: #586458; font: 12px/1.4 var(--wc-sans, sans-serif); border-top: 1px solid #d9d1bf; }
+.wc-sess-input-error { flex-basis: 100%; color: #f5aaa1; font: 13px/1.4 var(--wc-sans, sans-serif); }
 .wc-show-ended {
   display: block;
   width: 100%;
@@ -2459,6 +2472,7 @@
 .wc-wb-composer {
   flex: none;
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   gap: 8px;
   padding: 8px 12px;
@@ -2496,6 +2510,7 @@
 }
 .wc-wb-composer-send:disabled { opacity: 0.5; cursor: default; }
 .wc-wb-keys {
+  flex-basis: 100%;
   display: flex;
   gap: 6px;
   padding: 0 12px 8px;
@@ -2538,6 +2553,7 @@
 .wc-sess-actions {
   flex: none;
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 8px 12px;
   border-bottom: 1px solid #4b584d;
@@ -2643,6 +2659,13 @@
 .wc-shell--compact .wc-find,
 .wc-shell--compact .wc-side-scroll { display: block; }
 .wc-shell--compact .wc-sidebar-title { flex: 1; }
+.wc-shell--compact .wc-shells-btn { display: inline-flex; width: 44px; height: 44px; min-width: 44px; margin-right: 0; }
+.wc-shell--compact .wc-shells-btn svg { width: 18px; height: 18px; }
+.wc-shell--compact .wc-sidebar-head { gap: 6px; }
+.wc-shell--compact .wc-sidebar-title { min-width: 0; font-size: 10px; letter-spacing: .1em; }
+.wc-shell--compact .wc-sessions-node { min-height: 44px; }
+.wc-shell--compact .wc-sess-actions .wc-wb-reattach { min-height: 44px; padding: 6px 10px; font-size: 10px; }
+.wc-shell--compact .wc-sess-conversation .cc-session { padding: 10px 12px; }
 .wc-shell--compact .wc-drawer-close { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; color: #eee8db; background: transparent; border: 1px solid #64705e; border-radius: 5px; font-size: 23px; cursor: pointer; }
 .wc-shell--compact .wc-sidebar-toggle,
 .wc-shell--compact .cc-conv-head .wc-threads-toggle { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 44px; height: 44px; min-height: 44px; padding: 0; margin-left: 0; background: #f4ede0; border: 1px solid #c4b89f; border-radius: 6px; color: #18211c; cursor: pointer; }

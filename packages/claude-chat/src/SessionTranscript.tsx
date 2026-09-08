@@ -107,6 +107,8 @@ function useFocusedEvent(
 
 export interface SessionStreamProps {
   url: string;
+  /** Native owner streams can reconnect even while the agent is idle. */
+  reconnect?: boolean;
   /** A conversation host can provide a useful first-message invitation. */
   emptyMessage?: React.ReactNode;
   live?: boolean;
@@ -1559,6 +1561,7 @@ const CONVERSATION_STATE_CHIPS: Partial<Record<ConversationActivity["mode"], { l
 
 export function SessionStream({
   url,
+  reconnect = false,
   live = false,
   title: titleProp,
   announceLiveUpdates = true,
@@ -1571,6 +1574,8 @@ export function SessionStream({
   const [title, setTitle] = useState<string | null>(titleProp ?? null);
   const [status, setStatus] = useState<StreamStatus>("connecting");
   const [retryToken, setRetryToken] = useState(0);
+  const reconnectAttempts = useRef(0);
+  const connectedUrl = useRef<string | null>(null);
   const [, setHostMapReady] = useState(false);
   const [modalImage, setModalImage] = useState<{ image: SessionImage; label: string } | null>(null);
   const [relatedView, setRelatedView] = useState<RelatedTask | null>(null);
@@ -1637,7 +1642,10 @@ export function SessionStream({
   }, []);
 
   useEffect(() => {
-    setEvents([]);
+    const changedUrl = connectedUrl.current !== url;
+    if (!reconnect || changedUrl) setEvents([]);
+    if (changedUrl) reconnectAttempts.current = 0;
+    connectedUrl.current = url;
     setTitle(titleProp ?? null);
     setStatus("connecting");
     setRelatedView(null);
@@ -1648,11 +1656,13 @@ export function SessionStream({
     hadContentRef.current = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const retryWhileLive = () => {
-      if (!liveRef.current || retryTimer) return;
+      if (retryTimer) return;
+      if (reconnect ? reconnectAttempts.current >= 5 : !liveRef.current) return;
+      const delay = reconnect ? Math.min(1000 * 2 ** reconnectAttempts.current++, 10_000) : 900;
       retryTimer = setTimeout(() => {
         retryTimer = null;
-        if (liveRef.current) setRetryToken((value) => value + 1);
-      }, 900);
+        if (reconnect || liveRef.current) setRetryToken((value) => value + 1);
+      }, delay);
     };
     const source = new EventSource(url);
     source.onmessage = (message) => {
@@ -1663,6 +1673,7 @@ export function SessionStream({
         return;
       }
       if (payload.type === "init") {
+        if (payload.available !== false) reconnectAttempts.current = 0;
         setEvents(Array.isArray(payload.events) ? mergeSessionEvents([], payload.events.filter(isSessionEvent)) : []);
         if (payload.title) setTitle(String(payload.title));
         const nextStatus = payload.available === false ? "unavailable" : payload.live ? "streaming" : "ended";
@@ -1684,11 +1695,15 @@ export function SessionStream({
       } else if (payload.type === "end") {
         setStatus((current) => (current === "unavailable" ? current : "ended"));
         source.close();
-        retryWhileLive();
+        if (!reconnect) retryWhileLive();
       }
     };
     source.onerror = () => {
-      setStatus((current) => (current === "unavailable" ? current : "ended"));
+      if (reconnect && source.readyState === EventSource.CONNECTING) {
+        setStatus("connecting");
+        return;
+      }
+      setStatus((current) => (reconnect || current === "unavailable" ? "unavailable" : "ended"));
       source.close();
       retryWhileLive();
     };
@@ -1696,7 +1711,7 @@ export function SessionStream({
       source.close();
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [url, titleProp, retryToken]);
+  }, [url, titleProp, retryToken, reconnect]);
 
   // ── Smooth stream-follow ────────────────────────────────────────────────────
   // This component does not own the scroll container: the host does (ClaudeChat's

@@ -3,7 +3,8 @@
 // identical, by design, to what parseByFormat produces) plus the honest
 // actions a row of its kind actually supports.
 
-import React from "react";
+import React, { useState } from "react";
+import { SessionStream } from "@garrison/claude-chat";
 import { NativeTerminal } from "./native-terminal";
 import type { RailSession } from "./sessions-rail";
 
@@ -26,8 +27,9 @@ export function ExternalSessionView({
   onClose?: () => void;
   busy?: boolean;
 }) {
+  const [plainOutput, setPlainOutput] = useState(false);
   const subline = row.kind === "desktop"
-    ? `Cursor desktop, ${row.project ?? row.cwd ?? "unknown project"}`
+    ? `${RUNTIME_LABEL[row.runtime] ?? row.runtime} desktop · ${row.project ?? row.cwd ?? row.node}`
     : row.status === "ended"
       ? `Recent shell session on ${row.node}`
       : `${row.status === "working" ? "Working" : "Shell session"} on ${row.node}`;
@@ -44,6 +46,9 @@ export function ExternalSessionView({
         {onClose && <button type="button" className="wc-wb-reattach" data-testid="sess-close" onClick={onClose}>Close</button>}
       </div>
       <div className="wc-sess-actions">
+        {streamUrl && <button type="button" className="wc-wb-reattach" aria-pressed={plainOutput} onClick={() => setPlainOutput(v => !v)}>
+          {plainOutput ? "Conversation view" : "Plain output"}
+        </button>}
         {onContinue && (row.resumable || row.attachable) && (
           <button type="button" className="wc-wb-reattach" data-testid={row.kind === "bg" ? "sess-attach" : "sess-continue"} disabled={busy || (row.status === "working" && !row.attachable)} title={row.status === "working" && !row.attachable ? "The original client is still running this session" : undefined} onClick={onContinue}>
             {busy ? "Starting…" : row.kind === "bg" ? "Attach" : "Continue in a shell"}
@@ -57,10 +62,19 @@ export function ExternalSessionView({
       </div>
       <div className="wc-sess-body" data-testid="sess-transcript">
         {streamUrl ? (
-          <NativeTerminal streamUrl={streamUrl} />
+          plainOutput ? <NativeTerminal streamUrl={streamUrl} /> : (
+            <div className="wc-sess-conversation" data-testid="native-conversation-view">
+              <SessionStream url={streamUrl} reconnect live={row.status === "working"} title="Session output" />
+            </div>
+          )
         ) : (
           <div className="wc-sess-note" data-testid="sess-note">No transcript for this session yet.</div>
         )}
+      </div>
+      <div className="wc-sess-input-note">
+        {row.attachable ? "Attach to send prompts from this conversation."
+          : row.resumable && row.status !== "working" ? "Continue in a shell to send prompts from this conversation."
+          : "Live output from the original app. Input is available when the session is connected to a shell."}
       </div>
     </div>
   );

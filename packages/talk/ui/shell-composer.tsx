@@ -20,7 +20,7 @@ export function ShellComposer({
   disabled = false,
   draftKey,
 }: {
-  onSend: (text: string) => void;
+  onSend: (text: string) => void | Promise<void>;
   onKeys: (keys: string) => void;
   disabled?: boolean;
   /** localStorage key for the per-thread draft, e.g. `shell-draft:<threadId>`. */
@@ -31,6 +31,9 @@ export function ShellComposer({
     try { return window.localStorage.getItem(draftKey) ?? ""; } catch { return ""; }
   });
   const [keysOpen, setKeysOpen] = useState(false);
+  const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
+  const [error, setError] = useState<string | null>(null);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
 
   const setDraft = useCallback((v: string) => {
@@ -42,19 +45,31 @@ export function ShellComposer({
     } catch { /* best effort */ }
   }, [draftKey]);
 
-  const send = useCallback(() => {
+  const send = useCallback(async () => {
+    if (disabled || sendingRef.current) return;
     const text = value;
     if (!text.trim() && text.indexOf("\n") < 0) return;
-    onSend(text);
-    setDraft("");
-  }, [value, onSend, setDraft]);
+    sendingRef.current = true;
+    setSending(true);
+    setError(null);
+    try {
+      await onSend(text);
+      setDraft("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send. Your prompt is still here.");
+    } finally {
+      sendingRef.current = false;
+      setSending(false);
+    }
+  }, [value, onSend, setDraft, disabled]);
 
   return (
     <div className="wc-wb-composer">
+      {error && <div className="wc-sess-input-error" role="alert">{error}</div>}
       {keysOpen && (
         <div className="wc-wb-keys">
           {KEYS.map((k) => (
-            <button key={k.name} type="button" className="wc-wb-key" data-testid={`wb-key-${k.name.toLowerCase()}`} onClick={() => onKeys(k.name)}>
+            <button key={k.name} type="button" className="wc-wb-key" disabled={disabled || sending} data-testid={`wb-key-${k.name.toLowerCase()}`} onClick={() => onKeys(k.name)}>
               {k.label}
             </button>
           ))}
@@ -75,19 +90,19 @@ export function ShellComposer({
         className="wc-wb-composer-input"
         data-testid="wb-composer-input"
         rows={1}
-        placeholder="Type into this shell…"
+        placeholder="Send a prompt to this shell…"
         value={value}
-        disabled={disabled}
+        disabled={disabled || sending}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) {
+          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault();
             send();
           }
         }}
       />
-      <button type="button" className="wc-wb-composer-send" data-testid="wb-composer-send" disabled={disabled} onClick={send}>
-        Send
+      <button type="button" className="wc-wb-composer-send" data-testid="wb-composer-send" disabled={disabled || sending || !value.trim()} onClick={() => { void send(); }}>
+        {sending ? "Sending…" : "Send"}
       </button>
     </div>
   );

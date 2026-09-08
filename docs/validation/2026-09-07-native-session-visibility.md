@@ -93,3 +93,35 @@ stream and browser run passed all 30 tests, including the existing conversation
 stream regressions; TypeScript passed. Owner evidence:
 `/private/tmp/garrison-native-final-checks-20260908.log` and
 `/private/tmp/garrison-native-stream-batched-typecheck-20260908.log`.
+
+## Structured native conversations — 2026-09-08
+
+The user's latest screenshot exposed tool results labelled USER in the terminal
+observer. Claude deliberately records tool results inside user envelopes; the
+parser already identifies these correctly. Native sessions now open in the shared
+conversation renderer, which associates results with their tool calls and folds
+completed activity. Plain output remains available, with block-specific labels
+for tool calls, results and progress rather than envelope-role labels.
+
+Owned shells retain the matching native journal in the session index before the
+native duplicate is suppressed. Their conversation view stays visible while the
+real terminal remains mounted behind Show shell. The composer sends to that exact
+shell through its existing input endpoint. Failed sends retain the draft and show
+the failure; duplicate submissions and composition-key Enter are guarded. This
+does not manufacture an input channel for a running external IDE or arbitrary
+unattached terminal. Resumable sessions retain the explicit Continue in a shell
+action, and attachable background sessions retain Attach.
+
+Collapsing custom groups, Ungrouped, or the shell section hides every contained
+row, including selected and running sessions. Only the standing Zeca row remains
+outside those groups. Each native machine has a persistent collapse control and
+a running indicator on its header. Ungrouped has a header even without custom
+groups. The mobile terminal button now has a 44px target and centered icon.
+
+Focused browser checks cover actual Chromium and WebKit phone rendering, tool
+result attribution, collapsed tool activity, complete group collapse, machine
+collapse persistence, a hidden connected terminal, prompt delivery and failed
+send recovery. Native idle streams also retry closed HTTP failures without
+reopening a successfully completed stream. Existing list-retention, alias,
+initial-load, session-stream and rail tests remain green. Live deployment and
+neutral-shell acceptance are recorded in shared Garrison Node Operations.
