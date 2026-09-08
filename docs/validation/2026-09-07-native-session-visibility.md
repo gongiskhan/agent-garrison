@@ -41,6 +41,16 @@ Selecting a known shell attaches its existing terminal without allocating anothe
 
 ## Implementation note
 
+### 2026-09-08: phone discovery and the misleading Shells entry point
+
+The user's iOS build 35 screenshots showed a separate usability failure: native rows followed the complete conversation history, while the terminal icon opened the project-shell spawner. Its transport array began with CSG, so opening it tried an unavailable local `devtunnel` executable on the Pro. The existing row-count acceptance did not establish phone discoverability.
+
+The rail now has an always-visible Shell sessions switch with its count and running indicator. The terminal icon selects that list, expands it and scrolls to its beginning. Machine and app filters make Mini/Claude Code/Cursor sessions directly reachable. Opening a native row keeps the existing read-only terminal; creating a new shell remains a separate action. The legacy project-folder browser now prefers the local machine even when CSG is first in its transport array.
+
+Full TalkApp regressions use a 393 × 852 phone viewport in Chromium and WebKit, eighty preceding conversations and an old saved collapsed-session preference. They verify the switch is visible without scrolling, machine/app filtering reveals the matching row in the viewport, its spinner is present, the legacy picker defaults to local, and selecting existing native output does not create a shell or invoke CSG. Fourteen focused tests and TypeScript passed. These are browser checks; actual iOS build 35 acceptance remains the user's device.
+
+A metadata-only Mini check found the expected seven recent Cursor sessions and one native Claude Code session. Its local Claude Desktop Code session files were last changed in April, and Cowork session artifacts in August; recent scheduler/plugin configuration writes are not session activity. No client transcript, prompt, project or desktop account was changed. The CSG origin remains unavailable, so sessions worked there after its last publication cannot be independently confirmed until it reconnects.
+
 ### 2026-09-08: retain the complete list during slow or failed refreshes
 
 A full owner-index comparison reproduced eight recent Mini sessions disappearing from the Mini's own Conversations API: its index took 5,148 ms against the collector's 2,500 ms deadline. Pro and dev-madrid retained those same eight through published metadata. The collector now falls back to the owner's published snapshot and retains successful local, peer and node-registry reads across failures. Successful empty reads still remove rows. Retained snapshots keep their original activity dates; stale working states become unknown before the five-day filter runs.

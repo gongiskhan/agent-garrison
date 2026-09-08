@@ -378,6 +378,19 @@
   padding: 14px 14px 10px;
   border-bottom: 1px solid #d6cdba;
 }
+.wc-session-filters { display: flex; flex: 0 0 auto; gap: 6px; padding: 8px 12px 0; }
+.wc-session-filters button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 7px 10px; border: 1px solid #64705e; border-radius: 5px; background: transparent; color: #d4d8cc; font: 12px/1.2 var(--wc-sans); cursor: pointer; }
+.wc-session-filters button:last-child { flex: 1; }
+.wc-session-filters button[aria-pressed="true"] { background: #3c4936; color: #fff9e8; border-color: #b29a56; }
+.wc-session-filters .wc-thread-spinner { position: static; flex: 0 0 auto; margin: 0; }
+.wc-session-list-intro { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 12px; color: #c8ccbf; font: 11px/1.4 var(--wc-sans); }
+.wc-session-list-intro span { flex: 1; min-width: 140px; }
+.wc-session-list-intro button { min-height: 44px; border: 1px solid #64705e; border-radius: 5px; padding: 7px 10px; background: transparent; color: #fff9e8; font: inherit; cursor: pointer; }
+.wc-session-list-intro p { margin: 0; width: 100%; }
+.wc-session-selects { display: flex; gap: 6px; flex: 0 0 auto; padding: 8px 12px; border-bottom: 1px solid #4b584d; }
+.wc-session-selects select { width: 50%; min-width: 0; min-height: 44px; padding: 5px; border: 1px solid #64705e; border-radius: 5px; background: #1f291f; color: #f4ede0; font: 12px var(--wc-sans, sans-serif); }
+.wc-shell--rail:not(.wc-shell--compact) .wc-session-filters { display: none; }
+.wc-shell--rail:not(.wc-shell--compact) .wc-session-selects { display: none; }
 .wc-sidebar-title {
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11px;

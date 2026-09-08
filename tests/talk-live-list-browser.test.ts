@@ -1,7 +1,8 @@
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, expect, it } from "vitest";
 import { build } from "esbuild";
-import { chromium, type Browser } from "playwright";
+import { chromium, webkit, type Browser } from "playwright";
 
 let browser: Browser;
 let bundle: string;
@@ -18,6 +19,75 @@ beforeAll(async () => {
   browser = await chromium.launch({ headless: true });
 }, 60_000);
 afterAll(async () => { await browser?.close(); });
+
+it.each(["chromium", "webkit"])("makes recent native sessions directly visible on a phone in %s without opening the CSG spawner", async engine => {
+  const phoneBrowser = engine === "webkit" ? await webkit.launch({ headless: true }) : browser;
+  const context = await phoneBrowser.newContext({ viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true });
+  try {
+    const page = await context.newPage();
+    const requests: string[] = [];
+    const now = new Date().toISOString();
+    const threads = Array.from({ length: 80 }, (_, i) => ({ id: `conversation-${i}`, conversationId: `conversation-${i}`, title: `Conversation ${i}`, source: "chat", messages: [], messageCount: 0 }));
+    const rows = [["pro", "claude"], ["mini", "claude"], ["mini", "cursor"], ["csg", "cursor"]].map(([node, runtime]) => ({
+      id: `${node}-${runtime}`, node, runtime, kind: runtime === "cursor" ? "desktop" : "cli", title: `${node} ${runtime}`,
+      status: "working", statusSource: "hooks", nodeStatus: "active", startedAt: now, lastActivityAt: now,
+      resumable: false, attachable: false, transcript: { format: "claude-jsonl", path: "/fixture/output.jsonl" },
+    }));
+    await page.route("http://talk.test/**", async route => {
+      const url = new URL(route.request().url());
+      requests.push(`${route.request().method()} ${url.pathname}${url.search}`);
+      if (url.pathname === "/") return route.fulfill({ contentType: "text/html", body: '<meta name="viewport" content="width=device-width, initial-scale=1"><div class="talk-host" style="height:100dvh"><div id="root" style="height:100%"></div></div>' });
+      if (url.pathname.endsWith("/stream")) return route.fulfill({ contentType: "text/event-stream", body: `data: ${JSON.stringify({ type: "init", available: true, events: [{ id: "native-output", role: "assistant", blocks: [{ type: "text", text: "Native session output" }] }] })}\n\ndata: {"type":"end"}\n\n` });
+      const data = url.pathname === "/api/threads" ? { threads }
+        : url.pathname.startsWith("/api/threads/") ? { thread: threads[0] }
+        : url.pathname === "/api/zeca" ? { conversationId: threads[0].id }
+        : url.pathname === "/api/sidebar" ? { groups: [], archived: [], membership: {}, order: {}, read: {} }
+        : url.pathname === "/api/remote-shell/transports" ? { transports: [{ name: "csg", label: "CSG work" }, { name: "local", label: "Pro" }] }
+        : url.pathname === "/api/sessions" ? { self: { node: "pro", accentColor: null }, nodes: [], rows }
+        : { nodes: [], hits: [] };
+      return route.fulfill({ contentType: "application/json", body: JSON.stringify(data) });
+    });
+    await page.goto("http://talk.test/");
+    await page.evaluate(() => localStorage.setItem("wc.sessions.collapsed.v2", "1"));
+    await page.addStyleTag({ content: ["body{margin:0}", "packages/claude-chat/src/claude-chat.css", "packages/talk/ui/styles.css", "node_modules/@xterm/xterm/css/xterm.css"].map(value => value.endsWith(".css") ? readFileSync(path.resolve(value), "utf8") : value).join("\n") });
+    await page.addScriptTag({ content: bundle });
+    await page.getByRole("button", { name: "Show conversations", exact: true }).click();
+    const switcher = page.getByTestId("rail-filter-shells");
+    await expect.poll(() => switcher.textContent()).toContain("4");
+    const bounds = await switcher.boundingBox();
+    expect(bounds!.y).toBeLessThan(200);
+    expect(bounds!.height).toBeGreaterThanOrEqual(44);
+    await page.getByRole("button", { name: "Show shell sessions", exact: true }).click();
+    expect(await switcher.getAttribute("aria-pressed")).toBe("true");
+    expect(await page.getByRole("dialog", { name: "Interactive shells", exact: true }).count()).toBe(0);
+    expect(requests.some(url => url.includes("/api/remote-shell/projects"))).toBe(false);
+    await page.getByRole("combobox", { name: "Session machine" }).selectOption("mini");
+    await page.getByRole("combobox", { name: "Session app" }).selectOption("cursor");
+    const row = page.locator('[data-key="session:mini:mini-cursor"]');
+    await expect.poll(() => page.locator('[data-key^="session:"]').count()).toBe(1);
+    const box = await row.boundingBox();
+    expect(box!.y).toBeGreaterThan(0);
+    expect(box!.y + box!.height).toBeLessThan(852);
+    expect(await row.locator(".wc-thread-spinner").count()).toBe(1);
+    // The older project browser is still available as a creation action,
+    // but a CSG-first transport array must not make it contact CSG on open.
+    await page.getByTestId("rail-new").click();
+    await page.getByRole("button", { name: "Browse project folders…", exact: true }).click();
+    const projectPicker = page.getByRole("dialog", { name: "Interactive shells", exact: true });
+    await projectPicker.waitFor();
+    expect(await projectPicker.getByRole("combobox").inputValue()).toBe("local");
+    await expect.poll(() => requests.some(url => url === "GET /api/remote-shell/projects?transport=local")).toBe(true);
+    expect(requests.some(url => url.includes("/api/remote-shell/projects?transport=csg"))).toBe(false);
+    await projectPicker.getByRole("button", { name: "Close", exact: true }).click();
+    await row.getByRole("button").click();
+    await page.getByTestId("native-shell-view").waitFor();
+    await expect.poll(() => page.locator(".wc-native-terminal-state").textContent()).toContain("Session output");
+    await expect.poll(() => page.locator(".xterm-rows").textContent()).toContain("Native session output");
+    expect(requests.some(url => url === "POST /api/remote-shell/sessions")).toBe(false);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+    expect(await page.locator(".wc-main .cc-composer").count()).toBe(0);
+  } finally { await context.close(); if (engine === "webkit") await phoneBrowser.close(); }
+}, 45_000);
 
 it("keeps the complete native list through failed refreshes, expires old activity, and accepts successful empty results", async () => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
