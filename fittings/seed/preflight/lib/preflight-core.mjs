@@ -46,6 +46,23 @@ export function mk(check, id, status, detail, extra = {}) {
 
 const PORT_KEY = /(^|_)port$/i;
 
+// The lines under `config_schema:` — everything indented deeper than the key
+// itself, whatever depth that key sits at.
+function configSchemaBlock(text) {
+  const lines = text.split(/\r?\n/);
+  const start = lines.findIndex((l) => /^\s*config_schema:\s*$/.test(l));
+  if (start < 0) return null;
+  const indent = lines[start].length - lines[start].trimStart().length;
+  const out = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) { out.push(line); continue; }
+    if (line.length - line.trimStart().length <= indent) break;
+    out.push(line);
+  }
+  return out.length ? out.join("\n") : null;
+}
+
 // Extract what preflight needs from one fitting apm.yml.
 export function parseManifest(text, id = "") {
   const ownPort = /^\s*own_port:\s*true\b/m.test(text);
@@ -53,10 +70,14 @@ export function parseManifest(text, id = "") {
   const defaultPort = dp ? Number(dp[1]) : null;
 
   // config_schema entries: `- key: X` ... `default: Y` until the next `- key:`.
+  // Scanned by indentation rather than matched by one regex: the old lookahead
+  // assumed the block was nested under x-garrison and silently found NOTHING
+  // for a top-level config_schema — a silent miss in the very check that exists
+  // because improver hid a port claim in a config_schema default.
   const portKeys = [];
-  const schema = text.match(/^\s*config_schema:\s*$([\s\S]*?)(?=^\s{0,2}\S|\n?$(?![\s\S]))/m);
-  if (schema) {
-    const items = schema[1].split(/^\s*-\s+key:/m).slice(1);
+  const block = configSchemaBlock(text);
+  if (block) {
+    const items = block.split(/^\s*-\s+key:/m).slice(1);
     for (const item of items) {
       const key = (item.match(/^\s*([\w.-]+)/) || [])[1];
       const def = item.match(/^\s*default:\s*(\d+)\s*$/m);
@@ -319,6 +340,30 @@ export function findPortCollisions(claims, liveListeners = [], statusFiles = [])
   return findings;
 }
 
+// A listener on a claimed port SHIFTED by another profile's offset is that
+// profile's sandbox, not a squatter — dev runs the same fittings at +10000.
+// Reported so the ports page accounts for every listener it can explain, and
+// deliberately informational: a running sandbox is not a problem.
+export function attributeSandboxListeners(claims, liveListeners, { profile = "node", offsets = {} } = {}) {
+  const findings = [];
+  const byPort = new Map();
+  for (const c of claims) if (!byPort.has(c.port)) byPort.set(c.port, c.claimant);
+  const seen = new Set();
+  for (const l of liveListeners) {
+    if (byPort.has(l.port) || seen.has(l.port)) continue;
+    for (const [name, offset] of Object.entries(offsets)) {
+      if (name === profile || !offset) continue;
+      const base = l.port - offset;
+      if (!byPort.has(base)) continue;
+      seen.add(l.port);
+      findings.push(mk("port-collisions", `sandbox:${l.port}`, "info",
+        `Port ${l.port} is ${byPort.get(base)}'s base port ${base} shifted by the ${name} profile (+${offset}) — the ${name} sandbox is running, which is expected and not a conflict.`));
+      break;
+    }
+  }
+  return findings;
+}
+
 // ---------------------------------------------------------------------------
 // Check 1 — verify results (passive from last-up.json, active from a sweep)
 // ---------------------------------------------------------------------------
@@ -569,20 +614,27 @@ export function assessDrift(input) {
 
 export const RETIRED_KINDS = ["agent-skill", "soul"];
 
-export function scanKinds(manifests, retired = RETIRED_KINDS) {
+// Asking "is this kind still in the vocabulary?" instead of "is it on my list
+// of retired ones?" means the next retirement is caught without preflight being
+// edited. The retired list survives only to explain WHY a kind is gone.
+export function scanKinds(manifests, { vocabulary = null, retired = RETIRED_KINDS } = {}) {
   const findings = [];
-  const bad = new Set(retired);
+  const known = vocabulary instanceof Set && vocabulary.size ? vocabulary : null;
+  const wasRetired = new Set(retired);
   for (const m of manifests) {
-    const hits = [...new Set((m.kinds || []).filter((k) => bad.has(k)))];
+    const hits = [...new Set((m.kinds || []).filter((k) => (known ? !known.has(k) : wasRetired.has(k))))];
     for (const k of hits) {
       findings.push(mk("kind-vocabulary", m.id, "fail",
-        `${m.id} declares retired capability kind "${k}" — registering it 500s /api/compositions and takes the whole Muster UI down.`,
-        { fix: `Replace "${k}" with the current kind for this shape (it was dropped in the Quarters pivot).` }));
+        `${m.id} declares capability kind "${k}", which is not in the current vocabulary — registering an unknown kind 500s /api/compositions and takes the whole Muster UI down.`,
+        { fix: wasRetired.has(k)
+            ? `"${k}" was dropped in the Quarters pivot; replace it with the current kind for this shape.`
+            : `Replace "${k}" with a kind listed in capabilityKinds (src/lib/types.ts).` }));
     }
   }
   if (!findings.length) {
-    findings.push(mk("kind-vocabulary", "all", "pass",
-      `${manifests.length} manifests, no retired kinds (${retired.join(", ")}).`));
+    findings.push(mk("kind-vocabulary", "all", "pass", known
+      ? `${manifests.length} manifests, every declared kind is in the current vocabulary (${known.size} kinds).`
+      : `${manifests.length} manifests, no retired kinds (${retired.join(", ")}) — the current vocabulary could not be read, so this fell back to the retired list.`));
   }
   return findings;
 }

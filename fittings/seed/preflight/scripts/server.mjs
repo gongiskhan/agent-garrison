@@ -23,7 +23,7 @@ const FITTING_ID = "preflight";
 // the projected name must win or the composition's `config:` block is decorative.
 // No hardcoded port fallback: port 0 (ephemeral) is the standalone default and
 // the composition/runner always provides the real one.
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const out = {
     port: Number(process.env.GARRISON_PREFLIGHT_PORT ?? process.env.PREFLIGHT_PORT ?? process.env.PORT ?? 0),
     host: process.env.GARRISON_PREFLIGHT_BIND_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1"
@@ -155,6 +155,31 @@ const DEFAULT_DEPS = {
 export function createRequestHandler(deps = {}) {
   const api = { ...DEFAULT_DEPS, ...deps };
   const distDir = api.distDir || path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..", "dist");
+  // The report reads 78 manifests, execs git twice per composition, lsof and
+  // tailscale. Every open tab used to pay that every 30s, independently. The
+  // CLI never caches, and neither does the fixers' revalidation: that one
+  // exists precisely to check FRESH reality against the finding being repaired.
+  const cacheTtlMs = Number.isFinite(api.reportCacheMs)
+    ? api.reportCacheMs
+    : Number(process.env.GARRISON_PREFLIGHT_REPORT_CACHE_MS ?? 15000);
+  let cached = { key: null, at: 0, inflight: null, value: null };
+  const invalidateReport = () => { cached = { key: null, at: 0, inflight: null, value: null }; };
+
+  const cachedReport = (checks, fresh) => {
+    const key = (checks ?? []).slice().sort().join(",") || "*";
+    if (!fresh && cached.key === key) {
+      // Concurrent misses share one build instead of racing several.
+      if (cached.inflight) return cached.inflight;
+      if (cached.value && Date.now() - cached.at < cacheTtlMs) return Promise.resolve(cached.value);
+    }
+    const inflight = Promise.resolve(api.buildReport({ checks })).then(
+      (value) => { cached = { key, at: Date.now(), inflight: null, value }; return value; },
+      (err) => { invalidateReport(); throw err; }
+    );
+    cached = { key, at: Date.now(), inflight, value: null };
+    return inflight;
+  };
+
   let mutationTail = Promise.resolve();
   const mutate = (req, res, operation) => {
     const pending = mutationTail.then(() => {
@@ -175,7 +200,7 @@ export function createRequestHandler(deps = {}) {
       if (pathname === "/api/report" && method === "GET") {
         const query = url.parse(req.url || "/", true).query;
         const checks = typeof query.checks === "string" && query.checks ? query.checks.split(",") : null;
-        return jsonRes(res, 200, await api.buildReport({ checks }));
+        return jsonRes(res, 200, await cachedReport(checks, query.fresh === "1"));
       }
       if ((pathname === "/api/fix" || pathname === "/api/verify-sweep") && method === "POST") {
         validateMutationRequest(req);
@@ -186,6 +211,8 @@ export function createRequestHandler(deps = {}) {
             throw new RequestError(400, "actionId and object params required");
           }
           const result = await mutate(req, res, () => api.runFix(body.actionId, body.params ?? {}));
+          // A repair changes the very reality the cached report describes.
+          if (result.ok) invalidateReport();
           return jsonRes(res, result.ok ? 200 : 400, result);
         }
         const compositionId = body.compositionId;
@@ -201,6 +228,7 @@ export function createRequestHandler(deps = {}) {
             throw new RequestError(409, "verify requires a confirmed idle or failed composition");
           }
           const sweep = await api.runVerifySweep(compositionId);
+          invalidateReport();
           if (!sweep.ok) return jsonRes(res, 502, { error: sweep.error });
           const findings = assessSweepResults(compositionId, sweep.results);
           return jsonRes(res, 200, { findings, summary: summarize(findings), compositionId });

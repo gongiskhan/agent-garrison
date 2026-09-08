@@ -72,7 +72,12 @@ export function readSeedManifests(root) {
     if (!existsSync(manifest)) continue;
     try {
       out.push(parseManifest(readFileSync(manifest, "utf8"), e.name));
-    } catch { /* unparseable seed: seed.test tolerates these when de-listed */ }
+    } catch (err) {
+      // A manifest preflight cannot read is a manifest whose port claims and
+      // capability kinds are invisible to every other check. Swallowing it made
+      // the doctor quietly less thorough with no way to notice.
+      out.push({ id: e.name, ownPort: false, defaultPort: null, portKeys: [], kinds: [], parseError: String(err?.message || err) });
+    }
   }
   return out;
 }
@@ -101,6 +106,34 @@ export function readTetheredPorts({ home = GARRISON_HOME } = {}) {
   const doc = readJson(path.join(home, "remote-shell", "tether.json"));
   const forwards = Array.isArray(doc?.forwards) ? doc.forwards : [];
   return new Set(forwards.map((f) => Number(f.localPort)).filter(Number.isInteger));
+}
+
+// The canonical capability-kind vocabulary, read as text from the source of
+// truth. A .mjs fitting that must run on a cold machine cannot import the .ts,
+// and a hand-copied list is exactly the drift this check exists to catch —
+// tests/preflight-parity.test.ts pins the two together.
+// Mirrors src/lib/instance-profile.ts. Pinned by tests/preflight-parity.test.ts.
+export const PROFILE_PORT_OFFSET = { node: 0, dev: 10000, codex: 20000 };
+
+// Deliberately NOT src/lib/instance-profile.ts's currentProfile(), which
+// defaults to "dev" so a bare `next dev` lands in the sandbox. Preflight audits
+// the MACHINE, whose committed port map is the node map at offset 0; inheriting
+// a dev default would have a doctor run from a plain shell quietly report a
+// sandbox's expectations as the machine's.
+export function resolveProfile(env = process.env) {
+  const raw = (env.GARRISON_PREFLIGHT_PROFILE || env.GARRISON_INSTANCE_ID || "").trim();
+  if (raw === "prod") return "node";
+  return Object.hasOwn(PROFILE_PORT_OFFSET, raw) ? raw : "node";
+}
+
+export function readCapabilityKinds(root) {
+  try {
+    const text = readFileSync(path.join(root, "src", "lib", "types.ts"), "utf8");
+    const block = text.match(/export const capabilityKinds = \[([\s\S]*?)\] as const/);
+    if (!block) return null;
+    const kinds = [...block[1].matchAll(/"([\w-]+)"/g)].map((m) => m[1]);
+    return kinds.length ? new Set(kinds) : null;
+  } catch { return null; }
 }
 
 export function readCuratedLibrary(root) {

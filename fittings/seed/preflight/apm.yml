@@ -43,7 +43,7 @@ x-garrison:
     - key: port
       type: integer
       default: 8076
-      description: HTTP port. The server exits non-zero when it is taken rather than shifting, because a silent shift would leave the sidebar pointing at nothing.
+      description: HTTP port. The server exits non-zero when it is taken rather than shifting, because a silent shift would leave the sidebar pointing at nothing - and the verify probe checks THIS port, treating "already held by our own recorded pid" as ok so a restart still verifies.
     - key: bind_host
       type: string
       default: 127.0.0.1
@@ -52,6 +52,14 @@ x-garrison:
       type: string
       default: ""
       description: Garrison app base URL. Empty = use the runner-projected GARRISON_APP_URL, else discover the port via scripts/garrison-instance.sh for the resolved profile (node unless GARRISON_INSTANCE_ID says otherwise). Only set this to reach an app the runner did not tell us about.
+    - key: report_cache_ms
+      type: integer
+      default: 15000
+      description: How long the HTTP server may reuse a built report. Concurrent misses share one build. The CLI never caches, and neither does the repair revalidation, which must always measure fresh reality.
+    - key: profile
+      type: string
+      default: ""
+      description: Instance profile for port-offset reasoning (node|dev|codex). Empty = GARRISON_INSTANCE_ID, else node. Deliberately NOT the app's default of dev - preflight audits this machine, whose committed port map is the node map at offset 0.
     - key: repo_root
       type: string
       default: ""

@@ -66,6 +66,16 @@ staged and nothing is pushed. Reports never commit automatically. No action
 kills processes or changes fitting code. Authority errors surface even if the
 local manifest was already saved; refresh before retrying.
 
+## The verify probe
+
+The probe checks the port the fitting will actually bind, not an ephemeral one:
+the manifest promises the server exits rather than shifting, so a probe that
+binds port 0 passes at exactly the moment startup is about to fail. Because
+verify also runs while this fitting is already listening (any restart), a taken
+port is only a failure when the holder is not us — proven by `/health` returning
+a pid that matches `~/.garrison/ui-fittings/preflight.json`. A health responder
+whose pid does not match the record is refused rather than assumed.
+
 ## CLI
 
 ```bash

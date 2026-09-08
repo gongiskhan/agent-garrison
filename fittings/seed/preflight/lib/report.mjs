@@ -5,6 +5,7 @@
 import {
   crossCheckLibrary,
   findOrphanServeMappings,
+  attributeSandboxListeners,
   buildPortClaims,
   findPortCollisions,
   assessVerifyResults,
@@ -20,6 +21,7 @@ import {
   findRepoRoot,
   readSeedManifests,
   readCuratedLibrary,
+  readCapabilityKinds,
   readCompositions,
   readLiveListeners,
   readStatusFiles,
@@ -29,6 +31,8 @@ import {
   readTailscaleServeMap,
   readActiveComposition,
   readTetheredPorts,
+  resolveProfile,
+  PROFILE_PORT_OFFSET,
   pidAlive
 } from "./collect.mjs";
 import { isAppUp, fetchViews, fetchRunnerState, appUrl } from "./app-client.mjs";
@@ -39,10 +43,10 @@ import { readFixJournal, libraryChange } from "./fixers.mjs";
 // — and without it the assembly layer is the one layer no test can drive, which
 // is exactly where the report's ranking and deduplication decisions now live.
 const DEFAULT_COLLECTORS = {
-  findRepoRoot, readSeedManifests, readCuratedLibrary, readCompositions,
+  findRepoRoot, readSeedManifests, readCuratedLibrary, readCapabilityKinds, readCompositions,
   readLiveListeners, readStatusFiles, readGatewayRecords, readProcessCommands,
   readSpawnRecords, readTailscaleServeMap, readActiveComposition,
-  readTetheredPorts, pidAlive, isAppUp, fetchViews, fetchRunnerState, appUrl,
+  readTetheredPorts, resolveProfile, pidAlive, isAppUp, fetchViews, fetchRunnerState, appUrl,
   readFixJournal, libraryChange
 };
 
@@ -86,6 +90,11 @@ export async function buildReport({ startDir = FITTING_DIR, checks = null, colle
   }
 
   const manifests = c.readSeedManifests(root);
+  for (const m of manifests.filter((x) => x.parseError)) {
+    findings.push(mk("manifest-parse", m.id, "fail",
+      `fittings/seed/${m.id}/apm.yml could not be read (${m.parseError}) — its port claims and capability kinds are invisible to every check below.`,
+      { fix: "Repair or remove the manifest; a seed nobody can parse is a seed the resolver cannot station either." }));
+  }
   const compositions = await c.readCompositions(root);
   // Which composition the operator actually means. Everything else is ranked
   // below it — never hidden, and never for correctness-class findings.
@@ -124,6 +133,7 @@ export async function buildReport({ startDir = FITTING_DIR, checks = null, colle
     const commands = await c.readProcessCommands(suspects.map((l) => l.pid));
     const enriched = listeners.map((l) => (commands.has(l.pid) ? { ...l, cmdline: commands.get(l.pid) } : l));
     findings.push(...findPortCollisions(claims, enriched, registered));
+    findings.push(...attributeSandboxListeners(claims, listeners, { profile: c.resolveProfile(), offsets: PROFILE_PORT_OFFSET }));
   }
 
   if (run("serve-coverage")) {
@@ -155,7 +165,7 @@ export async function buildReport({ startDir = FITTING_DIR, checks = null, colle
   }
 
   if (run("kind-vocabulary")) {
-    findings.push(...scanKinds(manifests));
+    findings.push(...scanKinds(manifests, { vocabulary: c.readCapabilityKinds(root) }));
   }
 
   const pendingLibrary = await c.libraryChange(root);

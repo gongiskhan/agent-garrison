@@ -1,11 +1,14 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import http from "node:http";
+import { afterEach, describe, expect, it } from "vitest";
 
-const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "fittings", "seed", "preflight", "scripts", "cli.mjs");
+const FITTING = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "fittings", "seed", "preflight");
+const CLI = path.join(FITTING, "scripts", "cli.mjs");
+const PROBE = path.join(FITTING, "scripts", "probe.mjs");
 
 // GARRISON_APP_URL is pinned to an unreachable host so no test ever shells out
 // to the instance script or touches a live app.
@@ -59,5 +62,82 @@ describe("Preflight CLI entry point", () => {
     expect(clean.status).toBe(0);
     const broken = run(["--checks", "kind-vocabulary"], { GARRISON_PREFLIGHT_REPO_ROOT: path.join(root, "nope") });
     expect(broken.status).toBe(1);
+  });
+});
+
+// The probe is the runner's verify hook: a wrong answer here fails every up()
+// of any composition that stations preflight. It checks the port the fitting
+// will ACTUALLY bind, which means it must tell "already running (fine)" apart
+// from "someone else has my port (fatal)".
+describe("Preflight probe", () => {
+  const open: http.Server[] = [];
+  afterEach(async () => {
+    await Promise.all(open.splice(0).map((s) => new Promise((r) => s.close(() => r(null)))));
+  });
+
+  function serve(handler: http.RequestListener = (_q, s) => s.end()) {
+    return new Promise<number>((resolve) => {
+      const s = http.createServer(handler);
+      open.push(s);
+      s.listen(0, "127.0.0.1", () => resolve((s.address() as { port: number }).port));
+    });
+  }
+
+  // Deliberately ASYNC: the fixture health server lives in this process, and
+  // spawnSync would block the event loop that has to accept the probe's
+  // connection -- the probe would then time out and read every fixture as a
+  // foreign process.
+  const probe = (env: Record<string, string> = {}) =>
+    new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve) => {
+      const child = spawn(process.execPath, [PROBE, "--probe"], { env: { ...process.env, ...env } });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (c) => { stdout += c; });
+      child.stderr.on("data", (c) => { stderr += c; });
+      child.once("close", (status) => resolve({ status, stdout, stderr }));
+    });
+
+  const homeWithRecord = (port: number, pid: number) => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "preflight-probe-"));
+    mkdirSync(path.join(home, "ui-fittings"), { recursive: true });
+    writeFileSync(path.join(home, "ui-fittings", "preflight.json"), JSON.stringify({ fittingId: "preflight", port, pid }));
+    return home;
+  };
+
+  it("passes when the configured port is free", async () => {
+    const res = await probe({ GARRISON_PREFLIGHT_PORT: "0" });
+    expect(res.status).toBe(0);
+    expect(res.stdout.trim()).toBe("ok");
+  });
+
+  it("fails when a foreign process holds the configured port", async () => {
+    const port = await serve();
+    const res = await probe({ GARRISON_PREFLIGHT_PORT: String(port) });
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain("is not preflight");
+  });
+
+  // The restart case: verify runs while this fitting is already listening.
+  it("passes when the holder is this fitting's own recorded process", async () => {
+    const pid = 424242;
+    const port = await serve((_q, s) => {
+      s.writeHead(200, { "content-type": "application/json" });
+      s.end(JSON.stringify({ ok: true, pid }));
+    });
+    const res = await probe({ GARRISON_PREFLIGHT_PORT: String(port), GARRISON_HOME: homeWithRecord(port, pid) });
+    expect(res.status).toBe(0);
+    expect(res.stdout.trim()).toBe("ok");
+  });
+
+  // A health endpoint answering with a pid nobody recorded is not proof of
+  // ownership -- refuse rather than assume.
+  it("refuses a health responder whose pid does not match the record", async () => {
+    const port = await serve((_q, s) => {
+      s.writeHead(200, { "content-type": "application/json" });
+      s.end(JSON.stringify({ ok: true, pid: 111 }));
+    });
+    const res = await probe({ GARRISON_PREFLIGHT_PORT: String(port), GARRISON_HOME: homeWithRecord(port, 999) });
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain("records");
   });
 });
