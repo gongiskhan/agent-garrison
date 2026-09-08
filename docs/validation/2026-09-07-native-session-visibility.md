@@ -176,3 +176,11 @@ app-server termination. Live Pro probes returned Claude five-hour/weekly and Cod
 multi-bucket limits. Deployment and live browser evidence are recorded separately
 in shared Garrison Node Operations. These browser checks do not substitute for the
 operator's physical iOS build 35 acceptance.
+
+
+Live mobile acceptance caught Safari touch not generating the mouse event used to
+dismiss account usage. The disclosure now closes on pointer input outside it and
+has a visible, 44px Close control; WebKit touch tests cover both paths. The same
+acceptance found dev-madrid publishing its formula-derived Shells address at an
+existing capture-service mapping. Its supported node.json shellOrigin override
+was set from the actual Tailscale serve map (not a new hardcoded code port).

@@ -2744,3 +2744,5 @@
   .wc-usage-panel { position: fixed; top: 112px; left: 12px; right: 12px; width: auto; max-height: calc(100dvh - 150px); }
   .wc-wb--shell .wc-wb-head .wc-usage { grid-column: auto; }
 }
+
+.wc-usage-close { float: right; margin: -5px -4px 4px 8px; min-height: 44px; padding: 5px 10px; border: 1px solid #81878277; border-radius: 4px; color: inherit; background: transparent; font: inherit; cursor: pointer; }

@@ -217,3 +217,17 @@ it('loads owner usage only on demand while the shell composer stays usable',asyn
     await expect.poll(()=>f.page.locator('.wc-usage-panel').count()).toBe(0);
   }finally{await f.context.close();}
 },30_000);
+
+
+it('lets a phone dismiss usage by touch, including its visible Close button',async()=>{
+  const target=await webkit.launch({headless:true});const f=await fixture(target,true);
+  try {
+    await f.page.evaluate(()=>(window as any).mount('native',{row:{id:'native',node:'pro',runtime:'codex',status:'idle',title:'Session title'},streamUrl:'/stream',usageBase:'/api'}));
+    await f.page.locator('.wc-usage summary').tap();
+    await f.page.getByRole('button',{name:'Close account usage',exact:true}).tap();
+    await expect.poll(()=>f.page.locator('.wc-usage-panel').count()).toBe(0);
+    await f.page.locator('.wc-usage summary').tap();
+    await f.page.getByTestId('sess-head').tap({position:{x:100,y:10}});
+    await expect.poll(()=>f.page.locator('.wc-usage-panel').count()).toBe(0);
+  }finally{await f.context.close();await target.close();}
+},30_000);

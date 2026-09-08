@@ -33,17 +33,18 @@ export function SessionUsage({base, runtime, node, disconnected = false}: {base:
   }, [base,providers,open,disconnected]);
   useEffect(() => {
     if (!open) return;
-    const close = (e:MouseEvent|KeyboardEvent) => {
-      if ((e instanceof KeyboardEvent && e.key === "Escape") || (e instanceof MouseEvent && e.target instanceof Node && !box.current?.contains(e.target))) {
+    const close = (e:PointerEvent|KeyboardEvent) => {
+      if ((e instanceof KeyboardEvent && e.key === "Escape") || (e instanceof PointerEvent && e.target instanceof Node && !box.current?.contains(e.target))) {
         if (box.current) box.current.open = false;
       }
     };
-    document.addEventListener("keydown",close);document.addEventListener("mousedown",close);
-    return () => {document.removeEventListener("keydown",close);document.removeEventListener("mousedown",close);};
+    document.addEventListener("keydown",close);document.addEventListener("pointerdown",close);
+    return () => {document.removeEventListener("keydown",close);document.removeEventListener("pointerdown",close);};
   },[open]);
   return <details className="wc-usage" ref={box} onToggle={e=>setOpen(e.currentTarget.open)}>
     <summary aria-label="Account usage">Usage</summary>
     {open && <div className="wc-usage-panel" role="region" aria-label="Account usage">
+      <button type="button" className="wc-usage-close" aria-label="Close account usage" onClick={()=>{if(box.current) box.current.open=false; setOpen(false);}}>Close</button>
       <strong>Account usage</strong><span className="wc-usage-scope">{node} · shared across sessions</span>
       {disconnected ? <p>This machine is disconnected. Usage will return when it reconnects.</p> : busy ? <p role="status">Checking accounts…</p> : failed ? <p>Account usage is temporarily unavailable.</p> : accounts.map((account,i)=><section key={`${account.provider}:${i}`}>
         <strong>{LABEL[account.provider] || account.provider}{account.plan ? ` · ${account.plan}` : ""}</strong>
