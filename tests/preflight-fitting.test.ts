@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 // The core is a pure .mjs module with no type declarations; single-line import
 // so the @ts-ignore anchors to the module specifier and suppresses TS7016.
 // @ts-ignore
-import { parseManifest, parseComposition, crossCheckLibrary, buildPortClaims, findPortCollisions, findOrphanServeMappings, servePort, assessVerifyResults, assessSweepResults, serveCoverage, classifyOrphans, assessDrift, demote, scanKinds, summarize } from "../fittings/seed/preflight/lib/preflight-core.mjs";
+import { parseManifest, parseComposition, crossCheckLibrary, buildPortClaims, findPortCollisions, findOrphanServeMappings, findHookCwdAsymmetry, resolveScriptPaths, servePort, assessVerifyResults, assessSweepResults, serveCoverage, classifyOrphans, assessDrift, demote, scanKinds, summarize } from "../fittings/seed/preflight/lib/preflight-core.mjs";
 // @ts-ignore
 import { parseSsListeners } from "../fittings/seed/preflight/lib/collect.mjs";
 
@@ -403,6 +403,71 @@ describe("findOrphanServeMappings", () => {
 
   it("says nothing when every mapping leads somewhere", () => {
     expect(findOrphanServeMappings({ 8076: "https://h:8476" }, [{ port: 8076, pid: 1 }]) as Finding[]).toEqual([]);
+  });
+});
+
+// The runner runs setup from the seed dir and verify from the composition dir,
+// so any path a script derives from its own location means two things.
+describe("findHookCwdAsymmetry", () => {
+  const v = (over: Record<string, unknown> = {}) => ({
+    name: "KANBAN_FITTING_DIR", expr: "$MODULES_DIR/_local/kanban-loop",
+    setupPath: "/repo/fittings/_local/kanban-loop",
+    verifyPath: "/repo/compositions/c/apm_modules/_local/kanban-loop",
+    setupExists: false, verifyExists: true, guarded: false, ...over
+  });
+
+  it("fails when the derived path exists for one hook and not the other", () => {
+    const f = findHookCwdAsymmetry([{ id: "basic-memory", vars: [v()] }]) as Finding[];
+    expect(fails(f).map((x) => x.id)).toEqual(["basic-memory:KANBAN_FITTING_DIR"]);
+    expect(fails(f)[0].detail).toContain("missing");
+    expect(fails(f)[0].detail).toContain("present");
+  });
+
+  // True, but nothing can branch differently on it today.
+  it("demotes a divergence both hooks currently agree about", () => {
+    const f = findHookCwdAsymmetry([{ id: "x", vars: [v({ setupExists: true, verifyExists: true })] }]) as Finding[];
+    expect(fails(f)).toEqual([]);
+    expect(warns(f)).toEqual([]);
+    expect(infos(f)).toHaveLength(1);
+  });
+
+  it("recognises a script that checks what its derived root resolved to", () => {
+    const f = findHookCwdAsymmetry([{ id: "x", vars: [v({ guarded: true })] }]) as Finding[];
+    expect(fails(f)).toEqual([]);
+    expect(infos(f)[0].detail).toContain("checks what it resolved to");
+  });
+
+  it("says nothing when the two roots agree", () => {
+    const same = v({ setupPath: "/same", verifyPath: "/same" });
+    const f = findHookCwdAsymmetry([{ id: "x", vars: [same] }]) as Finding[];
+    expect(f.map((x) => x.status)).toEqual(["pass"]);
+  });
+});
+
+describe("resolveScriptPaths", () => {
+  const join = (base: string, rel: string) => {
+    const parts = (base + "/" + rel).split("/");
+    const out: string[] = [];
+    for (const p of parts) {
+      if (p === "" || p === ".") continue;
+      if (p === "..") out.pop();
+      else out.push(p);
+    }
+    return "/" + out.join("/");
+  };
+  // The exact idiom basic-memory uses in BOTH of its scripts.
+  const script = [
+    'MODULES_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"',
+    'KANBAN_FITTING_DIR="$MODULES_DIR/_local/kanban-loop"'
+  ].join("\n");
+
+  it("resolves an ancestor walk and everything derived from it", () => {
+    const setup = resolveScriptPaths(script, "/repo/fittings/seed/basic-memory/scripts", join);
+    const verify = resolveScriptPaths(script, "/repo/compositions/c/apm_modules/_local/basic-memory/scripts", join);
+    expect(setup.get("MODULES_DIR").path).toBe("/repo/fittings");
+    expect(verify.get("MODULES_DIR").path).toBe("/repo/compositions/c/apm_modules");
+    expect(setup.get("KANBAN_FITTING_DIR").path).toBe("/repo/fittings/_local/kanban-loop");
+    expect(verify.get("KANBAN_FITTING_DIR").path).toBe("/repo/compositions/c/apm_modules/_local/kanban-loop");
   });
 });
 

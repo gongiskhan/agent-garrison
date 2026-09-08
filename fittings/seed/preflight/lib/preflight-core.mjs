@@ -507,6 +507,88 @@ export function findOrphanServeMappings(serveMap, liveListeners, tetheredPorts =
 }
 
 // ---------------------------------------------------------------------------
+// Check 8 — setup/verify hook cwd asymmetry
+//
+// The runner runs a fitting's SETUP from the seed directory (runner.ts:1465)
+// and its VERIFY from the composition directory (runner.ts:1625). Any path a
+// script derives by walking up from its own location therefore resolves to two
+// different places in the two hooks — and a script that BRANCHES on such a
+// path will take opposite branches in setup and verify.
+//
+// This is not hypothetical: basic-memory computes the same
+// MODULES_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)" in both scripts, so setup
+// looks for the kanban fitting under fittings/ (never there) and tears its
+// consumer down, while verify looks under <composition>/apm_modules (present)
+// and demands that consumer exists. The composition has been unable to come up
+// since.
+// ---------------------------------------------------------------------------
+
+// `NAME="$(cd "$SCRIPT_DIR/../.." && pwd)"` — an ancestor walk from the script.
+const WALK_UP = /^[ \t]*([A-Za-z_][A-Za-z0-9_]*)="\$\(cd "\$([A-Za-z_][A-Za-z0-9_]*)((?:\/\.\.)+)"[ \t]*&&[ \t]*pwd\)"/gm;
+// `NAME="$OTHER/suffix"` — a path derived from one of the above.
+const DERIVED = /^[ \t]*([A-Za-z_][A-Za-z0-9_]*)="\$([A-Za-z_][A-Za-z0-9_]*)(\/[^"$]*)"/gm;
+
+// The guard basic-memory already applies to ONE of its blocks (setup.sh:274):
+// checking what the derived root actually is before trusting it.
+const GUARD = /basename[ \t]+"\$([A-Za-z_][A-Za-z0-9_]*)"/;
+
+// Resolve every ancestor-walk / derived variable in a script, given where that
+// script's own directory is. Returns Map<name, {path, expr}>.
+export function resolveScriptPaths(text, scriptDir, join) {
+  const vars = new Map([["SCRIPT_DIR", { path: scriptDir, expr: "$SCRIPT_DIR" }]]);
+  const walks = [...text.matchAll(WALK_UP)];
+  const derived = [...text.matchAll(DERIVED)];
+  for (const [, name, base, dots] of walks) {
+    const from = vars.get(base);
+    if (!from) continue;
+    vars.set(name, { path: join(from.path, dots), expr: `$${base}${dots}` });
+  }
+  for (const [, name, base, suffix] of derived) {
+    const from = vars.get(base);
+    if (!from || vars.has(name)) continue;
+    vars.set(name, { path: join(from.path, suffix), expr: `$${base}${suffix}` });
+  }
+  return vars;
+}
+
+// entries: [{ id, vars: [{name, expr, setupPath, verifyPath, setupExists,
+//            verifyExists, guarded}] }]
+export function findHookCwdAsymmetry(entries) {
+  const findings = [];
+  for (const entry of entries) {
+    for (const v of entry.vars || []) {
+      if (v.setupPath === v.verifyPath) continue;
+      if (v.guarded) {
+        findings.push(mk("hook-cwd", `${entry.id}:${v.name}`, "info",
+          `${entry.id}'s ${v.name} resolves differently in setup and verify, but the script checks what it resolved to before trusting it.`));
+        continue;
+      }
+      // Both hooks agreeing that the path is absent (or present) is a
+      // divergence that no branch can currently act on differently.
+      // A divergence both hooks currently agree about (both present, or both
+      // missing) is true and unactionable — the informational band, not a
+      // warning that would be there every single day.
+      const decisive = v.setupExists !== v.verifyExists;
+      const row = mk("hook-cwd", `${entry.id}:${v.name}`, decisive ? "fail" : "warn",
+        decisive
+          ? `${entry.id} derives ${v.name} as ${v.expr}, which EXISTS for one hook and not the other: setup sees ${v.setupPath} (${v.setupExists ? "present" : "missing"}), verify sees ${v.verifyPath} (${v.verifyExists ? "present" : "missing"}). Setup runs from the seed directory and verify from the composition directory, so any branch on ${v.name} takes opposite paths in the two hooks.`
+          : `${entry.id} derives ${v.name} as ${v.expr}, which resolves differently in setup (${v.setupPath}) and verify (${v.verifyPath}). Both are currently ${v.setupExists ? "present" : "missing"}, so nothing diverges today.`,
+        {
+          fix: decisive
+            ? `Guard the branch the way basic-memory guards its skill block — test \`basename "$${v.name}"\` (or the equivalent) before treating the path as authoritative — or derive the path from an env var the runner projects instead of from the script's own location.`
+            : "Worth knowing before either root changes; no action needed while both agree."
+        });
+      findings.push(decisive ? row : demote(row, "both hooks agree on this path today"));
+    }
+  }
+  if (!findings.length) {
+    findings.push(mk("hook-cwd", "all", "pass",
+      `${entries.length} fittings with both hooks derive no path that differs between the seed and composition roots.`));
+  }
+  return findings;
+}
+
+// ---------------------------------------------------------------------------
 // Check 5 — orphan processes (report only, never kill)
 // ---------------------------------------------------------------------------
 

@@ -141,3 +141,57 @@ describe("Preflight probe", () => {
     expect(res.stderr).toContain("records");
   });
 });
+
+// The gate is the point of the whole fitting: consulted BEFORE up(), so the
+// operator learns what is broken without a failed launch. Its exit code is the
+// contract, so it is exercised as a subprocess.
+describe("Preflight gate", () => {
+  function gateRepo({ registerBeta = true } = {}) {
+    const root = mkdtempSync(path.join(os.tmpdir(), "preflight-gate-"));
+    mkdirSync(path.join(root, "data"), { recursive: true });
+    mkdirSync(path.join(root, "fittings", "seed", "beta"), { recursive: true });
+    mkdirSync(path.join(root, "compositions", "c1"), { recursive: true });
+    mkdirSync(path.join(root, "compositions", "c2"), { recursive: true });
+    writeFileSync(path.join(root, "fittings", "seed", "beta", "apm.yml"), "name: beta\n");
+    writeFileSync(path.join(root, "data", "library.json"),
+      JSON.stringify(registerBeta ? [{ id: "beta", localPath: "fittings/seed/beta" }] : []));
+    for (const c of ["c1", "c2"]) {
+      writeFileSync(path.join(root, "compositions", c, "apm.yml"), "selections:\n  runtime:\n    - id: beta\n");
+    }
+    return root;
+  }
+
+  it("exits 0 when nothing blocks the target", () => {
+    const res = run(["--gate", "--composition", "c1"], { GARRISON_PREFLIGHT_REPO_ROOT: gateRepo() });
+    expect(res.status).toBe(0);
+    expect(res.stderr).toContain("is clear");
+  });
+
+  it("exits 1 and names what blocks it", () => {
+    const res = run(["--gate", "--composition", "c1"], { GARRISON_PREFLIGHT_REPO_ROOT: gateRepo({ registerBeta: false }) });
+    expect(res.status).toBe(1);
+    expect(res.stderr).toContain("library-crosscheck/beta");
+    expect(res.stderr).toContain("1 blocking finding");
+  });
+
+  // A gate reporting "clear" when it could not look is worse than no gate.
+  it("exits 2 rather than passing when it could not assess", () => {
+    const res = run(["--gate", "--composition", "c1"], { GARRISON_PREFLIGHT_REPO_ROOT: "/nonexistent-preflight-root" });
+    expect(res.status).toBe(2);
+    expect(res.stderr).toContain("could not assess");
+  });
+
+  it("exits 2 for a composition it does not know", () => {
+    const res = run(["--gate", "--composition", "ghost"], { GARRISON_PREFLIGHT_REPO_ROOT: gateRepo() });
+    expect(res.status).toBe(2);
+    expect(res.stderr).toContain("no composition named");
+  });
+
+  it("reports machine-readably with --json", () => {
+    const res = run(["--gate", "--composition", "c1", "--json"], { GARRISON_PREFLIGHT_REPO_ROOT: gateRepo({ registerBeta: false }) });
+    const parsed = JSON.parse(res.stdout);
+    expect(parsed.compositionId).toBe("c1");
+    expect(parsed.ok).toBe(false);
+    expect(parsed.blocking).toHaveLength(1);
+  });
+});

@@ -14,7 +14,8 @@ instead of one failure at a time across repeated failed launches.
 | 4 | **Tailscale serve coverage** — every running own-port view must have a serve mapping | A view with `tailnetUrl: null` makes the UI fall back to `127.0.0.1` — the *viewer's* machine — and renders blank, looking like a slow host |
 | 5 | **Orphan processes** — status files + spawn ledger vs live pids (report-only) | `local-voice` leaked `server.py` processes on an 8 GB machine; count orphans before blaming any model |
 | 6 | **Composition drift** — last-up staleness, apm.yml vs git HEAD, and **unfitted re-station** detection | A fitting removed from selections without an `unfitted` record re-adds itself on the next read; `vault-git-sync` re-stationed itself 16 minutes after being deliberately dropped |
-| 7 | **Capability kinds** — no retired kinds (`agent-skill`, `soul`) anywhere | One retired kind 500s `/api/compositions` and takes the whole Muster UI down |
+| 7 | **Capability kinds** — every declared kind still in `capabilityKinds` | One unknown kind 500s `/api/compositions` and takes the whole Muster UI down |
+| 8 | **Hook cwd asymmetry** — paths a setup and verify script each derive from their own location | Setup runs from the seed dir and verify from the composition dir, so `basic-memory` tears down a file in setup that verify then demands — the reason `default-2` could not come up |
 
 Every failing row carries a **`fix`** hint naming the concrete remedy.
 
@@ -79,11 +80,33 @@ whose pid does not match the record is refused rather than assumed.
 ## CLI
 
 ```bash
+node scripts/cli.mjs --gate                 # BEFORE up(): blockers only, for the active composition
+node scripts/cli.mjs --gate --composition default-2 --json
 node scripts/cli.mjs                        # human report; exit 1 iff any fail
 node scripts/cli.mjs --json                 # same, JSON
 node scripts/cli.mjs --checks drift,orphans # subset
 node scripts/cli.mjs --sweep --composition default     # stopped composition only
 ```
+
+### The gate
+
+`--gate` answers one question — *is there anything that will stop this
+composition coming up?* — and answers it before a failed launch teaches you the
+same thing more slowly. Exit `0` clear, `1` blocked, `2` **could not assess**:
+a gate that reports "clear" when it could not look is worse than no gate, so it
+fails closed on a missing repo root or an unreadable manifest.
+
+Blocking checks are deliberately narrow: failing verifies, registry gaps,
+unknown capability kinds and port collisions — conditions under which `up()`
+either cannot succeed or takes the Muster UI down with it. `hook-cwd` and the
+informational bands stay out until they have proven themselves, because a gate
+that cries wolf gets switched off. Chain it yourself:
+
+```bash
+node fittings/seed/preflight/scripts/cli.mjs --gate && <your up command>
+```
+
+Nothing in the runner calls this; wiring it into `up()` is a separate decision.
 
 ## Stationing
 

@@ -5,6 +5,7 @@
 import {
   crossCheckLibrary,
   findOrphanServeMappings,
+  findHookCwdAsymmetry,
   attributeSandboxListeners,
   buildPortClaims,
   findPortCollisions,
@@ -22,6 +23,7 @@ import {
   readSeedManifests,
   readCuratedLibrary,
   readCapabilityKinds,
+  readHookScripts,
   readCompositions,
   readLiveListeners,
   readStatusFiles,
@@ -43,7 +45,7 @@ import { readFixJournal, libraryChange } from "./fixers.mjs";
 // — and without it the assembly layer is the one layer no test can drive, which
 // is exactly where the report's ranking and deduplication decisions now live.
 const DEFAULT_COLLECTORS = {
-  findRepoRoot, readSeedManifests, readCuratedLibrary, readCapabilityKinds, readCompositions,
+  findRepoRoot, readSeedManifests, readCuratedLibrary, readCapabilityKinds, readHookScripts, readCompositions,
   readLiveListeners, readStatusFiles, readGatewayRecords, readProcessCommands,
   readSpawnRecords, readTailscaleServeMap, readActiveComposition,
   readTetheredPorts, resolveProfile, pidAlive, isAppUp, fetchViews, fetchRunnerState, appUrl,
@@ -162,6 +164,10 @@ export async function buildReport({ startDir = FITTING_DIR, checks = null, colle
 
   if (run("drift")) {
     for (const x of compositions) findings.push(...assessDrift({ ...x, activeCompositionId }));
+  }
+
+  if (run("hook-cwd")) {
+    findings.push(...findHookCwdAsymmetry(c.readHookScripts(root, compositions, activeCompositionId)));
   }
 
   if (run("kind-vocabulary")) {

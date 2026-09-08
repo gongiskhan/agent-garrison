@@ -9,18 +9,21 @@
 //   node scripts/cli.mjs --sweep --composition default-2   # heavy: real verify sweep
 
 import { buildReport } from "../lib/report.mjs";
+import { readActiveComposition } from "../lib/collect.mjs";
 import { runVerifySweep, isAppUp, appUrl } from "../lib/app-client.mjs";
 import { assessSweepResults, summarize } from "../lib/preflight-core.mjs";
 
 function parseArgs(argv) {
-  const out = { json: false, sweep: false, composition: null, checks: null };
+  const out = { json: false, sweep: false, gate: false, all: false, composition: null, checks: null };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--json") out.json = true;
+    else if (argv[i] === "--gate") out.gate = true;
+    else if (argv[i] === "--all") out.all = true;
     else if (argv[i] === "--sweep") out.sweep = true;
     else if (argv[i] === "--composition") out.composition = argv[++i];
     else if (argv[i] === "--checks") out.checks = String(argv[++i] || "").split(",").filter(Boolean);
     else if (argv[i] === "--help" || argv[i] === "-h") {
-      console.log("usage: cli.mjs [--json] [--checks a,b] [--sweep --composition <id>]");
+      console.log("usage: cli.mjs [--json] [--all] [--checks a,b] [--gate [--composition <id>]] [--sweep --composition <id>]");
       process.exit(0);
     }
   }
@@ -42,9 +45,64 @@ function printFindings(findings) {
   }
 }
 
+// What a gate refuses to start over. Deliberately narrow: these are conditions
+// under which up() either cannot succeed or takes the whole Muster UI down.
+// hook-cwd and the informational checks stay OUT until they have proven
+// themselves against real data — a gate that cries wolf gets disabled.
+const GATE_BLOCKING = new Set(["verify-results", "library-crosscheck", "kind-vocabulary", "port-collisions"]);
+// Conditions under which the gate did not actually get to look.
+const GATE_BLIND = new Set(["repo-root", "manifest-parse"]);
+
+// A finding belongs to the target unless it is explicitly scoped to a
+// DIFFERENT composition; repo-wide findings (a registry gap, a retired kind)
+// block every composition equally.
+function concernsComposition(finding, target, allCompositions) {
+  const prefix = finding.id.split(":")[0];
+  return prefix === target || !allCompositions.includes(prefix);
+}
+
+async function runGate(report, args) {
+  const target = args.composition || readActiveComposition();
+  if (!target) {
+    console.error("preflight gate: no --composition given and no usable active-composition pointer in ~/.garrison/config.json");
+    return 2;
+  }
+  const all = report.compositions || [];
+  if (!all.includes(target) && !(report.findings || []).some((f) => GATE_BLIND.has(f.check))) {
+    console.error(`preflight gate: no composition named "${target}" (known: ${all.join(", ") || "none"})`);
+    return 2;
+  }
+  // Fail CLOSED: a gate that reports "clear" when it could not look is worse
+  // than no gate at all.
+  const blind = (report.findings || []).filter((f) => f.status === "fail" && GATE_BLIND.has(f.check));
+  if (blind.length) {
+    for (const f of blind) console.error(`  could not assess: ${f.detail}`);
+    console.error(`preflight gate: could not assess ${target}.`);
+    return 2;
+  }
+  const blocking = (report.findings || []).filter((f) =>
+    f.status === "fail" && GATE_BLOCKING.has(f.check) && concernsComposition(f, target, all));
+  if (args.json) {
+    console.log(JSON.stringify({ compositionId: target, ok: !blocking.length, blocking }, null, 2));
+  } else {
+    for (const f of blocking) {
+      console.error(`  ✗ ${f.check}/${f.id}: ${f.detail}`);
+      if (f.fix) console.error(`      fix: ${f.fix}`);
+    }
+    console.error(blocking.length
+      ? `preflight gate: ${blocking.length} blocking finding(s) for ${target}.`
+      : `preflight gate: ${target} is clear.`);
+  }
+  return blocking.length ? 1 : 0;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const report = await buildReport({ checks: args.checks });
+
+  if (args.gate) {
+    process.exit(await runGate(report, args));
+  }
 
   if (args.sweep) {
     // NEVER default the target. A sweep flips runner status, may run

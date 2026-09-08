@@ -9,7 +9,7 @@ import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { parseManifest, parseComposition, RETIRED_SEED_IDS } from "./preflight-core.mjs";
+import { parseManifest, parseComposition, resolveScriptPaths, RETIRED_SEED_IDS } from "./preflight-core.mjs";
 
 // The fitting's own location. It always sits inside the repo it diagnoses
 // (fittings/seed/preflight, or <composition>/apm_modules/_local/preflight), so
@@ -124,6 +124,87 @@ export function resolveProfile(env = process.env) {
   const raw = (env.GARRISON_PREFLIGHT_PROFILE || env.GARRISON_INSTANCE_ID || "").trim();
   if (raw === "prod") return "node";
   return Object.hasOwn(PROFILE_PORT_OFFSET, raw) ? raw : "node";
+}
+
+// The `command:` of the setup and verify blocks, by line scan: a full YAML
+// parser is not available to a fitting that must run from apm_modules on a
+// cold machine, and the shape here is fixed.
+function hookCommands(text) {
+  const lines = text.split(/\r?\n/);
+  const out = {};
+  let mode = null;
+  let modeIndent = -1;
+  for (const raw of lines) {
+    if (!raw.trim() || raw.trim().startsWith("#")) continue;
+    const indent = raw.length - raw.trimStart().length;
+    const line = raw.trim();
+    if (/^(setup|verify):\s*$/.test(line)) { mode = line.slice(0, -1); modeIndent = indent; continue; }
+    if (mode && indent <= modeIndent) { mode = null; continue; }
+    const cmd = mode && line.match(/^command:\s*(.+?)\s*$/);
+    if (cmd) { out[mode] = cmd[1]; mode = null; }
+  }
+  return out;
+}
+
+// The script a hook command runs, relative to that hook's own root.
+function scriptFromCommand(command) {
+  const m = String(command || "").match(/(\S+\.(?:sh|mjs|js|ts))\b/);
+  return m ? m[1] : null;
+}
+
+const joinRel = (base, rel) => path.resolve(base, "." + (rel.startsWith("/") ? rel : `/${rel}`));
+
+// Setup runs from the SEED dir and verify from the COMPOSITION dir
+// (src/lib/runner.ts:1465 vs :1625), so a path either script derives by walking
+// up from its own location resolves to two different places. Collect those
+// pairs so the pure check can decide which ones actually diverge.
+export function readHookScripts(root, compositions = [], activeCompositionId = null) {
+  const seedDir = path.join(root, "fittings", "seed");
+  const out = [];
+  let entries = [];
+  try { entries = readdirSync(seedDir, { withFileTypes: true }); } catch { return out; }
+  for (const e of entries) {
+    if (!e.isDirectory() || RETIRED_SEED_IDS.has(e.name)) continue;
+    let manifest;
+    try { manifest = readFileSync(path.join(seedDir, e.name, "apm.yml"), "utf8"); } catch { continue; }
+    const hooks = hookCommands(manifest);
+    const setupRel = scriptFromCommand(hooks.setup);
+    const verifyRel = scriptFromCommand(hooks.verify);
+    if (!setupRel || !verifyRel) continue;
+
+    // Which composition stations it decides where verify would run from;
+    // prefer the active one so the report describes the machine in use.
+    const stationing = compositions.filter((c) => c.parsed.selections.some((s) => s.id === e.name));
+    const comp = stationing.find((c) => c.compositionId === activeCompositionId) || stationing[0];
+    if (!comp) continue;
+
+    // Both scripts live in the seed; only the ROOT they run from differs.
+    const setupScriptDir = path.dirname(path.resolve(path.join(seedDir, e.name), setupRel));
+    const verifyScriptDir = path.dirname(path.resolve(path.join(root, "compositions", comp.compositionId), verifyRel));
+    let setupText, verifyText;
+    try {
+      setupText = readFileSync(path.join(seedDir, e.name, setupRel), "utf8");
+      verifyText = readFileSync(path.join(seedDir, e.name, verifyRel.replace(/^.*_local\/[^/]+\//, "")), "utf8");
+    } catch { continue; }
+
+    const fromSetup = resolveScriptPaths(setupText, setupScriptDir, joinRel);
+    const fromVerify = resolveScriptPaths(verifyText, verifyScriptDir, joinRel);
+    const vars = [];
+    for (const [name, s] of fromSetup) {
+      if (name === "SCRIPT_DIR") continue;
+      const v = fromVerify.get(name);
+      // Only variables BOTH scripts define the same way can be compared; a name
+      // that means different things in the two scripts proves nothing.
+      if (!v || v.expr !== s.expr) continue;
+      const guarded = new RegExp(`basename[ \t]+"\\$${name}"`).test(setupText);
+      vars.push({
+        name, expr: s.expr, setupPath: s.path, verifyPath: v.path,
+        setupExists: existsSync(s.path), verifyExists: existsSync(v.path), guarded
+      });
+    }
+    if (vars.length) out.push({ id: e.name, compositionId: comp.compositionId, vars });
+  }
+  return out;
 }
 
 export function readCapabilityKinds(root) {

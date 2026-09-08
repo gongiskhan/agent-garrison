@@ -7,7 +7,9 @@ import { PROFILE_PORT_OFFSET } from "@/lib/instance-profile";
 // @ts-ignore
 import { servePort } from "../fittings/seed/preflight/lib/preflight-core.mjs";
 // @ts-ignore
-import { readCapabilityKinds } from "../fittings/seed/preflight/lib/collect.mjs";
+import { readCapabilityKinds, readHookScripts } from "../fittings/seed/preflight/lib/collect.mjs";
+// @ts-ignore
+import { findHookCwdAsymmetry } from "../fittings/seed/preflight/lib/preflight-core.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (rel: string) => readFileSync(path.join(ROOT, rel), "utf8");
@@ -44,5 +46,27 @@ describe("preflight agrees with the sources it audits", () => {
   it("uses the app's own profile offsets", () => {
     expect(PROFILE_PORT_OFFSET).toEqual({ node: 0, dev: 10000, codex: 20000 });
     expect(read("fittings/seed/preflight/lib/collect.mjs")).toContain("PROFILE_PORT_OFFSET");
+  });
+});
+
+// A live, open blocker: basic-memory computes the same MODULES_DIR in setup and
+// verify, so setup looks for the kanban fitting under fittings/ (never there)
+// and tears its consumer down, while verify looks under apm_modules (present)
+// and demands it. Pinned here so the detector cannot silently stop finding it.
+describe("the hook-cwd detector still catches the basic-memory divergence", () => {
+  it("fails KANBAN_FITTING_DIR with both resolved paths as evidence", () => {
+    const compositions = [{
+      compositionId: "default-2",
+      parsed: { selections: [{ faculty: "memory", id: "basic-memory", pins: [] }], unfitted: [] }
+    }];
+    const entries = readHookScripts(ROOT, compositions, "default-2") as Array<{ id: string }>;
+    const basicMemory = entries.find((e) => e.id === "basic-memory");
+    expect(basicMemory, "basic-memory must still declare both hooks").toBeDefined();
+
+    const findings = findHookCwdAsymmetry([basicMemory]) as Array<{ id: string; status: string; detail: string }>;
+    const kanban = findings.find((f) => f.id === "basic-memory:KANBAN_FITTING_DIR");
+    expect(kanban?.status).toBe("fail");
+    expect(kanban?.detail).toContain("fittings/_local/kanban-loop");
+    expect(kanban?.detail).toContain("apm_modules/_local/kanban-loop");
   });
 });
