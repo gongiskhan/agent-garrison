@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // @ts-ignore — pure .mjs
 import { list as listClaude } from "../fittings/seed/remote-shell-runtime/lib/listers/claude.mjs";
 // @ts-ignore — pure .mjs
-import { list as listCodex } from "../fittings/seed/remote-shell-runtime/lib/listers/codex.mjs";
+import { list as listCodex, localCodexHome } from "../fittings/seed/remote-shell-runtime/lib/listers/codex.mjs";
 // @ts-ignore — pure .mjs
 import { list as listCursor } from "../fittings/seed/remote-shell-runtime/lib/listers/cursor.mjs";
 // @ts-ignore — pure .mjs
@@ -490,6 +490,18 @@ describe("buildIndex", () => {
 });
 
 describe("recent native session discovery regressions", () => {
+  it("launches native Codex with the right history while preserving service resumes and sandbox isolation", () => {
+    const nativeHome = path.join(sandbox, ".codex");
+    const runtimeHome = path.join(sandbox, ".garrison", "runtime-homes", "codex");
+    writeCodexRollout(path.join(nativeHome, "sessions"), "native-resume", { cwd: "/tmp/shared" }, new Date());
+    writeCodexRollout(path.join(runtimeHome, "sessions"), "service-resume", { cwd: "/tmp/shared" }, new Date());
+    const env = { HOME: sandbox, GARRISON_HOME: path.join(sandbox, ".garrison"), CODEX_HOME: runtimeHome };
+    expect(localCodexHome(null, env)).toBe(nativeHome);
+    expect(localCodexHome("native-resume", env)).toBe(nativeHome);
+    expect(localCodexHome("service-resume", env)).toBe(runtimeHome);
+    expect(localCodexHome("native-resume", { ...env, GARRISON_INSTANCE_ID: "dev" })).toBe(runtimeHome);
+    expect(localCodexHome("native-resume", { ...env, GARRISON_HOME: path.join(sandbox, ".garrison-dev") })).toBe(runtimeHome);
+  });
   it("includes the real Codex home alongside the runner home and an old creation directory resumed today", () => {
     const nativeHome = path.join(sandbox, ".codex");
     const runtimeHome = path.join(sandbox, "runtime-codex");

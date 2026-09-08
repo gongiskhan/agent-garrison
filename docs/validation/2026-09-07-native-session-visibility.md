@@ -125,3 +125,11 @@ send recovery. Native idle streams also retry closed HTTP failures without
 reopening a successfully completed stream. Existing list-retention, alias,
 initial-load, session-stream and rail tests remain green. Live deployment and
 neutral-shell acceptance are recorded in shared Garrison Node Operations.
+
+The neutral live Codex-shell check found that the service's inherited CODEX_HOME
+selected Garrison's isolated runtime profile. Local node shells now explicitly
+launch new Codex clients with the native profile; resumes select the profile that
+actually contains that session identity. Existing tmux-server environment cannot
+override that choice. Dev/codex sandboxes keep their isolated profiles. The first
+temporary shell was removed without sending a model prompt. A follow-up also
+restores action-button contrast and compacts the native header on phones.

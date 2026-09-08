@@ -28,6 +28,7 @@ import pty from "node-pty";
 import { attachSpawnSpec, eventsTailSpec, garrisonHome, transportExec } from "./transports.mjs";
 import { shellQuote } from "./shell-quote.mjs";
 import { buildRuntimeProbeScript, commandLine, parseRuntimeProbe, RUNTIMES } from "./runtimes.mjs";
+import { localCodexHome } from "./listers/codex.mjs";
 
 const RUNTIME_PROBE_TTL_MS = 5 * 60_000;
 
@@ -659,7 +660,12 @@ export class SessionManager {
       sessionRuntime = rt.id;
       runtimeBin = rt.bin;
       const argv = attach ? rt.attachArgv(resume) : resume != null ? rt.resumeArgv(resume) : rt.newArgv();
-      if (Array.isArray(argv) && argv.length) typedCommand = commandLine(argv);
+      if (Array.isArray(argv) && argv.length) {
+        const codexHome = rt.id === "codex" && transport.kind === "local" ? localCodexHome(resume) : null;
+        // Prefix the command itself: an existing tmux server retains the old
+        // service environment even after the fitting has restarted.
+        typedCommand = commandLine(codexHome ? ["env", `CODEX_HOME=${codexHome}`, ...argv] : argv);
+      }
     } else if (transport.agentCommand) {
       // No runtime named: keep the transport's own standing agent, reported
       // under its basename so a caller never sees a null runtime.

@@ -2558,6 +2558,9 @@
   padding: 8px 12px;
   border-bottom: 1px solid #4b584d;
 }
+.wc-sess-actions .wc-wb-reattach { color: #384437; background: #fbf8f1; border-color: #89917f; }
+.wc-sess-actions .wc-wb-reattach:hover { background: #e8e3d5; }
+.wc-sess-actions .wc-wb-reattach:disabled { opacity: .5; }
 .wc-sess-body { flex: 1; min-height: 0; overflow-y: auto; }
 .wc-sess-note {
   padding: 16px 14px;
@@ -2666,6 +2669,14 @@
 .wc-shell--compact .wc-sessions-node { min-height: 44px; }
 .wc-shell--compact .wc-sess-actions .wc-wb-reattach { min-height: 44px; padding: 6px 10px; font-size: 10px; }
 .wc-shell--compact .wc-sess-conversation .cc-session { padding: 10px 12px; }
+.wc-shell--compact .wc-sess .wc-wb-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 5px 8px; padding: 8px 10px 8px 60px; }
+.wc-shell--compact .wc-sess .wc-wb-head > .wc-wb-lamp,
+.wc-shell--compact .wc-sess .wc-wb-head > .wc-thread-proj { display: none; }
+.wc-shell--compact .wc-sess .wc-wb-head > .wc-thread-rt { grid-column: 1; grid-row: 1; }
+.wc-shell--compact .wc-sess .wc-wb-head > .wc-thread-node { grid-column: 2; grid-row: 1; overflow: hidden; text-overflow: ellipsis; }
+.wc-shell--compact .wc-sess .wc-wb-title { grid-column: 1 / 3; grid-row: 2; }
+.wc-shell--compact .wc-sess .wc-wb-sub { grid-column: 1 / -1; grid-row: 3; white-space: nowrap; }
+.wc-shell--compact .wc-sess .wc-wb-head > .wc-wb-reattach { grid-column: 3; grid-row: 1 / 3; min-height: 44px; margin: 0; padding: 6px 8px; }
 .wc-shell--compact .wc-drawer-close { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; color: #eee8db; background: transparent; border: 1px solid #64705e; border-radius: 5px; font-size: 23px; cursor: pointer; }
 .wc-shell--compact .wc-sidebar-toggle,
 .wc-shell--compact .cc-conv-head .wc-threads-toggle { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; width: 44px; height: 44px; min-height: 44px; padding: 0; margin-left: 0; background: #f4ede0; border: 1px solid #c4b89f; border-radius: 6px; color: #18211c; cursor: pointer; }
