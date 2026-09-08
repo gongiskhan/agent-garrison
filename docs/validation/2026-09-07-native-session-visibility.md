@@ -50,3 +50,26 @@ The Mini's live Cursor metadata-only rows intermittently disappeared while its t
 The follow-up passed 44 native lister, mesh-session, hook and terminal tests plus TypeScript. Its real SQLite regression holds an exclusive lock, verifies retained rows and content-free diagnostics, releases the lock and observes a renamed session; separate checks cover five-day expiration during failure and actual deletion. Evidence: `/private/tmp/garrison-cursor-cache-focused-20260907.log` and `/private/tmp/garrison-cursor-cache-typecheck-20260907.log` on the Pro. Deployment verification is recorded separately in the shared node operations note.
 
 `session-index.mjs` in the previous revision contained literal NUL bytes as map-key separators. The change replaces them with equivalent JavaScript `\0` escapes. Git may display the old-versus-new diff as binary because the old revision contains NULs; `git diff --text` displays the source changes for review.
+
+## Native output recovery — 2026-09-08
+
+The final Mini Cursor check exposed three delays at the viewing boundary. Native
+output lookup waited for whole-mesh aggregation; a transient index failure could
+therefore look like a permanently missing transcript. Its real owner stream also
+sent a single 2,374,790-byte initial frame. Finally, a real Chromium check showed
+that a 502 leaves EventSource closed without retrying, despite the terminal's
+reconnecting label.
+
+The follow-up uses the owner's local index with bounded retry, flushes stream
+headers immediately, and keeps temporary lookup failures retryable. Initial
+recent output travels in smaller ordered frames. The terminal explicitly retries
+closed failed connections and cleans up retries when closed or unmounted. These
+changes are confined to native session viewing; no optional fitting changed.
+Targeted test and owner-node live acceptance results are recorded in the shared
+Garrison Node Operations note.
+
+Server and related focused checks passed 68 tests. The final combined native
+stream and browser run passed all 30 tests, including the existing conversation
+stream regressions; TypeScript passed. Owner evidence:
+`/private/tmp/garrison-native-final-checks-20260908.log` and
+`/private/tmp/garrison-native-stream-batched-typecheck-20260908.log`.

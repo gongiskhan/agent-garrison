@@ -23,7 +23,7 @@
 
 import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { meshThreads } from "./mesh-threads.mjs";
-import { meshSessions } from "./mesh-sessions.mjs";
+import { localSessionForStream, meshSessions } from "./mesh-sessions.mjs";
 import { readCursorDesktopTranscript } from "./cursor-desktop-transcript.mjs";
 import { parseByFormat } from "./transcript-formats.mjs";
 import { gatewayCancelForwarder, gatewayMessageForwarder, handleConversationRequest } from "@garrison/claude-pty";
@@ -2472,46 +2472,89 @@ async function handleSessionsList(res) {
   jsonRes(res, 200, result);
 }
 
+// EventSource cannot dispatch a partially received JSON frame. Keep initial
+// history within the terminal's 500-event window and send complete small frames
+// so a slow mesh link can render output before the entire replay arrives.
+function emitNativeInitialHistory(emit, initial) {
+  const { events, ...metadata } = initial;
+  const recent = events.slice(-500);
+  let first = true;
+  let batch = [];
+  const envelopeBytes = () => Buffer.byteLength(JSON.stringify({ ...(first ? metadata : { type: "events" }), events: [] })) + 8;
+  let bytes = envelopeBytes();
+  const flush = () => {
+    emit({ ...(first ? metadata : { type: "events" }), events: batch });
+    first = false;
+    batch = [];
+    bytes = envelopeBytes();
+  };
+  for (const event of recent) {
+    const size = Buffer.byteLength(JSON.stringify(event));
+    if (batch.length && (batch.length >= 25 || bytes + size + 1 > 32 * 1024)) flush();
+    // Preserve a single unusually large event intact, but never make it hold
+    // the initial availability frame hostage to a multi-megabyte transfer.
+    if (first && !batch.length && bytes + size > 32 * 1024) flush();
+    bytes += size + (batch.length ? 1 : 0);
+    batch.push(event);
+  }
+  if (batch.length || first) flush();
+}
+
 /** Live transcript for an external (non-thread-owned) session on THIS node -
  *  same SSE frame shape as handleSessionStream, but sourced from the row's
  *  own transcript file/format rather than a Claude-specific path. A peer's
  *  session streams through /api/mesh/nodes/<node>/sessions/:id/stream (the
  *  shell app's peer proxy), never here. */
 async function handleExternalSessionStream(req, res, id) {
-  const emit = (obj) => { try { res.write(`data: ${JSON.stringify(obj)}\n\n`); } catch { /* client gone */ } };
-  const notFound = () => {
-    res.statusCode = 200;
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
-    emit({ type: "init", available: false, live: false, events: [] });
-    emit({ type: "end" });
-    res.end();
+  let closed = false;
+  let poll = null;
+  let keep = null;
+  const lookup = new AbortController();
+  const stop = () => {
+    if (closed) return;
+    closed = true;
+    lookup.abort();
+    clearInterval(poll); clearInterval(keep);
+    req.off("aborted", stop); res.off("close", stop);
   };
-  let row;
-  try {
-    const { self, rows } = await meshSessions();
-    row = rows.find((r) => r.id === id && r.node === self.node);
-  } catch {
-    row = null;
-  }
-  if (!row?.transcript?.path || !row?.transcript?.format) return notFound();
-  const format = row.transcript.format;
-  const filePath = row.transcript.path;
-
+  req.once("aborted", stop);
+  res.once("close", stop);
+  if (req.aborted || res.destroyed) return stop();
+  const emit = (obj) => {
+    if (closed) return;
+    try { res.write(`data: ${JSON.stringify(obj)}\n\n`); } catch { stop(); }
+  };
   res.statusCode = 200;
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
+  res.write("retry: 2000\n: opening session output\n\n");
+  const notFound = () => {
+    emit({ type: "init", available: false, live: false, events: [] });
+    emit({ type: "end" });
+    res.end();
+  };
+  const result = await localSessionForStream(id, { signal: lookup.signal });
+  if (closed) return;
+  if (!result.available) {
+    // No terminal end frame: EventSource reconnects after this temporary
+    // failure instead of permanently presenting an absent transcript.
+    emit({ type: "error", code: "session-index-unavailable", retryable: true });
+    return res.end();
+  }
+  const row = result.row;
+  if (!row?.transcript?.path || !row?.transcript?.format) return notFound();
+  const format = row.transcript.format;
+  const filePath = row.transcript.path;
 
   if (format === "cursor-desktop-db") {
     const read = () => readCursorDesktopTranscript(filePath, row.id);
     const first = read();
-    emit({ type: "init", ...first, live: true });
+    emitNativeInitialHistory(emit, { type: "init", ...first, live: true });
     let signature = JSON.stringify(first.events);
-    const poll = setInterval(() => {
+    poll = setInterval(() => {
       const next = read();
       const updated = JSON.stringify(next.events);
       if (next.available && updated !== signature) {
@@ -2519,10 +2562,7 @@ async function handleExternalSessionStream(req, res, id) {
         emit({ type: "events", events: next.events });
       }
     }, 1500);
-    const keep = setInterval(() => { try { res.write(": keep-alive\n\n"); } catch { /* client disconnected */ } }, 15000);
-    const stop = () => { clearInterval(poll); clearInterval(keep); };
-    req.on("close", stop);
-    res.on("close", stop);
+    keep = setInterval(() => { try { res.write(": keep-alive\n\n"); } catch { stop(); } }, 15000);
     return;
   }
 
@@ -2536,18 +2576,17 @@ async function handleExternalSessionStream(req, res, id) {
     // matching terminal scrollback, then stream new complete records.
     const start = Math.max(0, statSync(filePath).size - 2 * 1024 * 1024);
     const first = await readJsonlLines(filePath, start);
+    if (closed) return;
     offset = first.offset;
     const { events, title } = parseByFormat(format, first.lines);
-    emit({ type: "init", available: true, live: row.status !== "ended", title, events: identify(events, start) });
+    emitNativeInitialHistory(emit, { type: "init", available: true, live: row.status !== "ended", title, events: identify(events, start) });
   } catch {
     emit({ type: "init", available: false, live: false, events: [] });
     emit({ type: "end" });
     return res.end();
   }
-  let closed = false;
-  const stop = () => { closed = true; clearInterval(keep); clearInterval(poll); };
-  const keep = setInterval(() => { if (!closed) { try { res.write(": keep-alive\n\n"); } catch { stop(); } } }, 15000);
-  const poll = setInterval(async () => {
+  keep = setInterval(() => { if (!closed) { try { res.write(": keep-alive\n\n"); } catch { stop(); } } }, 15000);
+  poll = setInterval(async () => {
     if (closed) return;
     try {
       const chunkOffset = offset;
@@ -2559,8 +2598,6 @@ async function handleExternalSessionStream(req, res, id) {
       }
     } catch { /* transient read error; retry next tick */ }
   }, 800);
-  req.on("close", stop);
-  res.on("close", stop);
 }
 
 async function handleThreadCreate(req, res) {
@@ -2832,7 +2869,7 @@ function routeSessions(req, res, pathname, method, log = console) {
   if (m && method === "GET") {
     let id;
     try { id = decodeURIComponent(m[1]); } catch { id = m[1]; }
-    void handleExternalSessionStream(req, res, id);
+    settle(res, handleExternalSessionStream(req, res, id), log);
     return true;
   }
   return false;

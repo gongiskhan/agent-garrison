@@ -122,6 +122,29 @@ function normalizeRow(raw, node) {
   return { ...raw, status, node };
 }
 
+/** Resolve an indexed transcript on this owner only. Opening local output must
+ * not wait for the authority, peer documents or conversation-thread binding.
+ * A failed index read is distinct from a successful index without this id. */
+export async function localSessionForStream(id, { fetchImpl = fetch, signal, timeoutMs = 5000 } = {}) {
+  const self = selfIdentity();
+  for (let attempt = 0; attempt < 2 && !signal?.aborted; attempt += 1) {
+    const info = readLocalShellsInfo();
+    if (!info?.url) break;
+    try {
+      const deadline = AbortSignal.timeout(timeoutMs);
+      const response = await fetchImpl(`${info.url}/index`, {
+        signal: signal ? AbortSignal.any([signal, deadline]) : deadline
+      });
+      if (!response.ok) { await response.body?.cancel(); continue; }
+      const body = await response.json();
+      if (!Array.isArray(body?.rows)) continue;
+      const row = body.rows.find((candidate) => candidate?.id === id);
+      return { available: true, row: normalizeRow(row, self.node) };
+    } catch { /* One retry covers a cold index or fitting restart. */ }
+  }
+  return { available: false, row: null };
+}
+
 /** @returns {{self, nodes, rows}} */
 export async function meshSessions({ limitEndedPerNode = DEFAULT_ENDED_CAP_PER_NODE, fetchImpl = fetch } = {}) {
   const self = selfIdentity();

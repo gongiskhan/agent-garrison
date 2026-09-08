@@ -26,13 +26,18 @@ export function NativeTerminal({ streamUrl }: { streamUrl: string }) {
     const resize = new ResizeObserver(() => { try { fit.fit(); } catch { /* detached */ } });
     resize.observe(mount.current);
     try { fit.fit(); } catch { /* first layout pending */ }
-    const source = new EventSource(streamUrl);
+    let source: EventSource | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let closedRetries = 0;
+    let stopped = false;
+    const clearRetry = () => { if (retryTimer !== null) clearTimeout(retryTimer); retryTimer = null; };
     const rendered = new Map<string, string>();
     let sequence = 0;
-    source.onmessage = (event) => {
+    const onMessage = (event: MessageEvent) => {
       let frame;
       try { frame = JSON.parse(event.data); } catch { return; }
       if (frame.type === "init") {
+        closedRetries = 0;
         term.reset();
         rendered.clear();
         setState(frame.available ? "Live output · read only" : "No session output yet");
@@ -60,10 +65,42 @@ export function NativeTerminal({ streamUrl }: { streamUrl: string }) {
           term.write([...rendered.values()].join(""), () => { if (!atBottom) term.scrollToLine(viewport); });
         } else if (changed) term.write(appended);
       }
-      if (frame.type === "end") { source.close(); setState("Session output · read only"); }
+      if (frame.type === "end") {
+        stopped = true; clearRetry(); source?.close();
+        setState("Session output · read only");
+      }
     };
-    source.onerror = () => setState("Reconnecting to session output…");
-    return () => { source.close(); resize.disconnect(); detachScrolling(); term.dispose(); };
+    const connect = () => {
+      if (stopped) return;
+      const current = new EventSource(streamUrl);
+      source = current;
+      current.onmessage = (event) => { if (!stopped && source === current) onMessage(event); };
+      current.onerror = () => {
+        if (stopped || source !== current) return;
+        // A dropped healthy SSE stays CONNECTING and retries itself. HTTP502
+        // can instead leave it permanently CLOSED: replace only that source.
+        if (current.readyState !== EventSource.CLOSED) {
+          setState("Reconnecting to session output…");
+          return;
+        }
+        current.onmessage = null; current.onerror = null; current.close();
+        if (retryTimer !== null) return;
+        if (closedRetries >= 5) {
+          setState("Session output unavailable. Reopen to retry.");
+          return;
+        }
+        setState("Reconnecting to session output…");
+        const delay = Math.min(1000 * 2 ** closedRetries++, 10_000);
+        retryTimer = setTimeout(() => { retryTimer = null; connect(); }, delay);
+      };
+    };
+    setState("Connecting…");
+    connect();
+    return () => {
+      stopped = true; clearRetry();
+      if (source) { source.onmessage = null; source.onerror = null; source.close(); }
+      resize.disconnect(); detachScrolling(); term.dispose();
+    };
   }, [streamUrl]);
   return <div className="wc-native-terminal" data-testid="native-shell-view" aria-label="Shell session output">
     <div className="wc-native-terminal-mount" ref={mount} />
