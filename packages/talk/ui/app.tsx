@@ -478,17 +478,18 @@ interface SessionsListResult {
   rows: RailSession[];
 }
 const EMPTY_SESSIONS: SessionsListResult = { self: { node: null, accentColor: null }, nodes: [], rows: [] };
-async function apiListSessions(): Promise<SessionsListResult> {
+async function apiListSessions(signal: AbortSignal): Promise<SessionsListResult | null> {
   try {
-    const r = await fetch("/api/sessions", { cache: "no-store" });
-    if (!r.ok) return EMPTY_SESSIONS;
+    const r = await fetch("/api/sessions", { cache: "no-store", signal });
+    if (!r.ok) return null;
     const d = await r.json();
+    if (!Array.isArray(d?.rows)) return null;
     return {
       self: d.self ?? EMPTY_SESSIONS.self,
       nodes: Array.isArray(d.nodes) ? d.nodes : [],
-      rows: Array.isArray(d.rows) ? d.rows : [],
+      rows: d.rows,
     };
-  } catch { return EMPTY_SESSIONS; }
+  } catch { return null; }
 }
 async function apiGetThread(id: string, signal?: AbortSignal): Promise<Thread | null> {
   try {
@@ -1117,9 +1118,35 @@ function ThreadedApp({
   // component and is not needed here - a session-list refresh mid-turn costs
   // one harmless fetch, not a lost keystroke).
   const [sessionsResult, setSessionsResult] = useState<SessionsListResult>(EMPTY_SESSIONS);
-  const loadSessions = useCallback(async () => {
-    const result = await apiListSessions();
-    setSessionsResult(result);
+  const sessionsRequest = useRef<{ controller: AbortController; promise: Promise<void> } | null>(null);
+  const loadSessions = useCallback(() => {
+    // Focus and timer refreshes share one request, so a slow earlier response
+    // cannot overwrite a newer list. Callers creating shells await that request.
+    if (sessionsRequest.current) return sessionsRequest.current.promise;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 12_000);
+    const promise = (async () => {
+      try {
+        const result = await apiListSessions(controller.signal);
+        if (sessionsRequest.current?.controller !== controller) return;
+        setSessionsResult(previous => result ?? {
+          ...previous,
+          // Failed reads do not erase sessions or refresh their activity date.
+          // Nor can an unconfirmed running indicator remain spinning forever.
+          rows: previous.rows.filter(row => {
+            const activity = Date.parse(row.lastActivityAt || row.startedAt || "");
+            return Number.isFinite(activity) && Date.now() - activity <= 5 * 24 * 60 * 60 * 1000;
+          }).map(row => row.status === "working"
+            ? { ...row, status: "unknown", statusSource: "stale-node" }
+            : row),
+        });
+      } finally {
+        window.clearTimeout(timeout);
+        if (sessionsRequest.current?.controller === controller) sessionsRequest.current = null;
+      }
+    })();
+    sessionsRequest.current = { controller, promise };
+    return promise;
   }, []);
   useEffect(() => {
     let alive = true;
@@ -1133,6 +1160,8 @@ function ThreadedApp({
     window.addEventListener("focus", onVisible);
     return () => {
       alive = false;
+      sessionsRequest.current?.controller.abort();
+      sessionsRequest.current = null;
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
@@ -1144,7 +1173,9 @@ function ThreadedApp({
   const [activeSessionRow, setActiveSessionRow] = useState<RailSession | null>(null);
   useEffect(() => {
     setActiveSessionRow((current) => current ? sessionsResult.rows.find((row) =>
-      row.id === current.id && row.node === current.node) ?? current : null);
+      row.id === current.id && row.node === current.node) ?? (current.status === "working"
+        ? { ...current, status: "unknown", statusSource: "stale-node" }
+        : current) : null);
   }, [sessionsResult.rows]);
   const [newShellOpen, setNewShellOpen] = useState(false);
   const [shellOrigin, setShellOrigin] = useState<string | null>(null);

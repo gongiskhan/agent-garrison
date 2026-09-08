@@ -19,6 +19,80 @@ beforeAll(async () => {
 }, 60_000);
 afterAll(async () => { await browser?.close(); });
 
+it("keeps the complete native list through failed refreshes, expires old activity, and accepts successful empty results", async () => {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  try {
+    const page = await context.newPage();
+    const now = Date.now();
+    const rows = ["pro", "dev", "mini", "csg", "air"].flatMap(node => ["claude", "codex", "cursor"].map(runtime => ({
+      id: `${node}-${runtime}`, node, runtime, kind: "desktop", title: `${node} ${runtime}`,
+      status: "working", statusSource: "hooks", nodeStatus: "active",
+      startedAt: new Date(now).toISOString(), lastActivityAt: new Date(now).toISOString(),
+      resumable: false, attachable: false,
+    })));
+    rows[0].lastActivityAt = new Date(now - 5 * 86_400_000 + 25_000).toISOString();
+    let mode = "healthy";
+    let reads = 0;
+    let completed = 0;
+    let release: (() => void) | undefined;
+    await page.route("http://talk.test/**", async route => {
+      const url = new URL(route.request().url());
+      if (url.pathname === "/") return route.fulfill({ contentType: "text/html", body: '<div id="root"></div>' });
+      if (url.pathname.endsWith("/stream")) return route.fulfill({ contentType: "text/event-stream", body: 'event: snapshot\ndata: {"events":[]}\n\n' });
+      let data: unknown = { nodes: [], hits: [] };
+      if (url.pathname === "/api/threads") data = { threads: [] };
+      if (url.pathname === "/api/sidebar") data = { groups: [], archived: [], membership: {}, order: {}, read: {} };
+      if (url.pathname === "/api/sessions") {
+        reads++;
+        const currentMode = mode;
+        if (currentMode === "slow") await new Promise<void>(resolve => { release = resolve; });
+        data = currentMode === "malformed" ? { error: "missing index" }
+          : { self: { node: "pro", accentColor: null }, nodes: [], rows: currentMode === "empty" ? [] : rows };
+        await route.fulfill({ status: currentMode === "failed" ? 503 : 200, contentType: "application/json", body: JSON.stringify(data) });
+        completed++;
+        return;
+      }
+      return route.fulfill({ contentType: "application/json", body: JSON.stringify(data) });
+    });
+    await page.goto("http://talk.test/");
+    await page.clock.install({ time: new Date(now) });
+    await page.addScriptTag({ content: bundle });
+    const nativeRows = page.locator('[data-key^="session:"]');
+    await expect.poll(() => nativeRows.count()).toBe(15);
+    expect((await nativeRows.evaluateAll(elements => elements.map(el => el.getAttribute("data-key")))).sort())
+      .toEqual(rows.map(row => `session:${row.node}:${row.id}`).sort());
+    for (const failure of ["failed", "malformed"]) {
+      mode = failure;
+      const before = completed;
+      await page.clock.fastForward(5_000);
+      await expect.poll(() => completed).toBeGreaterThan(before);
+      await expect.poll(() => nativeRows.locator(".wc-thread-spinner").count()).toBe(0);
+      expect(await nativeRows.count()).toBe(15);
+    }
+    mode = "healthy";
+    await page.clock.fastForward(5_000);
+    await expect.poll(() => nativeRows.locator(".wc-thread-spinner").count()).toBe(15);
+
+    mode = "slow";
+    await page.clock.fastForward(5_000);
+    await expect.poll(() => Boolean(release)).toBe(true);
+    const beforeOverlap = reads;
+    await page.evaluate(() => { window.dispatchEvent(new Event("focus")); window.dispatchEvent(new Event("focus")); });
+    await page.clock.fastForward(5_000);
+    expect(reads).toBe(beforeOverlap);
+    release!();
+    await expect.poll(() => completed).toBe(reads);
+
+    mode = "failed";
+    await page.clock.fastForward(5_000);
+    await expect.poll(() => nativeRows.count()).toBe(14);
+    expect(await page.locator('[data-key="session:pro:pro-claude"]').count()).toBe(0);
+    mode = "empty";
+    await page.clock.fastForward(5_000);
+    await expect.poll(() => nativeRows.count()).toBe(0);
+  } finally { await context.close(); }
+}, 30_000);
+
 it("repeated native-session polls retain one Cursor row and clear its spinner despite a peer hook alias", async () => {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   try {
