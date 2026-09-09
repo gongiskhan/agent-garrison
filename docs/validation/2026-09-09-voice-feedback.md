@@ -36,5 +36,25 @@ both orders and replaying a translated version under the same reply identity.
 The stored-transcript regression verifies that one-word "Zeca" and fragmented
 assistant speech never enter the transcript or wake bus, while real speech does.
 
-Deployment and HTTPS verification are recorded below after completion. These
-automated checks are not physical-phone acoustic acceptance.
+These automated checks are not physical-phone acoustic acceptance.
+
+## Initial live verification
+
+Commit `feffa422` is pushed to the Pro permanent branch. A supported fitting-only
+restart loaded the server repair at about 17:10 UTC, PID87056. The actual pendant
+reconnected and STT/TTS health remained available. One Portuguese test phrase was
+forwarded once and confirmed once by the phone through the generated clip, with
+zero failures and no new wake/dispatch. No fresh audio packets arrived during
+that measurement, so it does not establish acoustic echo suppression on-device.
+
+An isolated Chromium page on the Pro's real HTTPS origin loaded a test bundle of
+the changed reply player. The real `/api/voice/spoken` proxy returned HTTP200 with
+`speak:false` while the native sink was connected; the player made zero TTS,
+clip-playback or synthesizer calls. The existing page's web-push-key HTTP503 is
+unrelated to this successful voice request. The shipped app bundle still needs
+the full redeploy below; injecting the test bundle is not deployment.
+
+Full deployment is coordinated with the concurrent session-card task, whose
+owner has temporarily frozen production builds until its app/gateway changes
+reach a verified checkpoint. No peer work was stashed, discarded or deployed
+while incomplete.
