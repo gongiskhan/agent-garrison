@@ -5475,6 +5475,12 @@ label.row { display: flex; align-items: center; gap: 8px; }
   .sheet-tab.is-active { color: var(--ink); border-bottom-color: var(--ink); }
   /* Conversation page: the conversation IS the body. The other sections stay
      mounted (a half-typed checklist item survives a tab switch) but hidden. */
+  /* Long task titles stay fully readable on the Card tab; while following the
+     conversation, reserve the screen for its transcript. */
+  .sheet.phone-conv .sh-head .sheet-title-text {
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
   .sheet.phone-conv .sh-body { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
   .sheet.phone-conv .sh-body > :not(.conv-block) { display: none; }
   .sheet.phone-conv .conv-block { flex: 1 1 auto; min-height: 0; margin: 0; display: flex; flex-direction: column; }

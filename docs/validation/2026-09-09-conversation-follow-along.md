@@ -60,3 +60,8 @@ Owner screenshots and interaction results are under
 output/playwright/conversation-follow-along/. Production node results and CSG
 tether recovery are recorded in shared Garrison Node Operations. These browser
 checks are not physical iPhone acceptance.
+
+A final mobile check caught a long card title occupying roughly a third of the
+viewport. On the Conversation tab only, the card title now uses at most two lines;
+the Card tab retains the full title and editing control. This is a shared board
+CSS change, shipped in the tracked Kanban stylesheet as well as its source.
