@@ -113,6 +113,33 @@ describe("SDK import isolation — the @anthropic-ai import lives in one injecta
 
 // ── THE HARNESS (harness-ok) ────────────────────────────────────────────────
 describe("THE HARNESS — per-target promptMode (harness-ok)", () => {
+  it("advertises the actual routed native inventory and preserves permission restrictions", async () => {
+    const assembly = resolveRoutedAgentSdkAssembly({
+      provider: "anthropic", promptMode: "full", appendSystemPrompt: "composition policy",
+      tools: ["Read", "WebSearch", "WebFetch"], disallowedTools: ["WebFetch"],
+    });
+    const adapter = adapterYielding([]);
+    const session = await adapter.spawn({ fixedAssembly: assembly });
+    const options = adapter.buildQueryOptions(session);
+    expect(options.tools).toEqual(["Read", "WebSearch", "WebFetch"]);
+    expect(options.disallowedTools).toEqual(["WebFetch"]);
+    expect(options.systemPrompt.append).toContain("composition policy");
+    expect(options.systemPrompt.append).toContain("native tools: Read, WebSearch.");
+    expect(options.systemPrompt.append).toContain("exact name");
+    expect(options.systemPrompt.append).not.toContain("WebFetch");
+  });
+
+  it.each([
+    { promptMode: "lean", tools: ["WebSearch"] },
+    { promptMode: "full", tools: [] },
+    { promptMode: "full", tools: ["Read"] },
+    { promptMode: "coding", tools: ["WebSearch"], disallowedTools: ["WebSearch"] },
+    { promptMode: "full", tools: ["WebFetch"], disallowedTools: ["WebFetch(domain:example.com)"] },
+  ])("does not promise web access outside the effective explicit inventory: %j", (config) => {
+    const assembly = resolveRoutedAgentSdkAssembly({ provider: "anthropic", ...config });
+    expect(JSON.stringify(assembly.systemPrompt)).not.toMatch(/WebSearch|WebFetch|listed web tools/);
+  });
+
   it("full → claude_code preset + settingSources[project] + skills + CLAUDE.md", () => {
     const h = buildHarness("full");
     expect(h.systemPrompt).toEqual({ type: "preset", preset: "claude_code" });
@@ -439,7 +466,7 @@ describe("AgentSdkAdapter — RuntimeAdapter conformance, no scraping (sdk-adapt
       systemPrompt: {
         type: "preset",
         preset: "claude_code",
-        append: "frozen garrison prompt",
+        append: expect.stringContaining("frozen garrison prompt"),
       },
       settingSources: ["project"],
       cwd: "/work/original",
@@ -472,7 +499,7 @@ describe("AgentSdkAdapter — RuntimeAdapter conformance, no scraping (sdk-adapt
     first.mcpServers.garrison.args.push("sdk-mutated");
     await adapter.setEffort(session, "max");
     expect(adapter.buildQueryOptions(session)).toMatchObject({
-      systemPrompt: { append: "frozen garrison prompt" },
+      systemPrompt: { append: expect.stringContaining("frozen garrison prompt") },
       tools: ["Read", "Grep"],
       mcpServers: { garrison: { args: ["/srv/garrison.mjs", "stdio"] } },
       strictMcpConfig: true,
@@ -505,7 +532,7 @@ describe("AgentSdkAdapter — RuntimeAdapter conformance, no scraping (sdk-adapt
       systemPrompt: {
         type: "preset",
         preset: "claude_code",
-        append: "layered routed sentinel",
+        append: expect.stringContaining("layered routed sentinel"),
       },
       settingSources: [],
       cwd: "/work/routed",

@@ -19,6 +19,11 @@ unrelated update from earlier work.
   invented facts, citations, tool access or attempts and respects denied access.
 - Responder guidance permits a bounded lookup within the reply and follows the
   latest question, including a topic change, without unrelated old work updates.
+- The SDK harness describes its explicit native inventory and tells the model
+  to discover deferred tools by their exact names. Denied tools and lean
+  targets are not advertised. The initial live Haiku probe searched for
+  `weather|forecast`, got no deferred-tool match, and incorrectly declared web
+  tools absent. This follow-up addresses that observed discovery failure.
 
 Existing authored overrides are preserved. A composition that explicitly
 overrides its execution policy retains that policy; the default composition
@@ -33,6 +38,9 @@ fixture; rerunning the gateway tests with localhost binding available passed.
 The profile tests cover web-tool delivery to conversational duties, shared
 inventory equality, read-only intake and explicit/lean/non-SDK restrictions.
 
-Deployment and live model acceptance are pending. The live check must use a
-fresh responder stretch, observe real lookup calls and assess its final answer;
-a tool list or prompt inspection alone is insufficient evidence.
+The first change was deployed on the Pro as f64eefc1 with 43/43 startup checks.
+Live acceptance found the deferred-tool discovery failure described above;
+two subsequent Sonnet admissions timed out waiting for MCP startup before any
+prompt was sent. A standalone SDK Sonnet lookup with native WebSearch worked.
+That isolation check does not establish gateway acceptance. The inventory
+follow-up and its live gateway acceptance are pending.

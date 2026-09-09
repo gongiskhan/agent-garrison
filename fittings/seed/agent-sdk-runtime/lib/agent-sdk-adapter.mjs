@@ -191,6 +191,8 @@ export function resolveRoutedAgentSdkAssembly(config = {}) {
   const harness = buildHarness(promptMode, {
     leanPrompt: config.leanPrompt,
     append: config.appendSystemPrompt,
+    tools: config.tools,
+    disallowedTools: config.disallowedTools,
   });
   const configuredDisallowed = config.disallowedTools !== undefined
     ? config.disallowedTools
@@ -681,7 +683,9 @@ export class AgentSdkAdapter {
         })
       : assemblySnapshot(buildHarness(promptMode, {
           leanPrompt: config.leanPrompt,
-          append: config.appendSystemPrompt
+          append: config.appendSystemPrompt,
+          tools: config.tools,
+          disallowedTools: config.disallowedTools,
         }));
 
     // Resolve the endpoint base URL (null for the Anthropic subscription path) and

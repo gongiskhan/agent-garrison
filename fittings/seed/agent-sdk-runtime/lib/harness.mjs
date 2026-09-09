@@ -63,10 +63,23 @@ export function buildHarness(promptMode = "full", opts = {}) {
     };
   }
 
+  const inventory = Array.isArray(opts.tools)
+    ? opts.tools.filter((name) => typeof name === "string" && /^[A-Za-z][A-Za-z0-9_]*$/.test(name)
+      && !(opts.disallowedTools ?? []).some((rule) => rule === name || rule.startsWith(`${name}(`)))
+    : [];
+  const inventoryPrompt = inventory.length ? [
+    "## Native runtime tool inventory",
+    `This session is configured with these native tools: ${inventory.join(", ")}. Tool permissions still apply.`,
+    "Some tool schemas may be deferred. If a named tool is not immediately callable, use the available tool search to load it by its exact name. An empty domain search is not proof the general tool is absent; search for the relevant tool name before reporting that limitation.",
+    ...(inventory.includes("WebSearch") || inventory.includes("WebFetch")
+      ? ["For current public information, discover and use the listed web tools. A domain-specific connector is not a prerequisite. If lookup fails, try another useful source or available method; report only verified results and actual limitations."]
+      : []),
+  ].join("\n") : "";
+  const append = [opts.append, inventoryPrompt].filter(Boolean).join("\n\n");
   return {
     promptMode: mode,
-    systemPrompt: opts.append
-      ? { type: "preset", preset: "claude_code", append: opts.append }
+    systemPrompt: append
+      ? { type: "preset", preset: "claude_code", append }
       : { type: "preset", preset: "claude_code" },
     // coding = the user's real Claude Code profile (~/.claude settings, skills,
     // hooks) + project CLAUDE.md; full excludes "user" (#217).

@@ -967,7 +967,7 @@
     {
       "id": "n-zeca-resourcefulness-20260909",
       "title": "Zeca tries practical answer paths (9 September 2026)",
-      "body": "Public web search and fetch are restored to the shared working-tool profile; capability guidance distinguishes installed providers from native tools. Zeca should seek current sources, try a suitable fallback, ask only for essential missing details, and give supported partial answers without fabricating access or facts. Responder follows the latest question without unrelated old work updates. 157 focused tests pass; deployment and live model acceptance are pending. Evidence: docs/validation/2026-09-09-zeca-resourcefulness.md. This improves c1.5 without closing its broader research and reading scope."
+      "body": "Public web search and fetch are restored to the shared working-tool profile; capability guidance distinguishes installed providers from native tools. Zeca should seek current sources, try a suitable fallback, ask only for essential missing details, and give supported partial answers without fabricating access or facts. Responder follows the latest question without unrelated old work updates. 163 focused tests pass. Initial Pro deployment revealed deferred-tool discovery failure; the follow-up advertises the effective native inventory and exact-name tool discovery. Live acceptance of that follow-up is pending. Evidence: docs/validation/2026-09-09-zeca-resourcefulness.md. This improves c1.5 without closing its broader research and reading scope."
     }
   ]
 }
