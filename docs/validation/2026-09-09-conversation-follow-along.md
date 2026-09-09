@@ -39,3 +39,24 @@ commit's external deployment; their owner artifacts and final node results are
 recorded in the shared Garrison Node Operations note. Browser checks do not imply
 physical iPhone acceptance. Mini restart/recovery is deferred by the user until
 tomorrow; do not claim this release has reached that unavailable node.
+
+## Production browser acceptance
+
+The actual reported Pro conversation on HTTPS served1ae4cf3a with eight readable
+ledger entries, all eight open,51 initially collapsed tools and four duty headers.
+Desktop Chromium and mobile WebKit both expanded next steps/evidence correctly,
+showed the absent-thinking notice in Run details, and measured zero pixel mismatch
+between expanded tool headers and bodies, with no page overflow.
+
+The live Madrid Kanban card01M1KMRMW123GKJT6J6K80BMWH showed13 readable ledger
+entries and117 initially collapsed tools after rebuilding its served bundle.
+Kanban runs from the seed fitting here; its tracked dist assets must be rebuilt
+when the shared claude-chat package changes. Rebuilding only apm_modules does not
+update the served seed bundle, and an unchanged fitting fingerprint can skip its
+setup hook. Both seed and installed bundles were regenerated on Pro, Madrid and
+Air. The rebuilt tracked seed assets are included in this follow-up commit.
+
+Owner screenshots and interaction results are under
+output/playwright/conversation-follow-along/. Production node results and CSG
+tether recovery are recorded in shared Garrison Node Operations. These browser
+checks are not physical iPhone acceptance.
