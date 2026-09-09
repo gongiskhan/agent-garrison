@@ -1,57 +1,63 @@
 # Zeca answer resourcefulness — 9 September 2026
 
-The reported responder answered a weather question by saying no weather
-connector was installed and suggesting a different app. It also appended an
-unrelated update from earlier work.
+The reported responder declined a weather question because no weather connector
+was installed and appended an unrelated update from earlier work.
 
-## Change
+## Changes
 
-- The shared Agent SDK working-tool profile includes `WebSearch` and `WebFetch`.
-  Responder, dialogue, discuss and research receive these through the same
-  profile. Read-only triage, explicitly pinned inventories, lean targets and
-  non-SDK runtimes retain their existing restrictions.
-- The generated catalogue distinguishes installed providers from native runtime
-  tools. Absence of a domain connector is not evidence that a question is
-  unanswerable.
-- The authored execution-policy default calls for current reliable sources,
-  useful alternative queries/sources/methods after failure, one essential
-  clarification when needed, and honest supported partial answers. It forbids
-  invented facts, citations, tool access or attempts and respects denied access.
-- Responder guidance permits a bounded lookup within the reply and follows the
-  latest question, including a topic change, without unrelated old work updates.
-- The SDK harness describes its explicit native inventory and tells the model
-  to discover deferred tools by their exact names. Denied tools and lean
-  targets are not advertised. The initial live Haiku probe searched for
-  `weather|forecast`, got no deferred-tool match, and incorrectly declared web
-  tools absent. This follow-up addresses that observed discovery failure.
+- Shared Agent SDK working duties now receive WebSearch and WebFetch. Explicit
+  operator inventories, denied tools, lean targets and read-only triage retain
+  their restrictions.
+- The provider catalogue distinguishes installed fittings from native tools.
+  The SDK advertises its actual explicit inventory and explains exact-name
+  discovery for deferred tools. A missing domain connector is not a prerequisite
+  for answering public-information questions.
+- Zeca should seek current sources, try useful alternative queries or methods,
+  ask for essential missing details, and offer supported partial answers without
+  inventing facts, tool access or attempts. Responder follows the latest topic,
+  links checked sources, checks units and finishes with the answer in the user's
+  language after its internal bookkeeping.
+- Clarification uses a completed responder stretch with a work/needs-input
+  handoff. Asking for a missing detail is not a fabricated failed approach.
+- SDK message assembly preserves every content block when one API message
+  arrives as multiple settled envelopes. Previously only thinking survived a
+  later shard: a forecast was visible during streaming and then overwritten by
+  handoff commentary. Stream indices, tool identities and replay deduplication
+  are preserved. This delivery fix is awaiting final deployment/acceptance.
 
-Existing authored overrides are preserved. A composition that explicitly
-overrides its execution policy retains that policy; the default composition
-currently overrides only routing philosophy. No connector or account was added.
+Existing authored execution-policy overrides are preserved. No connector,
+account, default model or MCP startup policy changed. The rollout is on the Pro;
+other mesh nodes have not been deployed by this task.
 
 ## Verification
 
-157 focused tests pass across `harness-profiles`, `agent-sdk-runtime`,
-`orchestrator-sections`, `orchestrator-projection`, `stretch-launcher` and
-`gateway-agent-sdk-route`. The first sandboxed run could not bind one localhost
-fixture; rerunning the gateway tests with localhost binding available passed.
-The profile tests cover web-tool delivery to conversational duties, shared
-inventory equality, read-only intake and explicit/lean/non-SDK restrictions.
+283 unique focused tests pass across the runtime/harness, orchestrator assembly,
+conversation loop, SDK event normalizer and conversation transport/UI-context
+suites. Localhost fixtures require execution outside the shell sandbox.
+The new regression reproduces an answer followed by text and tool shards, and
+checks partial completion, settled-only messages and duplicate-free replay.
+A local-only replay of this task's synthetic Porto SDK response confirms the
+previously lost answer and source links survive in the final event revision.
 
-The first change was deployed on the Pro as f64eefc1 with 43/43 startup checks.
-Live acceptance found the deferred-tool discovery failure described above;
-two subsequent Sonnet admissions timed out waiting for MCP startup before any
-prompt was sent. A standalone SDK Sonnet lookup with native WebSearch worked.
-That isolation check does not establish gateway acceptance. The inventory
-follow-up and its live gateway acceptance are pending.
+The Pro production build 8543e184 started at 20:24:20 UTC with 43/43 startup
+checks and 17/17 healthy views. Source and installed runtime files matched.
+The final message-delivery refinement is pending deployment.
 
-The c5f003f5 follow-up was deployed successfully. A real Haiku responder in the
-previously refusing conversation now called WebSearch and WebFetch. Search
-succeeded, but it mishandled a unit conversion, linked generic home pages, and
-made an invalid WebFetch call. A Sonnet failed-bookmark case used WebSearch and
-returned a sourced forecast, then replaced its final reply with internal
-handoff commentary. A no-location case correctly asked for the city but added
-an unsolicited translation and initially used an invalid completion marker.
-The final prompt refinement makes the final reply the user-facing answer after
-bookkeeping, with checked source URLs, verified units, one language, and the
-proper clarification completion marker. Its final live acceptance is pending.
+Live synthetic Conversations already demonstrate real web lookup by both
+Sonnet and Haiku, a fresh lookup after changing Lisbon to Porto, and alternate
+forecast sources when the supplied bookmark is invalid. Sonnet returned a
+Portuguese forecast with specific source links. Missing-location prompts asked
+for a city instead of assuming the server location. The initial tool-discovery
+refusal and two MCP admission timeouts are recorded in the owner evidence; the
+MCP timeouts did not recur after normal redeployment.
+
+These probes do not certify forecast accuracy: Haiku still produced an invalid
+WebFetch argument, inconsistent source citation/language, and an earlier unit
+conversion error. An earlier clarification also failed its handoff schema;
+explicit clarification guidance was refined. The broader model-quality issue
+is not claimed solved. Browser inspection timed out, so there is no new
+screenshot or real-phone acceptance claim.
+
+Owner evidence is under output/verification/zeca-resourcefulness/ on the Pro:
+final-health.json, followup-*.json, local-replay.json and the bounded probe scripts.
+Raw session evidence stays on its producing node and is not copied to memory.

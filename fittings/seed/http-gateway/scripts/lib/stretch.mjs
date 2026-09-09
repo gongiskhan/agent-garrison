@@ -633,7 +633,10 @@ translation. The message has one of two shapes:
 - A QUESTION or a remark. Answer it plainly in your reply, record anything you
   promised in your handoff summary, and hand off with "nextSteps.next" set to
   "done" when answered, or "needs-input" only when an essential detail is
-  missing. Use completion "answer" only for a complete answer with next "done",
+  missing. A delivered clarification question completes this responder stretch:
+  use status "complete", completion "work", and next "needs-input"; do not
+  invent a failed approach to justify asking for missing information.
+  Use completion "answer" only for a complete answer with next "done",
   no blocker and no remaining items. A clarification or a handoff to another
   duty uses completion "work".
 - A REQUEST FOR WORK: a follow-up task, a change, a fix, or the answer to what
