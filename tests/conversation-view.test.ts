@@ -32,6 +32,8 @@ beforeAll(async () => {
         import * as React from "react";
         import { createRoot } from "react-dom/client";
         import { ConversationView } from "./packages/claude-chat/src/ConversationView";
+        import { ConversationQuestion } from "./packages/claude-chat/src/ConversationQuestion";
+        import { AttentionReply } from "./fittings/seed/kanban-loop/ui/attention-reply";
 
         class FixtureEventSource {
           constructor(url) {
@@ -54,9 +56,17 @@ beforeAll(async () => {
           status: 200,
           headers: { "content-type": "application/json" },
         });
-        window.fetch = (input) => {
+        window.__question = null;
+        window.__answerStatus = 202;
+        window.__answers = [];
+        window.fetch = (input, init) => {
           const url = typeof input === "string" ? input : String(input && input.url ? input.url : input);
           window.__fetches.push(url);
+          if (url.endsWith("/question")) return Promise.resolve(json({ question: window.__question }));
+          if (url.endsWith("/message")) {
+            window.__answers.push(JSON.parse(init.body));
+            return Promise.resolve(new Response(JSON.stringify({ accepted: window.__answerStatus === 202, error: "Fixture responder is unavailable" }), { status: window.__answerStatus }));
+          }
           if (url.indexOf("/host-map") === 0) return Promise.resolve(json({ map: {} }));
           if (url.indexOf("/search?") !== -1) return Promise.resolve(json(window.__searchResponse));
           if (url.indexOf("/payload/") !== -1) {
@@ -102,6 +112,16 @@ beforeAll(async () => {
             transport: lifecycle ? lifecycleTransport : transport,
             ...rest,
           }));
+          return raf2();
+        };
+        window.__mountRecord = () => {
+          if (!root) root = createRoot(document.getElementById("root"));
+          root.render(React.createElement(AttentionReply, { card: { id: "01CONV", rev: 3, conversationId: null }, onAnswered: () => {} }));
+          return raf2();
+        };
+        window.__mountQuestion = (compact = false) => {
+          if (!root) root = createRoot(document.getElementById("root"));
+          root.render(React.createElement(ConversationQuestion, { conversationId: "01CONV", compact, origin: "kanban" }));
           return raf2();
         };
         window.__emit = (payload) => {
@@ -326,5 +346,67 @@ describe("ConversationView", () => {
     expect(await page.locator(".cc-tailstrip .cc-lifecycle-detail").textContent()).toBe("Position 2");
     // Still no bubble pane - the receipt is a strip, not a second transcript.
     expect(await page.locator(".cc-turn").count()).toBe(0);
+  });
+});
+
+
+describe("suggested conversation replies", () => {
+  it("lets a decision record start its first conversation with a free reply", async () => {
+    await page.evaluate(() => (window as any).__mountRecord());
+    await page.getByRole("textbox", { name: "Your reply" }).fill("Reviewed — close this completed decision card.");
+    await page.getByRole("button", { name: "Send", exact: true }).click();
+    await expect.poll(() => page.getByRole("status").textContent()).toContain("Reply sent");
+    expect(await page.evaluate(() => (window as any).__answers)).toEqual([{
+      message: "Reviewed — close this completed decision card.", clientRequestId: "attention:01CONV:3", origin: "kanban",
+    }]);
+  });
+  const question = { id: "handoff-8", question: "What should happen to the preserved patch?", options: [
+    { label: "Drop it - stash", description: "Keep the patch for later." },
+    { label: "Drop it - delete", description: "Discard this patch." },
+    { label: "Merge it in", description: "Integrate the patch and verify the result." },
+  ] };
+  it.each([false, true])("renders clickable replies and a free field, compact=%s", async (compact) => {
+    await page.setViewportSize({ width: compact ? 390 : 1100, height: 760 });
+    if (compact) await page.addStyleTag({ content: kanbanSkin + "#root{max-width:330px;padding:12px;box-sizing:border-box}" });
+    await page.evaluate(({ question, compact }) => { (window as any).__question = question; return (window as any).__mountQuestion(compact); }, { question, compact });
+    const option = page.getByRole("button", { name: "Merge it in", exact: false });
+    await option.waitFor();
+    expect((await option.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect(await page.getByRole("textbox", { name: "Your reply" }).isVisible()).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(compact ? 390 : 1100);
+    if (process.env.GARRISON_UI_EVIDENCE_DIR) await page.screenshot({ path: path.join(process.env.GARRISON_UI_EVIDENCE_DIR, compact ? "question-card-phone.png" : "question-expanded.png") });
+    await option.click();
+    await expect.poll(() => page.locator(".cc-question").count()).toBe(0);
+    const answers = await page.evaluate(() => (window as any).__answers);
+    expect(answers).toEqual([{ message: "Merge it in", questionId: "handoff-8", clientRequestId: "answer:01CONV:handoff-8", origin: "kanban" }]);
+  });
+  it("preserves a custom reply through failure and retries the same request", async () => {
+    await page.evaluate((question) => { (window as any).__question = question; (window as any).__answerStatus = 502; return (window as any).__mountQuestion(true); }, question);
+    const field = page.getByRole("textbox", { name: "Your reply" });
+    await field.fill("Merge only the tests, please.");
+    await field.press("Enter");
+    await page.locator(".cc-question-error").waitFor();
+    expect(await field.inputValue()).toBe("Merge only the tests, please.");
+    await page.evaluate(() => { (window as any).__answerStatus = 202; });
+    await field.press("Enter");
+    await expect.poll(() => page.locator(".cc-question").count()).toBe(0);
+    const answers = await page.evaluate(() => (window as any).__answers);
+    expect(answers).toHaveLength(2);
+    expect(answers[0]).toEqual(answers[1]);
+  });
+  it("uses the shared question inside Conversations and removes it on a normal reply", async () => {
+    await page.evaluate((question) => { (window as any).__question = question; }, question);
+    await mount();
+    await emit({ type: "init", available: true, live: false, events: [
+      { id: "01CONV#1", role: "assistant", ts: 1, revision: 1, blocks: [{ type: "stretch", phase: "ended", stretchId: "s1", next: "needs-input", duty: "ops" }] },
+    ] });
+    await page.getByRole("button", { name: "Merge it in", exact: false }).waitFor();
+    expect(await page.locator(".cc-question-otherinput").count()).toBe(0);
+    expect(await page.locator(".cc-input").isVisible()).toBe(true);
+    if (process.env.GARRISON_UI_EVIDENCE_DIR) await page.screenshot({ path: path.join(process.env.GARRISON_UI_EVIDENCE_DIR, "question-conversation-desktop.png") });
+    await emit({ type: "events", events: [
+      { id: "01CONV#2", role: "user", ts: 2, revision: 1, blocks: [{ type: "text", text: "A different decision" }] },
+    ] });
+    await expect.poll(() => page.locator(".cc-question").count()).toBe(0);
   });
 });

@@ -249,7 +249,7 @@ function QuickReplies({ activity, api }: { activity: ConversationActivity; api: 
     const field = rootRef.current?.closest(".cc-composerrow")?.querySelector("textarea");
     field?.focus();
   }, []);
-  if (activity.mode !== "needs-input" && activity.mode !== "awaiting-approval") return null;
+  if (activity.mode !== "awaiting-approval") return null;
   const approveText = activity.mode === "awaiting-approval"
     ? "Approve — go ahead with the plan as described."
     : "Approved — go ahead.";
@@ -399,6 +399,7 @@ export function CardConversation({
     <div className={`kanban-conversation${frozen ? " frozen" : ""}`}>
       <ConversationView
         conversationId={conversationId}
+        questions={!frozen}
         base={CONVERSATION_BASE}
         transport={transport}
         live={frozen ? false : running ? undefined : false}

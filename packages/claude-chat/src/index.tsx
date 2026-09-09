@@ -124,3 +124,5 @@ export type {
   TurnRouting,
   UploadedAttachment,
 } from "./transport";
+
+export { ConversationQuestion } from "./ConversationQuestion";

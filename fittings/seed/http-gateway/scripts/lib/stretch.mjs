@@ -25,6 +25,7 @@
 // and a state sink reached over its HTTP API (writeCardWithHooks fires its
 // terminal side effects exactly once).
 
+import { pendingConversationQuestion } from "@garrison/claude-pty/conversation-question.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -687,6 +688,8 @@ keys are not:
   "forceEscalation": null | "<reason>",
   "synthesized": false
 }
+When next is "needs-input", include an optional "question": {"question":"one concise question", "options":[{"label":"a short reply the user can send", "description":"optional consequence"}]}. Offer up to 4 concrete, distinct replies when useful; an empty options array is valid and free-form input is always available. These labels are sent verbatim as the user's message. For missing Vault credentials offer "I have added the keys to the vault". For an unresolved merge decision, where the alternatives actually apply, offer "Drop it - stash", "Drop it - delete", "Merge it in" and explain what each does. Never suggest destructive choices for completed decision records. Omit question outside needs-input. No extra model call is needed to generate these choices.
+
 Rules: blocked requires a blocker; partial/failed require at least one
 failedApproaches entry; next "done" requires status "complete"; a gate/run/file
 evidence ref must point at a real non-empty file. Update nothing else — the
@@ -1346,7 +1349,7 @@ async function writeCardTransition(gateway, { cardId, conversationId, stretchId,
     // question, to needs-attention when it is still parked, or on to the duty
     // a follow-up asked for (whose own start keeps it running).
     if (phase === "started") {
-      await patchCardEngine({ id: cardId, patch: { list: "running", status: "running", runningSince: new Date().toISOString(), awaitingApproval: null }, logFn });
+      await patchCardEngine({ id: cardId, patch: { conversationId, list: "running", status: "running", runningSince: new Date().toISOString(), awaitingApproval: null }, logFn });
       return;
     }
     const next = handoff?.nextSteps?.next;
@@ -1366,7 +1369,7 @@ async function writeCardTransition(gateway, { cardId, conversationId, stretchId,
   if (phase === "started") {
     // A starting stretch consumes any standing approval ask — the approval
     // arrived (or Autonomous was flipped), so the card must stop wearing it.
-    await patchCardEngine({ id: cardId, patch: { list: "running", status: "running", runningSince: new Date().toISOString(), awaitingApproval: null }, logFn });
+    await patchCardEngine({ id: cardId, patch: { conversationId, list: "running", status: "running", runningSince: new Date().toISOString(), awaitingApproval: null }, logFn });
     return;
   }
   const next = handoff?.nextSteps?.next;
@@ -2364,7 +2367,7 @@ export async function runConversation(gateway, {
 /** Record a user message in the store; a running stretch picks it up at its
  *  next brief, and when nothing is running the caller kicks an advance so a
  *  responder stretch answers from L1. */
-export function recordUserMessage(store, { text, origin = "web", threadId = null, context = null, routing = null, delivery = null, steered = false, clientRequestId = null }) {
+export function recordUserMessage(store, { text, origin = "web", threadId = null, context = null, routing = null, delivery = null, steered = false, clientRequestId = null, questionId = null }) {
   const requestId = typeof clientRequestId === "string" && clientRequestId.trim() ? clientRequestId.trim().slice(0, 200) : null;
   const normalizedText = String(text ?? "").slice(0, 32_000);
   if (requestId) {
@@ -2382,12 +2385,16 @@ export function recordUserMessage(store, { text, origin = "web", threadId = null
       return { ok: true, duplicate: true, ts: previous.ts, seq: previous.seq };
     }
   }
+  if (questionId != null && pendingConversationQuestion(store)?.id !== questionId) {
+    return { ok: false, conflict: true, error: "This question has already been answered or is no longer active. Refresh the conversation." };
+  }
   const running = store.currentStretch();
   return store.append({
     kind: "user-message",
     payload: {
       text: normalizedText,
       ...(requestId ? { clientRequestId: requestId } : {}),
+      ...(questionId ? { questionId } : {}),
       origin,
       threadId,
       arrivedDuringStretch: running,

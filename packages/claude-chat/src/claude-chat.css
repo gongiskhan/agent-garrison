@@ -2398,3 +2398,16 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 @media (max-width: 560px) {
   .cc-conv-costpanel { left: auto; right: 0; }
 }
+
+/* One question, compact on a card and expanded beside the conversation composer. */
+.cc-conversation-question { min-width: 0; width: 100%; }
+.cc-conversation-question .cc-question { margin: 0 0 8px; max-height: 38vh; overflow: auto; }
+.cc-conversation-question .cc-question-otherinput { min-width: 0; flex: 1; }
+.cc-conversation-question .cc-question-opts { gap: 6px; }
+.cc-conversation-question .cc-question-opt { min-height: 44px; overflow-wrap: anywhere; }
+.cc-conversation-question .cc-question-otherrow { flex-wrap: wrap; }
+.cc-conversation-question.is-compact { --cc-fg: var(--ink); --cc-fg-dim: var(--ink-2); --cc-accent: var(--sage); --cc-border: var(--rule); --cc-border-strong: var(--rule-2); --cc-bg: var(--paper); --cc-bg-elev: var(--paper-2); --cc-accent-fg: var(--paper); }
+.cc-conversation-question.is-compact .cc-question { padding: 10px; max-height: none; background: var(--paper); }
+.cc-conversation-question.is-compact .cc-question-title { font-size: 13px; }
+.cc-conversation-question.is-compact .cc-question-opt-label { font-size: 12px; }
+.cc-conversation-question.is-compact .cc-question-opt-desc { font-size: 11px; }

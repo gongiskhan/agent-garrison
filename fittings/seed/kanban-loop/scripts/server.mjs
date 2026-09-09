@@ -20,6 +20,7 @@
 import { createReadStream, existsSync, statSync, accessSync, realpathSync, readFileSync, readdirSync, constants as fsConstants } from "node:fs";
 import { mkdir, readFile, unlink, writeFile, rm, appendFile } from "node:fs/promises";
 import http from "node:http";
+import { relayCardConversation } from "../lib/conversation-owner.mjs";
 import os from "node:os";
 import path from "node:path";
 import url from "node:url";
@@ -5610,6 +5611,14 @@ export function makeRequestHandler(opts, distDir) {
       // conversation view is served same-origin from here, so identical client
       // code works on every surface.
       if (pathname.startsWith("/api/conversation")) {
+        const match = pathname.match(/^\/api\/conversation\/([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\/|$)/);
+        if (match && match[1] !== "search") {
+          const card = await loadCard(opts.root || kanbanRoot(), match[1]).catch((error) => {
+            if (error?.status === 404 || error?.code === "ENOENT") return null;
+            throw error;
+          });
+          if (await relayCardConversation(req, res, { card, appUrl: process.env.GARRISON_APP_URL })) return;
+        }
         return void (await handleConversationRequest(req, res, {
           role: "kanban",
           forwardMessage: gatewayMessageForwarder(opts.gatewayUrl),

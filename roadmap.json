@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-09-09T05:27:49.375Z",
+  "updatedAt": "2026-09-09T09:16:01.068Z",
   "categories": [
     {
       "id": "c1",
@@ -347,6 +347,13 @@
         {
           "id": "c3.21",
           "text": "The Command Center knows the roadmap. A small \"next up\" row from this file (items sent to Kanban but not started, items proposed by c6.7), so the roadmap is looked at instead of forgotten.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c3.22",
+          "text": "Suggested replies on Needs Attention cards and in Conversations: bounded handoff choices, free-form replies, owner-node delivery, stale-answer rejection and retry deduplication. Validation: docs/validation/2026-09-09-attention-questions.md.",
           "done": false,
           "sentToKanban": null,
           "noteRef": null

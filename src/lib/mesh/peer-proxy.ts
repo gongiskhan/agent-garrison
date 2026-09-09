@@ -55,6 +55,11 @@ interface AllowRule {
 // Exactly the endpoints cross-node watch / steer / stop / answer need. Adding a
 // row here widens what every node in the mesh may do to every other node.
 const ALLOW: readonly AllowRule[] = [
+  { shape: ["conversation", ID], methods: ["GET"], upstream: "app" },
+  ...["question", "log", "summary", "metrics"].map((action): AllowRule => ({ shape: ["conversation", ID, action], methods: ["GET"], upstream: "app" })),
+  { shape: ["conversation", ID, "stream"], methods: ["GET"], upstream: "app", sse: true },
+  ...["handoff", "payload"].map((action): AllowRule => ({ shape: ["conversation", ID, action, ID], methods: ["GET"], upstream: "app" })),
+  ...["message", "cancel"].map((action): AllowRule => ({ shape: ["conversation", ID, action], methods: ["POST"], upstream: "app" })),
   { shape: ["remote-shell", "runtimes"], methods: ["GET"], upstream: "app" },
   { shape: ["remote-shell", "projects"], methods: ["GET"], upstream: "app" },
   { shape: ["remote-shell", "sessions"], methods: ["GET", "POST"], upstream: "app" },

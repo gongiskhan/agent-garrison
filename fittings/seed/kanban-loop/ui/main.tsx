@@ -1,3 +1,4 @@
+import { AttentionReply } from "./attention-reply";
 // Kanban Loop board UI — responsive, phone-first (the v4 wireframe is the spec).
 // Lists are columns in a horizontally-scrollable board; each card front shows
 // title, project chip, list, iter N/cap, goalMode and the actions:
@@ -1231,6 +1232,7 @@ function Card({
       {parked && card.attentionReason && (
         <div className="dispatch-err">{card.attentionReason}</div>
       )}
+      {parked && !card.frozen && <AttentionReply card={card} onAnswered={() => { void onRenamed(); }} />}
       {/* ABANDONED (S2, Q7): a parked card with a prepared revert — the confirm block.
           Applying is a deliberate, guarded press (never auto-applied); the button is
           disabled once the revert is applied or has conflicted (state !== "prepared"),

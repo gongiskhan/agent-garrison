@@ -4840,6 +4840,7 @@ const server = http.createServer(async (request, response) => {
         const rec = stretchLib.recordUserMessage(store, {
           text: message,
           clientRequestId: body.clientRequestId,
+          questionId: body.questionId,
           origin: typeof body.origin === "string" ? body.origin : "web",
           threadId: typeof body.threadId === "string" ? body.threadId : null,
           context: typeof body.context === "string" ? body.context : null,

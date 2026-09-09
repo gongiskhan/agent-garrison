@@ -1,3 +1,4 @@
+import { pendingConversationQuestion } from "./conversation-question.mjs";
 // The conversation serving layer (Conversations plan, C1) - ONE node http
 // handler, mounted at the SAME relative base by every surface that renders a
 // conversation: the web-channel server, the kanban board server, and the Next
@@ -111,6 +112,10 @@ export async function handleConversationRequest(req, res, opts = {}) {
   const store = openConversation(conversationId, { role: opts.role ?? "reader", env });
   const tail = segments.slice(1);
 
+  if (method === "GET" && tail.length === 1 && tail[0] === "question") {
+    sendJson(res, 200, { question: pendingConversationQuestion(store) });
+    return true;
+  }
   if (method === "GET" && tail.length === 0) {
     handleMeta(res, store, conversationId);
     return true;
@@ -495,7 +500,7 @@ async function handleMessage(req, res, { store, conversationId, forwardMessage }
     sendJson(res, err?.code === "BODY_TOO_LARGE" ? 413 : 400, { error: err?.message ?? "unreadable body" });
     return;
   }
-  const allowed = new Set(["message", "clientRequestId", "origin", "context", "routing", "delivery"]);
+  const allowed = new Set(["message", "clientRequestId", "origin", "context", "routing", "delivery", "questionId"]);
   const unknown = Object.keys(body ?? {}).filter((key) => !allowed.has(key));
   if (unknown.length) {
     sendJson(res, 400, { error: `unknown fields: ${unknown.join(", ")}` });
@@ -528,6 +533,10 @@ async function handleMessage(req, res, { store, conversationId, forwardMessage }
     return;
   }
   const delivery = typeof body?.delivery === "string" ? body.delivery : null;
+  if (body.questionId !== undefined && (typeof body.questionId !== "string" || !/^handoff-\d+$/.test(body.questionId))) {
+    sendJson(res, 400, { error: "invalid questionId" });
+    return;
+  }
 
   let forwarded;
   try {
@@ -539,17 +548,20 @@ async function handleMessage(req, res, { store, conversationId, forwardMessage }
       context,
       routing,
       ...(delivery ? { delivery } : {}),
+      ...(body.questionId ? { questionId: body.questionId } : {}),
     });
   } catch (err) {
     forwarded = { ok: false, error: err?.message ?? String(err) };
   }
   if (!forwarded?.ok) {
     const detail = forwarded?.error ?? forwarded?.status ?? null;
-    sendJson(res, 502, {
+    sendJson(res, forwarded?.status === 409 ? 409 : 502, {
       // The detail rides the error TEXT as well as its own field: the composer
       // renders only the text, and "unreachable" with no reason is exactly the
       // message a person cannot act on.
-      error: `the conversation responder is unreachable; the message was NOT recorded${detail ? ` (${detail})` : ""}`,
+      error: forwarded?.status === 409 ? `The reply conflicts with the current conversation: ${detail}`
+        : body.questionId ? `The reply has not been confirmed; retry to check or send it${detail ? ` (${detail})` : ""}`
+        : `the conversation responder is unreachable; the message was NOT recorded${detail ? ` (${detail})` : ""}`,
       detail,
     });
     return;
@@ -594,7 +606,7 @@ async function handleMessage(req, res, { store, conversationId, forwardMessage }
  * the message in the transcript twice.
  */
 export function gatewayMessageForwarder(gatewayUrl) {
-  return async ({ conversationId, message, origin, clientRequestId = null, context = null, routing = null, delivery = null }) => {
+  return async ({ conversationId, message, origin, clientRequestId = null, context = null, routing = null, delivery = null, questionId = null }) => {
     if (!gatewayUrl) return { ok: false, error: "this mount has no gateway URL" };
     try {
       const response = await fetch(new URL("/conversation/message", gatewayUrl), {
@@ -608,6 +620,7 @@ export function gatewayMessageForwarder(gatewayUrl) {
           ...(context ? { context } : {}),
           ...(routing ? { routing } : {}),
           ...(delivery ? { delivery } : {}),
+          ...(questionId ? { questionId } : {}),
         }),
         signal: AbortSignal.timeout(10_000),
       });
