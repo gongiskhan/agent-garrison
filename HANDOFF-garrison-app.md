@@ -1,5 +1,14 @@
 # Handoff - the Garrison app run (September 2026)
 
+Pendant recovery 2026-09-09 (D67): the build35 screenshot shows Bluetooth
+Connected but capture connecting. Fixed competing uploader retries, stale
+socket callbacks, unbounded handshake wait and retaining the old capture
+node after a shell switch. Nine standalone Swift/WebSocket checks pass;
+new iOS controller regressions await the full XCTest/TestFlight lane.
+Evidence and release status: `evidence/garrison-app/pendant-recovery-20260909/README.md`.
+The real-phone launch, background, network recovery and node-switch gates
+remain open. No capture-service restart or Mini recovery was performed.
+
 Audio recovery 2026-09-06 (D66): the latest failed Record attempt delivered
 non-silent phone-mic packets but the default composition disabled their
 transcription. The new policy enables phone fallback during an explicitly

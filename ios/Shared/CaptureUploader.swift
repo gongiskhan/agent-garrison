@@ -38,6 +38,10 @@ final class CaptureUploader: NSObject {
     private var shouldReconnect = true
     private var reconnectDelay: TimeInterval = 1.0
     private let maxReconnectDelay: TimeInterval = 16.0
+    private let connectionTimeout: TimeInterval
+    private var reconnectWork: DispatchWorkItem?
+    private var connectionDeadline: DispatchWorkItem?
+    private var finished = false
 
     private var nextAudioSeq: UInt32 = 1
     private var nextVideoSeq: UInt32 = 1
@@ -62,13 +66,14 @@ final class CaptureUploader: NSObject {
     /// The conversation the recording reports back into, when started from one.
     var conversationId: String?
 
-    init(baseURL: URL, token: String, sessionId: String, mode: SessionMode, deviceName: String, consent: ConsentState, spoolDirectory: URL) {
+    init(baseURL: URL, token: String, sessionId: String, mode: SessionMode, deviceName: String, consent: ConsentState, spoolDirectory: URL, connectionTimeout: TimeInterval = 10) {
         self.baseURL = baseURL
         self.token = token
         self.sessionId = sessionId
         self.mode = mode
         self.deviceName = deviceName
         self.consent = consent
+        self.connectionTimeout = connectionTimeout
         self.spool = SessionSpool(directory: spoolDirectory)
         super.init()
         let config = URLSessionConfiguration.default
@@ -90,27 +95,36 @@ final class CaptureUploader: NSObject {
 
     func connect() {
         queue.async { [weak self] in
-            guard let self else { return }
+            guard let self, !self.finished, self.task == nil, self.reconnectWork == nil else { return }
             self.shouldReconnect = true
             self.openTask()
         }
     }
 
     private func openTask() {
+        guard !finished, shouldReconnect, task == nil else { return }
         state = .connecting
         serverConfirmedStart = false
         var request = URLRequest(url: socketURL)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         let task = session.webSocketTask(with: request)
         self.task = task
+        // waitsForConnectivity and an open WebSocket without session_started
+        // can otherwise leave the page saying "connecting" indefinitely.
+        let deadline = DispatchWorkItem { [weak self, weak task] in
+            guard let self, let task, self.task === task, !self.serverConfirmedStart else { return }
+            self.handleFailure("Capture connection timed out", from: task)
+        }
+        connectionDeadline = deadline
+        queue.asyncAfter(deadline: .now() + connectionTimeout, execute: deadline)
         task.resume()
-        receiveLoop()
+        receiveLoop(task)
     }
 
     private func sendControl<T: Encodable>(_ message: T) {
         guard let task, let data = try? JSONEncoder().encode(message), let text = String(data: data, encoding: .utf8) else { return }
         task.send(.string(text)) { [weak self] error in
-            if let error { self?.handleFailure(error.localizedDescription) }
+            if let error { self?.handleFailure(error.localizedDescription, from: task) }
         }
     }
 
@@ -119,7 +133,7 @@ final class CaptureUploader: NSObject {
     /// Spool-then-send: the frame is durable before the network sees it.
     func sendAudioPacket(_ payload: Data, ts: Double) {
         queue.async { [weak self] in
-            guard let self else { return }
+            guard let self, !self.finished else { return }
             let seq = self.nextAudioSeq
             self.nextAudioSeq += 1
             let frame = CaptureFraming.encode(kind: .audio, seq: seq, ts: ts, payload: payload)
@@ -130,7 +144,7 @@ final class CaptureUploader: NSObject {
 
     func sendVideoFrame(_ payload: Data, ts: Double) {
         queue.async { [weak self] in
-            guard let self else { return }
+            guard let self, !self.finished else { return }
             let seq = self.nextVideoSeq
             self.nextVideoSeq += 1
             let frame = CaptureFraming.encode(kind: .video, seq: seq, ts: ts, payload: payload)
@@ -142,7 +156,7 @@ final class CaptureUploader: NSObject {
     private func sendFrameIfReady(_ frame: Data) {
         guard state == .streaming, serverConfirmedStart, let task else { return } // spooled; drains on resume
         task.send(.data(frame)) { [weak self] error in
-            if let error { self?.handleFailure(error.localizedDescription) }
+            if let error { self?.handleFailure(error.localizedDescription, from: task) }
         }
     }
 
@@ -161,34 +175,49 @@ final class CaptureUploader: NSObject {
     func end(reason: String = "user") {
         queue.async { [weak self] in
             guard let self else { return }
+            guard !self.finished else { return }
             self.shouldReconnect = false
+            self.reconnectWork?.cancel()
+            self.reconnectWork = nil
+            self.connectionDeadline?.cancel()
+            self.connectionDeadline = nil
+            guard self.task != nil, self.serverConfirmedStart else {
+                self.finish(state: .ended)
+                return
+            }
             self.sendControl(SessionEndMessage(reason: reason))
+            // Give the server time to acknowledge the end, but never keep an
+            // uploader (and URLSession's strong delegate reference) alive forever.
+            self.queue.asyncAfter(deadline: .now() + 3) { [weak self] in
+                guard let self, !self.finished, !self.shouldReconnect else { return }
+                self.finish(state: .ended)
+            }
         }
     }
 
     func abandon() {
         queue.async { [weak self] in
             guard let self else { return }
-            self.shouldReconnect = false
-            self.task?.cancel(with: .goingAway, reason: nil)
-            self.task = nil
-            self.state = .idle
+            self.finish(state: .idle)
         }
     }
 
     // MARK: - Inbound
 
-    private func receiveLoop() {
-        task?.receive { [weak self] result in
+    private func receiveLoop(_ task: URLSessionWebSocketTask) {
+        task.receive { [weak self] result in
             guard let self else { return }
-            switch result {
-            case .success(let message):
-                if case .string(let text) = message, let parsed = ServerMessage.parse(text) {
-                    self.queue.async { self.handleServerMessage(parsed) }
+            self.queue.async {
+                guard self.task === task, !self.finished else { return }
+                switch result {
+                case .success(let message):
+                    if case .string(let text) = message, let parsed = ServerMessage.parse(text) {
+                        self.handleServerMessage(parsed)
+                    }
+                    if self.task === task { self.receiveLoop(task) }
+                case .failure(let error):
+                    self.handleFailure(error.localizedDescription, from: task)
                 }
-                self.receiveLoop()
-            case .failure(let error):
-                self.handleFailure(error.localizedDescription)
             }
         }
     }
@@ -196,14 +225,12 @@ final class CaptureUploader: NSObject {
     private func handleServerMessage(_ message: ServerMessage) {
         switch message {
         case .sessionStarted:
-            serverConfirmedStart = true
-            state = .streaming
+            confirmStart()
             drainSpool(afterAudio: 0, video: 0)
         case .sessionResumed(_, let audioSeq, let videoSeq):
-            serverConfirmedStart = true
+            confirmStart()
             ackedAudio = audioSeq
             ackedVideo = videoSeq
-            state = .streaming
             drainSpool(afterAudio: audioSeq, video: videoSeq)
         case .ack(let stream, let seq):
             if stream == "audio" { ackedAudio = max(ackedAudio, seq) } else { ackedVideo = max(ackedVideo, seq) }
@@ -213,13 +240,35 @@ final class CaptureUploader: NSObject {
         case .feedback(let event):
             onFeedback?(event)
         case .sessionEnded(let reason):
-            state = .ended
+            finish(state: .ended)
             spool.removeAll()
             onSessionEnded?(reason)
         case .serverError(let error):
-            state = .failed(error)
-            shouldReconnect = false
+            finish(state: .failed(error))
         }
+    }
+
+    private func confirmStart() {
+        connectionDeadline?.cancel()
+        connectionDeadline = nil
+        reconnectDelay = 1.0
+        serverConfirmedStart = true
+        state = .streaming
+    }
+
+    private func finish(state: State) {
+        finished = true
+        shouldReconnect = false
+        reconnectWork?.cancel()
+        reconnectWork = nil
+        connectionDeadline?.cancel()
+        connectionDeadline = nil
+        let oldTask = task
+        task = nil
+        serverConfirmedStart = false
+        oldTask?.cancel(with: .goingAway, reason: nil)
+        session.invalidateAndCancel()
+        self.state = state
     }
 
     /// Replay everything the server has not confirmed, in stored order.
@@ -227,23 +276,36 @@ final class CaptureUploader: NSObject {
         guard let task else { return }
         for frame in spool.frames(afterAudio: audioSeq, video: videoSeq) {
             task.send(.data(frame)) { [weak self] error in
-                if let error { self?.handleFailure(error.localizedDescription) }
+                if let error { self?.handleFailure(error.localizedDescription, from: task) }
             }
         }
     }
 
-    private func handleFailure(_ message: String) {
+    private func handleFailure(_ message: String, from failedTask: URLSessionWebSocketTask) {
         queue.async { [weak self] in
-            guard let self, self.state != .ended else { return }
-            self.state = .failed(message)
+            // A socket may fail through receive, close and hundreds of pending
+            // sends. Only its first failure owns recovery. Late callbacks must
+            // never clear a newer socket or start another competing reconnect.
+            guard let self, !self.finished, self.task === failedTask else { return }
             self.task = nil
-            guard self.shouldReconnect else { return }
+            self.serverConfirmedStart = false
+            self.connectionDeadline?.cancel()
+            self.connectionDeadline = nil
+            failedTask.cancel(with: .goingAway, reason: nil)
+            self.state = .failed(message)
+            guard self.shouldReconnect else {
+                self.finish(state: .ended)
+                return
+            }
             let delay = self.reconnectDelay
             self.reconnectDelay = min(self.maxReconnectDelay, self.reconnectDelay * 2)
-            self.queue.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self, self.shouldReconnect else { return }
+            let retry = DispatchWorkItem { [weak self] in
+                guard let self, self.shouldReconnect, !self.finished else { return }
+                self.reconnectWork = nil
                 self.openTask()
             }
+            self.reconnectWork = retry
+            self.queue.asyncAfter(deadline: .now() + delay, execute: retry)
         }
     }
 }
@@ -251,8 +313,7 @@ final class CaptureUploader: NSObject {
 extension CaptureUploader: URLSessionWebSocketDelegate {
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol protocol: String?) {
         queue.async { [weak self] in
-            guard let self else { return }
-            self.reconnectDelay = 1.0
+            guard let self, self.task === webSocketTask, !self.finished, self.shouldReconnect else { return }
             // (Re)announce the session; the server answers session_started or
             // session_resumed with its high-water marks.
             self.sendControl(SessionStartMessage(
@@ -268,6 +329,6 @@ extension CaptureUploader: URLSessionWebSocketDelegate {
     }
 
     func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
-        handleFailure("closed: \(closeCode.rawValue)")
+        handleFailure("closed: \(closeCode.rawValue)", from: webSocketTask)
     }
 }

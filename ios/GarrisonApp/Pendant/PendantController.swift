@@ -35,6 +35,8 @@ final class PendantController: ObservableObject {
 
     private var transport: DeviceTransport
     private var uploader: CaptureUploader?
+    private var uploadBaseURL: URL?
+    private var uploadToken: String?
     private let phoneSink: PhoneFeedbackSink?
     private let speechSink: SpeechSink
     private var codec: PendantCodec = .opusFS320
@@ -92,12 +94,14 @@ final class PendantController: ObservableObject {
     func connect() {
         AppGroup.pendantAutoConnect = true
         refreshServiceState()
+        startSessionIfNeeded()
         transport.connect()
     }
 
     func reconnectIfNeeded() {
         guard AppGroup.pendantIdentifier != nil, AppGroup.pendantAutoConnect else { return }
         refreshServiceState()
+        startSessionIfNeeded()
         transport.connect()
     }
 
@@ -171,10 +175,21 @@ final class PendantController: ObservableObject {
 
     private func startSessionIfNeeded() {
         guard AppGroup.pendantAutoConnect, connectionState == .connected else { return }
-        guard uploader == nil else { return } // reconnect epoch: same session resumes
-        guard let baseURL = AppGroup.baseURL, let token = AppGroup.token else { return }
+        guard let baseURL = AppGroup.baseURL, let token = AppGroup.token else {
+            endSession(reason: "node_changed")
+            return
+        }
+        if uploader != nil {
+            // The app-lifetime BLE controller survives a bridge remount. Its
+            // uploader must follow the selected node even when BLE is already
+            // connected (and transport.connect() therefore emits no event).
+            if uploadBaseURL == baseURL, uploadToken == token { return }
+            endSession(reason: "node_changed")
+        }
         let id = SessionId.generate()
         sessionId = id
+        uploadBaseURL = baseURL
+        uploadToken = token
         let uploader = CaptureUploader(
             baseURL: baseURL,
             token: token,
@@ -186,10 +201,16 @@ final class PendantController: ObservableObject {
         )
         uploader.codec = codec == .opus ? "opus" : "opus_fs320"
         uploader.onStateChange = { [weak self] state in
-            Task { @MainActor in self?.uploaderState = state }
+            Task { @MainActor in
+                guard let self, self.sessionId == id else { return }
+                self.uploaderState = state
+            }
         }
         uploader.onFeedback = { [weak self] event in
-            Task { @MainActor in self?.handleFeedback(event) }
+            Task { @MainActor in
+                guard let self, self.sessionId == id else { return }
+                self.handleFeedback(event)
+            }
         }
         // The mouth. Until 2026-08-27 the server refused to speak to a pendant
         // session at all, so this was never wired - and the moment the server
@@ -200,11 +221,11 @@ final class PendantController: ObservableObject {
         // loud, and it is the same phone and the same speaker as the companion
         // lane, so the sink and the receipt path are identical to
         // CaptureController's.
-        uploader.onSpeak = { [weak self] ack in
+        uploader.onSpeak = { [weak self, weak uploader] ack in
             Task { @MainActor in
-                guard let self else { return }
-                self.speechSink.onReceipt = { receipt in
-                    uploader.sendSpokenReceipt(ackId: receipt.ackId, ok: receipt.ok, reason: receipt.reason)
+                guard let self, self.sessionId == id else { return }
+                self.speechSink.onReceipt = { [weak uploader] receipt in
+                    uploader?.sendSpokenReceipt(ackId: receipt.ackId, ok: receipt.ok, reason: receipt.reason)
                 }
                 self.speechSink.handle(ack)
             }
@@ -217,6 +238,9 @@ final class PendantController: ObservableObject {
         uploader?.end(reason: reason)
         uploader = nil
         sessionId = nil
+        uploadBaseURL = nil
+        uploadToken = nil
+        uploaderState = .idle
     }
 
     // MARK: - Feedback

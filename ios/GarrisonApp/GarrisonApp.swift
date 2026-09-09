@@ -97,6 +97,11 @@ struct GarrisonApp: App {
             .task {
                 await store.failoverIfNeeded(prober: prober)
             }
+            .onChange(of: store.current) { _, _ in
+                // This also covers editing a node's capture URL or token
+                // without changing its shell origin (no bridge remount).
+                PendantController.shared.reconnectIfNeeded()
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }

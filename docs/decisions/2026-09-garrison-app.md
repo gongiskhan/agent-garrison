@@ -2107,6 +2107,35 @@ suspended. Browser regressions cover permission denial, recorder failure,
 STT failure, recovery, and native Record failure. Actual iPhone acceptance
 remains a hardware gate; server evidence is not a phone retest.
 
+### D67. One uploader connection and retry; the pendant follows the selected node (2026-09-09)
+
+The build35 phone report shows Bluetooth Connected and capture connecting.
+A healthy Pro capture-service had accumulated 5,121 resumes and roughly
+902k duplicated audio frames since its morning start. The inherited uploader
+let multiple error callbacks create competing reconnects and let a retired
+socket clear a newer socket; the server then superseded competing clients
+for the same session. This is a reproduced longstanding client defect,
+plausibly exposed by service/network interruptions, not evidence that the
+latest server change altered BLE pairing.
+
+CaptureUploader now scopes every callback to its task, cancels the retired
+socket, owns one retry timer, and bounds the connection plus session-start
+handshake at ten seconds. Backoff resets only after the service confirms the
+session. Terminal paths cancel pending retries and release URLSession. The
+spool/high-water resume protocol remains intact.
+
+An independent native defect kept the app-lifetime pendant uploader pointed
+at the old node after a bridge remount. Reconcile its capture URL and token
+on foreground, Connect and selected-node edits; replace only the uploader,
+retain Bluetooth, and reject callbacks from the old session. Manual pause
+still wins. Credentials remain native and are never emitted to the page.
+
+Local standalone Swift/WebSocket checks reproduce the old failures and pass
+all nine uploader cases after the fix. Three iOS controller regressions
+cover node changes, token replacement and pause. Native XCTest gates the
+TestFlight release; physical-phone acceptance stays open. See
+`evidence/garrison-app/pendant-recovery-20260909/README.md` for release evidence.
+
 ## 2. Stale premises (plan or docs vs code; code wins)
 
 | premise | reality | evidence |

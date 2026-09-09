@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-09-09T09:16:01.068Z",
+  "updatedAt": "2026-09-09T15:22:19Z",
   "categories": [
     {
       "id": "c1",
@@ -538,7 +538,7 @@
           "text": "Omi channel to Garrison's standard. Pendant BLE direct in the Companion app (the app owns the connection and the speaker); device sound feedback by phase (wake heard, per segment, window closed, task created, failure); Deepgram transcription on Garrison's side; transcripts into memory. Validated end to end with a device mock before his device. Found: partial - the pendant-direct brief of 20 August shipped (docs/pendant-direct-report.md, docs/adr-pendant-direct.md) with configurable pipes and the Zeca wake word, but end-to-end validation against a device mock is not confirmed. Update 2026-09-02 (G7): the pendant reaches the app through the GarrisonPendant plugin with a mock harness on MockPendantTransport (ios/Tests/PendantPluginMockTests.swift) and the session words relayed to the capture page through /api/voice/sessions/<id>/events; the device criterion on a real phone is still the operator's (HANDOFF-garrison-app.md).",
           "done": false,
           "sentToKanban": null,
-          "noteRef": null
+          "noteRef": "n-pendant-recovery-20260909"
         },
         {
           "id": "c7.2",
@@ -948,6 +948,11 @@
       "id": "n-c2.7",
       "title": "Readable conversation progress",
       "body": "9 September 2026 follow-along UI: existing handoff summaries and durable findings now render as readable Markdown in the shared Conversations/Kanban timeline. Next steps, evidence, constraints and failed approaches remain expandable; source records are unchanged. Conversation stretches remain chronological through settlement, preserve manual disclosures, keep tools collapsed, and expose current duty/model/time above the scroller. Readable provider thinking remains visible; empty provider markers are not reconstructed. Focused validation and rollout limits are recorded in docs/validation/2026-09-09-conversation-follow-along.md. Physical-phone acceptance remains open."
+    },
+    {
+      "id": "n-pendant-recovery-20260909",
+      "title": "Pendant connection recovery (9 September 2026)",
+      "body": "D67: fixed CaptureUploader competing retries and stale callbacks, bounded the connection/session handshake, and made the app-lifetime pendant uploader follow the selected capture endpoint and token without reconnecting Bluetooth. Nine local standalone Swift/WebSocket checks pass; full native XCTest and TestFlight release pending. Physical-phone launch, background/network recovery, node switch and manual pause acceptance remain open. Evidence: evidence/garrison-app/pendant-recovery-20260909/README.md. This repairs c7.1 without closing its broader scope."
     }
   ]
 }
