@@ -391,7 +391,13 @@ export function applyFlowPolicy(next, { store, duty, selectedDuties = [], cwd = 
   // evidence invariants below judge WORK, and a question is not work. Without
   // this, "is this deployed?" on a done card without on-disk evidence became a
   // fresh implement stretch.
-  if (duty === "responder") return { next, rewritten: false, reason: null };
+  if (duty === "responder") {
+    const unfinishedWork = workCycleEvents(store, ["handoff", "stretch-started"])
+      .some((event) => !ANSWER_CYCLE_DUTIES.has(event.duty ?? event.payload?.duty));
+    // A follow-up cannot turn an unfinished implementation/check into an
+    // evidence-free answer. Questions on a settled cycle keep the fast path.
+    if (!unfinishedWork) return { next, rewritten: false, reason: null };
+  }
   // Dialogue is the spoken conversation (D62): one pass, one answer, then stop.
   // It has no work to show evidence for and nothing to hand off to - the work it
   // recognises becomes its own card, which runs the loop there. Without this
@@ -1633,7 +1639,7 @@ export async function runConversation(gateway, {
     }
     const objective = card ? null : originalRequest(store);
     const summary = store.parseSummary() ?? {};
-    if (objective && (!summary.objective || summary.objective.startsWith("(not yet written"))) {
+    if (objective && summary.objective !== objective.slice(0, 1800)) {
       summary.objective = objective.slice(0, 1800);
       summary.title = summary.title === "Conversation" ? objective.split("\n")[0].slice(0, 100) : summary.title;
       store.writeSummary(summary);

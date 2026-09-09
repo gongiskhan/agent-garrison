@@ -157,7 +157,9 @@ describe("normal conversation ingress through a real gateway process", () => {
     const laterCalls = calls().slice(before).filter((row) => row.kind === "turn");
     expect(laterCalls).toHaveLength(1);
     expect(laterCalls[0].brief).toContain("Fresh question after stopping lock admission");
-    expect(laterCalls[0].brief).not.toContain("This request must never reach Codex");
+    expect(laterCalls[0].brief).toContain("## Original request (keep this in scope until delivered)\nFresh question after stopping lock admission");
+    const freshMessages = laterCalls[0].brief.split("## User messages since the last stretch")[1];
+    expect(freshMessages).not.toContain("This request must never reach Codex");
   });
 
   it.each([{ project: "../../etc" }, { target: "missing" }, { effort: "unbounded" }, { duty: "missing" }])(

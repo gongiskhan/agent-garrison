@@ -36,6 +36,11 @@ also showed a tool header extending beyond its expanded content.
   verification succeeded but referenced build files rather than its check report.
   Briefs now explicitly require a run/gate report, and the verifier gets one
   bounded correction with concrete feedback before asking for intervention.
+  Follow-up responders also retain this obligation for an unfinished work
+  cycle; answering questions on already-completed work stays lightweight.
+  The active objective starts afresh after Stop or Done, while ordinary pauses
+  preserve it. Real HTTP cancellation tests cover a fresh request after Stop so
+  the original task cannot silently become mandatory again.
 - Tool calls remain collapsed during execution unless the reader opens them.
   Manual expansion survives settlement; thinking retains its existing automatic
   display. Header/body edges align in the shared Conversations/Kanban renderer.
@@ -45,6 +50,9 @@ also showed a tool header extending beyond its expanded content.
 - Type checking passed. The focused launcher, handoff, routing, SDK, continuity,
   ownership, cancellation and instance checks passed (239 checks in the broad
   focused run, followed by 132 checks after the final native-routing regression).
+  The final completion/cancellation run passed 72 checks, including 12 through a
+  real HTTP gateway process. Its runtime fixture now distinguishes the active
+  request from a retained conversation title when simulating a hanging command.
 - Real Chromium phone-width renderer and Kanban conversation checks passed:
   33 checks, including tool expansion, aligned edges, no horizontal overflow,
   keyboard focus and existing shell reconnect behavior.

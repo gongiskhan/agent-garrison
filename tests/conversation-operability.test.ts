@@ -79,6 +79,20 @@ describe("interrupted native stretches", () => {
     expect(store.count("handoff")).toBe(1);
   });
 
+  it("retains an unfinished request across pauses but starts a fresh objective after Stop or Done", () => {
+    const store = openConversation("objective-cycle", { role: "gateway", env }); store.init();
+    store.append({ kind: "user-message", payload: { text: "First request" } });
+    store.append({ kind: "handoff", payload: handoff({ nextSteps: { next: "needs-input", why: "clarify", items: [] } }) });
+    store.append({ kind: "user-message", payload: { text: "Clarification" } });
+    expect(originalRequest(store)).toBe("First request");
+    store.append({ kind: "handoff", payload: handoff({ cancelled: true }) });
+    store.append({ kind: "user-message", payload: { text: "Second request" } });
+    expect(originalRequest(store)).toBe("Second request");
+    store.append({ kind: "handoff", payload: handoff({ nextSteps: { next: "done", why: "finished", items: [] } }) });
+    store.append({ kind: "user-message", payload: { text: "Third request" } });
+    expect(originalRequest(store)).toBe("Third request");
+  });
+
   it("carries the complete original request, latest remaining steps and failed approaches in the next brief", () => {
     const store = openConversation("brief", { role: "gateway", env }); store.init();
     const request = "Fix this. " + "context ".repeat(1300) + "Keep mobile usable.";
@@ -118,6 +132,16 @@ describe("interrupted native stretches", () => {
 });
 
 describe("completion evidence", () => {
+  it("keeps unfinished verification on the work rail when a follow-up enters through responder", () => {
+    const store = openConversation("follow-up-proof", { role: "gateway", env }); store.init();
+    start(store, "st_test", "test");
+    store.append({ kind: "handoff", duty: "test", payload: handoff({ duty: "test", status: "partial", nextSteps: { next: "needs-input", why: "missing report", items: [] } }) });
+    const input = { store, duty: "responder", selectedDuties: ["test"], cwd: tmp, env };
+    expect(applyFlowPolicy("done", input).next).toBe("test");
+    store.append({ kind: "handoff", duty: "test", payload: handoff({ duty: "test", nextSteps: { next: "done", why: "verified", items: [] } }) });
+    expect(applyFlowPolicy("done", input).next).toBe("done");
+  });
+
   it("accepts the current proof and gives verification one bounded chance to record missing results", () => {
     const store = openConversation("proof", { role: "gateway", env }); store.init();
     const proof = path.join(tmp, "check.txt"); writeFileSync(proof, "passed");

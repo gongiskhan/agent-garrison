@@ -17,7 +17,11 @@ export class CodexAdapter {
     session.stretchId = /stretchId: (.+)/.exec(brief)?.[1].trim();
     const duty = /## Your duty: ([^ ]+)/.exec(brief)?.[1];
     const handoffPath = /handoffPath: (.+)/.exec(brief)?.[1].trim();
-    session.hold = brief.includes("HOLD_HTTP_TEST");
+    // A historical conversation title is not the current instruction. The
+    // native model gets the latest messages separately from retained context.
+    const activeRequest = /## User messages since the last stretch\n([\s\S]*?)(?=\n## |$)/.exec(brief)?.[1]
+      ?? /## Original request[^\n]*\n([\s\S]*?)(?=\n## |$)/.exec(brief)?.[1] ?? "";
+    session.hold = activeRequest.includes("HOLD_HTTP_TEST");
     const answer = brief.includes("ANSWER_ONLY_HTTP") || (duty === "implement" && brief.includes("MISLABEL_WORK_HTTP"));
     record(session, "turn", { duty, brief });
     if (!session.hold) {

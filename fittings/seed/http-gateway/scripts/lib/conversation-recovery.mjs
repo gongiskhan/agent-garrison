@@ -28,7 +28,10 @@ export function latestUnfinishedStretch(store) {
 }
 
 export function originalRequest(store) {
-  const first = store.tail(Number.MAX_SAFE_INTEGER, { kinds: ["user-message"] })[0];
+  const events = store.tail(Number.MAX_SAFE_INTEGER, { kinds: ["user-message", "handoff"] });
+  const boundary = events.findLastIndex((event) => event.kind === "handoff"
+    && (event.payload?.nextSteps?.next === "done" || event.payload?.cancelled === true));
+  const first = events.slice(boundary + 1).find((event) => event.kind === "user-message");
   const text = String(first?.payload?.text ?? "");
   if (text.length <= 8000) return text;
   const saved = store.writeNamedPayload("original-request.md", text);
