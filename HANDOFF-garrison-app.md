@@ -4,7 +4,7 @@ Pendant recovery 2026-09-09 (D67): the build35 screenshot shows Bluetooth
 Connected but capture connecting. Fixed competing uploader retries, stale
 socket callbacks, unbounded handshake wait and retaining the old capture
 node after a shell switch. Nine standalone Swift/WebSocket checks pass;
-new iOS controller regressions await the full XCTest/TestFlight lane.
+120/120 native XCTest passed and TestFlight build37 uploaded at15:38 UTC.
 Evidence and release status: `evidence/garrison-app/pendant-recovery-20260909/README.md`.
 The real-phone launch, background, network recovery and node-switch gates
 remain open. No capture-service restart or Mini recovery was performed.

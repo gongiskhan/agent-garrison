@@ -51,7 +51,16 @@ Manual Disconnect continues to disable automatic reconnection.
 
 ## Release and phone acceptance
 
-Native CI and TestFlight upload pending. After installation, verify on the
+Build **37** uploaded to TestFlight on 2026-09-09 at15:38 UTC from source
+commit `30c3ceda19c1aaff2963f706c8c8bba77e4e56d7`.
+[Native CI run](https://github.com/gongiskhan/ios-thing/actions/runs/34370001185)
+passed **120 XCTest with zero failures**, then signed, archived and uploaded
+the binary to App Store Connect. Sanitized result excerpts are in
+`native-release.txt`. Apple processing/installation has not been observed.
+The preceding run36 stopped at checkout because the abbreviated source SHA
+was interpreted as a branch; run37 pins the full SHA.
+
+After installation, verify on the
 physical iPhone: launch with the remembered pendant; Bluetooth becomes
 Connected and Capture becomes streaming; background/foreground; interrupt
 and restore the network; switch nodes; manually Disconnect and relaunch,

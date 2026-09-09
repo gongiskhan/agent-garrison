@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-09-09T15:22:19Z",
+  "updatedAt": "2026-09-09T15:39:00Z",
   "categories": [
     {
       "id": "c1",
@@ -952,7 +952,7 @@
     {
       "id": "n-pendant-recovery-20260909",
       "title": "Pendant connection recovery (9 September 2026)",
-      "body": "D67: fixed CaptureUploader competing retries and stale callbacks, bounded the connection/session handshake, and made the app-lifetime pendant uploader follow the selected capture endpoint and token without reconnecting Bluetooth. Nine local standalone Swift/WebSocket checks pass; full native XCTest and TestFlight release pending. Physical-phone launch, background/network recovery, node switch and manual pause acceptance remain open. Evidence: evidence/garrison-app/pendant-recovery-20260909/README.md. This repairs c7.1 without closing its broader scope."
+      "body": "D67: fixed CaptureUploader competing retries and stale callbacks, bounded the connection/session handshake, and made the app-lifetime pendant uploader follow the selected capture endpoint and token without reconnecting Bluetooth. Nine local standalone Swift/WebSocket checks pass; 120/120 native XCTest passed and TestFlight build37 uploaded from30c3ceda at15:38 UTC on9 September. Apple processing/installation is not yet observed. Physical-phone launch, background/network recovery, node switch and manual pause acceptance remain open. Evidence: evidence/garrison-app/pendant-recovery-20260909/README.md. This repairs c7.1 without closing its broader scope."
     }
   ]
 }

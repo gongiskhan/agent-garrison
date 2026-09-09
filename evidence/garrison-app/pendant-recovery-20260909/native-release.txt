@@ -1,0 +1,17 @@
+Source commit: 30c3ceda19c1aaff2963f706c8c8bba77e4e56d7
+Workflow: https://github.com/gongiskhan/ios-thing/actions/runs/34370001185
+
+testflight	Run fastlane (beta)	2026-09-09T15:34:02.1517470Z [15:34:02]: ▸     ✔ testConnectedPendantFollowsSelectedNodeWithoutBluetoothReconnect (0.596 seconds)
+testflight	Run fastlane (beta)	2026-09-09T15:34:03.1341540Z [15:34:03]: ▸     ✔ testManualDisconnectRemainsPausedAfterNodeChange (0.495 seconds)
+testflight	Run fastlane (beta)	2026-09-09T15:34:33.2927340Z [15:34:33]: ▸     ✔ testAbandonCancelsPendingRetryAndIgnoresLateCallbacks (1.565 seconds)
+testflight	Run fastlane (beta)	2026-09-09T15:34:36.5375690Z [15:34:36]: ▸     ✔ testDropDuringManySendsRecoversWithOneReplacement (3.352 seconds)
+testflight	Run fastlane (beta)	2026-09-09T15:34:37.9468510Z [15:34:37]: ▸     ✔ testEndWhileConnectingStopsWithoutServerAcknowledgement (1.412 seconds)
+testflight	Run fastlane (beta)	2026-09-09T15:34:38.3039780Z [15:34:38]: ▸     ✔ testRepeatedConnectDoesNotOpenCompetingSockets (0.360 seconds)
+testflight	Run fastlane (beta)	2026-09-09T15:34:41.2767310Z [15:34:41]: ▸     ✔ testStaleSocketCallbacksCannotDisruptCurrentConnection (1.416 seconds)
+testflight	Run fastlane (beta)	2026-09-09T15:34:42.7205020Z [15:34:42]: ▸     ✔ testUnconfirmedHandshakeTimesOutAndRecovers (1.357 seconds)
+testflight	Run fastlane (beta)	2026-09-09T15:34:42.8014500Z [15:34:42]: ▸ Test Suite 'GarrisonTests.xctest' passed at 2026-09-09 15:34:42.437.
+testflight	Run fastlane (beta)	2026-09-09T15:34:42.8016200Z [15:34:42]: ▸ Executed 120 tests, with 0 failures (0 unexpected) in 63.978 (68.632) seconds
+testflight	Run fastlane (beta)	2026-09-09T15:34:42.9650770Z [15:34:42]: ▸ Executed 120 tests, with 0 failures (0 unexpected) in 63.978 (68.634) seconds
+testflight	Run fastlane (beta)	2026-09-09T15:38:13.1258530Z [15:38:13]: Successfully uploaded package to App Store Connect. It might take a few minutes until it's visible online.
+testflight	Run fastlane (beta)	2026-09-09T15:38:13.1260670Z [15:38:13]: Successfully uploaded the new binary to App Store Connect
+testflight	Run fastlane (beta)	2026-09-09T15:38:13.1263350Z [15:38:13]: Uploaded build 37 to TestFlight. Open the TestFlight app on the iPhone to install once processing finishes (a few minutes).
