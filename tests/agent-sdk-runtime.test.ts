@@ -378,6 +378,23 @@ describe("AgentSdkAdapter — RuntimeAdapter conformance, no scraping (sdk-adapt
     expect(opts.env.ANTHROPIC_API_KEY).toBe("");
     expect(s.capabilities.provider).toBe("ollama-local");
   });
+  it("supports one-shot structured output without persisting an inference conversation", async () => {
+    const adapter = adapterYielding([{ type: "result", subtype: "success", result: "", structured_output: { title: "Repair dates" }, session_id: "inference-only" }]);
+    const outputFormat = { type: "json_schema", schema: { type: "object", properties: { title: { type: "string" } } } };
+    const s = await adapter.spawn({ provider: "anthropic", model: "claude-haiku-4-5", promptMode: "lean", persistSession: false, outputFormat });
+    expect(adapter.buildQueryOptions(s)).toMatchObject({ persistSession: false, outputFormat });
+    await adapter.sendTurn(s, "Infer a title");
+    expect((await adapter.awaitResponse(s)).text).toBe('{"title":"Repair dates"}');
+  });
+  it("returns the schema envelope at the one-turn limit without a model acknowledgement", async () => {
+    const adapter = adapterYielding([
+      { type: "assistant", message: { content: [{ type: "tool_use", id: "json-1", name: "StructuredOutput", input: { title: "Repair dates" } }] } },
+      { type: "result", subtype: "error_max_turns", session_id: "inference-only", usage: { output_tokens: 10 } },
+    ]);
+    const s = await adapter.spawn({ provider: "anthropic", model: "claude-haiku-4-5", promptMode: "lean", maxTurns: 1, persistSession: false, outputFormat: { type: "json_schema", schema: { type: "object" } } });
+    await adapter.sendTurn(s, "Infer a title");
+    expect(await adapter.awaitResponse(s)).toMatchObject({ text: '{"title":"Repair dates"}', stoppedReason: "max_turns" });
+  });
 
   it("freezes prompt/tool/MCP/query assembly at spawn and returns a fresh SDK options clone", async () => {
     const adapter = adapterYielding([]);

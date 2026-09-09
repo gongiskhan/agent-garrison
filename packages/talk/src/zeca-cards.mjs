@@ -126,7 +126,7 @@ export async function createZecaCard(body, request = boardRequest) {
   if (!["todo", "start", "schedule"].includes(body.action)) throw cardError(400, "invalid action");
   if (!WINDOW_SIZES.includes(body.windowSize)) throw cardError(400, "invalid windowSize");
   const validIds = new Set(messages.map((message) => message.id));
-  if (!Array.isArray(body.messageIds) || !body.messageIds.length || body.messageIds.length > 50 || !body.messageIds.every((id) => validIds.has(id))) throw cardError(400, "invalid messageIds");
+  if (!Array.isArray(body.messageIds) || body.messageIds.length > 50 || !body.messageIds.every((id) => validIds.has(id))) throw cardError(400, "invalid messageIds");
   if (typeof body.confidence !== "number" || !Number.isFinite(body.confidence) || body.confidence < 0 || body.confidence > 1) throw cardError(400, "invalid confidence");
   if (["fallbackUsed", "titleEdited", "descriptionEdited"].some((field) => typeof body[field] !== "boolean")) throw cardError(400, "invalid edit metadata");
   if (body.action === "schedule" && (typeof body.scheduledAt !== "string" || !Number.isFinite(Date.parse(body.scheduledAt)))) throw cardError(400, "Pick a time.");

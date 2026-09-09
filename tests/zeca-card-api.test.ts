@@ -94,6 +94,23 @@ describe("Zeca card endpoints", () => {
   it("returns all specified inference errors", async () => {
     for (const [conversationId, windowSize, status] of [["zeca-empty-api", 10, 400], ["zeca-api-test", 15, 400], ["unknown-conversation", 10, 404], ["ordinary-api", 10, 409]]) expect((await post("/api/cards/from-zeca/infer", { conversationId, windowSize })).status).toBe(status);
   });
+  it("accepts an authored description after an empty boundary", async () => {
+    const result = await post("/api/cards/from-zeca", { ...body, messageIds: [], confidence: 0, fallbackUsed: true, descriptionEdited: true });
+    expect(result.status).toBe(201); expect(result.data.state).toBe("todo");
+  });
+});
+
+it("uses the existing bounded account adapter when the target has no API key", async () => {
+  let config: any, prompt: string | undefined, turns = 0, cleaned = false;
+  const text = await callCardInference({ compositionDir: "/fixture", executionModel: async () => ({ dutyLadder: { dispatch: { rungs: [{ provider: "anthropic", model: "claude-haiku-4-5" }] } } }), resolveSecrets: () => ({}) },
+    { system: "Exact system prompt", prompt: "Task messages", signal: AbortSignal.timeout(1000) },
+    { proxyUrl: "http://proxy.test", adapterFactory: async () => ({
+      spawn: async (value: any) => { config = value; return {}; }, awaitReady: async () => {},
+      sendTurn: async (_runtime: any, value: string) => { prompt = value; turns++; }, awaitResponse: async () => ({ text: '{"ok":true}' }),
+      teardown: async () => { cleaned = true; },
+    }) });
+  expect(text).toBe('{"ok":true}'); expect(turns).toBe(1); expect(cleaned).toBe(true); expect(prompt).toBe("Task messages");
+  expect(config).toMatchObject({ model: "claude-haiku-4-5", leanPrompt: "Exact system prompt", maxTurns: 1, tools: [], thinking: { type: "disabled" }, env: { GARRISON_ANTHROPIC_PROXY_URL: "http://proxy.test", CLAUDE_CODE_MAX_OUTPUT_TOKENS: "800", CLAUDE_CODE_MAX_RETRIES: "0" } });
 });
 
 it("selects the cheapest configured Anthropic ladder model and performs exactly one logged proxy request", async () => {

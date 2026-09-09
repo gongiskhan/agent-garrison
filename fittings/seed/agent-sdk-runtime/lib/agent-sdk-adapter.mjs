@@ -714,6 +714,8 @@ export class AgentSdkAdapter {
     // Dispatch inference accepts only the explicit disabled-thinking form.
     const thinking = fixedAssembly?.thinking ?? config.thinking;
     if (thinking?.type === "disabled") queryAssembly.thinking = { type: "disabled" };
+    if (config.persistSession === false) queryAssembly.persistSession = false;
+    if (config.outputFormat) queryAssembly.outputFormat = config.outputFormat;
     // `tools` is the base inventory; allowed/disallowed tools are policy layered
     // over it. Preserve an explicitly empty base inventory.
     const tools = fixedAssembly ? fixedAssembly.tools : config.tools;
@@ -1620,6 +1622,12 @@ export class AgentSdkAdapter {
                 }
               }
             } else if (block.type === "tool_use") {
+              // The SDK's JSON schema mode returns its value in this envelope.
+              // A one-turn caller can consume it without a second model call
+              // merely to acknowledge the structured-output tool result.
+              if (options.outputFormat?.type === "json_schema" && block.name === "StructuredOutput" && block.input && typeof block.input === "object") {
+                resultText = JSON.stringify(block.input);
+              }
               toolUses.push({ name: block.name, id: block.id });
               if (onTool) {
                 try {
@@ -1652,7 +1660,8 @@ export class AgentSdkAdapter {
           // the settled chat must show only the final response. Older SDK/error
           // shapes can omit result, in which case the last textual assistant
           // envelope is the best final answer (or partial answer after Stop).
-          if (typeof msg.result === "string" && msg.result.trim()) resultText = msg.result;
+          if (options.outputFormat && msg.structured_output !== undefined) resultText = JSON.stringify(msg.structured_output);
+          else if (typeof msg.result === "string" && msg.result.trim()) resultText = msg.result;
         }
         // Hard budget ceiling.
         if (session.budgetTokens != null && session.usedTokens >= session.budgetTokens) {

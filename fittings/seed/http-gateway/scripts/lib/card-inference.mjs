@@ -1,4 +1,7 @@
 import { startAnthropicLogProxy } from "./anthropic-log-proxy.mjs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { makeAdapterCallInvoker, resolveAgentSdkDir } from "./gateway-routing.mjs";
 
 let proxyPromise;
 export function cheapestAnthropicTarget(model) {
@@ -10,16 +13,45 @@ export function cheapestAnthropicTarget(model) {
   return choices.sort((a, b) => priceRank(a) - priceRank(b))[0] ?? null;
 }
 
-export async function callCardInference(router, { system, prompt, signal }, { fetchImpl = fetch, proxyUrl } = {}) {
+export async function callCardInference(router, { system, prompt, signal }, { fetchImpl = fetch, proxyUrl, adapterFactory } = {}) {
   const target = cheapestAnthropicTarget(await router.executionModel());
   if (!target) throw new Error("No Anthropic model is configured in the board ladder.");
   const secrets = router.resolveSecrets() ?? {};
   const key = secrets[target.params?.apiKeyEnv || target.apiKeyEnv || "ANTHROPIC_API_KEY"];
-  if (!key) throw new Error("The configured Anthropic inference key is unavailable.");
   let base = proxyUrl || process.env.GARRISON_ANTHROPIC_PROXY_URL;
   if (!base) {
     proxyPromise ??= startAnthropicLogProxy().catch((error) => { proxyPromise = null; throw error; });
     base = (await proxyPromise).url;
+  }
+  if (!key || target.account) {
+    // Match the dispatcher's provider/account resolver, including its stored
+    // login when this Anthropic target has no separate API key.
+    const createAdapter = adapterFactory || (async () => {
+      const dir = resolveAgentSdkDir(router.compositionDir);
+      if (!dir) throw new Error("The configured Anthropic runtime is unavailable.");
+      const { AgentSdkAdapter } = await import(pathToFileURL(path.join(dir, "lib/agent-sdk-adapter.mjs")));
+      return new AgentSdkAdapter();
+    });
+    const adapter = await createAdapter();
+    let active;
+    const spawn = adapter.spawn.bind(adapter);
+    const cancel = () => { if (active) void adapter.cancel?.(active); };
+    adapter.spawn = async (config) => { active = await spawn(config); if (signal?.aborted) cancel(); return active; };
+    signal?.addEventListener("abort", cancel, { once: true });
+    try {
+      const invoke = makeAdapterCallInvoker(adapter, {
+        ...target, compositionDir: router.compositionDir, secrets,
+        env: { ...process.env, GARRISON_ANTHROPIC_PROXY_URL: base, CLAUDE_CODE_MAX_OUTPUT_TOKENS: "800", CLAUDE_CODE_MAX_RETRIES: "0", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", CLAUDE_CODE_DISABLE_TERMINAL_TITLE: "1" },
+        provider: "anthropic", model: target.model, effort: "low", thinking: { type: "disabled" },
+        promptMode: "lean", leanPrompt: system, maxTurns: 1, tools: [], allowedTools: [], permissionMode: "bypassPermissions", persistSession: false,
+        outputFormat: { type: "json_schema", schema: { type: "object", properties: {
+          title: { type: "string" }, description: { type: "string" }, messageIds: { type: "array", items: { type: "string" } }, confidence: { type: "number" },
+        }, required: ["title", "description", "messageIds", "confidence"], additionalProperties: false } },
+      }, { timeoutMs: 20_000 });
+      const result = await invoke({ model: target.model, prompt, timeoutMs: 20_000 });
+      if (!result.ok) throw new Error(result.error || "Card inference failed.");
+      return result.text;
+    } finally { signal?.removeEventListener("abort", cancel); }
   }
   // Haiku has no effort field. The dispatcher uses thinking disabled for its
   // lowest-cost call; newer Sonnet and Opus models accept low explicitly.
