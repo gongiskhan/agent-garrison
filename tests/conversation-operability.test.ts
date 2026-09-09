@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, afterEach, describe, it, expect } from "vitest";
@@ -176,6 +177,29 @@ describe("hosted node deployment", () => {
     expect(resumed).toBe(false);
     expect(store.tail(1, { kinds: ["handoff"] })[0].payload).toMatchObject({ status: "partial", nextSteps: { next: "needs-input" } });
     expect(JSON.parse(readFileSync(file, "utf8")).error).toBe("build failed");
+  });
+
+  it("resumes through the runner's live composition gateway, without a gateway port in instance env", async () => {
+    const { store, hosted, file } = setup();
+    const requests: any[] = [];
+    const server = createServer(async (req, res) => {
+      let body = ""; for await (const chunk of req) body += chunk;
+      requests.push({ path: req.url, token: req.headers["x-garrison-token"], body: JSON.parse(body) });
+      res.writeHead(202); res.end("{}");
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const port = (server.address() as any).port;
+      const records = path.join(tmp, "gateway-pids"); mkdirSync(records);
+      writeFileSync(path.join(records, `default-${port}.json`), JSON.stringify({ pid: process.pid, port }));
+      writeFileSync(path.join(records, "another-composition-12345.json"), JSON.stringify({ pid: process.pid, port: 12345 }));
+      writeFileSync(path.join(tmp, "gateway-token"), "local-test-token");
+      requestDeployment({ env: hosted, launch: () => {} }); store.releaseStretch("st_deploy");
+      await runWorker(file, { run: async () => {} });
+      expect(requests).toEqual([{ path: "/conversation/kick", token: "local-test-token", body: { conversationId: "deploy" } }]);
+    } finally {
+      server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 
   it("the macOS and Linux launch paths belong to the service manager, with no inherited secrets or stretch identity", () => {

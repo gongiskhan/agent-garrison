@@ -65,13 +65,32 @@ export function requestDeployment({ kind = "redeploy", composition = "", repo = 
   const id = createHash("sha256").update(`${conversationId}:${stretchId}:${kind}:${previous?.updatedAt ?? ""}`).digest("hex").slice(0, 16);
   const directory = path.join(home, "deployments", id);
   fs.mkdirSync(directory, { recursive: true });
+  const gatewayComposition = env.GARRISON_COMPOSITION_ID || store.tail(1, { kinds: ["stretch-started"] })[0]?.runId?.split("@")[0] || composition;
+  if (!safeId(gatewayComposition)) throw new Error("Cannot identify the gateway that owns this conversation");
   const job = { id, label: `io.garrison.deploy.${id}`, kind, composition, repo, home, conversationId, stretchId,
-    directory, log: path.join(directory, "deploy.log"), status: "queued", updatedAt: new Date().toISOString() };
+    gatewayComposition, directory, log: path.join(directory, "deploy.log"), status: "queued", updatedAt: new Date().toISOString() };
   save(file, job);
   store.append({ kind: "note", payload: { origin: "gateway", text: "Deployment queued outside this conversation. The session will continue after the node returns." } });
   try { launch(job, file); }
   catch (err) { save(file, { ...job, status: "failed", error: String(err.message), updatedAt: new Date().toISOString() }); throw err; }
   return job;
+}
+
+export function deployedGatewayUrl(job) {
+  // Instance env contains the app port, not composition-owned fitting ports.
+  // Resolve the freshly spawned gateway from the runner's owner PID record.
+  const composition = job.gatewayComposition || job.composition;
+  if (!safeId(composition)) throw new Error("Deployment has no gateway composition");
+  const dir = path.join(job.home, "gateway-pids");
+  const candidates = fs.readdirSync(dir).filter((name) => name === `${composition}.json`
+    || name.startsWith(`${composition}-`) && /^\d+\.json$/.test(name.slice(composition.length + 1)))
+    .map((name) => read(path.join(dir, name))).filter((record) => {
+      if (!Number.isInteger(record?.port) || record.port < 1 || record.port > 65535 || !Number.isInteger(record.pid) || record.pid <= 0) return false;
+      try { process.kill(record.pid, 0); return true; } catch { return false; }
+    });
+  const ports = [...new Set(candidates.map((record) => record.port))];
+  if (ports.length !== 1) throw new Error(`Expected one live gateway for ${composition}; found ${ports.length}`);
+  return `http://127.0.0.1:${ports[0]}`;
 }
 
 export async function runWorker(file, { waitMs = 120_000, pollMs = 1000, run = null, resume = null } = {}) {
@@ -118,13 +137,9 @@ export async function runWorker(file, { waitMs = 120_000, pollMs = 1000, run = n
   if (error || resumeCancelled) return;
   try {
     if (resume) { await resume(job); return; }
-    const projection = execFileSync("bash", [path.join(job.repo, "scripts/garrison-instance.sh"), "prod", "env"], { cwd: job.repo, env: workerEnv, encoding: "utf8" });
-    const port = /^GARRISON_GATEWAY_PORT=(\d+)$/m.exec(projection)?.[1];
-    if (port && !error) {
-      const token = fs.readFileSync(path.join(job.home, "gateway-token"), "utf8").trim();
-      const res = await fetch(`http://127.0.0.1:${port}/conversation/kick`, { method: "POST", headers: { "content-type": "application/json", "x-garrison-token": token }, body: JSON.stringify({ conversationId: job.conversationId }), signal: AbortSignal.timeout(15_000) });
-      if (!res.ok && res.status !== 409) throw new Error(`Recovery returned HTTP ${res.status}`);
-    }
+    const token = fs.readFileSync(path.join(job.home, "gateway-token"), "utf8").trim();
+    const res = await fetch(`${deployedGatewayUrl(job)}/conversation/kick`, { method: "POST", headers: { "content-type": "application/json", "x-garrison-token": token }, body: JSON.stringify({ conversationId: job.conversationId }), signal: AbortSignal.timeout(15_000) });
+    if (!res.ok && res.status !== 409) throw new Error(`Recovery returned HTTP ${res.status}`);
   } catch (err) {
     store.append({ kind: "note", payload: { origin: "gateway", text: `The deployment job finished, but the conversation could not resume: ${err.message}. Send a message to continue.` } });
   }

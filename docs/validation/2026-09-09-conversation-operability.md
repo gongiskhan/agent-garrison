@@ -68,6 +68,11 @@ also showed a tool header extending beyond its expanded content.
   1. The harmless test deployment and continuation both completed. Owner evidence:
   `/private/tmp/garrison-operability-supervision/`. The completed test job was
   unloaded.
+  The production continuation check exposed that instance env only exports the
+  app port. The worker now resolves the live composition gateway's PID record;
+  an actual authenticated HTTP continuation regression and 29 related checks
+  passed. This on-demand script is loaded at invocation, so its Git deployment
+  needs no additional app build or fitting restart.
 - Initial rollout 0b56225d passed 43/43 on Pro and Madrid, with installed gateway
   hashes matching source. CSG reported the same release running before its tether
   dropped. Mini built the release but full composition startup failed; Mini and
