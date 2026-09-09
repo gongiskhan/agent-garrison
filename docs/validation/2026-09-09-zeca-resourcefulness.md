@@ -23,7 +23,7 @@ was installed and appended an unrelated update from earlier work.
   arrives as multiple settled envelopes. Previously only thinking survived a
   later shard: a forecast was visible during streaming and then overwritten by
   handoff commentary. Stream indices, tool identities and replay deduplication
-  are preserved. This delivery fix is awaiting final deployment/acceptance.
+  are preserved. The delivery fix is deployed and its saved-answer acceptance passed.
 
 Existing authored execution-policy overrides are preserved. No connector,
 account, default model or MCP startup policy changed. The rollout is on the Pro;
@@ -39,9 +39,14 @@ checks partial completion, settled-only messages and duplicate-free replay.
 A local-only replay of this task's synthetic Porto SDK response confirms the
 previously lost answer and source links survive in the final event revision.
 
-The Pro production build 8543e184 started at 20:24:20 UTC with 43/43 startup
-checks and 17/17 healthy views. Source and installed runtime files matched.
-The final message-delivery refinement is pending deployment.
+The Pro production build 667b1b3b started at 20:35:28 UTC. At 20:38:52 UTC,
+all 43 startup checks passed and all 17 views were healthy. Source and installed
+SDK normalizer and gateway files matched. A fresh Coimbra forecast performed a
+real WebSearch; after completion, the HTTPS Conversations API retained its
+Portuguese answer and links to Meteored, Ventusky and IPMA. No stretch remained
+running. Its handoff completed after one repair. The final missing-location
+check returned one concise Portuguese question and a valid needs-input handoff
+without repair or a fabricated failure.
 
 Live synthetic Conversations already demonstrate real web lookup by both
 Sonnet and Haiku, a fresh lookup after changing Lisbon to Porto, and alternate
@@ -54,10 +59,12 @@ MCP timeouts did not recur after normal redeployment.
 These probes do not certify forecast accuracy: Haiku still produced an invalid
 WebFetch argument, inconsistent source citation/language, and an earlier unit
 conversion error. An earlier clarification also failed its handoff schema;
-explicit clarification guidance was refined. The broader model-quality issue
+explicit clarification guidance was refined and the final check passed. The broader model-quality issue
 is not claimed solved. Browser inspection timed out, so there is no new
 screenshot or real-phone acceptance claim.
 
 Owner evidence is under output/verification/zeca-resourcefulness/ on the Pro:
-final-health.json, followup-*.json, local-replay.json and the bounded probe scripts.
+final-health.json, https-retained-answer.json, followup-*.json, local-replay.json,
+cleanup.json and the bounded probe scripts. Only the three synthetic verification
+cards were removed after their turns stopped; the owner evidence remains local.
 Raw session evidence stays on its producing node and is not copied to memory.
