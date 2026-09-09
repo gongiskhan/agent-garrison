@@ -147,7 +147,7 @@ describe("the shipped default composition", () => {
       default: "cross",
       ceiling: "cross"
     });
-    expect(byId.get("triage")).toMatchObject({ default: "floor", ceiling: "middle" });
+    expect(byId.get("triage")).toMatchObject({ default: "middle", ceiling: "top" });
     expect(byId.get("responder")).toMatchObject({ default: "floor", ceiling: "middle" });
     expect(composition.selectedDuties).toEqual(expect.arrayContaining(["triage", "responder"]));
   });
@@ -159,7 +159,7 @@ describe("the shipped default composition", () => {
 
     expect(model.version).toBe(3);
     expect(model.dutyLadder?.implement).toMatchObject({ ladder: "standard", defaultIndex: 1, ceilingIndex: 2 });
-    expect(model.dutyLadder?.triage).toMatchObject({ ladder: "standard", defaultIndex: 0, ceilingIndex: 1 });
+    expect(model.dutyLadder?.triage).toMatchObject({ ladder: "standard", defaultIndex: 1, ceilingIndex: 2 });
     expect(model.dutyLadder?.["adversarial-review"]).toMatchObject({
       ladder: "adversarial",
       defaultIndex: 0,

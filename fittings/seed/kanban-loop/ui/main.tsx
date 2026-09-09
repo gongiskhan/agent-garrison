@@ -1,3 +1,5 @@
+import { Sheet } from "./sheet";
+import { ZecaOriginChip } from "./zeca-origin";
 import { AttentionReply } from "./attention-reply";
 // Kanban Loop board UI — responsive, phone-first (the v4 wireframe is the spec).
 // Lists are columns in a horizontally-scrollable board; each card front shows
@@ -3139,6 +3141,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
           : <span className="chip muted">no project</span>}
         {card.scope === "personal" && <span className="chip goal">personal</span>}
         {card.machineId && <span className="chip">{card.machineId}</span>}
+        {typeof card.origin === "object" && card.origin?.type === "zeca" && <ZecaOriginChip origin={card.origin} available={card.originAvailable} />}
         <span className="chip">list: {card.list}</span>
         <span className="chip">iter {card.iterations}/{ITERATION_CAP}</span>
         {card.goalMode && <span className="chip goal">goalMode</span>}
@@ -4655,37 +4658,6 @@ function EditableSheetTitle({ value, locked, onSave }: {
         else { cancelled.current = true; setDraft(null); }
       }}
     />
-  );
-}
-
-function Sheet({ title, onClose, children, size = "default", tabs, className }: {
-  title: ReactNode;
-  onClose: () => void;
-  children: ReactNode;
-  size?: "default" | "mid" | "wide" | "conv";
-  /** A row under the header - the phone's section tabs. */
-  tabs?: ReactNode;
-  className?: string;
-}) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-  return (
-    <div className="sheet-backdrop" onClick={onClose}>
-      <div
-        className={`sheet${size === "wide" ? " wide" : size === "mid" ? " mid" : size === "conv" ? " wide conv" : ""}${className ? ` ${className}` : ""}`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="sh-head">
-          <h3>{title}</h3>
-          <button className="btn small sh-close" onClick={onClose} aria-label="Close"><CloseIcon /></button>
-        </div>
-        {tabs}
-        <div className="sh-body">{children}</div>
-      </div>
-    </div>
   );
 }
 

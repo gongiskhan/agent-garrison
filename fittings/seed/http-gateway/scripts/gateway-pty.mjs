@@ -2361,6 +2361,8 @@ async function startCardConversation(routerObj, { cardId, task = null, title = n
 }
 
 async function resumeInterruptedConversations() {
+  const { reconcileSessionCards } = await import("@garrison/talk/conversation-cards");
+  await reconcileSessionCards();
   const { recoverableConversations } = await import("./lib/conversation-recovery.mjs");
   const { runConversation } = await import("./lib/stretch.mjs");
   const controllers = (globalThis.__conversationAborts ??= new Map());
@@ -4314,6 +4316,21 @@ const server = http.createServer(async (request, response) => {
     // turn runs).
     if (request.method === "GET" && url.pathname === "/route/options") {
       return sendJson(response, 200, buildRouteOptions());
+    }
+    if (request.method === "POST" && url.pathname === "/conversation/card-inference") {
+      if (!router) return sendJson(response, 409, { error: "The gateway is not ready." });
+      const body = await readJsonBody(request);
+      if (typeof body.system !== "string" || typeof body.prompt !== "string") return sendJson(response, 400, { error: "An inference prompt is required." });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 20_000);
+      const close = () => { if (!response.writableEnded) controller.abort(); };
+      response.on("close", close);
+      try {
+        const { callCardInference } = await import("./lib/card-inference.mjs");
+        const text = await callCardInference(router, { system: body.system, prompt: body.prompt, signal: controller.signal });
+        return sendJson(response, 200, { text });
+      } catch (error) { return sendJson(response, 502, { error: error.message }); }
+      finally { clearTimeout(timer); response.off("close", close); }
     }
 
     // Authored Orchestrator changes take effect on the next turn. Queue a warm

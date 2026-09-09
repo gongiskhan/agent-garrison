@@ -18,6 +18,8 @@ import { ensureThread, getThread, renameThread } from "../packages/talk/src/thre
 import { createSessionCard, endSessionCard, resumeSessionCard, syncSessionCardTitle, provisionalTitle } from "../packages/talk/src/conversation-cards.mjs";
 // @ts-ignore existing JavaScript boundary
 import { saveSidebar } from "../packages/talk/src/sidebar-state.mjs";
+// @ts-ignore JavaScript lifecycle boundary
+import { recordUserMessage } from "../fittings/seed/http-gateway/scripts/lib/stretch.mjs";
 
 const home = mkdtempSync(join(tmpdir(), "conversation-cards-"));
 const root = join(home, "board");
@@ -76,6 +78,15 @@ describe("work conversation cards", () => {
     await syncSessionCardTitle("title-work", "Later title");
     await renameThread("title-work", "Manual conversation name");
     expect(await loadCard(root, "title-work")).toMatchObject({ title: "My name", titleLocked: true });
+  });
+  it("keeps a long first message verbatim and refuses a changed retry", async () => {
+    const store = await work("long-first-work");
+    const text = "Keep this markdown.\n\n".repeat(2000) + "The final line.";
+    expect(recordUserMessage(store, { text, clientRequestId: "long-first" }).ok).toBe(true);
+    expect(recordUserMessage(store, { text, clientRequestId: "long-first" }).duplicate).toBe(true);
+    expect(recordUserMessage(store, { text: text + "changed", clientRequestId: "long-first" }).conflict).toBe(true);
+    await createSessionCard("long-first-work");
+    expect((await loadCard(root, "long-first-work")).description.split("on test-node\n\n")[1]).toBe(text);
   });
   it("ends on runtime exit and archive, resumes, and emits existing state events", async () => {
     const store = await work("state-work", "Work here");

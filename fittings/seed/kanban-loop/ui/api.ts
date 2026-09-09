@@ -163,6 +163,7 @@ export interface DispatchRunProvenance {
 }
 
 export interface CardSummary {
+  originAvailable?: boolean;
   autonomous?: boolean;
   /** The autonomy gate's standing ask: the conversation paused on To do and
    *  wants a nod before the next duty runs. */

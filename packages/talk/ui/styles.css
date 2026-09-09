@@ -1,3 +1,6 @@
+@import "../../../fittings/seed/kanban-loop/ui/sheet.css";
+@import "../../../fittings/seed/kanban-loop/ui/date-picker.css";
+@import "./zeca-card.css";
 /* ============================================================================
    Web-Channel - Garrison look-and-feel skin for the shared @garrison/claude-chat
    component.
@@ -2631,10 +2634,10 @@
 .talk-host .cc-input { border-radius: 8px; padding: 9px 12px; min-height: 42px; }
 .talk-host .cc-composerrow { gap: 5px; }
 .talk-host .cc-composertools { gap: 5px; }
-.talk-host .cc-composertools :is(.cc-send, .cc-stop, .wcv-mic, .wc-rec-btn, .wc-usage-icon summary) { min-height: 36px; }
+.talk-host .cc-composertools :is(.wcv-mic, .wc-rec-btn, .wc-usage-icon summary) { min-height: 36px; }
 .talk-host .cc-composertools :is(.cc-send, .cc-stop) { min-height: 44px; }
 .talk-host .cc-input:focus { outline: 2px solid #6f8f6a; outline-offset: 1px; }
-.talk-host .cc-send { background: #3d6249; border-color: #3d6249; border-radius: 6px; }
+.talk-host .cc-send { min-height: 44px; background: #3d6249; border-color: #3d6249; border-radius: 6px; }
 .talk-host .cc-send:disabled { opacity: .48; }
 .talk-host button:focus-visible,
 .talk-host input:focus-visible { outline: 2px solid #bca263; outline-offset: 2px; }

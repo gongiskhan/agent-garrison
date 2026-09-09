@@ -39,7 +39,7 @@ it.each(["chromium", "webkit"])("makes recent native sessions directly visible o
     await page.route("http://talk.test/**", async route => {
       const url = new URL(route.request().url());
       requests.push(`${route.request().method()} ${url.pathname}${url.search}`);
-      if (url.pathname === "/sessions" && route.request().method() === "POST") { launches.push(route.request().postDataJSON()); return route.fulfill({status:502,json:{error:"Owner shell test failure"}}); }
+      if (url.pathname === "/api/mesh/nodes/mini/remote-shell/sessions" && route.request().method() === "POST") { launches.push(route.request().postDataJSON()); return route.fulfill({status:502,json:{error:"Owner shell test failure"}}); }
       if (url.pathname === "/") return route.fulfill({ contentType: "text/html", body: '<meta name="viewport" content="width=device-width, initial-scale=1"><div class="talk-host" style="height:100dvh"><div id="root" style="height:100%"></div></div>' });
       if (url.pathname === '/api/threads/conversation-0' && !initialFinished) {
         await new Promise<void>(resolve => { releaseInitial = resolve; });

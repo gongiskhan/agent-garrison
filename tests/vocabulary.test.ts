@@ -347,6 +347,14 @@ const SESSION_IS_THE_RUNTIME: ReadonlyArray<{ file: string; why: string }> = [
  */
 const SESSION_LITERALS: ReadonlyArray<{ file: string; literal: string; why: string }> = [
   {
+    file: "packages/talk/ui/app.tsx", literal: "}/sessions/ /stream",
+    why: "This is the existing runtime stream URL after the scanner removes template expressions, not user-facing conversation copy."
+  },
+  {
+    file: "packages/talk/ui/remote-shell-pane.tsx", literal: "/sessions/ /",
+    why: "This is a runtime session API path with its dynamic identifiers removed by the scanner, not visible prose."
+  },
+  {
     file: "packages/talk/ui/app.tsx",
     literal: "the gateway is not answering - start the session to pin routing",
     why: "routing options need the RUNTIME session up; the message is about the process being down, not about the conversation"

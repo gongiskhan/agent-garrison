@@ -81,7 +81,7 @@ beforeEach(async () => {
 });
 
 describe("Conversations navigation and responsive composer", () => {
-  it("keeps Zeca above shells and working sessions visible when idle sessions collapse", async () => {
+  it("keeps Zeca above shells and the running indicator visible when the group collapses", async () => {
     const plan = await page.getByRole('button',{name:/^Migration plan/}).boundingBox();
     const shells = await page.getByTestId('rail-section-sessions').boundingBox();
     expect(plan!.y).toBeLessThan(shells!.y);
@@ -89,7 +89,8 @@ describe("Conversations navigation and responsive composer", () => {
     expect(await page.getByRole('button',{name:/Old shell/}).isVisible()).toBe(true);
     await page.getByTestId('rail-sessions-toggle').click();
     await expect.poll(()=>page.getByTestId('rail-sessions-toggle').getAttribute('aria-expanded')).toBe('false');
-    expect(await page.getByRole('button',{name:/Current review/}).isVisible()).toBe(true);
+    expect(await page.getByRole('button',{name:/Current review/}).count()).toBe(0);
+    expect(await page.getByRole('status',{name:'Running in shell sessions', exact:true}).isVisible()).toBe(true);
     expect(await page.getByRole('button',{name:/Old shell/}).count()).toBe(0);
     const pinned = await page.getByTestId('wc-pinned').boundingBox();
     const sessions = await page.getByTestId('rail-section-sessions').boundingBox();

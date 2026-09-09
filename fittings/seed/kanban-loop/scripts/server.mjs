@@ -1640,8 +1640,10 @@ async function handleGetCard(req, res, opts, id) {
   catch { return jsonRes(res, 404, { error: `card not found: ${id}` }); }
   card.id = id; // pin to the validated route id — never trust the on-disk id field
   const links = resolveCardLinks(card, { root, cwd: opts.cwd });
+  const originAvailable = card.origin?.type === "zeca"
+    ? Boolean(await (await import("@garrison/talk/threads")).getThread(card.origin.conversationId)) : undefined;
   jsonRes(res, 200, {
-    card: cardSummary(card),
+    card: { ...cardSummary(card), ...(originAvailable === undefined ? {} : { originAvailable }) },
     // The full checklist items (the summary carries only the counts), and the
     // acceptance body (deliberately NOT in cardSummary - the board front ships
     // every card to the browser; bodies ride only on the single-card read).
@@ -2112,7 +2114,7 @@ async function handleCreateCard(req, res, opts) {
   // the one door — a card cannot exist without its materialization on the
   // record. Only when the card names a conversation (a plain hand-made card
   // creates no empty store).
-  if (conversationId) {
+  if (conversationId && card.origin?.type !== "workSession") {
     appendConversationEvent(card, {
       kind: "card-materialized",
       payload: {

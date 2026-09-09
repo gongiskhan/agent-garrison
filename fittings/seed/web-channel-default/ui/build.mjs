@@ -41,7 +41,9 @@ copyFileSync(path.join(HERE, "index.html"), path.join(DIST, "index.html"));
 // web-channel skin (styles.css) LAST, so the skin's Garrison palette/chrome
 // overrides the component's dark default on equal specificity. Order matters:
 // styles.css is the override layer and must win, so it is appended last.
-const skinCss = readFileSync(path.join(TALK_UI, "styles.css"), "utf8");
+const skinCss = readFileSync(path.join(TALK_UI, "styles.css"), "utf8").replace(
+  /^@import "([^"]+)";\n/gm, (_line, relative) => readFileSync(path.resolve(TALK_UI, relative), "utf8")
+);
 const chatCssPath = path.resolve(HERE, "..", "..", "..", "..", "packages", "claude-chat", "src", "claude-chat.css");
 let chatCss = "";
 if (existsSync(chatCssPath)) {

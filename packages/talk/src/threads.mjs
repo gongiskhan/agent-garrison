@@ -1246,6 +1246,10 @@ export function inferredConversationTitle(conversationId) {
   }
   title = title ? title.replace(/^#+\s*/, "").slice(0, 60).trim() || null : null;
   inferredTitleCache.set(conversationId, { key: cacheKey, title });
+  if (title && cached?.title !== title) {
+    void import("./conversation-cards.mjs").then(({ syncSessionCardTitle, reportCardHook }) =>
+      syncSessionCardTitle(conversationId, title).catch(reportCardHook));
+  }
   return title;
 }
 

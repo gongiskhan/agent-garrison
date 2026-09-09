@@ -2380,7 +2380,8 @@ export async function runConversation(gateway, {
  *  responder stretch answers from L1. */
 export function recordUserMessage(store, { text, origin = "web", threadId = null, context = null, routing = null, delivery = null, steered = false, clientRequestId = null, questionId = null }) {
   const requestId = typeof clientRequestId === "string" && clientRequestId.trim() ? clientRequestId.trim().slice(0, 200) : null;
-  const normalizedText = String(text ?? "").slice(0, 32_000);
+  const fullText = String(text ?? "");
+  const normalizedText = fullText.slice(0, 32_000);
   if (requestId) {
     // A browser may retry after the gateway recorded the message but its HTTP
     // reply was lost. Read the durable ledger, not a process-local cache: this
@@ -2390,7 +2391,8 @@ export function recordUserMessage(store, { text, origin = "web", threadId = null
     const previous = store.tail(Number.MAX_SAFE_INTEGER, { kinds: ["user-message"] })
       .find((event) => event.payload?.clientRequestId === requestId);
     if (previous) {
-      if (previous.payload.text !== normalizedText) {
+      const previousText = previous.payload.textRef ? store.readPayload(previous.payload.textRef) : previous.payload.text;
+      if (previousText !== fullText) {
         return { ok: false, conflict: true, error: "clientRequestId was already used for a different message" };
       }
       return { ok: true, duplicate: true, ts: previous.ts, seq: previous.seq };
@@ -2404,6 +2406,7 @@ export function recordUserMessage(store, { text, origin = "web", threadId = null
     kind: "user-message",
     payload: {
       text: normalizedText,
+      ...(fullText.length > normalizedText.length ? { textRef: store.spillPayload(fullText).ref } : {}),
       ...(requestId ? { clientRequestId: requestId } : {}),
       ...(questionId ? { questionId } : {}),
       origin,

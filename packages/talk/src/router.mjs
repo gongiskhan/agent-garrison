@@ -29,6 +29,7 @@ import { parseByFormat } from "./transcript-formats.mjs";
 import { gatewayCancelForwarder, gatewayMessageForwarder, handleConversationRequest } from "@garrison/claude-pty";
 import { rotateZecaConversation, zecaConversation } from "./zeca.mjs";
 import { loadSidebar, saveSidebar } from "./sidebar-state.mjs";
+import { createZecaCard, inferZecaCard } from "./zeca-cards.mjs";
 import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
@@ -3610,6 +3611,22 @@ export function createTalkRouter(liveOpts, { distDir = null, log = console } = {
       if (pathname === "/api/chat/interrupt" && method === "POST") { settle(res, handleChatInterrupt(req, res, liveOpts), log); return true; }
       if (pathname === "/api/chat" && method === "POST") { settle(res, handleChat(req, res, liveOpts), log); return true; }
       if (pathname === "/api/route-options" && method === "GET") { settle(res, handleRouteOptions(req, res, liveOpts), log); return true; }
+      if (method === "POST" && ["/api/cards/from-zeca", "/api/cards/from-zeca/infer"].includes(pathname)) {
+        try {
+          let body;
+          try { body = await readJsonBody(req, 2 * 1024 * 1024); } catch { jsonRes(res, 400, { error: "Invalid request body." }); return true; }
+          if (!body || typeof body !== "object" || Array.isArray(body)) { jsonRes(res, 400, { error: "Invalid request body." }); return true; }
+          const result = pathname.endsWith("/infer") ? await inferZecaCard(body, async ({ signal, ...input }) => {
+            const response = await fetch(new URL("/conversation/card-inference", liveOpts.gatewayUrl), {
+              method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input), signal,
+            });
+            if (!response.ok) throw new Error(`Inference returned HTTP ${response.status}.`);
+            return (await response.json()).text;
+          }) : await createZecaCard(body);
+          jsonRes(res, pathname.endsWith("/infer") ? 200 : 201, result);
+        } catch (error) { jsonRes(res, error.status || 503, { error: error.message }); }
+        return true;
+      }
       if (pathname === "/api/sidebar" && method === "GET") {
         void loadSidebar()
           .then((body) => jsonRes(res, 200, body))

@@ -87,9 +87,13 @@ function useFocusedEvent(
     if (!focusEventId || !pendingRef.current) return;
     const root = containerRef.current;
     if (!root) return;
+    const coordinate = /#(\d+)$/.exec(focusEventId);
+    const eventAtCoordinate = coordinate && Array.isArray(renderedEvents)
+      ? renderedEvents.find((event) => event.order === Number(coordinate[1])) : null;
+    const resolvedFocusId = eventAtCoordinate?.id || focusEventId;
     let target: HTMLElement | null = null;
     for (const node of Array.from(root.querySelectorAll<HTMLElement>("[data-session-event-id]"))) {
-      if (node.getAttribute("data-session-event-id") === focusEventId) {
+      if (node.getAttribute("data-session-event-id") === resolvedFocusId) {
         target = node;
         break;
       }
@@ -1000,7 +1004,7 @@ function StretchRule({ block, thinkingUnavailable = false }: { block: SessionBlo
         <summary>Run details</summary>
         <div className="cc-stretch-head">
           {stretchId && <span className="cc-stretch-id" title={`stretch ${stretchId}`}>{stretchId}</span>}
-          {chosenBy && <span>Chosen by {chosenBy}</span>}
+          {chosenBy && <span title={`via ${chosenBy}`}>Chosen by {chosenBy}</span>}
           {tokens !== null && <span>{tokens.toLocaleString("en-US")} tokens</span>}
           {apiCalls !== null && <span>{apiCalls} API calls</span>}
         </div>

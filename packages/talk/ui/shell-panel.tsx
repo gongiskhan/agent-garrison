@@ -117,7 +117,7 @@ export function ShellPanel({
       ) : origin && sessionId ? (
         <div className="wc-shell-output">
           {streamUrl && <div className="wc-sess-body wc-sess-conversation" hidden={showShell} data-testid="shell-conversation-view">
-            <SessionStream url={streamUrl} reconnect live={state === "running"} title="Session output" />
+            <SessionStream url={streamUrl} reconnect live={state === "running"} title="Terminal output" />
           </div>}
           <div className="wc-shell-terminal" hidden={Boolean(streamUrl) && !showShell}>
             <RemoteShellPane

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { openConversation } from "@garrison/claude-pty";
-import { getThread, setThreadBoardCard, inferredConversationTitle } from "./threads.mjs";
+import { getThread, listThreads, setThreadBoardCard, inferredConversationTitle } from "./threads.mjs";
 
 export const cardUrl = (id) => `/embed/kanban-loop?card=${encodeURIComponent(id)}`;
 export const conversationUrl = (id, messageId = null) => `/talk?thread=${encodeURIComponent(id)}${messageId == null ? "" : `&message=${encodeURIComponent(messageId)}`}`;
@@ -48,6 +48,8 @@ export async function createSessionCard(conversationId) {
     const store = openConversation(conversationId, { role: "web-channel" });
     const first = store.tail(Number.MAX_SAFE_INTEGER, { kinds: ["user-message"] })[0];
     if (!first?.payload?.text?.trim()) return null;
+    const firstText = first.payload.textRef ? store.readPayload(first.payload.textRef) : first.payload.text;
+    if (typeof firstText !== "string") throw new Error("The original message is unavailable.");
     let card = await existingCard(conversationId);
     if (!card) {
       const machineId = localMachineId();
@@ -59,7 +61,7 @@ export async function createSessionCard(conversationId) {
       const createdAt = first.ts;
       try {
         const data = await boardRequest("/cards", { method: "POST", engine: true, body: {
-          conversationId, title, description: `Work session started ${createdAt.replace(/Z$/, "+00:00")} on ${machineId}\n\n${first.payload.text}`,
+          conversationId, title, description: `Work session started ${createdAt.replace(/Z$/, "+00:00")} on ${machineId}\n\n${firstText}`,
           project, scope: project ? "project" : "unscoped", machineId, routing,
           targetList: "running", origin: { type: "workSession", conversationId, createdAt },
           titleProvisional: !thread.title && !inferred,
@@ -100,3 +102,10 @@ export async function syncWorkSessionTitle(id) {
   if (thread?.boardCardId) await syncSessionCardTitle(id, thread.title || inferredConversationTitle(id));
 }
 export function reportCardHook(error) { console.error(`[conversation-cards] ${error?.message || error}`); }
+export async function reconcileSessionCards() {
+  for (const thread of await listThreads()) {
+    if (!thread.boardCardId || thread.source !== "chat") continue;
+    const store = openConversation(thread.id, { role: "gateway" });
+    if (!store.currentStretch() && !globalThis.__conversationAborts?.has(thread.id)) await endSessionCard(thread.id).catch(reportCardHook);
+  }
+}

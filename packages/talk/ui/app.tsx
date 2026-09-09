@@ -1,3 +1,6 @@
+import { PushNotice } from "./push-notice";
+export { PushNotice } from "./push-notice";
+import { ZecaCardControl, nativeCardHost } from "./zeca-card";
 // Conversations UI (@garrison/talk) - the ONE generic, context-driven chat
 // surface with a SESSIONS sidebar: persisted per-conversation threads you can
 // move between and whose history is restored on open. Exported as `TalkApp`;
@@ -1932,12 +1935,13 @@ function ThreadedApp({
     if (!conversationId) return;
     const working = ["starting", "working", "handoff"].includes(activity.mode);
     setConversationActivity({ id: conversationId, working });
+    void refreshList();
     // The canonical conversation stream knows immediately; the legacy FIFO
     // transport is not involved in these turns. Other clients refresh by poll.
     setThreads((current) => current.map((thread) => thread.id === conversationId
       ? { ...thread, runningSince: working ? thread.runningSince ?? new Date().toISOString() : null }
       : thread));
-  }, [conversationId]);
+  }, [conversationId, refreshList]);
   const stopConversation = useCallback(async () => {
     if (!conversationId) return;
     const id = conversationId;
@@ -2155,9 +2159,10 @@ function ThreadedApp({
           <ConversationView
             key={conversationId}
             conversationId={conversationId}
+            focusSeq={url.thread === conversationId && typeof window !== "undefined" && /^\d+$/.test(new URLSearchParams(window.location.search).get("message") || "") ? Number(new URLSearchParams(window.location.search).get("message")) : null}
             base={CONVERSATION_BASE}
             transport={conversationTransport}
-            title={activeThread?.title || "Conversation"}
+            title={threads.find((thread) => thread.id === conversationId)?.title || activeThread?.title || "Conversation"}
             placeholder={activeId === zecaId ? "Message Zeca…" : "Write a message…"}
             composerAdornment={conversationAdornment}
             draftKey={activeId ?? undefined}
@@ -2180,6 +2185,7 @@ function ThreadedApp({
                   <details className="wc-card-overflow"><summary aria-label="Conversation actions">•••</summary><a title="Open card" href={`/embed/kanban-loop?card=${encodeURIComponent(activeThread?.boardCardId || threads.find((t) => t.id === activeId)?.boardCardId || "")}`}>On the board</a></details>
                 </>
               )}
+              {!captureBridge && !nativeCardHost() && activeThread?.source === "zeca" && <ZecaCardControl key={conversationId} conversationId={conversationId} project={pins?.project || (activeThread.context as { project?: string } | null)?.project} projects={routeOptions?.projects ?? []} hasMessages={Math.max(activeThread.messageCount || 0, threads.find((thread) => thread.id === conversationId)?.messageCount || 0) > 0 || conversationActivity?.id === conversationId && conversationActivity.working} />}
               {conversationStop?.id === conversationId && conversationStop.error && <span className="wc-conversation-error" role="alert">{conversationStop.error}</span>}
               {conversationActivity?.id === conversationId && conversationActivity.working && (
                 <button type="button" className="wc-conversation-stop" onClick={() => { void stopConversation(); }}
@@ -2279,29 +2285,6 @@ export interface TalkAppProps {
  * browser has no Push API at all until the app is on the Home Screen, and
  * showing "unsupported" there would be wrong and unactionable.
  */
-export function PushNotice({
-  text,
-  kind = "notice",
-  onDismiss,
-}: {
-  text: string;
-  kind?: "notice" | "toast";
-  onDismiss: () => void;
-}) {
-  return (
-    <div className={kind === "toast" ? "wc-push-toast" : "wc-push-notice"} role="status">
-      <span>{text}</span>
-      <button
-        type="button"
-        onClick={onDismiss}
-        aria-label={kind === "toast" ? "Dismiss notification" : "Dismiss notification notice"}
-      >
-        ×
-      </button>
-    </div>
-  );
-}
-
 // Dismissing a push notice is a decision, and a decision must survive the tab.
 // The dismissal was plain component state, so an installed PWA with
 // notifications deliberately blocked re-showed "Notifications blocked" on
