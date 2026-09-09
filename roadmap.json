@@ -353,7 +353,7 @@
         },
         {
           "id": "c3.22",
-          "text": "Suggested replies on Needs Attention cards and in Conversations: bounded handoff choices, free-form replies, owner-node delivery, stale-answer rejection and retry deduplication. Validation: docs/validation/2026-09-09-attention-questions.md.",
+          "text": "Suggested replies on Needs Attention cards and in Conversations: bounded handoff choices, free-form replies, owner-node delivery, stale-answer rejection and retry deduplication. Implemented and verified with 265 tests; Pro deployed. Madrid build passed but runtime startup awaits account eligibility and final live response acceptance. Validation: docs/validation/2026-09-09-attention-questions.md.",
           "done": false,
           "sentToKanban": null,
           "noteRef": null

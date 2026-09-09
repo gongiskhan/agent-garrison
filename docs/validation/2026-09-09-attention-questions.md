@@ -8,12 +8,16 @@ The current morning-brief card belongs to Madrid. Before this change the Pro boa
 
 ## Verification
 
-- 261 focused tests across 13 files passed, covering handoff schema, HTTP admission, retry, legacy pauses, peer routing, existing question controls, conversation rendering and instance separation.
-- The final responder check additionally runs through the suggested-answer admission path and verifies Running followed by settlement. The affected browser, responder and mesh suites passed 83 tests after the final layout changes.
+- All 265 final focused tests across 13 files passed (254 in the combined run, plus 11 existing question-control checks), covering handoff schema, HTTP admission, retry, legacy pauses, peer routing, conversation rendering and instance separation.
+- The responder check runs through suggested-answer admission and verifies Running followed by settlement. Regression checks cover a historical record's first reply, spilled handoffs and writer restarts: question identity uses the immutable ledger index, not a sequence number that resets per writer.
 - TypeScript passed. Tracked seed Kanban and legacy web-host JS/CSS were rebuilt.
 - Chromium fixtures exercised compact phone width, expanded choices, the actual Conversations component, custom text, failed send/retry, and question removal on an ordinary reply. Screenshots are on the Pro under `output/playwright/attention-questions/`.
 - Physical-phone acceptance is not claimed.
 
 ## Rollout
 
-Pending: commit/push, Pro and Madrid full app/runtime redeploy, startup health and live HTTPS checks of the owner-routed credential question. Air/CSG are outside this scoped rollout. Mini recovery remains explicitly deferred.
+Implementation commits `8bee8ee3` and `86b3552c` are pushed to main and the Pro node branch. Both owner checkouts received the code through Git. Pro's final full redeploy completed successfully at 09:23 UTC with 43/43 checks; its composition is running on `86b3552c`. Madrid built the same revision and passed 43/43 checks, but startup was refused by Paymaster: the eligible-token account is at 102% of its five-hour window, and the other Anthropic account needs re-login. A fresh probe at 09:28 UTC confirmed the hold; the reported nearest reset is 09:50 UTC (10:50 Lisbon). No account pin, limit override or credential change was made. Madrid conversation replies cannot resume execution until an account is eligible and normal composition startup succeeds.
+
+The real Madrid-owned credential card was read through the Pro HTTPS Kanban origin on port 8506. Both the card front and Discuss conversation show the Vault reply; the conversation keeps its existing composer as the free-form field. The final owner-routed endpoint returns `handoff-2072`, verifying the corrected ledger coordinate. Screenshots include `live-credential-card.png` and `live-credential-conversation-final.png`. Requests interrupted during deployment produced transient 502s; the final question GET returned 200. No live user question was answered to test the feature.
+
+Pro's final health check found 16/17 views healthy: capture-service was CPU-bound and its health request timed out. One supported fitting restart returned success but the new process again became unresponsive; voice recovery remains unresolved and is not claimed by this release. The app and Kanban are healthy. Air/CSG are outside this scoped rollout. Mini recovery remains explicitly deferred. Roadmap c3.22 remains open for Madrid runtime recovery and final live response acceptance.
