@@ -319,3 +319,7 @@ reality:
    over the tailnet (unreachable host + mixed content). Loading the prod
    tailnet URL headlessly from the Garrison box itself reproduces the remote
    path faithfully - the page host is the tailnet host, not localhost.
+
+Web work conversations get one card on their first message; its title follows the conversation until manually locked, and runtime start/exit or archive moves it between Running and Done.
+Zeca card creation uses POST `/api/cards/from-zeca/infer` and POST `/api/cards/from-zeca`; Start now and Schedule use the existing board paths.
+The message-window builder, boundary rule, exact inference prompt and transcript fallback live in `packages/talk/src/zeca-cards.mjs`.

@@ -790,6 +790,11 @@
   ],
   "notes": [
     {
+      "id": "n-conversation-cards-20260909",
+      "title": "Cards from web conversations (9 September 2026)",
+      "body": "The bounded conversation-card slice implements automatic cards for web work conversations and an editable Zeca card draft from a recent-message window. Work cards reuse the conversation, preserve the first message and follow runtime lifetime; Zeca cards use board-default start and schedule paths, with self-contained descriptions and source links. Sixteen local browser journeys pass, including crash, Retry, validation and phone layout. Final deployed inference and full-suite acceptance are tracked in docs/validation/2026-09-09-cards-from-conversations.md. This does not close the broader c1 brief workflow or add native, mesh or improver behavior."
+    },
+    {
       "id": "n-agent-continuity-conversations-20260906",
       "title": "Shared agent context and Conversations audit (6 September 2026)",
       "body": "Claude Code, Codex and Garrison runtimes share one project-scoped Basic Memory authority on dev-madrid, common instructions and metadata-only session awareness. Garrison AGENTS.md is a relative symlink to CLAUDE.md. Existing authored native memory import requires explicit opt-in; no transcripts are imported. Selected default planning/review duties use Astra and validation/test/report duties use Sol, with existing Claude fallbacks. Conversations audit fixes history replay, burst draining, durable input retry deduplication, normal routing controls and cancellation, and improves search, pinned Zeca, compact navigation and composer usability. Evidence and remaining live rollout gates are in docs/validation/2026-09-06-conversations-audit.md, docs/validation/2026-09-06-conversations-ui.md, docs/validation/2026-09-06-codex-duty-quality.md and docs/CODEX_MEMORY_WORKFLOW.md. The broader conversation, mesh and native-phone roadmap items remain open until their own acceptance gates pass."
