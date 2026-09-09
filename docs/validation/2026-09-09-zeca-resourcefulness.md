@@ -44,3 +44,14 @@ two subsequent Sonnet admissions timed out waiting for MCP startup before any
 prompt was sent. A standalone SDK Sonnet lookup with native WebSearch worked.
 That isolation check does not establish gateway acceptance. The inventory
 follow-up and its live gateway acceptance are pending.
+
+The c5f003f5 follow-up was deployed successfully. A real Haiku responder in the
+previously refusing conversation now called WebSearch and WebFetch. Search
+succeeded, but it mishandled a unit conversion, linked generic home pages, and
+made an invalid WebFetch call. A Sonnet failed-bookmark case used WebSearch and
+returned a sourced forecast, then replaced its final reply with internal
+handoff commentary. A no-location case correctly asked for the city but added
+an unsolicited translation and initially used an invalid completion marker.
+The final prompt refinement makes the final reply the user-facing answer after
+bookkeeping, with checked source URLs, verified units, one language, and the
+proper clarification completion marker. Its final live acceptance is pending.
