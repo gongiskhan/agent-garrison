@@ -103,6 +103,9 @@ export const TOOL_PROFILES = {
   // the cache prefix stays byte-stable across stretches - see the note in the
   // gateway's harness-profiles.mjs for why sharing beats narrowing by 10x.
   shared: ["Bash", "Read", "Write", "Edit", "Agent", "TaskOutput", "AskUserQuestion"],
+  // Intake reads just enough to choose the work. Its handoff is returned as
+  // structured text, so it needs neither filesystem writes nor a shell.
+  triage: ["Read", "Glob", "Grep"],
   // Write and Read are universal: EVERY duty ends by writing its handoff file.
   code: ["Bash", "Read", "Write", "Edit", "Agent"],
   "code-web": ["Bash", "Read", "Write", "Edit", "Agent", "WebSearch", "WebFetch"],

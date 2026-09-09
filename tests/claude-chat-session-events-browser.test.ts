@@ -345,7 +345,7 @@ describe("claude-chat canonical timeline in a real browser", () => {
     expect(await page.locator("pre code").textContent()).toBe("const answer = 42;\n");
   });
 
-  it("opens the active tool, closes it on settle, and stays inside a 320px touch viewport", async () => {
+  it("keeps live tools collapsed, preserves a manual expansion on settle, and aligns the body at 320px", async () => {
     const toolName = "mcp__codex_apps__plugin_management_update_app_permissions";
     const events = [{
       id: "long-tool",
@@ -356,6 +356,8 @@ describe("claude-chat canonical timeline in a real browser", () => {
     }];
     await mount(events, true);
     const details = page.locator("details.cc-session-tool");
+    expect(await details.getAttribute("open")).toBeNull();
+    await details.locator("summary").click();
     expect(await details.getAttribute("open")).not.toBeNull();
 
     const measurements = await page.locator("summary").evaluate((summary) => ({
@@ -371,9 +373,18 @@ describe("claude-chat canonical timeline in a real browser", () => {
     expect(measurements.summaryScrollWidth).toBeLessThanOrEqual(measurements.summaryClientWidth);
     expect(measurements.summaryHeight).toBeGreaterThanOrEqual(44);
     expect(measurements.marker).not.toBe("none");
+    const edges = await details.evaluate((node) => {
+      const summary = node.querySelector("summary")!.getBoundingClientRect();
+      const body = node.querySelector(".cc-session-toolbody")!.getBoundingClientRect();
+      return { left: Math.abs(summary.left - body.left), right: Math.abs(summary.right - body.right) };
+    });
+    expect(edges.left).toBeLessThanOrEqual(1);
+    expect(edges.right).toBeLessThanOrEqual(1);
 
     await mount(events, false);
-    await page.waitForFunction(() => !document.querySelector("details.cc-session-tool")?.hasAttribute("open"));
+    expect(await details.getAttribute("open")).not.toBeNull();
+    await details.locator("summary").click();
+    expect(await details.getAttribute("open")).toBeNull();
   });
 
   it("uses a modal dialog, keeps keyboard focus inside, and restores the image opener", async () => {

@@ -20,6 +20,7 @@ import { randomUUID } from "node:crypto";
 import { runLog } from "@garrison/claude-pty";
 import { buildHarness } from "./harness.mjs";
 import { buildSdkEnv, resolveProviderBaseUrl, capabilityRecord, isAnthropicProvider } from "./providers.mjs";
+import { hostedCommandRejection } from "./hosted-process-guard.mjs";
 import {
   SESSION_TEXT_BLOCK_CAP,
   clampSessionText,
@@ -801,6 +802,14 @@ export class AgentSdkAdapter {
       opts.effort = session.effort;
     }
     if (session.sessionId) opts.resume = session.sessionId;
+    if (session.config?.env?.GARRISON_STRETCH_ID) {
+      opts.hooks = { ...opts.hooks, PreToolUse: [...(opts.hooks?.PreToolUse ?? []), {
+        matcher: "Bash", hooks: [async (event) => {
+          const reason = hostedCommandRejection(event.tool_name, event.tool_input, session.config.env);
+          return reason ? { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } } : {};
+        }],
+      }] };
+    }
     return opts;
   }
 

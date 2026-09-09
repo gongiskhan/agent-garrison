@@ -22,6 +22,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
+if [ -n "${GARRISON_CONVERSATION_ID:-}" ] && [ "${GARRISON_DEPLOYMENT_WORKER:-}" != "1" ]; then
+  exec node "$SCRIPT_DIR/garrison-supervised-deploy.mjs" redeploy "${1:-}"
+fi
 # shellcheck source=lib/app-server.sh
 . "$SCRIPT_DIR/lib/app-server.sh"
 

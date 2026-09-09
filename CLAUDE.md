@@ -719,6 +719,15 @@ serves exactly the ports the old prod profile served, so nothing live moved.)
 
 ### Deploying — reload for app changes, redeploy when a long-lived process holds the code
 
+Conversations hosted inside this node use the same `node:reload` and
+`node:redeploy` commands, but those commands queue an independent service-manager
+job instead of restarting the session's parent. After the command returns, the
+stretch must write its handoff immediately. The job waits for that handoff,
+deploys, and resumes the conversation for live verification. Never replace this
+with `kill`, `pkill`, or a direct service restart from a hosted stretch. The
+owner ledger records interrupted work and resumes recent unfinished conversations
+after gateway startup; repeated interruptions pause with the saved evidence.
+
 **Reach for `npm run node:reload` first.** It builds and restarts the Next app
 server, then brings the operative back on `up()`'s fast path (fingerprint
 unchanged = no install, no setup, no verify hooks). It does NOT keep the

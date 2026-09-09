@@ -2359,6 +2359,23 @@ async function startCardConversation(routerObj, { cardId, task = null, title = n
   return true;
 }
 
+async function resumeInterruptedConversations() {
+  const { recoverableConversations } = await import("./lib/conversation-recovery.mjs");
+  const { runConversation } = await import("./lib/stretch.mjs");
+  const controllers = (globalThis.__conversationAborts ??= new Map());
+  for (const conversationId of recoverableConversations({ compositionId: COMPOSITION_ID })) {
+    if (controllers.has(conversationId)) continue;
+    const controller = new AbortController();
+    controllers.set(conversationId, controller);
+    try {
+      const result = await runConversation(router, { conversationId, signal: controller.signal });
+      logEvent("stdout", { kind: "conversation-recovered", conversationId, ...result });
+    } catch (err) {
+      logEvent("stderr", { kind: "conversation-recovery-error", conversationId, error: err.message });
+    } finally { controllers.delete(conversationId); }
+  }
+}
+
 async function runRoutedTurn(message, onChunk, hints, opts = {}) {
   // Session log (Harness brief §1): the injection is written BEFORE the runtime
   // sees it, and the settled outcome after — every lane, one seam.
@@ -4908,8 +4925,12 @@ const server = http.createServer(async (request, response) => {
         const conversationId = typeof body.conversationId === "string" ? body.conversationId : "";
         const controllers = (globalThis.__conversationAborts ??= new Map());
         const controller = controllers.get(conversationId);
-        if (!controller) return sendJson(response, 404, { error: "no advancing conversation", conversationId });
-        controller.abort();
+        const { cancelConversationDeployment } = await import("./lib/conversation-recovery.mjs");
+        const { openConversation } = await import("@garrison/claude-pty");
+        const cancelledDeploy = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(conversationId)
+          && cancelConversationDeployment(openConversation(conversationId, { role: "gateway" }));
+        if (!controller && !cancelledDeploy) return sendJson(response, 404, { error: "no advancing conversation", conversationId });
+        controller?.abort();
         logEvent("stdout", { kind: "conversation-cancel", conversationId });
         return sendJson(response, 202, { cancelled: true, conversationId });
       }
@@ -5449,6 +5470,8 @@ async function main() {
         if (ROUTING_ENABLED && (await initRouting())) {
           void touchSession(SESSION_LOG_RUN, "idle", { runtime: primaryRuntime() });
           readyResolve();
+          setTimeout(() => void resumeInterruptedConversations().catch((err) =>
+            logEvent("stderr", { kind: "conversation-recovery-error", error: err.message })), 2000).unref();
           return;
         }
         await spawnOperative({ resume: true }); // calls readyResolve internally

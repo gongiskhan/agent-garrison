@@ -215,6 +215,7 @@ function TextBlock({
 function ActivityDetails({
   active,
   forceOpen = false,
+  autoExpand = true,
   className,
   id,
   summary,
@@ -224,20 +225,21 @@ function ActivityDetails({
   /** Open regardless of live state and keep it open when live ends — a failed
    *  row's error IS its content; a collapsed failure reads as success. */
   forceOpen?: boolean;
+  autoExpand?: boolean;
   className: string;
   id?: string;
   summary: React.ReactNode;
   children: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(active || forceOpen);
+  const [open, setOpen] = useState((autoExpand && active) || forceOpen);
   const wasActive = useRef(active);
   const wasForced = useRef(forceOpen);
   useEffect(() => {
-    if (active !== wasActive.current) {
+    if (autoExpand && active !== wasActive.current) {
       setOpen(active || forceOpen);
       wasActive.current = active;
     }
-  }, [active, forceOpen]);
+  }, [active, forceOpen, autoExpand]);
   useEffect(() => {
     if (forceOpen && !wasForced.current) {
       setOpen(true);
@@ -393,7 +395,7 @@ function ToolBlock({
     <div className="cc-session-toolwrap">
       <ActivityDetails
         active={active}
-        forceOpen={failed}
+        autoExpand={false}
         className={`cc-session-tool fam-${family}${isCommand ? " cc-session-command" : ""}${failed ? " is-failed" : ""}`}
         id={toolAnchorId(block.toolUseId)}
         summary={

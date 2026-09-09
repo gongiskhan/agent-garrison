@@ -157,6 +157,24 @@ async function bootGateway() {
 }
 
 describe("Orchestrator routes a channel turn to the agent-sdk runtime (sdk-route-live-ok)", () => {
+  it("keeps a native stretch handoff verbatim even when a build workspace is configured", async () => {
+    const { gw, tmp, agentSdk } = await bootGateway();
+    try {
+      gw.buildWorkspace = tmp;
+      const pre = await gw.preRoute("quick: what is the capital of France?");
+      const reply = '```handoff\n{"summary":"Read the request","nextSteps":{"next":"implement"}}\n```';
+      agentSdk.response = { text: reply, toolUses: [], stoppedReason: null };
+      agentSdk.eventsToEmit = [{ id: "native-end", role: "system", blocks: [{ type: "turn_end", status: "complete" }] }];
+      const events: any[] = [];
+      const result = await gw.runAgentSdkTurn(pre.route, "Write src/lib/identity.js", null, {
+        stretchId: "st_native", sessionKey: "stretch:st_native", conversationId: "native", onEvent: (e: any) => events.push(e),
+      });
+      expect(result.reply).toBe(reply);
+      expect(agentSdk.turns).toHaveLength(1);
+      expect(existsSync(join(tmp, "src/lib/identity.js"))).toBe(false);
+      expect(events.some((e) => e.blocks?.some((b: any) => b.type === "turn_end"))).toBe(true);
+    } finally { await gw.shutdown(); rmSync(tmp, { recursive: true, force: true }); }
+  });
   it("trivial message → fast role → agent-sdk/ollama target; logged with runtime+provider+model; executed on the SDK adapter", async () => {
     const { gw, decisionsFile, agentSdk } = await bootGateway();
     try {

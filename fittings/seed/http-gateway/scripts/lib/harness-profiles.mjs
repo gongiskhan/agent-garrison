@@ -39,11 +39,13 @@ import { TOOL_PROFILES, toolsForProfile } from "../../../agent-sdk-runtime/lib/h
 // plus three reads costs $0.172 + 3 x $0.0086 = $0.198. Sharing saves ~$0.23;
 // the widest per-duty narrowing saves ~1,900 tokens a stretch, about $0.02.
 //
-// So every duty gets the same block: the union of what any duty has ever
-// actually invoked. The per-duty machinery below stays because tool search
+// Working duties keep that shared block. Triage is a bounded, read-only intake
+// exception: a live Haiku stretch edited code and killed its own service before
+// handing off. Reliability takes precedence over that small cache saving.
+// The per-duty machinery below stays because tool search
 // makes narrowing free again - the block collapses to the search tool plus
 // three or four hot tools and is identical everywhere by construction.
-export const DUTY_TOOL_PROFILES = {};
+export const DUTY_TOOL_PROFILES = { triage: "triage" };
 
 // The per-duty sets that WOULD apply if the prefix did not have to be
 // byte-stable. Kept as the measured record and as the shape to return to once
@@ -143,6 +145,14 @@ export function narrowToolProfileForDuty(duty) {
  */
 export function applyDutyHarnessProfile(route, duty, opts = {}) {
   if (!route?.target || route.target.runtime !== "agent-sdk") return route;
+  // The intake boundary is behavioral, not a cache optimization. A triage
+  // stretch once edited the app and killed its own gateway with Bash.
+  if (duty === "triage") {
+    route.target = { ...route.target, tools: toolsForProfile("triage"),
+      toolProfile: "triage", mcpTools: [...SHARED_MCP_TOOLS],
+      maxTurns: Math.min(Number(route.target.maxTurns) || 8, 8) };
+    return route;
+  }
   if (route.target.tools !== undefined) return route;
   // A lean target is already tool-free; narrowing it would be a no-op that
   // only makes the assembly harder to read.

@@ -689,10 +689,10 @@ x-garrison:
               standard: read the request and what is already known, write the opening summary, name
               the first working duty
             cell:
-              target: sdk-haiku
-              effort: medium
-        default: floor
-        ceiling: middle
+              target: cc-sonnet
+              effort: low
+        default: middle
+        ceiling: top
       - id: dialogue
         title: Dialogue
         description: >-
