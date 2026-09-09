@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { makeAdapterCallInvoker, resolveAgentSdkDir } from "./gateway-routing.mjs";
 
 let proxyPromise;
+let accountProxyPromise;
 export function cheapestAnthropicTarget(model) {
   const targets = model?.targets ?? [];
   const rungs = Object.values(model?.dutyLadder ?? {}).flatMap((ladder) => ladder?.rungs ?? []);
@@ -24,6 +25,10 @@ export async function callCardInference(router, { system, prompt, signal }, { fe
     base = (await proxyPromise).url;
   }
   if (!key || target.account) {
+    if (!proxyUrl) {
+      accountProxyPromise ??= startAnthropicLogProxy({ shape: { forceTool: "StructuredOutput" } }).catch((error) => { accountProxyPromise = null; throw error; });
+      base = (await accountProxyPromise).url;
+    }
     // Match the dispatcher's provider/account resolver, including its stored
     // login when this Anthropic target has no separate API key.
     const createAdapter = adapterFactory || (async () => {
@@ -45,7 +50,7 @@ export async function callCardInference(router, { system, prompt, signal }, { fe
         provider: "anthropic", model: target.model, effort: "low", thinking: { type: "disabled" },
         promptMode: "lean", leanPrompt: system, maxTurns: 1, tools: [], allowedTools: [], permissionMode: "bypassPermissions", persistSession: false,
         outputFormat: { type: "json_schema", schema: { type: "object", properties: {
-          title: { type: "string" }, description: { type: "string" }, messageIds: { type: "array", items: { type: "string" } }, confidence: { type: "number" },
+          title: { type: "string", maxLength: 70 }, description: { type: "string" }, messageIds: { type: "array", items: { type: "string" } }, confidence: { type: "number" },
         }, required: ["title", "description", "messageIds", "confidence"], additionalProperties: false } },
       }, { timeoutMs: 20_000 });
       const result = await invoke({ model: target.model, prompt, timeoutMs: 20_000 });

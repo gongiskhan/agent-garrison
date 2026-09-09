@@ -147,6 +147,17 @@ export function shapeAnthropicRequest(body, opts = {}) {
   let out = body;
   const clone = () => { if (out === body) out = { ...body }; return out; };
 
+  // A bounded structured inference must return its schema envelope on the
+  // first model turn, without a prose/tool acknowledgement round trip.
+  if (typeof opts.forceTool === "string") {
+    const tool = body.tools?.find((entry) => entry.name === opts.forceTool);
+    if (tool) {
+      clone().tools = [{ ...tool, defer_loading: false }];
+      clone().tool_choice = { type: "tool", name: opts.forceTool };
+      changes.forcedTool = { name: opts.forceTool };
+    }
+  }
+
   // ── 1. cache TTL on the system breakpoints ──────────────────────────────
   const ttl = opts.cacheTtl === "1h" || opts.cacheTtl === "5m" ? opts.cacheTtl : null;
   if (ttl && Array.isArray(body.system)) {
