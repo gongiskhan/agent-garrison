@@ -792,7 +792,7 @@
     {
       "id": "n-conversation-cards-20260909",
       "title": "Cards from web conversations (9 September 2026)",
-      "body": "The bounded conversation-card slice implements automatic cards for web work conversations and an editable Zeca card draft from a recent-message window. Work cards reuse the conversation, preserve the first message and follow runtime lifetime; Zeca cards use board-default start and schedule paths, with self-contained descriptions and source links. Sixteen local browser journeys pass, including crash, Retry, validation and phone layout. Final deployed inference and full-suite acceptance are tracked in docs/validation/2026-09-09-cards-from-conversations.md. This does not close the broader c1 brief workflow or add native, mesh or improver behavior."
+      "body": "The bounded conversation-card slice is accepted on the Pro: automatic cards for web work conversations and an editable Zeca card draft from a recent-message window. Work cards reuse the conversation, preserve the first message and follow runtime lifetime; Zeca cards use board-default start and schedule paths, with self-contained descriptions and source links. All eleven requested journeys and sixteen browser cases pass, including crash, Retry, validation and phone layout. The full suite passed 8,356 tests; focused provider/runtime checks and TypeScript passed afterward. Deployed HTTPS creation at 390px and real configured inference at 10 and 20 messages passed on ca9c06bb. Evidence: docs/validation/2026-09-09-cards-from-conversations.md. This does not close the broader c1 brief workflow or add native, mesh or improver behavior."
     },
     {
       "id": "n-agent-continuity-conversations-20260906",
