@@ -1259,7 +1259,8 @@
 .cc-mic,
 .wcv-convo,
 .wcv-mic,
-.wc-rec-btn {
+.wc-rec-btn,
+.wc-usage-icon summary {
   min-height: 46px;
   border-radius: 2px;
   background: #f8f4eb;
@@ -2630,7 +2631,7 @@
 .talk-host .cc-input { border-radius: 8px; padding: 9px 12px; min-height: 42px; }
 .talk-host .cc-composerrow { gap: 5px; }
 .talk-host .cc-composertools { gap: 5px; }
-.talk-host .cc-composertools :is(.cc-send, .cc-stop, .wcv-mic, .wc-rec-btn) { min-height: 36px; }
+.talk-host .cc-composertools :is(.cc-send, .cc-stop, .wcv-mic, .wc-rec-btn, .wc-usage-icon summary) { min-height: 36px; }
 .talk-host .cc-composertools :is(.cc-send, .cc-stop) { min-height: 44px; }
 .talk-host .cc-input:focus { outline: 2px solid #6f8f6a; outline-offset: 1px; }
 .talk-host .cc-send { background: #3d6249; border-color: #3d6249; border-radius: 6px; }
@@ -2700,7 +2701,7 @@
 .wc-conversation-stop:disabled { opacity: .65; cursor: wait; }
 .wc-conversation-error { max-width: 260px; font: 12px/1.4 var(--wc-sans, sans-serif); color: #9b362d; }
 @media (max-width: 600px), (any-pointer: coarse) {
-  .talk-host .cc-composertools :is(.cc-send, .cc-stop, .wcv-mic, .wc-rec-btn) { min-height: 44px; }
+  .talk-host .cc-composertools :is(.cc-send, .cc-stop, .wcv-mic, .wc-rec-btn, .wc-usage-icon summary) { min-height: 44px; }
 }
 
 .wc-thread-spinner {
@@ -2748,4 +2749,10 @@
 .wc-usage-close { float: right; margin: -5px -4px 4px 8px; min-height: 44px; padding: 5px 10px; border: 1px solid #81878277; border-radius: 4px; color: inherit; background: transparent; font: inherit; cursor: pointer; }
 
 .wc-usage-icon { flex-shrink: 0; }
-.wc-usage-icon summary { min-height: auto; min-width: auto; padding: 6px 8px; font-size: 16px; line-height: 1; border: none; background: transparent; }
+.wc-usage-icon summary {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 42px; min-width: 44px; padding: 0 10px;
+  background: #fff; color: var(--cc-fg-dim);
+  border: 1px solid var(--cc-border); border-radius: 2px;
+}
+.wc-usage-icon summary:hover { color: var(--cc-fg); border-color: var(--cc-fg); }

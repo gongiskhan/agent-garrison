@@ -277,6 +277,7 @@ const STRETCH_PHASES = new Set(["started", "ended"]);
 // the contract, and the parity test keeps the two lists in step.
 const SESSION_LEDGER_KINDS = new Set([
   "handoff",
+  "finding",
   "delegation-dispatched",
   "delegation-returned",
   "delegation-failed",
@@ -851,8 +852,12 @@ export function sanitizeSessionBlock(raw) {
     const title = capSessionText(raw.title);
     if (title === null || !title.trim()) return null;
     const out = { type, kind, title };
-    if (Object.hasOwn(raw, "detail") && raw.detail !== null) {
-      if (!copyOptionalText(out, raw, "detail")) return null;
+    for (const key of ["detail", "summary"]) {
+      if (Object.hasOwn(raw, key) && raw[key] !== null && !copyOptionalText(out, raw, key)) return null;
+    }
+    if (Object.hasOwn(raw, "detailFormat")) {
+      if (raw.detailFormat !== "markdown") return null;
+      out.detailFormat = raw.detailFormat;
     }
     // An approval ask names the duty it wants to run next; opaque label, same
     // reasoning as the stretch-row labels above.

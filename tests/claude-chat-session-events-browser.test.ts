@@ -499,6 +499,40 @@ describe("claude-chat canonical timeline in a real browser", () => {
     expect(await interim.evaluate((node: HTMLDetailsElement) => node.open)).toBe(false);
   });
 
+  it("keeps stretch progress chronological and preserves disclosure choices at settlement", async () => {
+    const events = [
+      { id: "follow-start", turnId: "s-follow", role: "assistant", ts: 1, order: 1, revision: 0,
+        blocks: [{ type: "stretch", phase: "started", stretchId: "s-follow", duty: "triage", attribution: { model: "sonnet", effort: "low" } }] },
+      { id: "follow-thought", turnId: "s-follow", role: "assistant", ts: 2, order: 2, revision: 0,
+        blocks: [{ type: "thinking", text: "A readable progress summary." }] },
+      { id: "follow-tool", turnId: "s-follow", role: "assistant", ts: 3, order: 3, revision: 0,
+        blocks: [{ type: "tool_use", toolUseId: "follow-read", name: "Read", input: { file_path: "/tmp/layout.tsx" } }] },
+      { id: "follow-summary", turnId: "s-follow", role: "assistant", ts: 4, order: 4, revision: 0,
+        blocks: [{ type: "ledger", kind: "handoff", title: "Handoff #1", next: "implement", summary: "**Layout located.** <img src=x onerror=alert(1)>", detail: "### Next steps\n- Update the spacing", detailFormat: "markdown" }] },
+    ];
+    await page.evaluate((events) => (window as any).__mountStream(events, false), events);
+    const tool = page.locator("details.cc-session-tool");
+    const ledger = page.locator("details.cc-ledger");
+    expect(await tool.evaluate((n: HTMLDetailsElement) => n.open)).toBe(false);
+    expect(await ledger.evaluate((n: HTMLDetailsElement) => n.open)).toBe(true);
+    expect(await ledger.locator("strong").innerText()).toBe("Layout located.");
+    expect(await ledger.locator("img").count()).toBe(0);
+    await tool.locator(":scope > summary").click();
+    await ledger.locator(":scope > summary").click();
+    await page.evaluate(() => (window as any).__emitSession({ type: "end" }));
+    expect(await tool.evaluate((n: HTMLDetailsElement) => n.open)).toBe(true);
+    expect(await ledger.evaluate((n: HTMLDetailsElement) => n.open)).toBe(false);
+    expect(await page.locator(".cc-session-interim").count()).toBe(0);
+    expect(await page.locator(".cc-session-thinking-text").isVisible()).toBe(true);
+    const order = await page.locator(".cc-session-turn.assistant").evaluate((n) => n.textContent ?? "");
+    expect(order.indexOf("Triage")).toBeLessThan(order.indexOf("A readable progress summary"));
+    expect(order.indexOf("A readable progress summary")).toBeLessThan(order.indexOf("Layout located"));
+    await ledger.locator(":scope > summary").click();
+    await ledger.locator(".cc-ledger-context > summary").click();
+    expect(await ledger.getByText("Update the spacing").isVisible()).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+  });
+
   it("keeps typed settlement notices chronological, wrapped, and non-assertive at 320px", async () => {
     const reset = 1_787_000_000;
     await mount([{

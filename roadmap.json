@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-09-09T03:49:22.361Z",
+  "updatedAt": "2026-09-09T05:27:49.375Z",
   "categories": [
     {
       "id": "c1",
@@ -160,7 +160,7 @@
           "text": "The conversation component is one component. Badges (model, effort, provider, account, node), click-through to handoffs, findings and files in formatted modals, no raw JSON at the first level, shared by the card modal and the web channel. Audit against plan v2 and list what is missing rather than assume.",
           "done": false,
           "sentToKanban": null,
-          "noteRef": null
+          "noteRef": "n-c2.7"
         },
         {
           "id": "c2.8",
@@ -936,6 +936,11 @@
       "id": "n-open",
       "title": "Open questions to settle as work reaches them",
       "body": "- c1.2: where does intent classification live today (tier classifier, orchestrator matrix, duty-discuss itself), and which of them should own it so the autonomy track has one home?\n- c1.6: when does the background memory pass run for a conversation that never formally ends (idle timeout, or at each stretch exit)?\n- c1.9: brief destination rules: Documents fitting versus the project's docs folder; a project brief probably belongs with the project (agents read it there) and personal or product notes belong in Documents.\n- c3.4: does the attention read model live in the Next app (src) or on its own port; the Command Center is the home page, so src, unless a producer needs it running without the app.\n- c3.13: how a card is \"queued for the loop\": a flag on the card, or the order of the To do list within a project; the flag is explicit and survives reordering.\n- c3.14: which mailbox first, Ekoa or personal; Ekoa has less noise and more client-relevant deadlines.\n- c7.6: which redaction rules on Mac screenshots are enforceable before a frame is stored (window title allowlist is the cheap first rule).\n- c8.1: Signals versus Adjutant; decide when the audit in c8.2 is written.\n- c10.5: memory in Cortex or in the vault; decide after c1.14 passes."
+    },
+    {
+      "id": "n-c2.7",
+      "title": "Readable conversation progress",
+      "body": "9 September 2026 follow-along UI: existing handoff summaries and durable findings now render as readable Markdown in the shared Conversations/Kanban timeline. Next steps, evidence, constraints and failed approaches remain expandable; source records are unchanged. Conversation stretches remain chronological through settlement, preserve manual disclosures, keep tools collapsed, and expose current duty/model/time above the scroller. Readable provider thinking remains visible; empty provider markers are not reconstructed. Focused validation and rollout limits are recorded in docs/validation/2026-09-09-conversation-follow-along.md. Physical-phone acceptance remains open."
     }
   ]
 }

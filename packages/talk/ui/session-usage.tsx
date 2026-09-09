@@ -42,7 +42,7 @@ export function SessionUsage({base, runtime, node, disconnected = false, iconOnl
     return () => {document.removeEventListener("keydown",close);document.removeEventListener("pointerdown",close);};
   },[open]);
   return <details className={`wc-usage${iconOnly ? " wc-usage-icon" : ""}`} ref={box} onToggle={e=>setOpen(e.currentTarget.open)}>
-    <summary aria-label="Account usage">{iconOnly ? "📊" : "Usage"}</summary>
+    <summary aria-label="Account usage" title="Account usage">{iconOnly ? <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="8" width="3" height="6.5" rx="0.5" fill="none" stroke="currentColor" strokeWidth="1.3" /><rect x="6.5" y="4.5" width="3" height="10" rx="0.5" fill="none" stroke="currentColor" strokeWidth="1.3" /><rect x="11.5" y="1.5" width="3" height="13" rx="0.5" fill="none" stroke="currentColor" strokeWidth="1.3" /></svg> : "Usage"}</summary>
     {open && <div className="wc-usage-panel" role="region" aria-label="Account usage">
       <button type="button" className="wc-usage-close" aria-label="Close account usage" onClick={()=>{if(box.current) box.current.open=false; setOpen(false);}}>Close</button>
       <strong>Account usage</strong><span className="wc-usage-scope">{node} · shared across sessions</span>

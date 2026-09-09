@@ -1046,6 +1046,11 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-stretch-started { border-top-color: color-mix(in srgb, var(--cc-accent) 45%, transparent); }
 .cc-stretch-ended { border-top-style: dashed; }
 .cc-stretch-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }
+.cc-stretch-duty { font-size: 14px; color: var(--cc-fg); }
+.cc-stretch-details { color: var(--cc-fg-faint); font-size: 11px; line-height: 1.5; }
+.cc-stretch-details > summary { cursor: pointer; width: fit-content; padding: 3px 0; }
+.cc-stretch-details .cc-stretch-id { max-width: 100%; overflow-wrap: anywhere; white-space: normal; }
+.cc-stretch-details p { margin: 4px 0; }
 .cc-stretch-kicker {
   flex: 0 0 auto; color: var(--cc-fg-dim); font-size: 10px; font-weight: 700;
   letter-spacing: .07em; text-transform: uppercase;
@@ -1096,6 +1101,20 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   list-style: none; cursor: pointer;
 }
 .cc-ledger > summary::-webkit-details-marker { display: none; }
+.cc-ledger > summary::before { content: "›"; flex: 0 0 10px; color: var(--cc-fg-dim); }
+.cc-ledger[open] > summary::before { content: "⌄"; }
+.cc-ledger-readable {
+  margin: 9px 0; padding: 10px 12px;
+  border-left-color: var(--cc-accent);
+  background: color-mix(in srgb, var(--cc-accent) 6%, transparent);
+}
+.cc-ledger-readable .cc-ledger-label { color: var(--cc-accent); font-size: 10px; font-weight: 600; }
+.cc-ledger-readable .cc-ledger-body { padding: 7px 0 0; gap: 8px; }
+.cc-ledger-readable .cc-session-md { font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.cc-ledger-readable .cc-session-md > :first-child { margin-top: 0; }
+.cc-ledger-readable .cc-session-md > :last-child { margin-bottom: 0; }
+.cc-ledger-context > summary { cursor: pointer; color: var(--cc-fg-dim); padding: 5px 0; font-size: 12px; }
+.cc-ledger-context .cc-session-md { padding-top: 6px; }
 .cc-ledger-label {
   flex: 0 0 auto; color: var(--cc-fg-faint); font-size: 9px; letter-spacing: .08em; text-transform: uppercase;
 }
@@ -2210,8 +2229,8 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 
 /* ── Conversation activity: working strip, terminal banners, jump pill ──────
    The stream derives what the conversation is doing (journal.ts
-   conversationActivity) and says it at the tail, where the next content will
-   appear. The banners are deliberately the loudest thing in the transcript:
+   conversationActivity). Current work stays above the scroller; terminal
+   banners stay at the tail. The banners stand out in the transcript:
    a parked conversation asking for input is the one state the reader must
    never scroll past. */
 
@@ -2222,8 +2241,10 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   background: color-mix(in srgb, var(--cc-accent) 8%, transparent);
 }
 .cc-conv-working .cc-working-dots i { background: var(--cc-accent); }
+.cc-session > .cc-conv-working { flex-shrink: 0; flex-wrap: wrap; margin: 0 12px 6px; padding: 6px 10px; }
 .cc-conv-working-label { font-size: 12.5px; font-weight: 600; color: var(--cc-fg); }
 .cc-conv-working-model {
+  max-width: 100%; overflow-wrap: anywhere;
   padding: 1px 7px; border: 1px solid var(--cc-border-strong); border-radius: 999px;
   color: var(--cc-fg); font: 10.5px/1.5 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 }

@@ -657,6 +657,25 @@ describe("conversation router - search", () => {
 });
 
 describe("ledger -> SessionEvent adapter", () => {
+  it("restores readable findings and handoff context from existing ledger records", () => {
+    const records = [
+      { index: 1, kind: "finding", stretch: "s1", payload: { kind: "decision", claim: "Keep the existing input flow.", pointers: ["/tmp/plan.md"] } },
+      { index: 2, kind: "handoff", stretch: "s1", payload: {
+        ordinal: 1, status: "partial", summary: "Located the problem.\n\n**No changes yet.**",
+        nextSteps: { next: "implement", why: "The target is confirmed.", items: ["Update the layout", "Check mobile"] },
+        evidenceRefs: [{ ref: "/tmp/proof.md", note: "Reproduction" }],
+        failedApproaches: [{ approach: "Old path", why: "Does not exist" }],
+        blocker: { what: "Waiting on fixture", needs: "Sample input", who: "Owner" },
+      } },
+    ];
+    const events = ledgerToSessionEvents(records, { conversationId: "readable" }).map(sanitizeSessionEvent);
+    expect(events[0]?.blocks[0]).toMatchObject({ kind: "finding", title: "Decision saved", summary: "Keep the existing input flow.", detailFormat: "markdown" });
+    const handoff = events[1]!.blocks[0];
+    expect(handoff).toMatchObject({ kind: "handoff", next: "implement", summary: "Located the problem.\n\n**No changes yet.**", detailFormat: "markdown" });
+    for (const text of ["Update the layout", "Check mobile", "/tmp/proof.md", "Does not exist", "Sample input"]) expect(handoff.detail).toContain(text);
+    expect(handoff.detail).not.toContain('"nextSteps"');
+  });
+
   it("round-trips through the web channel sanitizer with nothing dropped", () => {
     seed("c-adapt");
     const store = openConversation("c-adapt", { role: "reader", env });
