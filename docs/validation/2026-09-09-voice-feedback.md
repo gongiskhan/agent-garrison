@@ -58,3 +58,37 @@ Full deployment is coordinated with the concurrent session-card task, whose
 owner has temporarily frozen production builds until its app/gateway changes
 reach a verified checkpoint. No peer work was stashed, discarded or deployed
 while incomplete.
+
+## Full deployment and final live verification
+
+The session-card owner committed and froze checkpoint `7cffb647`, containing
+voice repair `feffa422`. The combined Pro branch was pushed and fully redeployed.
+The final composition started at 17:28:36 UTC: all 43 startup checks passed,
+17/17 fitting views were healthy, and the node reported no degradation. Capture
+PID53976 had STT/TTS, wake and pendant enabled, with one reconnected, speakable
+phone session and no Zeca routing error.
+
+Chromium loaded the actual production Conversations chunk
+`75.f1cae4748f284f87.js` from the Pro HTTPS origin. Its served bytes contain the
+new `replyKey`, `playbackId` and completion registration. A silent page request
+to `/api/voice/spoken` returned HTTP200 with `speak:false` because native playback
+owned the sink. This verifies the deployed client and proxy, without injecting
+the earlier test module. Final browser and node evidence lives on the Pro:
+`/tmp/garrison-voice-browser-final.log`, `/tmp/garrison-voice-final-health.json`
+and `output/playwright/zeca-voice/deployed-talk.png`.
+
+The temporary `launchctl submit` supervisor unexpectedly repeated after its
+first successful exit (`OnDemand=false`). Re-entry was blocked, the second
+already-running deployment completed, and the temporary job was removed. Its
+wrapper recorded exit127 from rereading the edited running script after the
+successful deployment; both deployment completion records and the independent
+live health checks above establish the actual outcome. No build or deployment
+process remains. Future one-shot supervisors should use an explicit launchd
+plist with `RunAtLoad=true` and `KeepAlive=false`, not `launchctl submit` defaults.
+The peer's production-input freeze was released immediately afterward.
+
+Physical-phone acoustic acceptance remains open: the connected phone confirmed
+the earlier Portuguese clip, but no fresh microphone packets arrived during
+that measurement. Reopen the app to load the client change, then verify a real
+Portuguese wake/request does not produce a self-trigger, English cue or repeated
+translation. No native binary or other mesh node was deployed for this repair.
