@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-09-09T19:34:24.306Z",
+  "updatedAt": "2026-09-09T19:40:27.081Z",
   "categories": [
     {
       "id": "c1",
@@ -963,6 +963,11 @@
       "id": "n-voice-feedback-20260909",
       "title": "Voice echo and duplicate reply repair (9 September 2026)",
       "body": "Fixed native playback echo expiry and short fragments, retry speech duplication, competing native/page reply playback, and unrelated assistant notifications changing the wake language. User speech controls Portuguese/English selection; spoken replies use one language unless translation is requested. Regression and rollout evidence: docs/validation/2026-09-09-voice-feedback.md. Physical-phone acoustic acceptance remains open; this does not close c1.11."
+    },
+    {
+      "id": "n-zeca-resourcefulness-20260909",
+      "title": "Zeca tries practical answer paths (9 September 2026)",
+      "body": "Public web search and fetch are restored to the shared working-tool profile; capability guidance distinguishes installed providers from native tools. Zeca should seek current sources, try a suitable fallback, ask only for essential missing details, and give supported partial answers without fabricating access or facts. Responder follows the latest question without unrelated old work updates. 157 focused tests pass; deployment and live model acceptance are pending. Evidence: docs/validation/2026-09-09-zeca-resourcefulness.md. This improves c1.5 without closing its broader research and reading scope."
     }
   ]
 }

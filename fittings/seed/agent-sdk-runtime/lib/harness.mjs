@@ -98,11 +98,10 @@ export function buildHarness(promptMode = "full", opts = {}) {
 // measurement, not a guess; `bench/prefix-2026-08-29/tool-usage.json` is the
 // evidence and re-running it is how you revise them.
 export const TOOL_PROFILES = {
-  // THE ONE EVERY STRETCH CARRIES. The union of the tools any duty was ever
-  // measured invoking, so no duty is starved, and identical for every duty so
-  // the cache prefix stays byte-stable across stretches - see the note in the
-  // gateway's harness-profiles.mjs for why sharing beats narrowing by 10x.
-  shared: ["Bash", "Read", "Write", "Edit", "Agent", "TaskOutput", "AskUserQuestion"],
+  // Shared by working duties for a stable cache prefix. Include public web
+  // lookup even when historic coding runs did not use it: ordinary questions
+  // need current information without requiring a dedicated connector.
+  shared: ["Bash", "Read", "Write", "Edit", "Agent", "TaskOutput", "AskUserQuestion", "WebSearch", "WebFetch"],
   // Intake reads just enough to choose the work. Its handoff is returned as
   // structured text, so it needs neither filesystem writes nor a shell.
   triage: ["Read", "Glob", "Grep"],

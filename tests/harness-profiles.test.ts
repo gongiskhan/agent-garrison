@@ -24,9 +24,9 @@ describe("duty harness profiles", () => {
     }
   });
 
-  it("replaces the preset inventory with the shared measured tool set", () => {
+  it("replaces the preset inventory with shared tools including public web lookup", () => {
     const route = applyDutyHarnessProfile(agentSdkRoute(), "implement");
-    expect(route.target.tools).toEqual(["Bash", "Read", "Write", "Edit", "Agent", "TaskOutput", "AskUserQuestion"]);
+    expect(route.target.tools).toEqual(["Bash", "Read", "Write", "Edit", "Agent", "TaskOutput", "AskUserQuestion", "WebSearch", "WebFetch"]);
     expect(route.target.toolProfile).toBe("shared");
   });
 
@@ -34,7 +34,7 @@ describe("duty harness profiles", () => {
   // varies by duty forks the prefix, and no stretch can then read another
   // stretch's cached boot. Sharing is worth ~10x what narrowing is.
   it("gives working duties a byte-identical tools block", () => {
-    const duties = ["implement", "test", "review", "adversarial-review", "plan", "research", "unmapped"];
+    const duties = ["implement", "test", "review", "adversarial-review", "plan", "research", "discuss", "dialogue", "responder", "unmapped"];
     const blocks = duties.map((d) => JSON.stringify(applyDutyHarnessProfile(agentSdkRoute(), d).target.tools));
     expect(new Set(blocks).size).toBe(1);
   });
@@ -44,6 +44,11 @@ describe("duty harness profiles", () => {
     expect(route.target.tools).toEqual(["Read", "Glob", "Grep"]);
     expect(route.target.maxTurns).toBe(8);
     expect(route.target.mcpTools).toEqual(SHARED_MCP_TOOLS);
+  });
+
+  it.each(["responder", "dialogue", "discuss", "research"])("lets %s look up changing facts without a connector", (duty) => {
+    const route = applyDutyHarnessProfile(agentSdkRoute(), duty);
+    expect(route.target.tools).toEqual(expect.arrayContaining(["WebSearch", "WebFetch"]));
   });
 
   it("gives EVERY duty a byte-identical MCP tool set, for the same reason", () => {

@@ -105,8 +105,9 @@ export function renderCapabilities(
   if (detail === "names") {
     return [
       "The authoritative inventory of what is installed in this composition, by",
-      "`kind:name`. If a capability is not listed here it is not installed - say so",
-      "rather than fabricating it.",
+      "`kind:name`. Do not invent an unlisted installed provider. This catalogue",
+      "does not enumerate native runtime tools: use the tools actually available",
+      "in this turn, including web search/fetch, before declaring you cannot help.",
       "",
       "Only the names are carried. For what a capability does and how to call it,",
       "read `mcp__garrison__garrison_capability_doc` with the `kind:name` below.",
@@ -118,8 +119,9 @@ export function renderCapabilities(
   const preamble = detail === "index"
     ? [
         "Treat this list as the authoritative inventory of what is installed in this",
-        "composition. If a capability is not listed here it is not installed - say so",
-        "rather than fabricating it.",
+        "composition. Do not invent an unlisted installed provider. This catalogue",
+        "does not enumerate native runtime tools: use the tools actually available",
+        "in this turn, including web search/fetch, before declaring you cannot help.",
         "",
         "Only the one-line summaries are carried here. A line marked [usage guidance",
         "available] has a fuller provider-authored note; read it with the",
@@ -129,9 +131,10 @@ export function renderCapabilities(
       ]
     : [
         "Treat this list as the authoritative inventory of what is installed in this",
-        "composition. Each provider's usage guidance is indented under its line. If a",
-        "capability is not listed here it is not installed - say so rather than",
-        "fabricating it.",
+        "composition. Each provider's usage guidance is indented under its line.",
+        "Do not invent an unlisted installed provider. This catalogue does not",
+        "enumerate native runtime tools: use the tools actually available in this",
+        "turn, including web search/fetch, before declaring you cannot help.",
       ];
   return [...preamble, "", block].join("\n");
 }

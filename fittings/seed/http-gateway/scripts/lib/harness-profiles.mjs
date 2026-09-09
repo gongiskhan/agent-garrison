@@ -76,9 +76,8 @@ export const NARROW_DUTY_TOOL_PROFILES = {
   responder: "read-ask",
 };
 
-// The one block every agent-sdk stretch carries: the union of the nine tools
-// any duty was ever measured invoking, minus ToolSearch (a deferral mechanism,
-// absent when the inventory is explicit) and minus the unnamed one.
+// Working stretches share the measured tools plus public web search/fetch.
+// A missing domain connector must not starve ordinary information requests.
 export const SHARED_PROFILE = "shared";
 
 export const DEFAULT_PROFILE = SHARED_PROFILE;
