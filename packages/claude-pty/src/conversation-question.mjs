@@ -17,20 +17,21 @@ export function pendingConversationQuestion(store) {
   if (!last || last.kind === "user-message" || last.kind === "stretch-started") return null;
   if (last.kind === "approval-requested") return null; // Existing plan approval has its own controls.
   const handoff = [...records].reverse().find((record) => record.kind === "handoff");
-  if (!handoff || handoff.payload?.nextSteps?.next !== "needs-input") return null;
+  if (!handoff) return null;
+  const payload = handoff.payload?.spilled ? store.readPayload(handoff.payload.spilled) : handoff.payload;
+  if (payload?.nextSteps?.next !== "needs-input") return null;
   if (records.some((record) => record.index > handoff.index && ["user-message", "stretch-started", "approval-requested"].includes(record.kind))) return null;
-  const payload = handoff.payload;
   let question = payload.question;
   if (!validConversationQuestion(question)) {
     const needs = payload.blocker?.needs;
     const what = payload.blocker?.what;
-    const text = [what, needs, payload.nextSteps?.why, ...(payload.nextSteps?.items || [])].filter((value) => typeof value === "string").join("\n");
+    const text = [what, needs, payload.nextSteps?.why, ...(Array.isArray(payload.nextSteps?.items) ? payload.nextSteps.items : [])].filter((value) => typeof value === "string").join("\n");
     const options = /\bvault\b/i.test(text) && /\b(keys?|credentials?|tokens?|secrets?)\b/i.test(text)
       ? [{ label: "I have added the keys to the vault" }] : [];
     question = { question: String(needs || what || payload.nextSteps?.why || "What would you like to do next?").slice(0, 1000), options };
   }
   return {
-    id: `handoff-${handoff.seq}`,
+    id: `handoff-${handoff.index}`,
     question: question.question.trim(),
     options: question.options.map(({ label, description }) => ({ label: label.trim(), ...(description ? { description } : {}) })),
   };

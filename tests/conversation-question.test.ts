@@ -87,6 +87,23 @@ describe("conversation questions", () => {
     expect(recordUserMessage(reopened, { ...request, clientRequestId: "different-browser" }).conflict).toBe(true);
     expect(reopened.tail(100, { kinds: ["user-message"] })).toHaveLength(1);
   });
+  it("uses the stable ledger index when a restarted writer repeats its sequence", () => {
+    park();
+    const first = pendingConversationQuestion(store);
+    const firstRecord = store.tail(1, { kinds: ["handoff"] })[0];
+    store = openConversation("question-test", { role: "gateway", env: { GARRISON_HOME: tmp } });
+    store.append({ kind: "note", payload: { text: "restart" } });
+    park();
+    const secondRecord = store.tail(1, { kinds: ["handoff"] })[0];
+    expect(secondRecord.seq).toBe(firstRecord.seq);
+    expect(pendingConversationQuestion(store).id).not.toBe(first.id);
+    expect(recordUserMessage(store, { text: "Merge it in", questionId: first.id }).conflict).toBe(true);
+  });
+  it("reads questions from spilled handoffs", () => {
+    park(mergeQuestion, { activeConstraints: ["x".repeat(70000)] });
+    expect(store.tail(1, { kinds: ["handoff"] })[0].payload.spilled).toBeTruthy();
+    expect(pendingConversationQuestion(store).question).toBe(mergeQuestion.question);
+  });
   it("rejects a stale question after a normal composer reply", () => {
     park();
     const questionId = pendingConversationQuestion(store).id;
