@@ -5394,4 +5394,11 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   border: 1px solid var(--cc-border); border-radius: 2px;
 }
 .wc-usage-icon summary:hover { color: var(--cc-fg); border-color: var(--cc-fg); }
+/* Card links stay in the conversation's compact header. */
+.wc-board-chip { color: inherit; font-size: 12px; padding: 6px 10px; border: 1px solid var(--wc-border, #444); border-radius: 999px; text-decoration: none; white-space: nowrap; }
+.wc-card-overflow { display: none; position: relative; }
+.wc-card-overflow summary { cursor: pointer; padding: 8px; list-style: none; }
+.wc-card-overflow a, .wc-card-overflow button { display: block; white-space: nowrap; padding: 12px; color: inherit; }
+.wc-card-overflow[open] > a, .wc-card-overflow[open] > button { position: absolute; z-index: 30; right: 0; background: var(--wc-panel, #222); border: 1px solid var(--wc-border, #444); border-radius: 8px; }
+@media (max-width: 767px) { .wc-board-chip { display: none; } .wc-card-overflow { display: block; } }
 

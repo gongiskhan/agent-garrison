@@ -439,6 +439,8 @@ export function cardSummary(card) {
     status: card.status ?? "ok",
     duty: card.duty ?? null,
     conversationId: card.conversationId ?? null,
+    machineId: card.machineId ?? null,
+    titleLocked: card.titleLocked === true,
     iterations: card.iterations ?? 0,
     goalMode: Boolean(card.goalMode),
     rev: card.rev ?? 0,
@@ -1894,6 +1896,10 @@ async function handleCreateCard(req, res, opts) {
     ? body.conversationId
     : null;
   const engineRunningCreate = targetListId === "running" && isEngineRequest(req);
+  if (conversationId) {
+    const existing = await loadCard(opts.root, conversationId).catch(() => null);
+    if (existing) return jsonRes(res, 200, { card: cardSummary(existing) });
+  }
   if (targetListId === "running" && !isEngineRequest(req)) {
     return jsonRes(res, 400, { error: "only the launcher can create a card directly in Running" });
   }
@@ -1968,6 +1974,7 @@ async function handleCreateCard(req, res, opts) {
     id: conversationId,
     conversationId,
     title,
+    machineId: body.machineId,
     description,
     project: suppliedProject || explicitWorkspace,
     scope: requestedScope,
@@ -2000,7 +2007,7 @@ async function handleCreateCard(req, res, opts) {
             ? body.classification.tier
             : null,
     routing: body.routing ?? null,
-    origin: typeof body.origin === "string" ? body.origin : null,
+    origin: body.origin ?? null,
     // Where the task came from ({channel, threadId}) — createCard validates the
     // shape; the engine posts the card's outcome back to that thread.
     originChannel: body.originChannel && typeof body.originChannel === "object" ? body.originChannel : null,
@@ -2121,7 +2128,11 @@ async function handleCreateCard(req, res, opts) {
   }
   // S3a (D8): emit the `created` lifecycle event to the card's origin (ensures the
   // origin record + appends to its event log; web origins also get a thread ack).
-  routeOriginEvent(opts.root, null, card, { kind: "created", message: createdMessage(card) });
+  if (card.origin?.type === "workSession") {
+    appendConversationEvent(card, { kind: "card.created_for_session", payload: {
+      cardId: card.id, conversationId, machineId: card.machineId, titleProvisional: body.titleProvisional === true,
+    } });
+  } else routeOriginEvent(opts.root, null, card, { kind: "created", message: createdMessage(card) });
   // §7.1: first sight of a held card is where the question gets asked. It rides
   // `needs-input`, which already appends to the durable origin log for EVERY
   // transport and posts into the originating thread for the channel ones - the
@@ -2180,7 +2191,7 @@ async function handleCreateCard(req, res, opts) {
   }
   // Visible project inference for a no-project card — fire-and-forget so create returns
   // at once; the events land on the card and surface on the next board poll.
-  if (cardScope(card) === "unscoped") {
+  if (cardScope(card) === "unscoped" && card.origin?.type !== "workSession") {
     void runProjectInference(opts, card.id).catch((err) => console.error(`[kanban-loop] inference failed for ${card.id}:`, err?.message || err));
   }
   jsonRes(res, 201, { card: cardSummary(card) });
@@ -2736,7 +2747,7 @@ async function handlePatchCard(req, res, opts, id) {
   const RESCUE_MOVE_KEYS = new Set(["rev", "list", "position"]);
   const rescueMove = card.list === "running" && typeof body.list === "string" && body.list !== "running" &&
     Object.keys(body).every((k) => RESCUE_MOVE_KEYS.has(k));
-  if (isEngineOwned(board, card) && !isEngineRequest(req) && !benignPatch && !rescueMove) {
+  if (isEngineOwned(board, card) && card.origin?.type !== "workSession" && !isEngineRequest(req) && !benignPatch && !rescueMove) {
     return jsonRes(res, 403, {
       error: "engine-owned",
       message: `Card is running — the launcher owns it while its conversation is in flight (D16). Move it off Running to rescue it, or wait for the stretch to finish.`
@@ -2754,7 +2765,7 @@ async function handlePatchCard(req, res, opts, id) {
     // Conversations: you cannot start a stretch by dragging. Running is entered
     // only through the launcher (Start → /conversation/kick, the schedule sweep,
     // or the materialization door) — same refusal as the CREATE door.
-    if (body.list === "running" && !isEngineRequest(req)) {
+    if (body.list === "running" && card.origin?.type !== "workSession" && !isEngineRequest(req)) {
       return jsonRes(res, 400, {
         error: "list-locked",
         message: "Cards cannot be moved into Running — Start the card instead."
@@ -2824,8 +2835,12 @@ async function handlePatchCard(req, res, opts, id) {
   // it from what the user said next ("no, make that Wednesday"). The
   // engine-owned guard above still applies, so a running card is not rewritten
   // underneath its own run.
-  if (typeof body.title === "string" && body.title.trim()) next.title = body.title.trim();
-  if (typeof body.description === "string") next.description = body.description;
+  if (typeof body.title === "string" && body.title.trim()) {
+    const titleSync = isEngineRequest(req) && body.titleSync === true;
+    if (!(titleSync && card.titleLocked)) next.title = body.title.trim();
+    if (!titleSync && card.origin?.type === "workSession") next.titleLocked = true;
+  }
+  if (typeof body.description === "string" && card.origin?.type !== "workSession") next.description = body.description;
   const patchesProject = typeof body.project === "string";
   const patchesScope = body.scope !== undefined;
   if (patchesProject || patchesScope) {

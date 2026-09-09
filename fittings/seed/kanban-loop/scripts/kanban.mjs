@@ -618,6 +618,7 @@ async function tick() {
   let kicked = 0;
   for (const card of cards) {
     if (card.autonomyHeld === true || card.waitingOn) continue;
+    if (card.origin?.type === "workSession") continue;
     // A live dispatch claim means a worker on another machine is driving this
     // card — kicking the LOCAL gateway would double-drive it. Claim expiry is
     // swept above (sweepExpiredDispatchClaims), so a dead worker's card

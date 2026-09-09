@@ -195,7 +195,9 @@ export interface CardSummary {
   /** RUN-SPEC-V1: what the user explicitly chose for this run. Absent/null on a
    *  fully-automatic card, which is every card by default. */
   routing?: CardRouting | null;
-  origin?: string | null;
+  origin?: string | { type: "workSession" | "zeca"; conversationId: string; createdAt: string; messageIds?: string[] } | null;
+  machineId?: string | null;
+  titleLocked?: boolean;
   placement?: { target: string; not_before?: string | null } | null;
   dispatch?: {
     machine: string;

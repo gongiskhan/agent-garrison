@@ -195,6 +195,7 @@ export interface RemoteShellTransport {
 }
 
 interface ThreadMeta {
+  boardCardId?: string | null;
   connection?: string;
   shell?: ShellThreadBinding | null;
   id: string;
@@ -2173,6 +2174,12 @@ function ThreadedApp({
             headerLeading={threadsButton(false)}
             headerExtra={
               <>
+              {(activeThread?.boardCardId || threads.find((t) => t.id === activeId)?.boardCardId) && (
+                <>
+                  <a className="wc-board-chip" title="Open card" href={`/embed/kanban-loop?card=${encodeURIComponent(activeThread?.boardCardId || threads.find((t) => t.id === activeId)?.boardCardId || "")}`}>On the board</a>
+                  <details className="wc-card-overflow"><summary aria-label="Conversation actions">•••</summary><a title="Open card" href={`/embed/kanban-loop?card=${encodeURIComponent(activeThread?.boardCardId || threads.find((t) => t.id === activeId)?.boardCardId || "")}`}>On the board</a></details>
+                </>
+              )}
               {conversationStop?.id === conversationId && conversationStop.error && <span className="wc-conversation-error" role="alert">{conversationStop.error}</span>}
               {conversationActivity?.id === conversationId && conversationActivity.working && (
                 <button type="button" className="wc-conversation-stop" onClick={() => { void stopConversation(); }}

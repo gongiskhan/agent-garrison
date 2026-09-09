@@ -649,7 +649,7 @@ function AutoTextarea({
 function cardActionFlags(card: CardSummary, list: ListView) {
   // Conversations: a card is the human's to move EXCEPT while a stretch holds
   // it. That is the whole ownership model now — no engine-owned columns, one bit.
-  const launcherHeld = card.status === "running" || list.id === "running";
+  const launcherHeld = !(typeof card.origin === "object" && card.origin?.type === "workSession") && (card.status === "running" || list.id === "running");
   const engineOwned = launcherHeld;
   const scheduled = list.id === "scheduled";
   const archived = false; // the Archived column is gone (frozen history holds the old one)
@@ -915,7 +915,7 @@ function Card({
   const titleEditJustEnded = useRef(false);
   // Conversations: a card is held by the LAUNCHER only while a stretch runs on
   // it; every other card is the human's to edit and move.
-  const engineOwned = card.status === "running" || list.id === "running";
+  const engineOwned = !(typeof card.origin === "object" && card.origin?.type === "workSession") && (card.status === "running" || list.id === "running");
   const scheduled = list.id === "scheduled";
 
   function markTitleEditEnded() {
@@ -3070,7 +3070,8 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
   // server enforces it; the UI says so instead of offering a doomed control).
   // Schedule / checklist / attachments are benign and stay editable.
   const cardList = board?.lists.find((l) => l.id === card.list) ?? null;
-  const lockedCard = readOnly || Boolean(cardList && cardList.kind === "agent" && !cardList.interactive && !card.quick);
+  const workSessionCard = typeof card.origin === "object" && card.origin?.type === "workSession";
+  const lockedCard = readOnly || (!workSessionCard && Boolean(cardList && cardList.kind === "agent" && !cardList.interactive && !card.quick));
   // A conversation-linked card shows its CONVERSATION here: the ledger carries
   // the evidence refs a stretch's handoff had to prove, so a second Evidence
   // block would be the same facts one layer thinner. A legacy card - one frozen
@@ -3137,6 +3138,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
           ? <span className="chip">proj: {card.project}</span>
           : <span className="chip muted">no project</span>}
         {card.scope === "personal" && <span className="chip goal">personal</span>}
+        {card.machineId && <span className="chip">{card.machineId}</span>}
         <span className="chip">list: {card.list}</span>
         <span className="chip">iter {card.iterations}/{ITERATION_CAP}</span>
         {card.goalMode && <span className="chip goal">goalMode</span>}
@@ -3574,7 +3576,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         <div className="detail-desc">
           <div className="dd-title">
             Description
-            {descDraft === null && !lockedCard && (
+            {descDraft === null && !lockedCard && !workSessionCard && (
               <button className="btn tiny" title="edit the description" onClick={() => setDescDraft(stripAttachmentBlock(card.description ?? ""))}>
                 edit
               </button>

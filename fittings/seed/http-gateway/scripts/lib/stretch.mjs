@@ -41,6 +41,7 @@ import {
   repetitionReport,
 } from "@garrison/claude-pty";
 import { boardBase, cardById } from "./autonomous-cards.mjs";
+import { endSessionCard, resumeSessionCard, syncWorkSessionTitle, reportCardHook } from "@garrison/talk/conversation-cards";
 import { resolveRunScope, listProjectNames, readDevRoot, PERSONAL_SCOPE_TOKEN } from "./project-source.mjs";
 import { applyDutyHarnessProfile, runtimeCodexEnabled } from "./harness-profiles.mjs";
 import { prepareStretchContinuity } from "./stretch-continuity.mjs";
@@ -1340,6 +1341,12 @@ export async function patchCardEngine({ id, patch, logFn = () => {} }) {
 
 async function writeCardTransition(gateway, { cardId, conversationId, stretchId, phase, handoff = null, duty = null }) {
   if (!cardId) return;
+  const workCard = await cardById(cardId).catch(() => null);
+  if (workCard?.origin?.type === "workSession") {
+    if (phase === "started") await resumeSessionCard(conversationId).catch(reportCardHook);
+    await syncWorkSessionTitle(conversationId).catch(reportCardHook);
+    return;
+  }
   const logFn = (e) => gateway.logFn?.(e);
   if (duty === "responder") {
     // The responder used to leave the card untouched, so a message on a done
@@ -1624,9 +1631,11 @@ export async function runConversation(gateway, {
     const store = openConversation(conversationId, { role: "gateway", env });
     store.init({ title: task ? String(task).slice(0, 80) : "Conversation" });
     let ownedStretchId = null;
+    let ownsWorkLifecycle = false;
     try {
     if (deploymentInFlight(store)) return { stretches: 0, terminal: "deploying" };
     if (store.currentStretch()) return { stretches: 0, terminal: "already-running" };
+    ownsWorkLifecycle = true;
     const recovered = recoverInterruptedStretch(store);
     // The opening task IS the first user message — one vocabulary, one record.
     if (task && store.count("user-message") === 0) {
@@ -2360,6 +2369,8 @@ export async function runConversation(gateway, {
     } finally {
       if (ownedStretchId) store.releaseStretch(ownedStretchId);
       steerRegistry().delete(conversationId);
+      await syncWorkSessionTitle(conversationId).catch(reportCardHook);
+      if (ownsWorkLifecycle) await endSessionCard(conversationId).catch(reportCardHook);
     }
   });
 }

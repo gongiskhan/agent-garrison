@@ -1329,6 +1329,7 @@ function toMeta(thread) {
     ...(shell ? { shell } : {}),
     id: thread.id,
     conversationId,
+    boardCardId: thread.boardCardId ?? null,
     title: deriveTitle(thread),
     source: thread.source ?? "chat",
     createdAt: thread.createdAt ?? null,
@@ -1514,6 +1515,18 @@ export async function setThreadSession(id, sessionId) {
     if (!recordThreadSession(thread, sessionId)) return toMeta(thread);
     await atomicWriteJson(threadPath(safe), thread);
     return toMeta(thread);
+  });
+}
+
+export async function setThreadBoardCard(id, cardId) {
+  const safe = safeThreadId(id);
+  if (!safe) return null;
+  return serializeThreadMutation(safe, async () => {
+    const thread = await readThreadFile(safe);
+    if (!thread || thread.boardCardId === cardId) return thread;
+    thread.boardCardId = cardId;
+    await atomicWriteJson(threadPath(safe), thread);
+    return thread;
   });
 }
 
@@ -2160,6 +2173,10 @@ export async function renameThread(id, title) {
     thread.title = clean;
     thread.renamedAt = new Date().toISOString();
     await atomicWriteJson(threadPath(safe), thread);
+    if (thread.boardCardId) {
+      const cards = await import("./conversation-cards.mjs");
+      await cards.syncSessionCardTitle(safe, clean).catch(cards.reportCardHook);
+    }
     return thread;
   });
 }

@@ -61,6 +61,7 @@ import {
 import { listProjectNames, resolvePersonalScope } from "./lib/project-source.mjs";
 import { continuityMemoryServer } from "./lib/stretch-continuity.mjs";
 import { SessionLog, runLog } from "@garrison/claude-pty";
+import { createSessionCard, endSessionCard, reportCardHook } from "@garrison/talk/conversation-cards";
 import { createCompactController, resolveCompactConfig, COMPACT_TIMEOUT_MS } from "./lib/compact-controller.mjs";
 import {
   isCardOriginatedChannel,
@@ -2365,6 +2366,9 @@ async function resumeInterruptedConversations() {
   const controllers = (globalThis.__conversationAborts ??= new Map());
   for (const conversationId of recoverableConversations({ compositionId: COMPOSITION_ID })) {
     if (controllers.has(conversationId)) continue;
+    // Work conversations resume only when the person continues them.
+    const endedWorkCard = await endSessionCard(conversationId).catch(() => null);
+    if (endedWorkCard) continue;
     const controller = new AbortController();
     controllers.set(conversationId, controller);
     try {
@@ -4851,6 +4855,7 @@ const server = http.createServer(async (request, response) => {
         if (!rec.ok) {
           return sendJson(response, rec.conflict ? 409 : 503, { error: rec.error ?? "the message could not be recorded" });
         }
+        await createSessionCard(conversationId).catch(reportCardHook);
         if (rec.duplicate) {
           // The first admission owns the work, including a completed or
           // stopped response. A retry must never start or steer a second one.

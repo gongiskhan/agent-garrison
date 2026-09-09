@@ -600,6 +600,12 @@ export function cardPosition(card) {
  * rather than an empty object — the two read identically, and null is what every
  * pre-existing card already has.
  */
+export function normaliseConversationOrigin(origin) {
+  if (!origin || !["workSession", "zeca"].includes(origin.type) || typeof origin.conversationId !== "string" || !/^[A-Za-z0-9_-]{8,64}$/.test(origin.conversationId)) return null;
+  if (typeof origin.createdAt !== "string" || !Number.isFinite(Date.parse(origin.createdAt))) return null;
+  return { type: origin.type, conversationId: origin.conversationId, createdAt: origin.createdAt,
+    ...(origin.type === "zeca" ? { messageIds: Array.isArray(origin.messageIds) ? origin.messageIds.filter((id) => typeof id === "string").slice(0, 50) : [] } : {}) };
+}
 export const CARD_ROUTING_FIELDS = ["target", "model", "effort", "duty", "level", "project", "account", "tier", "flow", "phasesOff", "phasesOn"];
 export function sanitiseCardRouting(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
@@ -630,7 +636,7 @@ export function cardScope(card) {
   return "unscoped";
 }
 
-export async function createCard(root, { id: explicitId = null, conversationId = null, title, description = "", project = null, scope = null, lang = null, list, goalMode = false, acceptance = null, flow = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, schedule = null, scheduledFor = null, scheduleAction = null, scheduleTemplateId = null, scheduleSystemKey = null, occurrenceKey = null, occurrenceAt = null, systemKey = null, checklist = null, position = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
+export async function createCard(root, { id: explicitId = null, conversationId = null, machineId = null, title, description = "", project = null, scope = null, lang = null, list, goalMode = false, acceptance = null, flow = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, schedule = null, scheduledFor = null, scheduleAction = null, scheduleTemplateId = null, scheduleSystemKey = null, occurrenceKey = null, occurrenceAt = null, systemKey = null, checklist = null, position = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
   // Conversations: a card materializing from a conversation TAKES the
   // conversation's ULID as its id — one identity, one directory name.
   const id = typeof explicitId === "string" && /^[0-9A-Za-z_-]{8,64}$/.test(explicitId) ? explicitId : ulid();
@@ -676,6 +682,8 @@ export async function createCard(root, { id: explicitId = null, conversationId =
   const card = {
     id,
     conversationId: typeof conversationId === "string" && conversationId ? conversationId : null,
+    machineId: typeof machineId === "string" ? machineId.slice(0, 128) : null,
+    titleLocked: false,
     title: title ?? "(untitled)",
     description,
     project,
@@ -709,7 +717,7 @@ export async function createCard(root, { id: explicitId = null, conversationId =
     // card. Sanitised to a plain object of scalars here; semantic validation is
     // deliberately NOT duplicated on the board.
     routing: sanitiseCardRouting(routing),
-    origin: typeof origin === "string" && origin ? origin : validContinues ? "continuation" : null,
+    origin: normaliseConversationOrigin(origin) || (typeof origin === "string" && origin ? origin : validContinues ? "continuation" : null),
     // WS2 (D7): predecessor card id for a continuation (null for a fresh card). The
     // engine reads the predecessor's handoff.json into the successor's prompt.
     continues: validContinues,
@@ -1175,6 +1183,7 @@ export async function saveBoardCAS(root, expectedRev, mutate) {
 // job, not this write's.
 function doneEvidenceVerdict(card) {
   try {
+    if (card.origin?.type === "workSession") return { ok: true };
     if (!card.conversationId) return { ok: true };
     const store = openConversation(card.conversationId, { role: "board" });
     const last = store.lastHandoffs(1)[0]?.handoff ?? null;
@@ -1335,7 +1344,7 @@ async function writeCardWithHooks(root, { id, card = null, expectedRev = null, m
       // S3a lifecycle router: on the terminal edge (into done / needs-attention) route
       // a finished | blocked | failed event — appends to the origin's durable event log
       // for ALL transports, and posts the (legacy) web text to the originating thread.
-      routeTerminalTransition(root, disk, written, { summary: hooks.terminalSummary });
+      if (written.origin?.type !== "workSession") routeTerminalTransition(root, disk, written, { summary: hooks.terminalSummary });
       // Conversations: a state change on a conversation-linked card is a ledger
       // event, written by the SERVER at the one choke point — actor attribution
       // comes from the door (launcher | human | schedule-sweep | steering), and
@@ -1379,7 +1388,7 @@ async function writeCardWithHooks(root, { id, card = null, expectedRev = null, m
   // fail-open side effects outside the lifecycle lock; the engine continuation
   // therefore writes its final duty summary before either callback runs, and
   // FIFO immediate ordering lets the packet snapshot the finished handoff.
-  if (doneHandoffEdge) {
+  if (doneHandoffEdge && doneHandoffEdge.next.origin?.type !== "workSession") {
     generateHandoffIfDone(root, doneHandoffEdge.prev, doneHandoffEdge.next);
     // Morning occurrences have an explicit dual-channel completion contract.
     // Load it lazily to keep the neutral board store independent of channel
