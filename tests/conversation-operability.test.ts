@@ -91,6 +91,8 @@ describe("interrupted native stretches", () => {
     expect(brief).toContain("Remaining: Run the acceptance check");
     expect(brief).toContain("Do not repeat: Restart the parent");
     expect(brief).toContain("HOSTED NODE DEPLOYMENT");
+    expect(brief).toContain('evidenceRefs kind "run" or "gate"');
+    expect(brief).toContain("Reuse already-completed checks");
   });
 
   it("keeps partial output on a runtime crash and cancels a late admission after its timeout", async () => {
@@ -115,12 +117,18 @@ describe("interrupted native stretches", () => {
 });
 
 describe("completion evidence", () => {
-  it("accepts the current handoff's proof and refuses a test duty that recorded none", () => {
+  it("accepts the current proof and gives verification one bounded chance to record missing results", () => {
     const store = openConversation("proof", { role: "gateway", env }); store.init();
     const proof = path.join(tmp, "check.txt"); writeFileSync(proof, "passed");
     const input = { store, duty: "test", selectedDuties: ["test"], cwd: tmp, env };
     expect(applyFlowPolicy("done", { ...input, handoff: handoff({ evidenceRefs: [{ kind: "run", ref: proof }] }) }).next).toBe("done");
+    const missing = applyFlowPolicy("done", input);
+    expect(missing).toMatchObject({ next: "test", reason: "verification-evidence-missing", verificationMissing: true });
+    expect(missing.items[0]).toContain("actual commands/checks");
+    store.append({ kind: "policy-rewrite", payload: { reason: missing.reason } });
     expect(applyFlowPolicy("done", input).next).toBe("needs-input");
+    expect(applyFlowPolicy("done", { ...input, handoff: handoff({ evidenceRefs: [{ kind: "file", ref: proof }] }) }).next).toBe("needs-input");
+    expect(applyFlowPolicy("done", { ...input, handoff: handoff({ evidenceRefs: [{ kind: "run", ref: proof }] }) }).next).toBe("done");
   });
 });
 

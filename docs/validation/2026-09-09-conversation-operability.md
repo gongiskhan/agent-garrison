@@ -32,6 +32,10 @@ also showed a tool header extending beyond its expanded content.
   even from the test duty, and cannot convert an outstanding review into success
   because its budget ran out. Review budgets and evidence apply to the current
   work cycle. Hitting the stretch cap leaves a durable pause.
+  The original conversation's first recovery exposed an evidence-contract gap:
+  verification succeeded but referenced build files rather than its check report.
+  Briefs now explicitly require a run/gate report, and the verifier gets one
+  bounded correction with concrete feedback before asking for intervention.
 - Tool calls remain collapsed during execution unless the reader opens them.
   Manual expansion survives settlement; thinking retains its existing automatic
   display. Header/body edges align in the shared Conversations/Kanban renderer.
@@ -55,8 +59,20 @@ also showed a tool header extending beyond its expanded content.
   handoff as application code. The native bypass now has a regression covering
   unchanged reply text, terminal-event delivery and absence of an implicit file
   write. A final 83-check regression run passed after that correction.
-- Mesh rollout is checked after publication. Browser evidence does not
-  substitute for physical iPhone acceptance.
+- Real HTTPS WebKit at 393x852 on the deployed Pro showed 71 initially collapsed
+  tools, aligned expanded header/body edges (zero-pixel difference), no horizontal
+  overflow and no page errors. Owner evidence:
+  `/private/tmp/garrison-operability-mobile.json`. This is browser evidence,
+  not physical iPhone acceptance.
+- A real launchd worker completed after its requester exited; its parent was PID
+  1. The harmless test deployment and continuation both completed. Owner evidence:
+  `/private/tmp/garrison-operability-supervision/`. The completed test job was
+  unloaded.
+- Initial rollout 0b56225d passed 43/43 on Pro and Madrid, with installed gateway
+  hashes matching source. CSG reported the same release running before its tether
+  dropped. Mini built the release but full composition startup failed; Mini and
+  Air subsequently stopped answering. Do not interpret this as five healthy
+  nodes. Final bounded-correction rollout is recorded in shared Node Operations.
 
 Owner evidence stays on the MacBook Pro under
 `/private/tmp/garrison-operability-*`; raw conversations and credentials are not

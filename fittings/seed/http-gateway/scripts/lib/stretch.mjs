@@ -464,8 +464,15 @@ export function applyFlowPolicy(next, { store, duty, selectedDuties = [], cwd = 
   );
   if (!hasResolvable) {
     const otherwise = CONVERSATION_FLOW.doneRequiresEvidence.otherwise;
-    if (selectedDuties.includes(otherwise) && duty !== otherwise) {
-      return { next: otherwise, rewritten: true, reason: "done-without-evidence", skippedReview, reviewBudget };
+    const corrected = workCycleEvents(store, ["policy-rewrite"])
+      .some((event) => event.payload?.reason === "verification-evidence-missing");
+    if (selectedDuties.includes(otherwise) && (duty !== otherwise || !corrected)) {
+      return {
+        next: otherwise, rewritten: true,
+        reason: duty === otherwise ? "verification-evidence-missing" : "done-without-evidence",
+        verificationMissing: true, skippedReview, reviewBudget,
+        items: ["Record the completed verification in a non-empty owner file, including actual commands/checks, outcomes and remaining limits. Reference it in evidenceRefs with kind run or gate. Reuse existing results where valid; source files and build markers alone are not verification. Finish any missing checks before reporting done."],
+      };
     }
     return { next: "needs-input", rewritten: true, reason: "No completed verification was recorded; work cannot be marked done", skippedReview, reviewBudget };
   }
@@ -678,6 +685,15 @@ Rules: blocked requires a blocker; partial/failed require at least one
 failedApproaches entry; next "done" requires status "complete"; a gate/run/file
 evidence ref must point at a real non-empty file. Update nothing else — the
 exit gate applies your handoff to the conversation summary.
+
+For completion "work", next "done" also requires a verification report with
+evidenceRefs kind "run" or "gate". Save the actual checks/commands, outcomes and
+remaining limits in a non-empty file under the conversation store, and use its
+absolute path as ref. Reuse already-completed checks when their results still
+apply; do not repeat them just to produce a report. A source file, commit or
+build marker alone does not establish that verification passed. If checks are
+missing, continue with test/validate and name what remains; this is work for
+the agent, not a reason to ask the user to record evidence.
 
 completion defaults to "work" for older handoffs. Use "answer" ONLY when the
 user requested an informational reply (for example a prose plan, explanation,
@@ -2200,6 +2216,11 @@ export async function runConversation(gateway, {
       if (policy.rewritten) {
         store.append({ kind: "policy-rewrite", duty, stretch: stretchId, payload: { from: gate.handoff.nextSteps.next, to: policy.next, reason: policy.reason } });
         gate.handoff.nextSteps = { ...gate.handoff.nextSteps, next: policy.next, why: `${gate.handoff.nextSteps.why} [policy: ${policy.reason}]` };
+        if (policy.items) gate.handoff.nextSteps.items = [...new Set([...gate.handoff.nextSteps.items, ...policy.items])];
+        if (policy.verificationMissing) {
+          gate.handoff.status = "partial";
+          gate.handoff.failedApproaches.push({ approach: "Report completion", why: "Completed verification was not recorded with a resolvable run/gate reference; record it before closing." });
+        }
         // A refused answer classification resumes the work rail. Persist a
         // valid contract rather than answer + a nonterminal next duty.
         if (gate.handoff.completion === "answer") gate.handoff.completion = "work";
