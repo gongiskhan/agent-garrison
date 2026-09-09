@@ -83,7 +83,7 @@
           "text": "Voice good enough to be the default on the phone. Dictation with the existing voice capture (or Wispr Flow into the composer) and spoken answers via TTS with barge-in, latency measured and shown, the answer also readable as text. The Companion app's car mode reuses this.",
           "done": false,
           "sentToKanban": null,
-          "noteRef": null
+          "noteRef": "n-voice-feedback-20260909"
         },
         {
           "id": "c1.12",
@@ -953,6 +953,11 @@
       "id": "n-pendant-recovery-20260909",
       "title": "Pendant connection recovery (9 September 2026)",
       "body": "D67: fixed CaptureUploader competing retries and stale callbacks, bounded the connection/session handshake, and made the app-lifetime pendant uploader follow the selected capture endpoint and token without reconnecting Bluetooth. Nine local standalone Swift/WebSocket checks pass; 120/120 native XCTest passed and TestFlight build37 uploaded from30c3ceda at15:38 UTC on9 September. Apple processing/installation is not yet observed. Physical-phone launch, background/network recovery, node switch and manual pause acceptance remain open. Evidence: evidence/garrison-app/pendant-recovery-20260909/README.md. This repairs c7.1 without closing its broader scope."
+    },
+    {
+      "id": "n-voice-feedback-20260909",
+      "title": "Voice echo and duplicate reply repair (9 September 2026)",
+      "body": "Fixed native playback echo expiry and short fragments, retry speech duplication, competing native/page reply playback, and unrelated assistant notifications changing the wake language. User speech controls Portuguese/English selection; spoken replies use one language unless translation is requested. Regression and rollout evidence: docs/validation/2026-09-09-voice-feedback.md. Physical-phone acoustic acceptance remains open; this does not close c1.11."
     }
   ]
 }

@@ -59,6 +59,7 @@ export class EchoGuard {
     this.log = log;
     this.window = []; // [{ tokens:Set, at, text, echo }] - in memory only (I5)
     this.shortWindow = []; // [{ key, at, ttlMs }] - exact-match cue echoes
+    this.playing = new Map(); // speech id -> { words, until }; bounded playback leases
   }
 
   prune() {
@@ -66,6 +67,28 @@ export class EchoGuard {
     this.window = this.window.filter((e) => e.at >= cutoff);
     const at = this.now();
     this.shortWindow = this.shortWindow.filter((e) => at - e.at < e.ttlMs);
+    for (const [id, entry] of this.playing) if (entry.until <= at) this.playing.delete(id);
+  }
+
+  // Rendering and queueing can outlast the ordinary fingerprint window. Keep
+  // the spoken words protected until the phone's completion receipt, with a
+  // ceiling so a disconnected phone cannot suppress words indefinitely.
+  startPlayback(id, text, { ttlMs = 120_000 } = {}) {
+    const words = normalizeTokens(text);
+    if (!id || !words.length) return false;
+    this.prune();
+    this.playing.set(id, { words, until: this.now() + Math.min(120_000, ttlMs) });
+    while (this.playing.size > 100) this.playing.delete(this.playing.keys().next().value);
+    this.register({ text });
+    return true;
+  }
+
+  finishPlayback(id) {
+    const entry = this.playing.get(id);
+    if (!entry) return;
+    // Delayed STT finals can arrive just after playback ends.
+    entry.until = this.now() + 1_500;
+    this.register({ text: entry.words.join(" ") });
   }
 
   // Register a short utterance for EXACT-match suppression. Called before the
@@ -93,9 +116,23 @@ export class EchoGuard {
   // -> true when this transcript segment looks like our own voice coming back.
   shouldSuppress(segmentText) {
     this.prune();
-    if (this.window.length === 0 && this.shortWindow.length === 0) return false;
+    if (this.window.length === 0 && this.shortWindow.length === 0 && this.playing.size === 0) return false;
     const tokens = normalizeTokens(segmentText);
     const exact = tokens.join(" ");
+    for (const entry of this.playing.values()) {
+      // During playback STT also returns one/two-word fragments, including
+      // "Zeca" itself. Require an ordered contiguous match for those. A real
+      // yes/no answer still gets through unless that is the entire spoken cue.
+      const answer = tokens.length === 1 && /^(sim|yes|no|nao|ok|okay)$/.test(tokens[0]);
+      const contiguous = tokens.length > 0 && entry.words.some((_, i) => tokens.every((word, j) => entry.words[i + j] === word));
+      const hits = tokens.filter((word) => entry.words.includes(word)).length;
+      if ((contiguous && (!answer || entry.words.length === 1)) ||
+          (tokens.length >= 3 && hits / tokens.length >= CONTAINMENT)) {
+        this.counters?.bump?.("realtime_echo_suppressed_playback");
+        this.counters?.bump?.("realtime_echo_suppressed");
+        return true;
+      }
+    }
     if (exact && this.shortWindow.some((e) => e.key === exact)) {
       this.counters?.bump?.("realtime_echo_suppressed_short");
       return true;

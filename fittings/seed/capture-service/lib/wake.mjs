@@ -454,8 +454,8 @@ const PT_PT_RULE =
   '(pequeno-almoço, telemóvel, autocarro, casa de banho, ecrã).';
 
 function languageLine(lang) {
-  if (lang === "pt") return `${PT_PT_RULE} The user spoke Portuguese.`;
-  if (lang === "en") return "Reply in English - the user spoke English.";
+  if (lang === "pt") return `${PT_PT_RULE} The user spoke Portuguese. Reply once, only in Portuguese; do not append an English translation.`;
+  if (lang === "en") return "Reply once, only in English - the user spoke English. Do not append a Portuguese translation.";
   return `Keep the user's language. When it is Portuguese: ${PT_PT_RULE}`;
 }
 
@@ -596,7 +596,7 @@ export const DISCUSS_END =
 // ENGINEERING limit: tts.mjs refuses to render above MAX_TEXT_CHARS = 600, and
 // a discussion that silently drops into the phone's robotic synthesizer voice
 // is a different product from the one being built here.
-export function buildVoiceDiscussPrompt(topic, { context = [] } = {}) {
+export function buildVoiceDiscussPrompt(topic, { context = [], lang = null } = {}) {
   const contextBlock =
     context.length > 0
       ? `\nWhat was said just before, for context only:\n"${context.map((c) => c.text).join(" ")}"\n`
@@ -609,7 +609,7 @@ How to be in this conversation:
 
 Argue with me before you agree with me. If I am about to do something daft, say so first and explain why - agreement I did not earn is worth nothing. Hold the engineering and the product view at once. Prefer what you can check over what sounds right, and say plainly when you do not know rather than filling the gap.
 
-Ask ONE real question at a time, not three. Do not summarise what I just said back to me. Answer in the language I speak; when that is Portuguese, it is EUROPEAN Portuguese (pt-PT) - "tu" not "você", "estou a fazer" not "estou fazendo".
+Ask ONE real question at a time, not three. Do not summarise what I just said back to me. ${languageLine(lang)}
 
 How to SPEAK here, which is different from writing:
 
@@ -622,10 +622,10 @@ Open the discussion now with your first reply.`;
 
 // Every later turn. Deliberately thin: the gateway owns continuity for this
 // session id, so re-sending the transcript would pay for it twice and drift.
-export function buildVoiceDiscussTurn(utterance) {
+export function buildVoiceDiscussTurn(utterance, { lang = null } = {}) {
   return `${utterance}
 
-(Still speaking out loud. Under 55 words, plain spoken sentences, no markdown, no lists.)`;
+(Still speaking out loud. Under 55 words, plain spoken sentences, no markdown, no lists. ${languageLine(lang)})`;
 }
 
 // A long reply still has to be heard. Split on sentence boundaries so each
@@ -877,6 +877,7 @@ export class WakeBus {
         sessionId,
         eventId,
         conversationId,
+        stretchId: reply.stretchId,
         duty: reply.duty ?? null
       }
     });
@@ -941,21 +942,21 @@ export class WakeBus {
 
   // Which language to confirm in, decided ONCE per dispatch.
   //
-  // The classifier's own output is preferred over the raw transcript: the model
-  // is instructed to keep the user's language and its output is well-formed,
-  // whereas the ASR text can be garbled in exactly the way that defeats a
-  // word-list. Falls through to the injected/configured language, then to
-  // whatever the user actually said, and only then to a default.
+  // An explicit pin wins, then the user's actual words, then remembered user
+  // speech. Model output is only a last resort; it cannot translate its own
+  // language mistake into an instruction for the rest of the voice pipeline.
   resolveLanguage(command, parsed = null) {
+    if (isLanguage(this.cfg.voiceLanguage)) return this.cfg.voiceLanguage;
+    if (isLanguage(this.cfg.wakeLanguage)) return this.cfg.wakeLanguage;
+    const fromCommand = detectLanguage(command);
+    if (isLanguage(fromCommand)) return fromCommand;
+    const injected = typeof this.language === "function" ? this.language() : this.language;
+    if (isLanguage(injected)) return injected;
     const spoken = [parsed?.title, parsed?.answer, parsed?.ack, parsed?.note_content, parsed?.description]
       .filter((v) => typeof v === "string" && v.trim())
       .join(" ");
     const fromModel = spoken ? detectLanguage(spoken) : null;
     if (isLanguage(fromModel)) return fromModel;
-    const injected = typeof this.language === "function" ? this.language() : this.language;
-    if (isLanguage(injected)) return injected;
-    const fromCommand = detectLanguage(command);
-    if (isLanguage(fromCommand)) return fromCommand;
     const configured = this.cfg.wakeLanguage;
     if (isLanguage(configured)) return configured;
     // Last resort: the language the TRANSCRIBER is pinned to. Falling back to
@@ -1178,7 +1179,8 @@ export class WakeBus {
     const startedAt = this.now();
     let reply = "";
     try {
-      const res = await this.discussFn({ prompt: buildVoiceDiscussTurn(utterance), sessionId: d.threadId });
+      d.lang = this.resolveLanguage(utterance);
+      const res = await this.discussFn({ prompt: buildVoiceDiscussTurn(utterance, { lang: d.lang }), sessionId: d.threadId });
       reply = String(res?.reply ?? "").trim();
     } catch (err) {
       this.counters.bump("wake_discuss_failed");
@@ -1960,7 +1962,7 @@ export class WakeBus {
           let reply = "";
           try {
             const res = await this.discussFn({
-              prompt: buildVoiceDiscussPrompt(topic, { context }),
+              prompt: buildVoiceDiscussPrompt(topic, { context, lang }),
               sessionId: threadId
             });
             reply = String(res?.reply ?? "").trim();

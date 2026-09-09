@@ -119,6 +119,21 @@ describe("watchCaptureFeedback", () => {
 });
 
 describe("speakReply", () => {
+  it("does not render or fall back when the native sink owns the reply or protection is unavailable", async () => {
+    for (const status of [200, 503]) {
+      const spoken: string[] = [];
+      const requests: string[] = [];
+      const speech = { settings: async () => ({ master: true }), speak: async ({ text }: { text: string }) => { spoken.push(text); return { completed: true }; } };
+      const fetchImpl = (async (url: string, init: RequestInit) => {
+        requests.push(url);
+        expect(JSON.parse(String(init.body))).toMatchObject({ text: "O relatório está pronto.", replyKey: "c:s" });
+        return new Response(JSON.stringify({ speak: false }), { status });
+      }) as typeof fetch;
+      expect(await speakReply(speech, "O relatório está pronto.", { replyKey: "c:s", fetchImpl })).toBe(false);
+      expect(spoken).toEqual([]);
+      expect(requests).toEqual(["/api/voice/spoken"]);
+    }
+  });
   /** A voice layer that renders any text under the cap and a player that remembers what it played. */
   function voiceLayer(opts: { tts?: number | "throw"; player?: boolean } = {}) {
     const posts: string[] = [];
@@ -147,10 +162,11 @@ describe("speakReply", () => {
   it("registers the text with the voice layer, plays its rendered clip, and never uses the phone voice (D58)", async () => {
     const v = voiceLayer();
     expect(await speakReply(v.speech, "Answer.", { fetchImpl: v.fetchImpl, player: v.player })).toBe(true);
-    expect(v.posts).toEqual([
-      '/api/voice/spoken {"text":"Answer."}',
-      '/api/voice/tts {"text":"Answer.","format":"mp3"}'
-    ]);
+    expect(v.posts).toHaveLength(3);
+    const registration = JSON.parse(v.posts[0].slice('/api/voice/spoken '.length));
+    expect(registration).toMatchObject({ text: "Answer.", playbackId: expect.stringMatching(/^page-/) });
+    expect(v.posts[1]).toBe('/api/voice/tts {"text":"Answer.","format":"mp3"}');
+    expect(JSON.parse(v.posts[2].slice('/api/voice/spoken '.length))).toEqual({ ...registration, finished: true });
     expect(v.played).toEqual([3]);
     expect(v.spoken).toEqual([]);
   });
@@ -190,7 +206,7 @@ describe("speakReply", () => {
       expect(await speakReply(v.speech, "Fallback.", { fetchImpl: v.fetchImpl, player: v.player, onFallback: (r) => reasons.push(r) })).toBe(true);
       expect(v.spoken).toEqual(["Fallback."]);
       expect(reasons).toEqual([why]);
-      expect(v.posts[0]).toBe('/api/voice/spoken {"text":"Fallback."}');
+      expect(JSON.parse(v.posts[0].slice('/api/voice/spoken '.length))).toMatchObject({ text: "Fallback.", playbackId: expect.any(String) });
     }
   });
 });

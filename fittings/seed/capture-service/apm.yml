@@ -46,7 +46,11 @@ x-garrison:
     output. Wake-word commands spoken during a live session arrive as regular
     turns on channel "companion". Short confirmations are spoken on the user's
     phone or delivered as push notifications; message text is always generated
-    on our side. Do not write tasks anywhere but the Kanban Loop - it is the
+    on our side. Answer a spoken request once in its language. Portuguese
+    requests get European Portuguese (pt-PT); use English when the user speaks
+    English. Do not repeat or translate the answer into a second language
+    unless the user explicitly asks for a translation. Do not write tasks
+    anywhere but the Kanban Loop - it is the
     single home for tasks.
   config_schema:
     - key: port

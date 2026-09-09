@@ -521,4 +521,12 @@ describe("what the voice never says", () => {
       en.cleanup();
     }
   });
+
+  it("uses the spoken command ahead of an English model reply or stale language memory", () => {
+    const h = bus({ language: () => "en" });
+    try {
+      expect(h.wake.resolveLanguage("Preciso de rever o relatório", { answer: "The report is ready." })).toBe("pt");
+      expect(h.wake.resolveLanguage("Please check the report", { answer: "O relatório está pronto." })).toBe("en");
+    } finally { h.cleanup(); }
+  });
 });

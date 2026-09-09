@@ -40,7 +40,9 @@ export class LanguageMemory {
     try {
       if (!existsSync(this.file)) return;
       const doc = JSON.parse(readFileSync(this.file, "utf8"));
-      if (isLanguage(doc?.lang) && typeof doc?.at === "number") this.global = { lang: doc.lang, at: doc.at };
+      // Older records also learned from unrelated assistant notifications.
+      // Only restore a language whose provenance is the user's own speech.
+      if (doc?.source === "user" && isLanguage(doc?.lang) && typeof doc?.at === "number") this.global = { lang: doc.lang, at: doc.at };
     } catch {
       /* a corrupt memory is just an absent one */
     }
@@ -50,7 +52,7 @@ export class LanguageMemory {
   // which runs several times a second while someone is talking.
   persist() {
     try {
-      atomicWriteJSON(this.file, { lang: this.global?.lang ?? null, at: this.global?.at ?? null });
+      atomicWriteJSON(this.file, { lang: this.global?.lang ?? null, at: this.global?.at ?? null, source: "user" });
     } catch (err) {
       this.log?.error?.(`[capture-service] language memory write failed: ${err?.message ?? err}`);
     }
