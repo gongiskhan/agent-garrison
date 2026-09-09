@@ -18,9 +18,15 @@ export class CodexAdapter {
     runtime.child = spawn(process.execPath, ["-e", "const fs=require('fs'); const timer=setInterval(()=>{if(fs.existsSync(process.argv[1])){clearInterval(timer);process.exit(0)}},25)", release]);
     runtime.result = new Promise((resolve) => runtime.child.once("exit", (code, signal) => {
       runtime.alive = false;
+      // A fixture may hand off to an implementation duty to exercise the real
+      // launcher's approval pause; ordinary release files still finish.
+      let next = "done";
+      if (!signal && code === 0) {
+        try { next = JSON.parse(fs.readFileSync(release, "utf8")).next || next; } catch { /* plain release */ }
+      }
       if (!signal && code === 0) fs.writeFileSync(runtime.handoffPath, JSON.stringify({
         v: 1, stretchId: runtime.stretchId, duty: runtime.duty, status: "complete", summary: "The requested check is complete.",
-        completion: "answer", evidenceRefs: [], nextSteps: { next: "done", why: "The requested check is complete", items: [] },
+        completion: next === "done" ? "answer" : "work", evidenceRefs: [], nextSteps: { next, why: next === "done" ? "The requested check is complete" : "Implementation is ready for approval", items: ["Implement the requested change"] },
         blocker: null, activeConstraints: [], failedApproaches: [], surprises: [], forceEscalation: null, synthesized: false,
       }));
       resolve({ text: signal ? "Stopped." : "The requested check is complete.", usedTokens: 7, ...(signal ? { stoppedReason: "cancelled" } : {}) });

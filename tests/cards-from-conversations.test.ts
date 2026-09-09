@@ -107,6 +107,28 @@ describe.sequential("live local cards from conversations", () => {
     await renameThread(workId, "Another conversation title");
     expect((await loadCard(harness.boardRoot, workId)).title).toBe("My reminder check");
   });
+  it("keeps a real approval pause in To do and resumes through Approve & continue", async () => {
+    const id = "approval-card-journey";
+    await ensureThread({ id, source: "chat" });
+    const callsBefore = harness.runtimeCalls().length;
+    await json(`/api/conversation/${id}/message`, { message: "Plan an implementation that needs approval", clientRequestId: "journey-approval", routing: { target: "codex-astra", duty: "triage", project: "garrison" } });
+    await expect.poll(() => harness.runtimeCalls().length).toBe(callsBefore + 1);
+    fs.writeFileSync(harness.runtimeCalls().at(-1).release, JSON.stringify({ next: "implement" }));
+    await expect.poll(async () => (await loadCard(harness.boardRoot, id)).awaitingApproval?.next).toBe("implement");
+    // Wait for the finally hook as well as the earlier approval PATCH.
+    await expect.poll(async () => (await (await fetch(`${harness.gatewayUrl}/conversation/${id}`)).json()).advancing).toBe(false);
+    const waiting = await loadCard(harness.boardRoot, id);
+    expect(waiting.list).toBe("todo");
+    await page.goto(`${harness.base}/embed/kanban-loop?card=${id}`);
+    const sheet = page.getByRole("dialog");
+    await sheet.getByText("Waiting for your approval", { exact: true }).waitFor();
+    await sheet.getByRole("button", { name: "Approve & continue" }).click();
+    await expect.poll(() => harness.runtimeCalls().length).toBe(callsBefore + 2);
+    expect(await loadCard(harness.boardRoot, id)).toMatchObject({ list: "running", awaitingApproval: null });
+    expect(harness.runtimeCalls().at(-1).brief).toContain("## Your duty: implement");
+    await json(`/api/conversation/${id}/cancel`, {});
+    await expect.poll(() => openConversation(id, { role: "test" }).currentStretch()).toBeNull();
+  }, 30_000);
   it("S4: keeps empty work conversations off the board and hides Create card", async () => {
     await ensureThread({ id: "empty-work-journey", source: "chat" }); await page.goto(`${harness.base}/talk?thread=empty-work-journey`);
     await page.getByPlaceholder("Write a message…").waitFor();

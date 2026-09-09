@@ -1277,6 +1277,15 @@ async function writeCardWithHooks(root, { id, card = null, expectedRev = null, m
         rev: (disk.rev ?? 0) + 1,
         updated: at
       };
+      // Completion cannot coexist with a standing approval ask, regardless of
+      // which writer reached this CAS or whether evidence was overridden.
+      // An explicit human move clears the ask at the HTTP door; resuming work
+      // consumes it at stretch start. Neither happens on a runtime exit.
+      if (next.list === "done" && next.awaitingApproval) {
+        return { ok: false, precondition: true, detail: {
+          ok: false, code: "approval-required", message: "This card is waiting for approval. Approve and continue before completing it."
+        }, card: disk };
+      }
       // The Done invariant (Conversations): a card that RAN owes evidence.
       // A conversation card owes a terminal handoff whose gate/run evidence
       // still resolves; a legacy run card owes <runDir>/evidence/evidence.md.

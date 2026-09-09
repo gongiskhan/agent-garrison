@@ -95,8 +95,20 @@ export async function syncSessionCardTitle(conversationId, title) {
   if (!title?.trim()) return null;
   return mutateSessionCard(conversationId, (card) => card.titleLocked || card.title === title ? null : { title, titleSync: true });
 }
-export const endSessionCard = (id) => mutateSessionCard(id, (card) => card.list === "done" ? null : { list: "done", status: "ok", runningSince: null });
-export const resumeSessionCard = (id) => mutateSessionCard(id, (card) => card.list === "running" ? null : { list: "running", status: "running", runningSince: new Date().toISOString() });
+export const endSessionCard = (id) => mutateSessionCard(id, (card) => {
+  // Ending a response is also how the autonomy gate pauses. Preserve its ask
+  // through exit, archive and startup reconciliation; repair older Done cards
+  // that the previous unconditional completion write stranded with an ask.
+  if (card.awaitingApproval) {
+    return card.list === "todo" && card.runningSince == null ? null : { list: "todo", status: "ok", runningSince: null };
+  }
+  // A launcher park or a human move already settled this card. Re-read this
+  // decision on every CAS retry so a concurrent pause cannot be overwritten.
+  return card.list === "running" ? { list: "done", status: "ok", runningSince: null } : null;
+});
+export const resumeSessionCard = (id) => mutateSessionCard(id, (card) => card.list === "running" && !card.awaitingApproval ? null : {
+  list: "running", status: "running", runningSince: new Date().toISOString(), awaitingApproval: null,
+});
 export async function syncWorkSessionTitle(id) {
   const thread = await getThread(id);
   if (thread?.boardCardId) await syncSessionCardTitle(id, thread.title || inferredConversationTitle(id));

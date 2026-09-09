@@ -3264,6 +3264,9 @@ async function handlePatchCard(req, res, opts, id) {
   const result = touchesSchedule
     ? await withFileLock(path.join(root, ".schedule-sweep.lock"), "schedule sweep", commitWithOrder)
     : await commitWithOrder();
+  if (result.precondition && result.detail?.code === "approval-required") {
+    return jsonRes(res, 409, { error: result.detail.code, message: result.detail.message });
+  }
   if (result.precondition) return coordinationRecoveryConflict(res, result.detail);
   if (result.deleted) return jsonRes(res, 404, { error: "card was deleted while you were editing it" });
   if (!result.ok) return jsonRes(res, 409, { error: "card changed under you", card: cardSummary(result.card) });
