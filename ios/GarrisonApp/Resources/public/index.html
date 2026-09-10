@@ -162,14 +162,14 @@
     </div>
 
     <details id="add-details">
-      <summary>Add a node</summary>
+      <summary>Connect to your mesh</summary>
       <div id="form-slot-unreachable"></div>
     </details>
   </section>
 
   <section id="view-connect" hidden>
     <h1>Connect to a Garrison node</h1>
-    <p class="muted">Enter the address of a machine running Garrison. The app loads its web UI and keeps the capture token on this device.</p>
+    <p class="muted">Enter any Garrison node address once. The app discovers the mesh and handles capture setup automatically.</p>
     <div id="form-slot-connect"></div>
   </section>
 
@@ -179,19 +179,7 @@
       <input id="origin" name="origin" type="text" inputmode="url" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next" placeholder="https://node-name.tailnet.ts.net" required>
       <p class="hint">The address you open Garrison at in a browser. https is assumed when no scheme is given.</p>
 
-      <label for="name">Node name <span class="optional">(optional)</span></label>
-      <input id="name" name="name" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next" placeholder="node-name">
-      <p class="hint">Defaults to the first part of the host name.</p>
-
-      <label for="token">Capture token</label>
-      <input id="token" name="token" type="password" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="next" required>
-      <p class="hint">The capture-service token from the node's vault. It never leaves this device.</p>
-
-      <label for="capture">Capture URL <span class="optional">(optional)</span></label>
-      <input id="capture" name="capture" type="text" inputmode="url" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="done" placeholder="https://node-name.tailnet.ts.net:8497">
-      <p class="hint">Defaults to port 8497 on the same host.</p>
-
-      <button type="submit" class="button" id="submit">Add and connect</button>
+      <button type="submit" class="button" id="submit">Connect to mesh</button>
       <p class="error" id="form-error" role="alert" aria-live="polite"></p>
     </fieldset>
   </form>
@@ -200,8 +188,6 @@
 <script>
 (function () {
   "use strict";
-
-  const CAPTURE_PORT = 8497; // mesh invariant: 8400 + 8097 % 1000
 
   const $ = (id) => document.getElementById(id);
   const views = ["view-loading", "view-unsupported", "view-unreachable", "view-connect"];
@@ -234,23 +220,12 @@
     return url.origin;
   }
 
-  function derivedName(origin) {
-    try { return new URL(origin).hostname.split(".")[0] || ""; } catch (e) { return ""; }
-  }
-
-  function derivedCapture(origin) {
-    try {
-      const url = new URL(origin);
-      return url.protocol + "//" + url.hostname + ":" + CAPTURE_PORT;
-    } catch (e) { return ""; }
-  }
-
   function setBusy(on) {
     busyState.on = on;
     fields.disabled = on;
     retry.disabled = on;
     for (const b of document.querySelectorAll("#node-list button")) b.disabled = on;
-    submit.textContent = on ? "Connecting" : "Add and connect";
+    submit.textContent = on ? "Connecting" : "Connect to mesh";
   }
 
   function plugin() {
@@ -284,12 +259,6 @@
       text.appendChild(name);
       text.appendChild(origin);
       button.appendChild(text);
-      if (!n.hasToken) {
-        const badge = document.createElement("span");
-        badge.className = "badge";
-        badge.textContent = "No token";
-        button.appendChild(badge);
-      }
       button.addEventListener("click", () => selectNode(n.name));
       li.appendChild(button);
       list.appendChild(li);
@@ -355,25 +324,7 @@
       $("origin").focus();
       return;
     }
-    const token = $("token").value.trim();
-    if (!token) {
-      errorOut.textContent = "Enter the capture token.";
-      $("token").focus();
-      return;
-    }
-    const args = { shellOrigin: origin, token: token };
-    const name = $("name").value.trim();
-    if (name) args.name = name;
-    const capture = $("capture").value.trim();
-    if (capture) {
-      const captureOrigin = normalizeOrigin(capture);
-      if (!captureOrigin) {
-        errorOut.textContent = "The capture URL is not a valid address. Leave it empty to use the default.";
-        $("capture").focus();
-        return;
-      }
-      args.captureBaseURL = captureOrigin;
-    }
+    const args = { shellOrigin: origin };
 
     setBusy(true);
     try {
@@ -384,12 +335,6 @@
       errorOut.textContent = describe(err);
       setBusy(false);
     }
-  }
-
-  function updatePlaceholders() {
-    const origin = normalizeOrigin($("origin").value);
-    $("name").placeholder = origin ? derivedName(origin) : "node-name";
-    $("capture").placeholder = origin ? derivedCapture(origin) : "https://node-name.tailnet.ts.net:" + CAPTURE_PORT;
   }
 
   async function boot() {
@@ -405,8 +350,8 @@
     }
     form.addEventListener("submit", addNode);
     retry.addEventListener("click", reload);
-    $("origin").addEventListener("input", updatePlaceholders);
     try {
+      try { await node.refresh(); } catch (_) { /* retain offline nodes */ }
       const results = await Promise.all([node.list(), node.current()]);
       const nodes = (results[0] && results[0].nodes) || [];
       const current = results[1] && results[1].name ? results[1] : null;

@@ -37,6 +37,28 @@ const google = entry({
   } as any
 });
 
+// Spotify scopes a non-OAuth setting (SPOTIFY_DEVICE_NAME) alongside its two
+// OAuth app credentials — the OAuth creds form must show only the latter.
+const spotify = entry({
+  id: "spotify",
+  name: "Spotify",
+  metadata: {
+    provides: [{ kind: "connector", name: "spotify" }],
+    secret_scope: ["SPOTIFY_OAUTH_CLIENT_ID", "SPOTIFY_OAUTH_CLIENT_SECRET", "SPOTIFY_DEVICE_NAME"],
+    connector: {
+      auth: "oauth2",
+      actions: [{ name: "current" }],
+      oauth: {
+        authUrl: "https://accounts.spotify.com/authorize",
+        tokenUrl: "https://accounts.spotify.com/api/token",
+        scopes: ["user-read-playback-state"],
+        clientIdSecret: "SPOTIFY_OAUTH_CLIENT_ID",
+        clientSecretSecret: "SPOTIFY_OAUTH_CLIENT_SECRET"
+      }
+    }
+  } as any
+});
+
 // D26: capture-service seals three secrets (the capture token plus the two
 // provider keys) but its voice connector is reached with ONLY the capture
 // token - Deepgram and ElevenLabs keys never leave the service (I4), so the
@@ -130,5 +152,25 @@ describe("buildConnectorsView (C6)", () => {
   it("reads as equipped when the composition could not be read - never falsely 'not stationed'", () => {
     const views = buildConnectorsView([trello], [], []);
     expect(views[0].equipped).toBe(true);
+  });
+
+  it("oauthCredentials exposes only the declared OAuth client id/secret, excluding other scoped secrets", () => {
+    const v = buildConnectorsView([spotify], ["SPOTIFY_OAUTH_CLIENT_ID"], [])[0];
+    expect(v.oauthCredentials?.map((s) => s.name)).toEqual(["SPOTIFY_OAUTH_CLIENT_ID", "SPOTIFY_OAUTH_CLIENT_SECRET"]);
+    expect(v.oauthCredentials?.find((s) => s.name === "SPOTIFY_DEVICE_NAME")).toBeUndefined();
+    expect(v.oauthCredentials?.find((s) => s.name === "SPOTIFY_OAUTH_CLIENT_ID")?.present).toBe(true);
+    expect(v.oauthCredentials?.find((s) => s.name === "SPOTIFY_OAUTH_CLIENT_SECRET")?.present).toBe(false);
+    // The full connector-scoped list still carries the device-name setting for other UI uses.
+    expect(v.secrets.map((s) => s.name)).toContain("SPOTIFY_DEVICE_NAME");
+  });
+
+  it("oauthCredentials is undefined for an oauth2 connector with no declared oauth block", () => {
+    const v = buildConnectorsView([google], [], [])[0];
+    expect(v.oauthCredentials).toBeUndefined();
+  });
+
+  it("oauthCredentials is undefined for a non-oauth2 connector", () => {
+    const v = buildConnectorsView([trello], [], [])[0];
+    expect(v.oauthCredentials).toBeUndefined();
   });
 });

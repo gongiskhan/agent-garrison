@@ -12,6 +12,7 @@ final class GarrisonNodePlugin: CAPPlugin, CAPBridgedPlugin {
     let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "current", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "list", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "refresh", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "add", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "select", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "remove", returnType: CAPPluginReturnPromise),
@@ -62,31 +63,26 @@ final class GarrisonNodePlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("shellOrigin must be an http(s) origin", "INVALID_ORIGIN")
             return
         }
-        let token = call.getString("token")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !token.isEmpty else {
-            call.reject("token must not be blank", "INVALID_TOKEN")
-            return
-        }
-        let captureBaseURL: URL
-        if let rawCapture = call.getString("captureBaseURL")?.trimmingCharacters(in: .whitespacesAndNewlines), !rawCapture.isEmpty {
-            guard let capture = NodeRecord.normalizedOrigin(rawCapture) else {
-                call.reject("captureBaseURL must be an http(s) origin", "INVALID_ORIGIN")
-                return
-            }
-            captureBaseURL = capture
-        } else {
-            captureBaseURL = NodeRecord.defaultCaptureBaseURL(for: shellOrigin)
-        }
-        let requestedName = call.getString("name")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let record = NodeRecord(
-            name: requestedName.isEmpty ? NodeRecord.defaultName(for: shellOrigin) : requestedName,
-            shellOrigin: shellOrigin,
-            captureBaseURL: captureBaseURL,
-            token: token
-        )
         Task { @MainActor in
-            NodeStore.shared.upsert(record)
-            call.resolve(Self.payload(record))
+            do {
+                let record = try await NodeStore.shared.refreshMesh(seed: shellOrigin)
+                // Discovery may preserve an existing display name.
+                let saved = NodeStore.shared.nodes.first { $0.shellOrigin == record.shellOrigin } ?? record
+                call.resolve(Self.payload(saved))
+            } catch {
+                call.reject(error.localizedDescription, "MESH_UNAVAILABLE")
+            }
+        }
+    }
+
+    @objc func refresh(_ call: CAPPluginCall) {
+        Task { @MainActor in
+            do {
+                try await NodeStore.shared.refreshMesh()
+                call.resolve(["nodes": NodeStore.shared.nodes.map(Self.payload)])
+            } catch {
+                call.reject(error.localizedDescription, "MESH_UNAVAILABLE")
+            }
         }
     }
 

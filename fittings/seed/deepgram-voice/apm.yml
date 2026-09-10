@@ -32,6 +32,15 @@ x-garrison:
       default: aura-asteria-en
       description: Deepgram text-to-speech voice used by /tts.
   connector:
+    setup_help:
+      steps:
+        - "Sign in to the Deepgram Console and select your project."
+        - "Open Settings → API Keys → Create a New API Key. Choose the needed speech permissions, copy the new key, and enter it below."
+      links:
+        - label: "Deepgram Console"
+          url: "https://console.deepgram.com"
+        - label: "Create a Deepgram key"
+          url: "https://developers.deepgram.com/docs/create-additional-api-keys"
     auth: api_key
     actions:
       - name: transcribe

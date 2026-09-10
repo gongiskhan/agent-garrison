@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { readLibrary } from "@/lib/library";
 import { connectorSecretScope } from "@/lib/metadata";
-import { scopedSecrets, getAccessToken } from "@/lib/vault";
+import { scopedSecrets, getAccessToken } from "@/lib/connector-auth";
 import { verifyInternalToken } from "@/lib/internal-token";
 
 export const runtime = "nodejs";

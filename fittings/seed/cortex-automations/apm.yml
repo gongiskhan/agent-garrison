@@ -41,7 +41,7 @@ x-garrison:
   config_schema:
     - key: base_url
       type: string
-      default: ""
+      default: "https://app.ekoa.io"
       description: >-
         Cortex origin the session view talks to, e.g. https://cortex.example.com. Read
         SERVER-side only: Garrison's proxy builds every request from it and attaches the
@@ -61,6 +61,13 @@ x-garrison:
     With no CLI installed the whole thing is inert and verify still passes, so a fresh clone with
     an empty vault composes and runs.
   connector:
+    setup_help:
+      steps:
+        - "Set the base URL of your Cortex deployment (Ekoa by default). Sign in and obtain a user-scoped API key with access to the automations you want to run."
+        - "Paste that key below. If key issuance is restricted, ask the deployment administrator for a key scoped to your account. Both Cortex connectors share this credential and base URL."
+      links:
+        - label: "Open Ekoa"
+          url: "https://app.ekoa.io"
     auth: api_key
     actions:
       - name: automations_list

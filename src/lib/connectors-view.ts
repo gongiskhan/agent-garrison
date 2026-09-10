@@ -1,5 +1,5 @@
 import { connectorSecretScope } from "@/lib/metadata";
-import type { LibraryEntry } from "@/lib/types";
+import type { ConnectorSetupHelp, LibraryEntry } from "@/lib/types";
 import type { OAuthHealth } from "@/lib/vault";
 
 // The Vault ↔ Connectors UI view model. Pure aggregation over the library +
@@ -24,6 +24,8 @@ export interface ConnectorView {
   equipped: boolean;
   name: string;
   summary: string;
+  setupHelp?: ConnectorSetupHelp;
+  baseUrl?: string;
   auth: "oauth2" | "api_key" | "none";
   /** The names a connector call receives (`connector.secrets` when declared,
    *  else the whole `secret_scope`) + whether each is in the vault (no values). */
@@ -36,6 +38,13 @@ export interface ConnectorView {
   oauth?: OAuthHealth;
   /** false when the vault couldn't be read — sealed/secrets are then UNKNOWN, not missing. */
   statusKnown: boolean;
+  /**
+   * For oauth2 connectors: the OAuth app's own client id/secret Vault names
+   * (exactly `oauth-start`'s `needs`), never the full connector-scoped
+   * secret list — a connector like Spotify scopes extra non-OAuth settings
+   * (e.g. SPOTIFY_DEVICE_NAME) that must not appear in the OAuth creds form.
+   */
+  oauthCredentials?: ConnectorSecretStatus[];
 }
 
 /** The connector id is the name of the entry's provides[] entry of kind "connector". */
@@ -48,7 +57,7 @@ export function buildConnectorsView(
   entries: LibraryEntry[],
   vaultSecretNames: readonly string[],
   oauthHealth: readonly OAuthHealth[],
-  opts: { vaultLocked?: boolean; equippedFittingIds?: ReadonlySet<string> } = {}
+  opts: { cortexBaseUrl?: string; vaultLocked?: boolean; equippedFittingIds?: ReadonlySet<string> } = {}
 ): ConnectorView[] {
   const vaultLocked = opts.vaultLocked ?? false;
   const equippedIds = opts.equippedFittingIds ?? null;
@@ -59,7 +68,7 @@ export function buildConnectorsView(
   for (const entry of entries) {
     const spec = entry.metadata.connector;
     const id = connectorIdOf(entry);
-    if (!spec || !id) continue;
+    if (!spec || !id || spec.managed) continue;
 
     // The same subset the auth-env route delivers: a connector whose own
     // secrets are sealed reads as sealed even while the Fitting's other keys
@@ -84,6 +93,8 @@ export function buildConnectorsView(
       name: entry.name,
       summary: entry.summary ?? entry.metadata.summary ?? "",
       auth: spec.auth,
+      setupHelp: spec.setup_help,
+      baseUrl: id === "cortex" || id === "cortex-automations" ? opts.cortexBaseUrl ?? "https://app.ekoa.io" : undefined,
       secrets,
       sealed,
       actionCount: spec.actions?.length ?? 0,
@@ -91,7 +102,14 @@ export function buildConnectorsView(
       hasTriggers: (spec.triggers?.length ?? 0) > 0,
       oauth,
       // When the vault couldn't be read, presence/health are UNKNOWN, not "missing".
-      statusKnown: !vaultLocked || spec.auth === "none"
+      statusKnown: !vaultLocked || spec.auth === "none",
+      oauthCredentials:
+        spec.auth === "oauth2" && spec.oauth
+          ? [spec.oauth.clientIdSecret, spec.oauth.clientSecretSecret].map((name) => ({
+              name,
+              present: present.has(name)
+            }))
+          : undefined
     });
   }
 

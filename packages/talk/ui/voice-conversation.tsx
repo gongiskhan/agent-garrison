@@ -77,8 +77,8 @@ function unavailableReason(reason: string | undefined): string {
     case "no voice provider": return "Voice unavailable: no voice fitting in this composition";
     case "voice provider not running": return "Voice provider not running";
     case "voice locked": return "Voice unavailable: unlock the vault";
-    case "capture token not sealed": return "Voice unavailable: seal CAPTURE_TOKEN in the vault";
-    case "capture token not granted to this node": return "Voice unavailable: grant CAPTURE_TOKEN to this node";
+    case "capture token not sealed": return "Voice setup is unavailable. Retry when the node is ready.";
+    case "capture token not granted to this node": return "Voice access is unavailable on this node. Try another mesh node.";
     case "secret authority unreachable": return "Voice unavailable: the node's secret authority is unreachable";
     case "voice rest disabled": return "Voice unavailable: the voice provider's capture ingress is off";
     case "voice unreachable": return "Voice provider unreachable";

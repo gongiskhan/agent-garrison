@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import clsx from "clsx";
 import {
@@ -80,18 +80,16 @@ function NativeCapture() {
 
 // ---------------------------------------------------------------------------
 // Node: which node this webview is loaded from, the others the app knows, and
-// the add form. The token is typed here and handed to Swift once; it is never
-// read back (`hasToken` is the only trace).
+// automatic mesh discovery. Native code handles credentials without a form.
 
 function NodeSection() {
   const [current, setCurrent] = useState<NodeInfo | null>(null);
   const [nodes, setNodes] = useState<NodeInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [adding, setAdding] = useState(false);
-
   const refresh = useCallback(async () => {
     try {
+      await nativeNode.refresh();
       const [cur, list] = await Promise.all([nativeNode.current(), nativeNode.list()]);
       setCurrent(cur);
       setNodes(list);
@@ -116,47 +114,10 @@ function NodeSection() {
     }
   };
 
-  const remove = async (name: string) => {
-    setBusy(true);
-    try {
-      await nativeNode.remove(name);
-      await refresh();
-    } catch (err) {
-      setError(describeError(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onAdd = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const shellOrigin = String(data.get("shellOrigin") ?? "").trim();
-    const token = String(data.get("token") ?? "").trim();
-    const name = String(data.get("name") ?? "").trim();
-    const captureBaseURL = String(data.get("captureBaseURL") ?? "").trim();
-    setBusy(true);
-    try {
-      await nativeNode.add({
-        shellOrigin,
-        token,
-        ...(name ? { name } : {}),
-        ...(captureBaseURL ? { captureBaseURL } : {})
-      });
-      form.reset();
-      setAdding(false);
-      await refresh();
-    } catch (err) {
-      setError(describeError(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <section className={styles.section} data-testid="capture-node">
-      <h2>Node</h2>
+      <h2>Mesh</h2>
+      <p>The app discovers every node automatically and handles capture setup. Select which node to use below.</p>
       {current ? (
         <dl className={styles.rows}>
           <div className={styles.row}>
@@ -170,14 +131,6 @@ function NodeSection() {
           <div className={styles.row}>
             <dt>Capture</dt>
             <dd>{current.captureBaseURL}</dd>
-          </div>
-          <div className={styles.row}>
-            <dt>Token</dt>
-            <dd>
-              <span className={clsx(styles.pill, current.hasToken ? styles.pillLive : styles.pillAlarm)}>
-                {current.hasToken ? "stored in the app" : "missing"}
-              </span>
-            </dd>
           </div>
         </dl>
       ) : (
@@ -196,49 +149,18 @@ function NodeSection() {
                 <button type="button" className="btn small" disabled={busy} onClick={() => void switchTo(node.name)}>
                   Switch
                 </button>
-                <button type="button" className="btn small ghost" disabled={busy} onClick={() => void remove(node.name)}>
-                  Remove
-                </button>
+
               </li>
             ))}
         </ul>
       ) : null}
 
       <div className={styles.actions}>
-        <button type="button" className="btn small" onClick={() => setAdding((v) => !v)}>
-          {adding ? "Cancel" : "Add a node"}
-        </button>
+
         <button type="button" className="btn small ghost" disabled={busy} onClick={() => void refresh()}>
           Refresh
         </button>
       </div>
-
-      {adding ? (
-        <form className={styles.form} onSubmit={(e) => void onAdd(e)} data-testid="capture-node-add">
-          <label>
-            Shell origin
-            <input name="shellOrigin" type="url" inputMode="url" autoCapitalize="none" autoCorrect="off"
-              placeholder="https://node.tailnet.ts.net" required />
-          </label>
-          <label>
-            Capture token
-            <input name="token" type="password" autoCapitalize="none" autoCorrect="off" required />
-          </label>
-          <label>
-            Name (optional)
-            <input name="name" type="text" autoCapitalize="none" autoCorrect="off" />
-          </label>
-          <label>
-            Capture URL (optional, defaults to the node&apos;s capture port)
-            <input name="captureBaseURL" type="url" inputMode="url" autoCapitalize="none" autoCorrect="off" />
-          </label>
-          <div className={styles.actions}>
-            <button type="submit" className="btn small primary" disabled={busy}>
-              Save node
-            </button>
-          </div>
-        </form>
-      ) : null}
 
       {error ? <p className={styles.error}>{error}</p> : null}
     </section>

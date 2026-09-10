@@ -463,6 +463,7 @@ x-garrison:
     - kind: connector
       name: voice
   connector:
+    managed: true
     auth: api_key
     # The subset of secret_scope a connector call needs: the Bearer for the
     # running service. An automation child never sees the Deepgram, ElevenLabs

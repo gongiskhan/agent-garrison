@@ -20,3 +20,32 @@ These product changes and their validation are tracked in the roadmap.
 Initial migration: `origin/main` fast-forwarded from `58708f8c` to `abf2d106`;
 the Pro checkout switched to `main`. Existing connector and voice edits were
 preserved. This records Git state, not deployment completion.
+
+## Connector and Capture implementation
+
+Connector status, scoped key writes, OAuth grants and refresh now use the secret
+authority on enrolled nodes. Local-only vault reads explained the false missing
+Google credentials. Shared grants are encrypted secrets, refresh/connect/revoke
+serialize with an authority lease, and a failed authority never falls back to a
+node-local credential. Google starts its authorization flow directly.
+
+Connector-owned setup guidance is declared in each manifest. Cortex has a base
+URL field on both connector cards, defaulting to the operator-requested
+`https://app.ekoa.io`; changing it updates both fitted Cortex consumers through
+the composition writer and authority CAS. No client repository or credential
+is added to the shipped defaults. The previous no-origin default is superseded
+for these two fittings by this explicit request.
+
+Capture credentials are generated internally once and existing credentials are
+retained. Delivery uses the same authority for the runner and the phone. Native
+URLSession calls `/api/capture/bootstrap` over the node's private HTTPS address;
+the route rejects browser-origin/fetch requests and disables caching. Swift
+keeps credentials out of the JavaScript bridge, discovers peers in the same
+tailnet, preserves offline nodes and the current selection, and refreshes at
+launch/foreground and on request. The Capture page has no manual credential or
+node-add form; first installation needs only one mesh address.
+
+Pro, Madrid, Air and Mini checkouts have moved to main without runtime restarts.
+Connector authority, OAuth route, capture bootstrap, view model, voice resolver,
+composition sync and proxy checks pass locally. Native tests and live rollout
+remain in progress; source checks alone are not device acceptance.

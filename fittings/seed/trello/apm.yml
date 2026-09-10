@@ -28,6 +28,15 @@ x-garrison:
       description: Default Trello board id (TRELLO_BOARD_ID) actions operate on.
       required: true
   connector:
+    setup_help:
+      steps:
+        - "Open Trello Power-Up administration, create or select your Power-Up, then open its API Key page."
+        - "Copy the API key into TRELLO_API_KEY. Follow the Token link on that page, authorize your account, and copy the resulting token into TRELLO_TOKEN."
+      links:
+        - label: "Trello Power-Ups"
+          url: "https://trello.com/power-ups/admin"
+        - label: "Trello API setup"
+          url: "https://support.atlassian.com/trello/docs/getting-started-with-trello-rest-api/"
     auth: api_key
     actions:
       - name: lists

@@ -112,6 +112,8 @@ export async function materializeEnvViaAuthority(
   compositionDir: string,
   compositionId: string
 ): Promise<{ envPath: string; source: "authority" | "local-vault" }> {
+  const { ensureCaptureCredential } = await import("./capture-credential");
+  await ensureCaptureCredential();
   const envPath = path.join(compositionDir, ".env");
   if (!nodeIsEnrolled()) {
     const { materializeEnv } = await import("./vault");
@@ -144,6 +146,10 @@ export type ScopedSecretsResult = {
 
 export async function scopedSecretsViaAuthority(scope: readonly string[]): Promise<ScopedSecretsResult> {
   const keys = [...new Set(scope)];
+  if (keys.includes("CAPTURE_TOKEN")) {
+    const { ensureCaptureCredential } = await import("./capture-credential");
+    await ensureCaptureCredential();
+  }
   if (!nodeIsEnrolled()) {
     const { scopedSecrets } = await import("./vault");
     const secrets = await scopedSecrets(keys);

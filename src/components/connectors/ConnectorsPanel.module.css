@@ -286,3 +286,9 @@
     grid-area: outcome;
   }
 }
+
+.setupHelp { margin: 16px 0; color: var(--ink-soft); font-size: 14px; line-height: 1.6; }
+.setupHelp h3 { font-size: 14px; color: var(--ink); margin: 0 0 8px; }
+.setupHelp ol { padding-left: 22px; }
+.setupHelp li + li { margin-top: 6px; }
+.setupHelp a { display: inline-block; margin-right: 16px; overflow-wrap: anywhere; }

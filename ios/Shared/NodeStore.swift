@@ -6,7 +6,7 @@ import Foundation
 // never instantiates the store; it keeps reading the mirrored legacy keys.
 
 /// One Garrison machine as this device knows it. `name` is the key.
-struct NodeRecord: Codable, Equatable {
+struct NodeRecord: Codable, Equatable, Sendable {
     /// "goncalos-macbook-pro": the first DNS label by default, unique in the list.
     var name: String
     /// scheme + host [+ port], no path: what the web view loads.
@@ -45,6 +45,7 @@ struct NodeRecord: Codable, Equatable {
             text = "https://" + text
         }
         guard let parsed = URLComponents(string: text),
+              parsed.user == nil, parsed.password == nil,
               let scheme = parsed.scheme?.lowercased(), scheme == "https" || scheme == "http",
               let host = parsed.host?.lowercased(), !host.isEmpty,
               host.range(of: "^[a-z0-9.:-]+$", options: .regularExpression) != nil

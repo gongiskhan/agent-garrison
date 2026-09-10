@@ -46,6 +46,7 @@ export function ConnectorsPanel() {
   const [form, setForm] = useState<Record<string, string>>({});
   const [oauthMode, setOauthMode] = useState<"choose" | "creds" | "manual">("choose");
   const [notice, setNotice] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
+  const [redirectUri, setRedirectUri] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -73,9 +74,10 @@ export function ConnectorsPanel() {
 
   const startConnect = (c: ConnectorView) => {
     setOpenConnect(c.id);
-    setForm({});
+    setForm(c.baseUrl ? { baseUrl: c.baseUrl } : {});
     setOauthMode("choose");
     setNotice(null);
+    setRedirectUri(null);
   };
 
   const revoke = useCallback(
@@ -101,7 +103,7 @@ export function ConnectorsPanel() {
         const res = await fetch(`/api/connectors/${encodeURIComponent(id)}/connect`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ secrets })
+          body: JSON.stringify({ secrets, ...((id === "cortex" || id === "cortex-automations") ? { baseUrl: form.baseUrl } : {}) })
         });
         const j = await res.json();
         if (!res.ok) throw new Error(j.error || "connect failed");
@@ -122,7 +124,9 @@ export function ConnectorsPanel() {
       const res = await fetch(`/api/connectors/${encodeURIComponent(id)}/oauth-start`);
       const j = await res.json();
       if (res.status === 409) {
-        // Client credentials not set — reveal the creds form.
+        // Client credentials not set — reveal the creds form with the exact
+        // redirect URI the user needs to register in their provider app.
+        setRedirectUri(j.redirectUri ?? null);
         setOauthMode("creds");
         return;
       }
@@ -261,11 +265,20 @@ export function ConnectorsPanel() {
                 </div>
               )}
 
+              {c.setupHelp && (c.auth !== "oauth2" || (openConnect === c.id && oauthMode === "creds")) && (
+                <div className={styles.setupHelp}>
+                  <h3>How to connect</h3>
+                  <ol>{c.setupHelp.steps.map((step) => <li key={step}>{step}</li>)}</ol>
+                  <div>{c.setupHelp.links?.map((link) => <a key={link.url} href={link.url} target="_blank" rel="noreferrer">{link.label}</a>)}</div>
+                </div>
+              )}
+              {c.baseUrl && openConnect !== c.id && <p>Base URL: <a href={c.baseUrl} target="_blank" rel="noreferrer">{c.baseUrl}</a></p>}
+
               {/* Connect / revoke actions */}
               {c.auth !== "none" && (
                 <div className={styles.cardActions}>
-                  <button className="btn small" onClick={() => startConnect(c)}>
-                    {c.sealed ? "Reconnect" : "Connect"}
+                  <button className="btn small" disabled={busy === c.id} onClick={() => { startConnect(c); if (c.auth === "oauth2") void startOAuthRedirect(c.id); }}>
+                    {c.id === "google" ? "Sign in with Google" : c.auth === "oauth2" ? `Sign in to ${c.name}` : c.sealed ? "Configure" : "Connect"}
                   </button>
                   {c.auth === "oauth2" && c.oauth && c.oauth.status !== "revoked" && (
                     <button className="btn small ghost" disabled={busy === c.id} onClick={() => revoke(c.id)}>
@@ -278,6 +291,7 @@ export function ConnectorsPanel() {
               {/* Inline connect form */}
               {openConnect === c.id && (
                 <div className={styles.connectForm}>
+                  {c.baseUrl && <label>Base URL<input type="url" autoComplete="url" style={inputStyle} value={form.baseUrl ?? c.baseUrl} onChange={(e) => setForm((f) => ({ ...f, baseUrl: e.target.value }))} /></label>}
                   {c.auth === "api_key" && (
                     <ConnectFields
                       labels={c.secrets.map((s) => s.name)}
@@ -287,7 +301,7 @@ export function ConnectorsPanel() {
                       onSave={async () => {
                         if (await submitSecrets(c.id, c.secrets.map((s) => s.name))) {
                           setOpenConnect(null);
-                          setNotice({ kind: "ok", text: `${c.name} secrets saved.` });
+                          setNotice({ kind: "ok", text: `${c.name} connection settings saved. Address changes are available to new calls; running sessions adopt them on the next safe deployment.` });
                           await load();
                         }
                       }}
@@ -300,21 +314,26 @@ export function ConnectorsPanel() {
                       <button className="btn small primary" disabled={busy === c.id} onClick={() => startOAuthRedirect(c.id)}>
                         {busy === c.id ? "…" : `Authorize with ${c.name}`}
                       </button>
-                      <button className="btn small ghost" onClick={() => setOauthMode("manual")}>Paste a token instead</button>
+                      {c.id !== "google" && <button className="btn small ghost" onClick={() => setOauthMode("manual")}>Paste a token instead</button>}
                       <button className="btn small ghost" onClick={() => setOpenConnect(null)}>Cancel</button>
                     </div>
                   )}
 
                   {c.auth === "oauth2" && oauthMode === "creds" && (
                     <ConnectFields
-                      title="Enter your OAuth app credentials (one-time). Register this redirect URI in your provider app, then Authorize."
-                      labels={["GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"]}
+                      title={
+                        redirectUri
+                          ? `Enter your OAuth app credentials (one-time). Register this redirect URI in your provider app: ${redirectUri}`
+                          : "Enter your OAuth app credentials (one-time). Register this connector's redirect URI in your provider app, then Authorize."
+                      }
+                      labels={(c.oauthCredentials ?? c.secrets).map((s) => s.name)}
                       form={form}
                       setForm={setForm}
                       busy={busy === c.id}
                       saveLabel="Save & authorize"
                       onSave={async () => {
-                        if (await submitSecrets(c.id, ["GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"])) {
+                        const names = (c.oauthCredentials ?? c.secrets).map((s) => s.name);
+                        if (await submitSecrets(c.id, names)) {
                           await startOAuthRedirect(c.id);
                         }
                       }}

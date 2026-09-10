@@ -118,7 +118,8 @@ export const nativeNode = {
     return r && typeof r.name === "string" && r.name ? (r as NodeInfo) : null;
   },
   list: async (): Promise<NodeInfo[]> => (await call<{ nodes?: NodeInfo[] }>("GarrisonNode", "list")).nodes ?? [],
-  add: (args: { shellOrigin: string; token: string; name?: string; captureBaseURL?: string }) =>
+  refresh: () => call<{ nodes: NodeInfo[] }>("GarrisonNode", "refresh"),
+  add: (args: { shellOrigin: string }) =>
     call<NodeInfo>("GarrisonNode", "add", args),
   /** Selecting rebuilds the webview on the new node's landing (/talk); pass a
    *  bare shell `path` to land on that page there instead (a conversation

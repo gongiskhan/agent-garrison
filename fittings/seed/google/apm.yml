@@ -24,6 +24,13 @@ x-garrison:
   summary: Google Workspace connector — Gmail send, Drive list, and Calendar create/list as a callable action catalog over Google's REST APIs. OAuth2 is sealed in the keychain Vault; the engine injects a freshly-refreshed access token per call. No token.json on disk, nothing plaintext in the manifest or logs.
   config_schema: []
   connector:
+    setup_help:
+      steps:
+        - "Normally, Sign in with Google opens Google consent directly. Your connection is shared across the mesh."
+        - "For a fresh self-hosted installation, create an OAuth web application in Google Cloud, enable Gmail, Drive and Calendar APIs, and register the exact callback shown below. Add the app credentials once, then sign in."
+      links:
+        - label: "Google OAuth setup"
+          url: "https://developers.google.com/identity/protocols/oauth2/web-server"
     auth: oauth2
     actions:
       - name: gmail.send

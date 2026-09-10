@@ -28,8 +28,7 @@ interface RosterNode {
 // route on another node. In a browser that is a full navigation to the peer's
 // tailnet origin. Inside the app the webview is bound to one origin per
 // bridge, so the switch goes through GarrisonNode: select the matching record
-// and reload - a node the app has not been given a capture token for is shown
-// but cannot be chosen from here (it is added on the Capture page).
+// and reload. Native mesh discovery provisions the device automatically.
 export function NodeSwitcher() {
   const node = useNodeChrome();
   const native = useNativeBridge();
@@ -54,6 +53,7 @@ export function NodeSwitcher() {
     }
     if (isNativeApp()) {
       try {
+        await nativeNode.refresh().catch(() => undefined);
         setAppNodes(await nativeNode.list());
       } catch {
         setAppNodes([]);
@@ -140,7 +140,7 @@ export function NodeSwitcher() {
               const hint = row.isSelf
                 ? "this window"
                 : native && !record
-                  ? "not added in the app"
+                  ? "waiting for mesh discovery"
                   : !nodeAppOrigin(row.tailnetHost, row.appOrigin)
                     ? "no tailnet address"
                     : row.state;

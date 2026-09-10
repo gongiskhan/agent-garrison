@@ -98,6 +98,11 @@ const connectorOAuthSchema = z
   }));
 
 const connectorSpecSchema = z.object({
+  managed: z.boolean().optional(),
+  setup_help: z.object({
+    steps: z.array(z.string().min(1)).min(1),
+    links: z.array(z.object({ label: z.string().min(1), url: z.string().url().refine((url) => url.startsWith("https://")) })).optional()
+  }).optional(),
   auth: z.enum(["oauth2", "api_key", "none"]),
   actions: z.array(connectorActionSchema).default([]),
   triggers: z.array(connectorTriggerSchema).optional(),

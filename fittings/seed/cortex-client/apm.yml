@@ -61,7 +61,7 @@ x-garrison:
         cannot be compared exactly when verify re-checks the pin.
     - key: base_url
       type: string
-      default: ''
+      default: "https://app.ekoa.io"
       description: >-
         Origin of the capability API the CLI talks to. Recorded in the install receipt for
         consumers to export as CORTEX_BASE_URL. Empty by default - no provider origin ships
@@ -94,6 +94,14 @@ x-garrison:
         clone - an absolute path or a '..' segment is refused, and so is a `bin` entry in
         the repository's own package.json that would point outside it.
   connector:
+    setup_help:
+      steps:
+        - "Set the base URL of your Cortex deployment (Ekoa by default). Sign in to that deployment and obtain a user-scoped API key for the memory, knowledge or automation actions you want Garrison to use."
+        - "Paste that key below. If key issuance is restricted, ask the deployment administrator for a key scoped to your account. Both Cortex connectors share this credential and base URL."
+        - "The Cortex CLI fitting installs the command-line client. Its repository and pinned version are configured in the fitting; the automation fitting uses that installed client."
+      links:
+        - label: "Open Ekoa"
+          url: "https://app.ekoa.io"
     auth: api_key
     actions:
       - name: memory_write
