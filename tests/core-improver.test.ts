@@ -222,3 +222,15 @@ it("uses the configured standard review model instead of a cheap classifier",asy
   const result=await callImproverInference({executionRouteFor:async()=>({target}),executionModel:async()=>({}),resolveSecrets:()=>({})},{prompt:"Evidence"},{call});
   expect(result.inference.model).toBe("configured-review-model");expect(call.mock.calls[0][2].targetOverride.account).toBe("pinned");
 });
+it("constrains model citations to the current review without leaking another owner's source IDs",async()=>{
+  const {callImproverInference}=await import("../fittings/seed/http-gateway/scripts/lib/improver-inference.mjs");
+  const {REVIEW_SCHEMA}=await import("../packages/improver/src/contracts.mjs");
+  const target={provider:"anthropic",runtime:"agent-sdk",model:"review-model"};
+  const router={executionRouteFor:async()=>({target}),resolveSecrets:()=>({})};
+  const call=vi.fn(async()=>'{"summary":"Reviewed","proposals":[]}');
+  await callImproverInference(router,{prompt:JSON.stringify({evidence:[{id:"owner-a-source"},{id:"owner-a-source"}]})},{call});
+  await callImproverInference(router,{prompt:JSON.stringify({evidence:[{id:"owner-b-source"}]})},{call});
+  expect(call.mock.calls[0][2].schema.properties.proposals.items.properties.sourceIds.items.enum).toEqual(["owner-a-source"]);
+  expect(call.mock.calls[1][2].schema.properties.proposals.items.properties.sourceIds.items.enum).toEqual(["owner-b-source"]);
+  expect(REVIEW_SCHEMA.properties.proposals.items.properties.sourceIds.items.enum).toBeUndefined();
+});

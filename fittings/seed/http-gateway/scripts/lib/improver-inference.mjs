@@ -4,6 +4,15 @@ import { REVIEW_SYSTEM, REVIEW_SCHEMA } from "@garrison/improver/contracts";
 // Reviews remain tool-free. Use the configured model and sealed accounts rather
 // than depending on a particular node's interactive Claude login.
 export async function callImproverInference(router, { prompt, signal }, { call = callStructuredInference } = {}) {
+  // Constrain citations to this review's evidence, instead of asking the model
+  // to reproduce opaque identifiers without a schema boundary. Clone per call
+  // so concurrent owners cannot inherit each other's allowed citations.
+  let evidence;
+  try { evidence=JSON.parse(prompt)?.evidence; } catch { /* Existing diagnostic callers may pass plain text. */ }
+  const sourceIds=Array.isArray(evidence)?[...new Set(evidence.map((source)=>source?.id).filter((id)=>typeof id==="string"&&id))]:[];
+  const schema=structuredClone(REVIEW_SCHEMA);
+  if(sourceIds.length) schema.properties.proposals.items.properties.sourceIds.items.enum=sourceIds;
+  const system=sourceIds.length?`${REVIEW_SYSTEM}\nUse only these exact sourceIds for citations: ${JSON.stringify(sourceIds)}.`:REVIEW_SYSTEM;
   const review = await router.executionRouteFor?.({ duty: "review", level: 2 });
   const configured = review?.target;
   const target = configured?.provider === "anthropic" && ["agent-sdk", "claude-code"].includes(configured.runtime)
@@ -19,8 +28,8 @@ export async function callImproverInference(router, { prompt, signal }, { call =
   for (const choice of candidates) {
     if (signal?.aborted) throw new Error("Review inference was cancelled");
     try {
-      const text = await call(router, {system:REVIEW_SYSTEM,prompt,signal},
-        {schema:REVIEW_SCHEMA,maxTokens:6000,timeoutMs:120_000,targetOverride:choice});
+      const text = await call(router, {system,prompt,signal},
+        {schema,maxTokens:6000,timeoutMs:120_000,targetOverride:choice});
       return {text,inference:{runtime:"agent-sdk",model:choice.model,account:choice.account ?? null,fallbacks:failed}};
     } catch (error) {
       if (!/not logged in|authentication|unauthorized|token.*expired|invalid.*token|\b401\b/i.test(error.message) || signal?.aborted) throw error;
