@@ -85,7 +85,7 @@ async function syncMain() {
     const child = spawn('npm', ['run', 'node:redeploy'], { cwd: repo, env: { ...process.env, GARRISON_HOME: home }, stdio: 'inherit' });
     child.once('error', reject); child.once('exit', resolve);
   });
-  if (exitCode !== 0) { save({ status: 'deferred', reason: `guarded deployment exited ${exitCode}` }); return; }
+  if (exitCode !== 0) { save({ status: 'deferred', reason: `guarded deployment exited ${exitCode}`, ...(exitCode === 75 ? { attemptedAt: 0 } : {}) }); return; }
   // The redeploy script records the revision only after live acceptance.
 }
 

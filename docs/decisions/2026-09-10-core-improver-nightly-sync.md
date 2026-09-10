@@ -65,3 +65,27 @@ uses a stable identity, while a failed revert retries the revert.
 
 Deployment and live review/UI/notification acceptance are in progress.
 
+## Live rollout findings
+
+The first Air review caught a missing installed core dependency and an unavailable
+interactive Claude login. Redeploy now installs the committed dependency graph;
+core review inference can use existing sealed Anthropic accounts after an
+authentication failure, while preserving explicit account pins. A real Air review
+then completed inference with valid source citations and an empty proposal list.
+
+Native push is verified from provider receipts rather than HTTP status: a release
+notice returned companion-push success for 1/1 registered devices. Zero-recipient
+web responses remain pending and are retried, including through another mesh
+node's native provider. Physical iPhone display was not observed.
+
+Vault jobs are stored with node suffixes but executed and recorded under their
+local base ID. Nightly checks match both IDs and the owner; recent successful
+quarter-hour receipts exist on all four primary nodes. The staging Ekoa endpoint
+is reachable, but the current Cortex credential returns HTTP 401 there.
+
+Deployment regenerates APM installation receipts and the compiled Kanban bundle.
+These are now ignored runtime outputs; their sources remain tracked, and setup
+rebuilds the bundle. Existing node outputs were compared and preserved in Git
+stashes before catch-up. YAML formatting was normalized without changing values.
+A verified build can be reused when a concurrent mesh restart defers deployment;
+source changes during a build refuse publication and require a fresh build.
