@@ -103,8 +103,14 @@ export async function recoverInterruptedWork(store,context) {
   }
   for(const p of await store.list("proposal")) {
     if(!["applying","reverting"].includes(p.status) || now-Date.parse(p.decidedAt)<10*60_000)continue;
-    await store.update("proposal",p.id,(current)=>!["applying","reverting"].includes(current.status) || Date.now()-Date.parse(current.decidedAt)<10*60_000?null:
-      {...current,status:"failed",error:"Authoring was interrupted. Retry checks the existing memory or implementation task before continuing."});
+    let recovered = false;
+    await store.update("proposal",p.id,(current)=> {
+      recovered = false;
+      if (!["applying","reverting"].includes(current.status) || Date.now()-Date.parse(current.decidedAt)<10*60_000) return null;
+      recovered = true;
+      return {...current,status:"failed",error:"Authoring was interrupted. Retry checks the existing memory or implementation task before continuing."};
+    });
+    if (!recovered) continue;
     await store.updateTrack(p.track,(track)=>recordOutcome(track,"failed"));
     await notify(store,context,`interrupted-${p.id}`,"Improvement needs recovery",p.title);
   }

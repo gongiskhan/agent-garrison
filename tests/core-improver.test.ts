@@ -155,3 +155,35 @@ it("review authentication falls back to sealed accounts, without overriding expl
   target.account="pinned";call.mockImplementation(async()=>{throw new Error("Not logged in");});call.mockClear();
   await expect(callImproverInference(router,{prompt:"Evidence"},{call})).rejects.toThrow("Reconnect");expect(call).toHaveBeenCalledTimes(1);
 });
+it("bounded daily excerpts preserve the final correction after a long opening",async()=>{
+  const {boundedExcerpt}=await import("../packages/improver/src/collect.mjs");
+  const text=boundedExcerpt("Initial objective: "+"A".repeat(7000)+" Final user correction: preserve working Conversations.");
+  expect(text.length).toBeLessThanOrEqual(2400);expect(text).toContain("Initial objective");expect(text).toContain("Final user correction");
+});
+it("retrying a failed Nightly occurrence clears its own attention state",async()=>{
+  const card=await harness.client.createCard({id:"01K00000000000000000000004",title:"Nightly Sync",list:"running",status:"running",scope:"default",scheduleSystemKey:"nightly-sync"});
+  const run={id:"nightly-recovery-test",cardId:card.id};
+  await finishNightlyCard(store,run,{status:"partial",summary:"One node failed"});
+  expect((await harness.client.getCard(card.id)).list).toBe("needs-attention");
+  await finishNightlyCard(store,run,{status:"complete",summary:"Recovery verified"});
+  expect((await harness.client.getCard(card.id)).list).toBe("done");
+});
+it("task authoring resumes a created task after a start failure without duplicating it",async()=>{
+  const {createServer}=await import("node:http");const {applyProposal}=await import("../packages/improver/src/authoring.mjs");
+  let card,creates=0,starts=0;
+  const server=createServer(async(req,res)=>{
+    res.setHeader("content-type","application/json");
+    if(req.method==="GET"){res.statusCode=card?200:404;res.end(JSON.stringify(card?{card}:{error:"not found"}));return;}
+    let raw="";for await(const chunk of req)raw+=chunk;const body=JSON.parse(raw);
+    if(req.url==="/cards"){creates++;expect(body).toMatchObject({project:"garrison",autonomous:true,placement:{target:"host"}});card={...body,id:body.conversationId,list:"todo"};res.end(JSON.stringify({card}));return;}
+    starts++;if(starts===1){res.statusCode=503;res.end(JSON.stringify({error:"gateway starting"}));return;}
+    card.list="running";res.end(JSON.stringify({card}));
+  });
+  await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
+  const dir=path.join(home,"ui-fittings");await fs.mkdir(dir,{recursive:true});await fs.writeFile(path.join(dir,"kanban-loop.json"),JSON.stringify({url:`http://127.0.0.1:${server.address().port}`}));
+  try {
+    const p=proposal("stable-task-test");await expect(applyProposal(context,p,"approve")).rejects.toThrow("gateway starting");
+    const receipt=await applyProposal(context,p,"approve");await applyProposal(context,p,"approve");
+    expect(receipt.taskId).toBe(card.id);expect(creates).toBe(1);expect(starts).toBe(2);
+  }finally{await new Promise(resolve=>server.close(resolve));await fs.rm(path.join(dir,"kanban-loop.json"));}
+});

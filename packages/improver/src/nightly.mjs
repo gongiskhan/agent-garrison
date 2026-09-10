@@ -23,7 +23,8 @@ export async function finishNightlyCard(store, run, result) {
   for (let attempt=0;attempt<4;attempt++) {
     const card = await store.client.getCard(run.cardId);
     if (!card || ![NIGHTLY_SYSTEM_KEY,"mesh-convergence"].includes(card.scheduleSystemKey ?? card.systemKey)) return;
-    if (card.list !== "running" && card.list !== "todo") return;
+    if (card.list !== "running" && card.list !== "todo" &&
+      !(card.list === "needs-attention" && card.nightlySyncRun === run.id)) return;
     const failed = result.status !== "complete";
     try {
       await store.client.patchCard(card.id, { list:failed ? "needs-attention" : "done", status:failed ? "needs-attention" : "ok", scheduleAction:null,

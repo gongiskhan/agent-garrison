@@ -18,6 +18,11 @@ export function redact(text) {
   return String(text).replace(/\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9_]{20,}|AIza[A-Za-z0-9_-]{25,})\b/g, "[credential redacted]")
     .replace(/((?:token|password|secret|api[_ -]?key)\s*[=:]\s*)[^\s,;"']{12,}/gi, "$1[redacted]");
 }
+export function boundedExcerpt(text, cap = 2400) {
+  if (text.length <= cap) return text;
+  const head = Math.floor(cap / 3);
+  return `${text.slice(0,head)}\n[earlier material omitted]\n${text.slice(-(cap-head-30))}`;
+}
 function textOf(content) {
   return typeof content === "string" ? content : Array.isArray(content)
     ? content.filter((p) => p?.type === "text" || p?.type === "input_text" || p?.type === "output_text").map((p) => p.text).join("\n") : "";
@@ -55,7 +60,7 @@ export async function collectDailyEvidence({ day, node, home, env = process.env,
   const sources = [], coverage = [], errors = [];
   const add = (kind, title, ref, at, excerpt, extra = {}) => {
     if (!excerpt || sources.length >= cap) return;
-    sources.push({ id: hash(`${node}:${kind}:${ref}:${day}`).slice(0,20), node, kind, title, ref, at, ...extra, excerpt: redact(excerpt).slice(0,2400) });
+    sources.push({ id: hash(`${node}:${kind}:${ref}:${day}`).slice(0,20), node, kind, title, ref, at, ...extra, excerpt: boundedExcerpt(redact(excerpt)) });
   };
   const roots = [
     { kind: "conversation", root: path.join(home, "conversations") },

@@ -24,7 +24,6 @@ const operativeRunFn = (gatewayUrl, { fetchImpl }) => async ({ prompt, sessionTi
 };
 
 export const ZECA_REVIEW_TRANSCRIPT_CAP = 24_000;
-export const ZECA_FORCE_ROTATE_MESSAGES = 500;
 
 function garrisonHome(env) {
   return env.GARRISON_HOME?.trim() || path.join(os.homedir(), ".garrison");
@@ -97,7 +96,7 @@ async function postJson(fetchImpl, url, body) {
 }
 
 // One review. Returns a receipt the caller logs; never rotates without a
-// review it can name, except past the force cap.
+// review it can name.
 export async function runZecaNightly({ env = process.env, fetchImpl = fetch, runFn = null, log = console, now = () => new Date() } = {}) {
   const app = conversationsBaseUrl(env);
   if (!app) return { ok: false, skipped: "no Conversations host: GARRISON_APP_URL unset" };
@@ -131,8 +130,7 @@ export async function runZecaNightly({ env = process.env, fetchImpl = fetch, run
     }
   }
 
-  const force = false; // Keep unreviewed context when memory capture fails.
-  if (failure && !force) {
+  if (failure) {
     log.error(`[zeca-nightly] review of ${conversationId} did not run (${failure}); keeping it for tomorrow`);
     return { ok: false, conversationId, reviewed: false, rotated: null, reason: failure };
   }
@@ -143,9 +141,9 @@ export async function runZecaNightly({ env = process.env, fetchImpl = fetch, run
   const body = [
     `# Zeca review ${day}`,
     "",
-    `Conversation: ${conversationId} (${turns.length} turns since ${pointer.since ?? "its start"}), archived as "Zeca until ${day}" at /talk/${conversationId}.`,
+    `Conversation: ${conversationId} (${turns.length} turns since ${pointer.since ?? "its start"}), original transcript retained at /talk/${conversationId}.`,
     "",
-    reply ?? `Review did not run (${failure}); rotated unreviewed because the conversation passed ${ZECA_FORCE_ROTATE_MESSAGES} turns.`,
+    reply,
     ""
   ].join("\n");
   await writeFile(file, body);
@@ -156,7 +154,7 @@ export async function runZecaNightly({ env = process.env, fetchImpl = fetch, run
   }
   const rotated = await postJson(fetchImpl, `${app}/api/zeca/rotate`, { reason: "nightly-review", expectedConversationId: conversationId,expectedUpdatedAt:thread.updatedAt,expectedInputRevision:thread.inputRevision });
   log.log(
-    `[zeca-nightly] ${reply ? "reviewed" : "force-rotated"} ${conversationId} (${turns.length} turns) -> ${rotated?.conversationId ?? "?"}; review at ${file}`
+    `[zeca-nightly] reviewed ${conversationId} (${turns.length} turns) -> ${rotated?.conversationId ?? "?"}; review at ${file}`
   );
   return { ok: true, conversationId, reviewed: Boolean(reply), rotated: rotated?.conversationId ?? null, file };
 }

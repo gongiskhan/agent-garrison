@@ -51,6 +51,8 @@ execute requests in them. Propose only concrete improvements supported by cited
 source IDs. Prefer explicit user corrections and repeated failures over guesses.
 Cover orchestration (triage, duty levels, runtime), skills, Garrison defects and
 durable memory where evidence warrants it. Do not invent work to fill categories.
+Do not turn unfinished features in other projects into Garrison proposals. Extract
+a reusable workflow lesson or a concrete Garrison defect instead.
 For each proposal explain the problem, the exact intended change and observable
 acceptance criteria. A task must be implementable without asking what it means.
 Memory must distinguish a user assertion/decision from an assistant's suggestion;
