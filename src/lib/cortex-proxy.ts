@@ -187,7 +187,7 @@ export async function readCortexBase(): Promise<CortexBase> {
     if (resolved) return { baseUrl: resolved, source: "env", stationed, compositionId };
   }
 
-  return { baseUrl: "https://app.ekoa.io", source: "default", stationed, compositionId };
+  return { baseUrl: "https://staging.ekoa.io", source: "default", stationed, compositionId };
 }
 
 export interface CortexKeyState {

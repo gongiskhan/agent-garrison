@@ -23,8 +23,6 @@ dependencies:
     - path: ../../fittings/seed/google
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/huggingface-runtime
-    - path: ../../fittings/seed/improver
-    - path: ../../fittings/seed/improver-nightly
     - path: ../../fittings/seed/kanban-loop
     - path: ../../fittings/seed/loop-heartbeat
     - path: ../../fittings/seed/mcp-gateway
@@ -205,15 +203,6 @@ x-garrison:
           config:
             port: 8090
             bind_host: 127.0.0.1
-        - id: improver
-          config:
-            port: 8093
-            bind_host: 127.0.0.1
-            cron: 30 3 * * *
-            vault_dir: ~/ObsidianVault
-            memory_primary: true
-            checkpoint_retention_days: 14
-            dream_model: haiku
         - id: scheduler
           config:
             jobs_file: ~/.garrison/scheduler-jobs.json
@@ -254,13 +243,6 @@ x-garrison:
         - id: snapshots-default
           config:
             projects_root: ~/dev
-        - id: improver-nightly
-          config:
-            autonomy_mode: enabled
-            schedule_cron: 17 3 * * *
-            state_dir: data/improver
-            proposal_namespace: improver
-            require_unlocked_vault: true
       surfaces:
         - id: screen-share-default
           config:
@@ -306,12 +288,12 @@ x-garrison:
           config: {}
         - id: cortex-automations
           config:
-            base_url: https://app.ekoa.io
+            base_url: https://staging.ekoa.io
         - id: cortex-client
           config:
             repo_url: https://github.com/gongiskhan/ekoa-code.git
             git_ref: 8b7d5812f581b06930ec8ce3023e7a21c2d00467
-            base_url: https://app.ekoa.io
+            base_url: https://staging.ekoa.io
             bin_dir: ''
             clone_dir: ''
             package_subdir: clients/cortex-cli

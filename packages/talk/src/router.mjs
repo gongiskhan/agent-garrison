@@ -3663,9 +3663,9 @@ export function createTalkRouter(liveOpts, { distDir = null, log = console } = {
       if (pathname === "/api/zeca/rotate" && method === "POST") {
         void readJsonBody(req)
           .catch(() => ({}))
-          .then((body) => rotateZecaConversation({ reason: typeof body?.reason === "string" ? body.reason.slice(0, 80) : "rotate" }))
+          .then((body) => rotateZecaConversation({ reason: typeof body?.reason === "string" ? body.reason.slice(0, 80) : "rotate", expectedConversationId: typeof body?.expectedConversationId === "string" ? body.expectedConversationId : null, expectedUpdatedAt:body?.expectedUpdatedAt,expectedInputRevision:body?.expectedInputRevision }))
           .then((body) => jsonRes(res, 200, body))
-          .catch((err) => jsonRes(res, 500, { error: String(err?.message ?? err) }));
+          .catch((err) => jsonRes(res, err.status || 500, { error: String(err?.message ?? err) }));
         return true;
       }
       if (pathname === "/api/claude/stream" && method === "GET") { settle(res, handleClaudeStream(req, res, liveOpts), log); return true; }

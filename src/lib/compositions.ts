@@ -989,7 +989,7 @@ function normalizeSelections(selections: FittingSelectionMap): FittingSelectionM
     if (!items || items.length === 0) {
       continue;
     }
-    normalized[facultyId] = items.map((item) => ({
+    normalized[facultyId] = items.filter((item)=>!["improver","improver-nightly"].includes(item.id)).map((item) => ({
       id: item.id,
       config: item.config ?? {}
     }));

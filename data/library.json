@@ -558,35 +558,6 @@
     }
   },
   {
-    "id": "improver",
-    "name": "Improver",
-    "repo": "local:fittings/seed/improver",
-    "localPath": "fittings/seed/improver",
-    "summary": "Nightly self-improvement runner — reads telemetry, transcripts, and evidence and produces proposal diffs into an own-port review queue (default 27093). Approved proposals apply only through hosted authoring APIs. Per-rule autonomy (manual|auto) with streak-gated promotion and instant demotion.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-improver",
-      "global": 4.4,
-      "claude_code": 4.4
-    }
-  },
-  {
-    "id": "improver-nightly",
-    "name": "Improver Nightly",
-    "repo": "local:fittings/seed/improver-nightly",
-    "localPath": "fittings/seed/improver-nightly",
-    "summary": "Reads local telemetry, evidence, and project docs, then writes reviewable improvement proposal artifacts. Setup registers a disabled scheduler job; runs never apply changes.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "global": 4,
-      "claude_code": 4
-    }
-  },
-  {
     "id": "kanban-loop",
     "name": "Kanban Board",
     "repo": "local:fittings/seed/kanban-loop",

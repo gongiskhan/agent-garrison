@@ -301,7 +301,7 @@ export function ConnectorsPanel() {
                       onSave={async () => {
                         if (await submitSecrets(c.id, c.secrets.map((s) => s.name))) {
                           setOpenConnect(null);
-                          setNotice({ kind: "ok", text: `${c.name} connection settings saved. Address changes are available to new calls; running sessions adopt them on the next safe deployment.` });
+                          setNotice({ kind: "ok", text: `${c.name} connection settings saved. Address changes are available to new calls; running services adopt them on the next safe deployment.` });
                           await load();
                         }
                       }}

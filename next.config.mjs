@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  async redirects() {
+    return ["/embed/improver", "/embed/improver-nightly", "/fitting/improver/:path*", "/fitting/improver-nightly/:path*"].map((source)=>({source,destination:"/improver",permanent:false}));
+  },
   // Gate builds must not share .next/ with a running dev server — a prod build
   // silently breaks the dev server's dynamic routes (friction-log 2026-06-10).
   // Gates set NEXT_DIST_DIR=.next-build; default stays .next for normal use.

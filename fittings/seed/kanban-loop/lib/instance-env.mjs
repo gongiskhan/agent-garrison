@@ -41,7 +41,7 @@ export function resolveGatewayUrl() {
 // The Garrison APP's base URL, same discipline as the gateway URL above: no
 // literal fallback, resolve from the projected URL or the app port, else null.
 export function resolveGarrisonBaseUrl() {
-  const explicit = (process.env.GARRISON_BASE_URL || "").trim();
+  const explicit = (process.env.GARRISON_BASE_URL || process.env.GARRISON_APP_URL || "").trim();
   if (explicit) return explicit;
   const port = (process.env.GARRISON_APP_PORT || "").trim();
   if (/^[0-9]+$/.test(port)) return `http://127.0.0.1:${port}`;

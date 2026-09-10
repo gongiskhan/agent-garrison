@@ -46,6 +46,18 @@ afterEach(() => {
 });
 
 describe("claude lister", () => {
+  it("treats an explicit local /clear as idle but keeps subsequent model work active", () => {
+    const file = path.join(sandbox, "clear.jsonl");
+    const row = { id: "clear", runtime: "claude", lastActivityAt: new Date(NOW).toISOString() };
+    const events = [{ event: "agent-start", runtime: "claude", session_id: row.id, ts: new Date(NOW - 10_000).toISOString() }];
+    for (const content of ['<command-name>/clear</command-name>\n<command-message>clear</command-message>', [{ type: "text", text: '<command-name>/clear</command-name>' }]]) {
+      writeFileSync(file, JSON.stringify({ type: "user", timestamp: new Date(NOW).toISOString(), message: { content } }) + "\n");
+      expect(applyHookStatus({ ...row, ...claudeTranscriptStatus(file, NOW, NOW) }, events, NOW).status).toBe("idle");
+    }
+    appendFileSync(file, JSON.stringify({ type: "user", timestamp: new Date(NOW + 1_000).toISOString(), message: { content: "Please clear the cache" } }) + "\n");
+    expect(claudeTranscriptStatus(file, NOW + 1_000, NOW + 60_000).status).toBe("working");
+  });
+
   it("keeps more than three hundred Claude journals active within five days", () => {
     const home = path.join(sandbox, "claude-many-recent");
     process.env.GARRISON_CLAUDE_HOME = home;

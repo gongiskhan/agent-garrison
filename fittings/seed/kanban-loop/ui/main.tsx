@@ -2643,6 +2643,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
     try {
       const next = await api.patch(detail.card.id, {
         autonomous: !detail.card.autonomous,
+        ...(!detail.card.autonomous && detail.card.schedule ? { schedule: { ...detail.card.schedule, action: "run" as const } } : {}),
         rev: detail.card.rev
       });
       setDetail((d) => d ? { ...d, card: next.card } : d);
@@ -3148,7 +3149,9 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         {!frozenAt && (
           <button
             className={`chip chip-toggle${card.autonomous ? " on" : ""}`}
-            title={card.autonomous
+            title={card.schedule?.kind === "cron"
+              ? "Applies to every future occurrence. Enabling autonomy also sets the schedule to run automatically."
+              : card.autonomous
               ? "Autonomous ON — runs end to end without asking. Click to turn off."
               : "Autonomous OFF — pauses after planning and asks before doing the work. Click to turn on."}
             onClick={() => { void toggleAutonomous(); }}

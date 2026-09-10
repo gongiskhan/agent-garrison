@@ -364,6 +364,24 @@ describe("sweepDueSchedules", () => {
     expect(await sweepDueSchedules(root, board)).toEqual([]);
   });
 
+  it("inherits autonomous approval on every occurrence and respects later template changes", async () => {
+    const root = tmp();
+    const template = await createCard(root, {
+      title: "autonomous daily", list: "scheduled", autonomous: true,
+      schedule: { kind: "cron", action: "run", cron: "0 8 * * *", timezone: "UTC", enabled: true, targetList: "todo", nextAt: "2026-08-05T08:00:00.000Z" }
+    });
+    for (const day of [5, 6]) {
+      const iso = `2026-08-0${day}T08:00:05.000Z`;
+      await sweepDueSchedules(root, board, { now: () => iso, at: () => Date.parse(iso) });
+    }
+    const occurrences = (await loadAllCards(root)).filter((card: any) => card.scheduleTemplateId === template.id);
+    expect(occurrences).toHaveLength(2);
+    expect(occurrences.every((card: any) => card.autonomous === true && card.scheduleAction === "run")).toBe(true);
+    await updateCardCAS(root, template.id, (card: any) => ({ ...card, autonomous: false }));
+    const manual = await runScheduleNow(root, board, template.id, { now: () => "2026-08-06T13:00:00.000Z" });
+    expect(manual.card.autonomous).toBe(false);
+  });
+
   it("creates one recurring occurrence under concurrent ticks", async () => {
     const root = tmp();
     const due = "2026-08-05T08:00:00.000Z";

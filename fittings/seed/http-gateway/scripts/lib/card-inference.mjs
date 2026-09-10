@@ -14,7 +14,13 @@ export function cheapestAnthropicTarget(model) {
   return choices.sort((a, b) => priceRank(a) - priceRank(b))[0] ?? null;
 }
 
-export async function callCardInference(router, { system, prompt, signal }, { fetchImpl = fetch, proxyUrl, adapterFactory } = {}) {
+export async function callCardInference(router, { system, prompt, signal }, options = {}) {
+  return callStructuredInference(router, { system, prompt, signal }, options);
+}
+
+export async function callStructuredInference(router, { system, prompt, signal }, { fetchImpl = fetch, proxyUrl, adapterFactory, timeoutMs = 20_000, maxTokens = 800, schema = { type: "object", properties: {
+  title: { type: "string", maxLength: 70 }, description: { type: "string" }, messageIds: { type: "array", items: { type: "string" } }, confidence: { type: "number" }
+}, required: ["title", "description", "messageIds", "confidence"], additionalProperties: false } } = {}) {
   const target = cheapestAnthropicTarget(await router.executionModel());
   if (!target) throw new Error("No Anthropic model is configured in the board ladder.");
   const secrets = router.resolveSecrets() ?? {};
@@ -46,14 +52,12 @@ export async function callCardInference(router, { system, prompt, signal }, { fe
     try {
       const invoke = makeAdapterCallInvoker(adapter, {
         ...target, compositionDir: router.compositionDir, secrets,
-        env: { ...process.env, GARRISON_ANTHROPIC_PROXY_URL: base, CLAUDE_CODE_MAX_OUTPUT_TOKENS: "800", CLAUDE_CODE_MAX_RETRIES: "0", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", CLAUDE_CODE_DISABLE_TERMINAL_TITLE: "1" },
+        env: { ...process.env, GARRISON_ANTHROPIC_PROXY_URL: base, CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxTokens), CLAUDE_CODE_MAX_RETRIES: "0", CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1", CLAUDE_CODE_DISABLE_TERMINAL_TITLE: "1" },
         provider: "anthropic", model: target.model, effort: "low", thinking: { type: "disabled" },
         promptMode: "lean", leanPrompt: system, maxTurns: 1, tools: [], allowedTools: [], permissionMode: "bypassPermissions", persistSession: false,
-        outputFormat: { type: "json_schema", schema: { type: "object", properties: {
-          title: { type: "string", maxLength: 70 }, description: { type: "string" }, messageIds: { type: "array", items: { type: "string" } }, confidence: { type: "number" },
-        }, required: ["title", "description", "messageIds", "confidence"], additionalProperties: false } },
-      }, { timeoutMs: 20_000 });
-      const result = await invoke({ model: target.model, prompt, timeoutMs: 20_000 });
+        outputFormat: { type: "json_schema", schema },
+      }, { timeoutMs });
+      const result = await invoke({ model: target.model, prompt, timeoutMs });
       if (!result.ok) throw new Error(result.error || "Card inference failed.");
       return result.text;
     } finally { signal?.removeEventListener("abort", cancel); }
@@ -64,7 +68,7 @@ export async function callCardInference(router, { system, prompt, signal }, { fe
   const response = await fetchImpl(new URL("/v1/messages", base), {
     method: "POST", signal,
     headers: { "content-type": "application/json", "anthropic-version": "2023-06-01", "x-api-key": key },
-    body: JSON.stringify({ model: target.model, max_tokens: 800, thinking: { type: "disabled" },
+    body: JSON.stringify({ model: target.model, max_tokens: maxTokens, thinking: { type: "disabled" },
       ...(supportsEffort ? { output_config: { effort: "low" } } : {}), system, messages: [{ role: "user", content: prompt }] }),
   });
   if (!response.ok) throw new Error(`Card inference returned HTTP ${response.status}.`);

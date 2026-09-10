@@ -61,7 +61,7 @@ x-garrison:
         cannot be compared exactly when verify re-checks the pin.
     - key: base_url
       type: string
-      default: "https://app.ekoa.io"
+      default: "https://staging.ekoa.io"
       description: >-
         Origin of the capability API the CLI talks to. Recorded in the install receipt for
         consumers to export as CORTEX_BASE_URL. Empty by default - no provider origin ships
@@ -101,7 +101,7 @@ x-garrison:
         - "The Cortex CLI fitting installs the command-line client. Its repository and pinned version are configured in the fitting; the automation fitting uses that installed client."
       links:
         - label: "Open Ekoa"
-          url: "https://app.ekoa.io"
+          url: "https://staging.ekoa.io"
     auth: api_key
     actions:
       - name: memory_write

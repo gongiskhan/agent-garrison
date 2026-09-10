@@ -41,7 +41,7 @@ x-garrison:
   config_schema:
     - key: base_url
       type: string
-      default: "https://app.ekoa.io"
+      default: "https://staging.ekoa.io"
       description: >-
         Cortex origin the session view talks to, e.g. https://cortex.example.com. Read
         SERVER-side only: Garrison's proxy builds every request from it and attaches the
@@ -67,7 +67,7 @@ x-garrison:
         - "Paste that key below. If key issuance is restricted, ask the deployment administrator for a key scoped to your account. Both Cortex connectors share this credential and base URL."
       links:
         - label: "Open Ekoa"
-          url: "https://app.ekoa.io"
+          url: "https://staging.ekoa.io"
     auth: api_key
     actions:
       - name: automations_list

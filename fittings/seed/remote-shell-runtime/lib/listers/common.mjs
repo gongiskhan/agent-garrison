@@ -58,7 +58,15 @@ export function claudeTranscriptStatus(file, mtimeMs, now = Date.now()) {
   let state = null;
   let statusAt = null;
   for (const rec of readJsonlSlice(file, { tail: true })) {
-    if (rec.type === "user") state = "working";
+    if (rec.type === "user") {
+      const content = rec.message?.content;
+      const text = typeof content === "string" ? content : Array.isArray(content)
+        ? content.filter((part) => part?.type === "text").map((part) => part.text).join("\n") : "";
+      // Claude records /clear as a local user command, without an assistant
+      // turn or Stop event. Only this explicit command closes the old turn;
+      // ordinary prompts and tool results retain the existing activity rules.
+      state = /^\s*<command-name>\s*\/clear\s*<\/command-name>/.test(text) ? "idle" : "working";
+    }
     else if (rec.type === "assistant") {
       const message = rec.message ?? {};
       const textOnly = Array.isArray(message.content) && message.content.length > 0

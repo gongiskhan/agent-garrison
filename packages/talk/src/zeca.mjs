@@ -16,7 +16,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { ensureThread, renameThread, setThreadRouting, threadExistsSync } from "./threads.mjs";
+import { ensureThread, renameThread, setThreadRouting, threadExistsSync, getThread } from "./threads.mjs";
 
 export const ZECA_TITLE = "Zeca";
 export const ZECA_SOURCE = "zeca";
@@ -112,9 +112,15 @@ export async function zecaConversation({ nowIso = new Date().toISOString() } = {
  * Returns the new pointer plus the id that was rotated out (null when there
  * was nothing to rotate, so a caller can tell "fresh start" from "rotated").
  */
-export async function rotateZecaConversation({ nowIso = new Date().toISOString(), reason = "rotate" } = {}) {
+export async function rotateZecaConversation({ nowIso = new Date().toISOString(), reason = "rotate", expectedConversationId = null, expectedUpdatedAt, expectedInputRevision } = {}) {
   return serialize(async () => {
     const pointer = readPointer();
+    if (expectedConversationId && pointer?.conversationId !== expectedConversationId) throw Object.assign(new Error("The Zeca conversation changed during review"), { status: 409 });
+    if(expectedConversationId) {
+      const thread=await getThread(expectedConversationId);
+      if(!thread || thread.runningSince || thread.pendingInputs?.length || expectedUpdatedAt!==undefined && thread.updatedAt!==expectedUpdatedAt || expectedInputRevision!==undefined && thread.inputRevision!==expectedInputRevision)
+        throw Object.assign(new Error("Zeca has new or active work; rotation was deferred"),{status:409});
+    }
     const rotated = pointer && threadExistsSync(pointer.conversationId) ? pointer.conversationId : null;
     const previous = [...(pointer?.previous ?? [])];
     if (rotated) {

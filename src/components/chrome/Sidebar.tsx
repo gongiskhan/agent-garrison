@@ -434,6 +434,7 @@ export interface CommandItem {
 export const HOME_ITEM_ID = "nav:garrison";
 
 export const COMMAND_ITEMS: CommandItem[] = [
+  { id: "nav:improver", href: "/improver", label: "Improver", Icon: Sparkles, isActive: (p) => p === "/improver" || p.startsWith("/improver/") },
   {
     id: "nav:accounts",
     href: "/accounts",

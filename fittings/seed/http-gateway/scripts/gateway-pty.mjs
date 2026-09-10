@@ -4327,6 +4327,22 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "GET" && url.pathname === "/route/options") {
       return sendJson(response, 200, buildRouteOptions());
     }
+    if (request.method === "POST" && url.pathname === "/improver/review") {
+      if (!router) return sendJson(response, 409, { error: "The gateway is not ready." });
+      const body = await readJsonBody(request);
+      if (typeof body.prompt !== "string" || body.prompt.length > 140_000) return sendJson(response, 400, { error: "A bounded review evidence prompt is required." });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 120_000);
+      const close = () => { if (!response.writableEnded) controller.abort(); };
+      response.on("close", close);
+      try {
+        const { callStructuredInference } = await import("./lib/card-inference.mjs");
+        const { REVIEW_SYSTEM, REVIEW_SCHEMA } = await import("@garrison/improver/contracts");
+        const text = await callStructuredInference(router, { system: REVIEW_SYSTEM, prompt: body.prompt, signal: controller.signal }, { schema: REVIEW_SCHEMA, maxTokens: 6000, timeoutMs: 120_000 });
+        return sendJson(response, 200, { text });
+      } catch (error) { return sendJson(response, 502, { error: error.message }); }
+      finally { clearTimeout(timer); response.off("close", close); }
+    }
     if (request.method === "POST" && url.pathname === "/conversation/card-inference") {
       if (!router) return sendJson(response, 409, { error: "The gateway is not ready." });
       const body = await readJsonBody(request);

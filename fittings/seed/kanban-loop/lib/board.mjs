@@ -636,7 +636,7 @@ export function cardScope(card) {
   return "unscoped";
 }
 
-export async function createCard(root, { id: explicitId = null, conversationId = null, machineId = null, title, description = "", project = null, scope = null, lang = null, list, goalMode = false, acceptance = null, flow = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, schedule = null, scheduledFor = null, scheduleAction = null, scheduleTemplateId = null, scheduleSystemKey = null, occurrenceKey = null, occurrenceAt = null, systemKey = null, checklist = null, position = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
+export async function createCard(root, { id: explicitId = null, conversationId = null, machineId = null, title, description = "", project = null, scope = null, lang = null, list, goalMode = false, autonomous = false, acceptance = null, flow = null, phases = null, tier = null, routing = null, origin = null, originChannel = null, outpost = null, duty = null, level = null, sequence = null, continues = null, clarity = null, placement = null, dispatchCommand = null, schedule = null, scheduledFor = null, scheduleAction = null, scheduleTemplateId = null, scheduleSystemKey = null, occurrenceKey = null, occurrenceAt = null, systemKey = null, checklist = null, position = null, origin_id: explicitOriginId = null, at = new Date().toISOString() }) {
   // Conversations: a card materializing from a conversation TAKES the
   // conversation's ULID as its id — one identity, one directory name.
   const id = typeof explicitId === "string" && /^[0-9A-Za-z_-]{8,64}$/.test(explicitId) ? explicitId : ulid();
@@ -697,6 +697,7 @@ export async function createCard(root, { id: explicitId = null, conversationId =
     rev: 0, // optimistic-concurrency revision (compare-and-swap on write)
     cost: null,
     goalMode: Boolean(goalMode),
+    autonomous: autonomous === true,
     acceptance,
     // ── run-policy fields (S4: D2/D8/D17) ─────────────────────────────────
     // flow names the policy flow whose phase plan is this card's

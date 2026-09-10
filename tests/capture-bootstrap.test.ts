@@ -13,7 +13,7 @@ beforeEach(() => { vi.clearAllMocks(); mocks.tailnet.mockResolvedValue("https://
 describe("native capture bootstrap", () => {
   it("refuses browser and cross-origin requests without returning or reading a credential", async () => {
     for (const headers of [{}, { "x-garrison-native": "capture-bootstrap", origin: "https://evil.example" }, { "x-garrison-native": "capture-bootstrap", "sec-fetch-site": "same-origin" }]) {
-      const response = await GET(new Request(origin, { headers }));
+      const response = await GET(new Request(origin, { headers: headers as Record<string,string> }));
       expect(response.status).toBe(403);
       expect(await response.text()).not.toContain("internal-test-token");
     }

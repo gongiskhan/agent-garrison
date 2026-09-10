@@ -884,7 +884,7 @@ async function selectionsOf(compositionId: string): Promise<FittingSelectionMap>
     );
     expect(defaults.get("repo_url")).toBe("");
     expect(defaults.get("git_ref")).toBe("");
-    expect(defaults.get("base_url")).toBe("https://app.ekoa.io");
+    expect(defaults.get("base_url")).toBe("https://staging.ekoa.io");
   });
 
   // The original working agreement ("compositions/default sees zero change") was

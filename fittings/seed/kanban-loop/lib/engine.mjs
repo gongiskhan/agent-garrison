@@ -561,6 +561,7 @@ function occurrenceInput(template, list, key, scheduledAt) {
     scope: template.scope ?? null,
     list,
     goalMode: Boolean(template.goalMode),
+    autonomous: template.autonomous === true,
     acceptance: template.acceptance ?? null,
     flow: template.flow ?? null,
     phases: template.phases ?? null,

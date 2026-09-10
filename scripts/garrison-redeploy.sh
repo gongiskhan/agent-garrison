@@ -141,6 +141,11 @@ start_tether_shells "$PROD_HOME" "$BASE"
 say "starting operative + fittings ($composition)"
 curl -sf -X POST --max-time 600 "$BASE/api/runner/$composition/up" >/dev/null
 
+# Core improvement feedback survives removal of the legacy own-port fitting.
+GARRISON_HOME="$PROD_HOME" node "$REPO_ROOT/packages/improver/probes/install-probe-hooks.mjs"
+curl -sf -X POST --max-time 60 -H 'content-type: application/json' \
+  -d '{"action":"maintain"}' "$BASE/api/improver" >/dev/null
+
 # --- 5. publish any newly-started own-port view to the tailnet --------------
 # Idempotent (existing mappings are kept). Without this a fitting that gains an
 # own port, or one started for the first time, has no `tailscale serve` mapping

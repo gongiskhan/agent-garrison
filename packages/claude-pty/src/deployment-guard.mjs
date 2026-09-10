@@ -42,6 +42,7 @@ export function localConversationActivity(env = process.env) {
 }
 
 export const DEPLOYMENT_ADMISSION_PATHS = new Set([
+  "/improver/review",
   "/chat", "/chat/stream", "/conversation/open", "/conversation/advance",
   "/conversation/message", "/conversation/kick", "/conversation/card-inference",
   "/jobs", "/claude/message", "/escalate",
