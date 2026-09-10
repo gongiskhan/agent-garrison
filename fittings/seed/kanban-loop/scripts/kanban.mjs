@@ -533,6 +533,22 @@ async function seedMorningBrief() {
 
 // Process due IMMEDIATE agent-list cards. Skips scheduler-beat (Test runs on its own
 // beat), manual, and interactive lists.
+// Is the gateway answering at all? Any HTTP response (even a 404) means an
+// operative is up and the tick has something to kick. Restored after a refactor
+// dropped the definition but kept the call site — the tick threw
+// `gatewayReachable is not defined` on every run instead of skipping quietly.
+async function gatewayReachable(url) {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 1500);
+    const r = await fetch(url, { method: "GET", signal: ctrl.signal }).catch(() => null);
+    clearTimeout(t);
+    return Boolean(r);
+  } catch {
+    return false;
+  }
+}
+
 async function tick() {
   const root = kanbanRoot();
   const gatewayUrl = resolveGatewayUrl();
