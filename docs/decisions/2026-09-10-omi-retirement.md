@@ -49,7 +49,7 @@ Observed and closed on 2026-09-10:
 | Mac mini | HTTPS 10000 Slack webhook to port 9512 | Converted to private Serve; backend absent |
 | MacBook Pro | HTTPS 8443 old CSG tether to port 57330 | Converted to private Serve; backend absent |
 | MacBook Air | None | Verified |
-| CSG | None at initial inspection | Verify again when its tether is available |
+| CSG | None | Rechecked after recovery: none |
 
 All four primary nodes were rechecked after Madrid's reboot: no enabled public
 Funnels remained. Existing private shell/Capture routes were preserved. The
@@ -89,3 +89,46 @@ Madrid's shell, state and scheduler were loopback-bound at inspection; SSH is
 still a host service, and this task does not certify the provider's perimeter
 firewall or change SSH access. Private Omi Serve mappings were removed from all
 four primary nodes after stopping the retired fitting.
+
+## Live outcome and remaining checks
+
+The cloud cleanup shipped as `02aacbb6`. Madrid, Mini and Pro each passed
+15/15 live fitting health checks; CSG passed 10/10 and remains intentionally
+unequipped for Capture. Native bootstrap on Madrid, Mini and Pro returned the
+existing Capture credential and all five node choices, with transcription,
+pendant, wake, speech and push enabled and `wake_only` preserved. Madrid and Pro
+also passed the authenticated active-conversation read and returned 404 for
+retired text ingest. All three replacement triage jobs completed a live tick
+with exit 0. Four owner-scoped Capture jobs exist; all old Omi jobs and six
+Omi authority keys are absent. Active materialized environments on the four
+reachable nodes have no Omi keys, and no Omi MCP registration remains there.
+
+Air returned before closeout and passed 15/15 live views, native bootstrap,
+authenticated active-conversation read, and the retired-ingest 404 check. Its
+replacement triage job also exited 0. The dirty manifest was only the ordering
+of the unchanged `triage_enabled: true` key; this was normalized after proving
+all other bytes equal. Its Omi MCP/environment keys and public Funnels are
+absent, and its private Claude configuration is now mode 0600 too. All five
+Garrison nodes have now been audited; all four Capture hosts have live acceptance.
+
+Deployment uncovered and repaired two operational problems: platform-specific
+lockfile mutation, and concurrent installation/build before the old restart
+lease was acquired. Deployment now uses `npm ci` with native lifecycle builds
+and the repository's PTY permission repair, acquires the mesh lease before any
+installation/build, and rechecks Conversations immediately before stopping.
+One-shot maintenance-script updates do not restart Capture. Eleven targeted
+guard/audit tests pass, including proof that a held lease prevents either
+reload or redeploy from reaching an installer/build. Native PTY loading passed
+on CSG after its clean install.
+
+All five nodes had broadly readable Claude configuration files;
+they are now mode 0600. State credentials and materialized Capture environments
+were already private. Madrid SSH has password and keyboard-interactive login
+disabled. RustDesk also listens on all interfaces at TCP 21118; the operator's
+choice of disabling it or retaining tailnet-only access is pending to avoid
+cutting a legitimate remote desktop connection. See the
+[RustDesk security settings](https://rustdesk.com/docs/en/self-host/client-configuration/advanced-settings/).
+
+Madrid's Capture HTTPS mapping is currently 8498 because another project's
+private file share already occupies 8497. Native bootstrap correctly discovers
+8498; existing mappings were preserved. Do not replace it with an assumed port.

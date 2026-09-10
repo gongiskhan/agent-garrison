@@ -56,6 +56,11 @@ fi
 
 say() { printf "\n[redeploy] %s\n" "$*"; }
 
+# Serialize installation, build and restart: concurrent installers can remove
+# dependencies while another deployment or the running server is loading them.
+node "$SCRIPT_DIR/garrison-deployment-guard.mjs" acquire "$BASE" "$PROD_HOME" "$$"
+trap 'node "$SCRIPT_DIR/garrison-deployment-guard.mjs" release "$BASE" "$PROD_HOME" "$$"' EXIT
+
 # --- 1. build ---------------------------------------------------------------
 say "installing dependencies from the committed manifest and lockfile"
 # Frozen dependencies: npm install rewrites platform-specific lock metadata
@@ -79,9 +84,8 @@ fi
 
 printf '%s\n' "$DEPLOY_HEAD" > "$BUILD_RECEIPT"
 
-# Serialize mesh restarts and close new admissions before the final live check.
-node "$SCRIPT_DIR/garrison-deployment-guard.mjs" acquire "$BASE" "$PROD_HOME" "$$"
-trap 'node "$SCRIPT_DIR/garrison-deployment-guard.mjs" release "$BASE" "$PROD_HOME" "$$"' EXIT
+# Recheck live Conversations immediately before stopping services.
+node "$SCRIPT_DIR/garrison-deployment-guard.mjs" check "$BASE" "$PROD_HOME" "$$"
 
 # --- 2. stop the operative on the old code ----------------------------------
 # Best-effort: a prod server that is down (or a composition that was never up)

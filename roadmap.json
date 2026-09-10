@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-09-10T09:09:28.888Z",
+  "updatedAt": "2026-09-10T09:57:09.773Z",
   "categories": [
     {
       "id": "c1",
@@ -87,7 +87,7 @@
         },
         {
           "id": "c1.12",
-          "text": "Leave and come back. A long research turn or a long answer notifies Gonçalo on completion (web push, Companion, Omi) so he does not have to keep the screen open.",
+          "text": "Leave and come back. A long research turn or a long answer notifies Gonçalo on completion (web push and Garrison iOS) so he does not have to keep the screen open.",
           "done": false,
           "sentToKanban": null,
           "noteRef": null
@@ -549,7 +549,7 @@
       "items": [
         {
           "id": "c7.1",
-          "text": "Omi channel to Garrison's standard. Pendant BLE direct in the Companion app (the app owns the connection and the speaker); device sound feedback by phase (wake heard, per segment, window closed, task created, failure); Deepgram transcription on Garrison's side; transcripts into memory. Validated end to end with a device mock before his device. Found: partial - the pendant-direct brief of 20 August shipped (docs/pendant-direct-report.md, docs/adr-pendant-direct.md) with configurable pipes and the Zeca wake word, but end-to-end validation against a device mock is not confirmed. Update 2026-09-02 (G7): the pendant reaches the app through the GarrisonPendant plugin with a mock harness on MockPendantTransport (ios/Tests/PendantPluginMockTests.swift) and the session words relayed to the capture page through /api/voice/sessions/<id>/events; the device criterion on a real phone is still the operator's (HANDOFF-garrison-app.md).",
+          "text": "Native pendant capture to Garrison's standard. Pendant BLE direct in the Companion app (the app owns the connection and the speaker); device sound feedback by phase (wake heard, per segment, window closed, task created, failure); Deepgram transcription on Garrison's side; transcripts into memory. Validated end to end with a device mock before his device. Found: partial - the pendant-direct brief of 20 August shipped (docs/pendant-direct-report.md, docs/adr-pendant-direct.md) with configurable pipes and the Zeca wake word, but end-to-end validation against a device mock is not confirmed. Update 2026-09-02 (G7): the pendant reaches the app through the GarrisonPendant plugin with a mock harness on MockPendantTransport (ios/Tests/PendantPluginMockTests.swift) and the session words relayed to the capture page through /api/voice/sessions/<id>/events; the device criterion on a real phone is still the operator's (HANDOFF-garrison-app.md).",
           "done": false,
           "sentToKanban": null,
           "noteRef": "n-pendant-recovery-20260909"
@@ -557,9 +557,9 @@
         {
           "id": "c7.2",
           "text": "Retire Omi cloud, apps, subscription integration, webhooks, MCP and public Funnels. Preserve the Omi hardware through native BLE in the Garrison iOS app, Capture, Deepgram, wake commands, speech, haptics and phone/pendant triage. Operator decision 2026-09-10 supersedes keeping Omi as a supported cloud channel; see docs/decisions/2026-09-10-omi-retirement.md.",
-          "done": false,
+          "done": true,
           "sentToKanban": null,
-          "noteRef": null
+          "noteRef": "n-c7.2"
         },
         {
           "id": "c7.3",
@@ -598,7 +598,7 @@
         },
         {
           "id": "c7.8",
-          "text": "Notifications, one behaviour everywhere. Web push from the PWA with a deep link to the card or conversation, Companion push, Omi push, Slack; no action buttons (iOS does not support them); tapping opens the Command Center row. Update 2026-09-02 (G4): native APNs push from the app with deep links into /talk and Kanban, no action buttons, web push kept as the fallback.",
+          "text": "Notifications, one behaviour everywhere. Web push from the PWA with a deep link to the card or conversation, Companion push, Slack; no action buttons (iOS does not support them); tapping opens the Command Center row. Update 2026-09-02 (G4): native APNs push from the app with deep links into /talk and Kanban, no action buttons, web push kept as the fallback.",
           "done": false,
           "sentToKanban": null,
           "noteRef": null
@@ -633,7 +633,7 @@
         },
         {
           "id": "c8.3",
-          "text": "The exception is written into the docs. The honesty rule stands for every capability except Signals, because no work happens in Garrison without it; other channels (Slack, Omi, Companion, voice) remain fittings with channel parity generalised, not special-cased. Done 2026-09-02: AGENTS.md \"The web channel exception\" and CLAUDE.md name Conversations as the one shell-hosted conversation surface; every other channel stays a fitting.",
+          "text": "The exception is written into the docs. The honesty rule stands for every capability except Signals, because no work happens in Garrison without it; other channels (Slack, Garrison iOS, voice) remain fittings with channel parity generalised, not special-cased. Done 2026-09-02: AGENTS.md \"The web channel exception\" and CLAUDE.md name Conversations as the one shell-hosted conversation surface; every other channel stays a fitting.",
           "done": true,
           "sentToKanban": null,
           "noteRef": null
@@ -710,7 +710,7 @@
         },
         {
           "id": "c10.2",
-          "text": "Capture from every ear with the source tagged: conversations through the background pass (c1.6), Omi and Companion transcripts after the wait-for-context batching, screen stories (c7.5 to c7.7). Nothing written without a source.",
+          "text": "Capture from every ear with the source tagged: conversations through the background pass (c1.6), native pendant and Garrison iOS transcripts after the wait-for-context batching, screen stories (c7.5 to c7.7). Nothing written without a source.",
           "done": false,
           "sentToKanban": null,
           "noteRef": null
@@ -759,7 +759,7 @@
         },
         {
           "id": "c11.3",
-          "text": "Ports back to Ekoa when proven in Garrison: the tasks app (Kanban concept), the Omi and Companion pipeline, the assistant register. Tracked in ekoa-code's own roadmap (its f3 and f4).",
+          "text": "Ports back to Ekoa when proven in Garrison: the tasks app (Kanban concept), the native pendant and Garrison iOS pipeline, the assistant register. Tracked in ekoa-code's own roadmap (its f3 and f4).",
           "done": false,
           "sentToKanban": null,
           "noteRef": null
@@ -996,6 +996,11 @@
       "id": "n-zeca-resourcefulness-20260909",
       "title": "Zeca tries practical answer paths (9 September 2026)",
       "body": "Public web search and fetch are restored to the shared working-tool profile; capability guidance distinguishes installed providers from native tools. Zeca should seek current sources, try a suitable fallback, ask only for essential missing details, and give supported partial answers without fabricating access or facts. Responder follows the latest question without unrelated old work updates. 283 focused tests pass. Initial Pro deployment revealed deferred-tool discovery failure; the follow-up advertises the effective native inventory and exact-name tool discovery. Live Pro responders now perform web lookups and find alternative forecast sources. Final-answer guidance and SDK settled-message preservation address overwritten answers and internal handoff commentary. Deployed on the Pro as 667b1b3b: HTTPS saved-conversation acceptance retained a fresh sourced Portuguese forecast; the missing-location clarification passed. 43/43 startup checks and 17/17 views healthy. Model answer-quality limits remain documented; other nodes were not deployed. Evidence: docs/validation/2026-09-09-zeca-resourcefulness.md. This improves c1.5 without closing its broader research and reading scope."
+    },
+    {
+      "id": "n-c7.2",
+      "title": "Omi cloud retired; native pendant retained — 2026-09-10",
+      "body": "Shipped 02aacbb6: cloud fitting, webhook/Funnels, MCP, notification transport and Omi authority credentials retired. Native ios/ unchanged. Phone/pendant triage moved into capture-service; all four live owner jobs completed with exit 0. Madrid, Mini, Pro and Air each passed 15/15 live views plus native Capture bootstrap; CSG passed 10/10 and intentionally has no Capture. All five nodes audited with no public Funnels. Focused 459 tests passed; broad-suite limitations and remaining physical-phone/RustDesk checks are in docs/decisions/2026-09-10-omi-retirement.md. This supersedes plans to restore or keep an Omi cloud channel. Hardware remains supported and used daily."
     }
   ]
 }

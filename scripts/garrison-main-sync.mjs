@@ -25,7 +25,7 @@ export function needsRuntimeDeployment(files) {
   return files.some((file) => file && !/^(docs\/|tests\/|ios\/|\.codex\/|\.claude\/|\.agents\/)/.test(file)
     // These commands read their current source when invoked; no running app
     // or fitting holds them. Catch-up must not interrupt voice for their edits.
-    && !/^scripts\/(garrison-main-sync\.mjs$|garrison-redeploy\.sh$|remote-shell\/node-supervisor\.sh$|spike\/)/.test(file)
+    && !/^scripts\/(garrison-main-sync\.mjs$|garrison-re(?:deploy|load)\.sh$|(?:audit-funnels|retire-omi)\.mjs$|remote-shell\/node-supervisor\.sh$|spike\/)/.test(file)
     && !/\.md$/.test(file) && file !== 'roadmap.json');
 }
 
