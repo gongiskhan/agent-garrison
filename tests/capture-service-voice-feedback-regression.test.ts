@@ -38,7 +38,7 @@ describe("voice feedback regressions", () => {
     }
     h.sink.handleSpokenReceipt({ spoken: "long", ok: true });
     expect(h.guard.shouldSuppress("Zeca")).toBe(true);
-    h.advance(1_501);
+    h.advance(6_001);
     expect(h.guard.shouldSuppress("Zeca")).toBe(false);
   });
 
@@ -67,8 +67,39 @@ describe("voice feedback regressions", () => {
     expect(h.guard.shouldSuppress("Zeca")).toBe(false);
     h.guard.startPlayback("stopped", "O Zeca terminou o relatório.");
     h.guard.finishPlayback("stopped");
-    h.advance(1_501);
+    h.advance(6_001);
     expect(h.guard.shouldSuppress("Zeca")).toBe(false);
+  });
+
+  it("EchoGuard now honors a playback ttl past the old 120s absolute ceiling, up to 200s", () => {
+    const h = fixture();
+    h.guard.startPlayback("slow", "O Zeca terminou o relatório.", { ttlMs: 190_000 });
+    h.advance(133_000); // the observed generate+confirm gap that outran the old cap
+    expect(h.guard.shouldSuppress("Zeca")).toBe(true);
+    h.advance(67_001); // past 200s total: the new ceiling still applies
+    expect(h.guard.shouldSuppress("Zeca")).toBe(false);
+  });
+
+  it("a long reply's receipt timeout stays alive past 120s instead of being capped there", async () => {
+    vi.useFakeTimers();
+    const h = fixture();
+    const replyText = "palavra ".repeat(150).trim() + "."; // ~150 words -> ~135s computed timeout
+    await h.sink.handleAck({ id: "long-reply", text: replyText });
+    h.advance(133_000); // inside the ~135s computed window, past the old 120s cap
+    expect(h.guard.shouldSuppress("palavra palavra palavra")).toBe(true);
+    h.sink.handleSpokenReceipt({ spoken: "long-reply", ok: true });
+    expect(h.guard.shouldSuppress("palavra palavra palavra")).toBe(true);
+  });
+
+  it("suppresses the reply when it is quoted alongside unrelated real speech in the same segment", () => {
+    const h = fixture();
+    h.guard.startPlayback("mixed", "Sou o Zeca e já terminei o relatório pedido.");
+    // The mixed segment dilutes below the 0.8 whole-segment containment ratio,
+    // but the reply is still present verbatim as a contiguous run.
+    expect(h.guard.shouldSuppress("já terminei o relatório pedido e o rato roeu a rolha")).toBe(true);
+    // A segment that only shares a couple of common words, with no real run
+    // of the reply inside it, must not be swallowed.
+    expect(h.guard.shouldSuppress("o relatório do rato ainda não chegou amanhã de manhã")).toBe(false);
   });
 
   it("keeps Sim after unrelated English output and restores only user-derived language", async () => {

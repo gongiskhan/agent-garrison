@@ -220,7 +220,15 @@ export class AckSink {
         // never on localhost, so an absolute machine-local URL would be
         // unreachable AND mixed content (the standing house rule).
         const speak = clip ? { ...ack, audioPath: `/speak/${clip.id}.mp3` } : ack;
-        this.echoGuard.startPlayback(ack.id, ack.text);
+        // The echo-guard fingerprint and the receipt timer must expire together:
+        // a longer wait for the phone's receipt with a shorter echo-suppression
+        // window means the tail of a slow reply escapes suppression the moment
+        // the guard's window closes first (2026-09-09 echo diagnosis).
+        const receiptTimeoutMs = this.cfg.speakReceiptTimeoutMs ?? Math.min(200_000, Math.max(SPEAK_RECEIPT_TIMEOUT_MS, ack.text.split(/\s+/).length * 700 + 30_000));
+        // Never shorter than the old flat 120s default - the receipt-timer
+        // formula's floor (30s) is far too tight a fingerprint window for a
+        // short ack; only stretch it past 120s when the formula asks for more.
+        this.echoGuard.startPlayback(ack.id, ack.text, { ttlMs: Math.max(120_000, receiptTimeoutMs) });
         session.socket.send(JSON.stringify({ type: "speak", ack: speak }));
         this.counters.bump("speaks_forwarded");
         const timer = setTimeout(() => {
@@ -236,7 +244,7 @@ export class AckSink {
               this.log.error(`[capture-service] speak-timeout hook failed: ${err?.message ?? err}`);
             }
           }
-        }, this.cfg.speakReceiptTimeoutMs ?? Math.min(120_000, Math.max(SPEAK_RECEIPT_TIMEOUT_MS, ack.text.split(/\s+/).length * 700 + 30_000)));
+        }, receiptTimeoutMs);
         timer.unref?.();
         this.pendingSpeaks.set(ack.id, { sentAt: this.now(), sessionId: session.record.id, timer });
         this.logAck({
