@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-09-07T07:16:34.352234+00:00'
+generated_at: '2026-09-10T06:58:12.551906+00:00'
 apm_version: 0.24.0
 dependencies:
 - repo_url: _local/agent-sdk-runtime
@@ -151,18 +151,6 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/huggingface-runtime
-- repo_url: _local/improver
-  name: improver
-  version: 0.1.0
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/improver
-- repo_url: _local/improver-nightly
-  name: improver-nightly
-  version: 0.1.0
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/improver-nightly
 - repo_url: _local/kanban-loop
   name: kanban-loop
   version: 0.2.0
