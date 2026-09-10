@@ -1,7 +1,7 @@
 name: merge-agent
 version: 0.1.0
 description: >-
-  The Merge duty — merge another Garrison node's branch into this node's checkout
+  The Merge duty — integrate origin/main into this node's main checkout
   of a project, under a pre-merge revert tag and a decision card. Owns the
   garrison-merge skill.
 target: claude
@@ -41,7 +41,7 @@ x-garrison:
     - id: merge
       title: Merge
       description: >-
-        Merge a peer node's branch into this node's checkout of a project, tag the
+        Integrate origin/main into this node's main checkout of a project, tag the
         pre-merge HEAD, resolve conflicts file-by-file, and file a decision card
         for anything non-trivial.
       levels:

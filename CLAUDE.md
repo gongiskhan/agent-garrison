@@ -56,8 +56,7 @@ from a strict state split, and every agent working in this repo must know it:
 **shared state** lives in exactly one place - the state service on dev-madrid
 (SQLite behind an authenticated, tailnet-only HTTP API at
 `services/state/`; no process ever opens the DB file directly); **code**
-moves only through git (one clone per node, each on its permanent
-`node/<id>` branch); **session artifacts** (plans, evidence, logs,
+moves only through git (one clone per node, all working on `main`); **session artifacts** (plans, evidence, logs,
 transcripts) stay on the node that produced them, with a nightly one-way
 plans/evidence backup to dev-madrid and 7-day retention; **memory** moves
 through git via the vault-git-sync fitting (15-minute cadence on every node,
@@ -109,21 +108,22 @@ are resolved file-by-file with both sides read in full, and the result must
 parse. The merge duty lives in `fittings/seed/merge-agent/`; the doctrine is
 its `garrison-merge` skill.
 
-The nightly convergence card (03:00, systemKey `mesh-convergence`) converges
-the Garrison codebase and every dev project: clean nodes only ("clean" =
-empty tree AND nothing unpushed AND no merge in progress AND **no running
-session with the repo as cwd**), dirty nodes are skipped with a
-notification, and a 3-night skip streak escalates to needs-attention naming
-the drift. Per-node redeploys are delegated to the converge one-shot
-(`scripts/garrison-converge.mjs`) and POLLED through a convergence intent -
-the card never owns the process that kills it.
+Synchronize committed code through `origin/main` on every node after work lands;
+the scheduled convergence is a backstop. Preserve uncommitted work and resolve
+concurrent main commits with the merge rails above. Never force-push shared main.
+Deploy nodes one at a time, prove the restarted node healthy before continuing,
+and keep at least one healthy instance available throughout. A node running an
+active Conversation MUST NOT be restarted, even by an external deployment worker.
+Defer that node's deployment until its Conversation finishes; continue on other
+nodes. Recheck live Conversation activity immediately before stopping services.
 
 ## Branch discipline
 
-Every node works on its permanent `node/<id>` branch, dev-madrid included;
-`main` is updated by the nightly card (or an on-demand converge). The
-no-new-branches hard rule stands: node branches are created ONCE by
-`scripts/install-node.sh`, never by an agent.
+Every mesh node works on `main`, including dev-madrid. Do not create task branches,
+node branches or branch-based worktrees. Existing node branches are historical
+refs only: merge their remaining work into `main`, then switch the checkout to
+`main` without discarding local changes. Code synchronization and deployment are
+separate: an active Conversation prevents a restart, not work on the other nodes.
 
 ## The web channel exception
 
@@ -232,7 +232,7 @@ and spawns Claude Code via the Anthropic Agent SDK in-process.
 > **2026-08-24 Mesh.** Garrison is now installed as a full node on every
 > machine. Shared state (cards, config, compositions, coordination, secrets)
 > lives in the state service on dev-madrid (`services/state/`); code moves
-> only through git on per-node branches; session artifacts stay on their
+> only through git on shared `main`; session artifacts stay on their
 > node; memory rides vault-git-sync. See the mesh sections above for the state split,
 > merge policy, and the accepted availability property (dev-madrid down =
 > no new up() anywhere).
@@ -266,7 +266,7 @@ validators land in the runtime SDK milestone.
 
 The remote-Mac snapshot workflow is RETIRED (2026-08-24 mesh): every machine
 runs a full node installed by `scripts/install-node.sh`, builds and serves
-locally, and moves code only through git on its `node/<id>` branch. The two
+locally, and moves code only through git on `main`. The two
 safety rules that workflow taught survive in the installer: symlink refusal,
 and never syncing a working tree into a checkout a service is executing from
 (carried in docs/INSTANCES.md).
@@ -719,14 +719,12 @@ serves exactly the ports the old prod profile served, so nothing live moved.)
 
 ### Deploying — reload for app changes, redeploy when a long-lived process holds the code
 
-Conversations hosted inside this node use the same `node:reload` and
-`node:redeploy` commands, but those commands queue an independent service-manager
-job instead of restarting the session's parent. After the command returns, the
-stretch must write its handoff immediately. The job waits for that handoff,
-deploys, and resumes the conversation for live verification. Never replace this
-with `kill`, `pkill`, or a direct service restart from a hosted stretch. The
-owner ledger records interrupted work and resumes recent unfinished conversations
-after gateway startup; repeated interruptions pause with the saved evidence.
+Conversations hosted inside a node must not restart that node while working.
+Use another healthy mesh node for deployment and verification. Reload/redeploy
+entry points must refuse an active Conversation, including externally supervised
+workers; do not bypass that guard with `kill`, `pkill`, or direct service-manager
+commands. Deferred nodes catch up after their Conversations finish. All rollouts
+are sequential and keep at least one healthy instance available.
 
 **Reach for `npm run node:reload` first.** It builds and restarts the Next app
 server, then brings the operative back on `up()`'s fast path (fingerprint
@@ -788,21 +786,13 @@ standalone unit on the same jobs file double-fires every scheduled job.
 
 ## Working conventions
 
-- **HARD RULE — never create a git branch unless explicitly told to.**
-  No `git checkout -b`, `git branch <new>`, `git switch -c`, or
-  worktree/agent isolation that spawns a branch. Switching to an
-  **existing** branch is fine. Work stays on the current/specified
-  branch; to recover "lost" work, check existing branches / reflog /
-  stash and `git checkout` the existing branch — don't invent one.
-- **Branch discipline (mesh, 2026-08-24): every node works on its permanent
-  `node/<id>` branch — dev-madrid included — and `main` is updated by the
-  nightly convergence card or an on-demand converge.** Node branches are
-  created ONCE by `scripts/install-node.sh`; the no-new-branches hard rule
-  stands for everything else. TRANSITION NOTE: until the mini and Air
-  installs land and the nightly card has run green, direct pushes to `main`
-  from dev-madrid remain sanctioned; GitHub prints "Bypassed rule
-  violations" on them — that output is EXPECTED (the owner holds the bypass)
-  and means the push landed. Never flag it or offer a PR.
+- **HARD RULE — work on `main` on every mesh node.** Never create task/node
+  branches or branch-based worktrees. Fetch and integrate `origin/main`, preserve
+  concurrent work, commit and push to `main` without force. Historical node refs
+  are retained only as recovery references, not work destinations.
+- **HARD RULE — preserve availability.** Deploy one node at a time and prove it
+  healthy before proceeding. Keep at least one healthy instance available. Never
+  restart the node of a working Conversation; defer it until the work finishes.
 - **Don't optimise the Faculty list further before §10 DoD is
   observable.** New Faculties land only when a real Fitting needs one.
 - **Don't add a new capability kind speculatively.** Add one when a Fitting

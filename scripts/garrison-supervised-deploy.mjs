@@ -49,6 +49,7 @@ export function launchWorker(job, file, { platform = process.platform, exec = ex
 }
 
 export function requestDeployment({ kind = "redeploy", composition = "", repo = repoDefault, env = process.env, launch = launchWorker } = {}) {
+  if (env.GARRISON_CONVERSATION_ID) throw new Error("Deployment deferred: a working Conversation cannot restart its own node. Deploy another mesh node.");
   if (!["reload", "redeploy"].includes(kind)) throw new Error("Unknown deployment kind");
   const conversationId = env.GARRISON_CONVERSATION_ID;
   const stretchId = env.GARRISON_STRETCH_ID;
@@ -93,56 +94,15 @@ export function deployedGatewayUrl(job) {
   return `http://127.0.0.1:${ports[0]}`;
 }
 
-export async function runWorker(file, { waitMs = 120_000, pollMs = 1000, run = null, resume = null } = {}) {
+export async function runWorker(file) {
   const job = read(file);
   if (!job || job.status !== "queued") return;
+  // Cancel pre-policy jobs too: handing off a stretch is not permission to
+  // interrupt the Conversation that owns it.
+  save(file, { ...job, status: "cancelled", updatedAt: new Date().toISOString(),
+    error: "Deployment deferred: use another mesh node while this Conversation is working." });
   const store = openConversation(job.conversationId, { role: "deployment", env: { GARRISON_HOME: job.home } });
-  // The model first records its handoff. The conversation loop sees the job
-  // and pauses before starting another stretch. No command is replayed.
-  const deadline = Date.now() + waitMs;
-  while (store.currentStretch() === job.stretchId && Date.now() < deadline) {
-    if (read(file)?.status !== "queued") return;
-    await pause(pollMs);
-  }
-  if (read(file)?.status !== "queued") return;
-  if (store.currentStretch() === job.stretchId) {
-    save(file, { ...job, status: "failed", error: "The requesting stretch did not hand off within two minutes", updatedAt: new Date().toISOString() });
-    store.append({ kind: "note", payload: { origin: "gateway", text: "Deployment cancelled because the requesting stretch did not hand off within two minutes. The node was not restarted." } });
-    return;
-  }
-  if (store.tail(1, { kinds: ["handoff"] })[0]?.payload?.cancelled) {
-    save(file, { ...job, status: "cancelled", updatedAt: new Date().toISOString() });
-    return;
-  }
-  const workerEnv = { ...deploymentEnv(process.env), GARRISON_DEPLOYMENT_WORKER: "1" };
-  save(file, { ...job, status: "running", updatedAt: new Date().toISOString() });
-  const log = fs.openSync(job.log, "a", 0o600);
-  let error = null;
-  try {
-    await (run ? run(job, workerEnv) : new Promise((resolve, reject) => {
-      const child = spawn("bash", [path.join(job.repo, "scripts", `garrison-${job.kind}.sh`), ...(job.composition ? [job.composition] : [])], {
-        cwd: job.repo, env: workerEnv, stdio: ["ignore", log, log], timeout: 20 * 60_000,
-      });
-      child.on("error", reject);
-      child.on("exit", (code, signal) => code === 0 ? resolve() : reject(new Error(`Deployment exited ${code ?? signal}; see ${job.log}`)));
-    }));
-  } catch (err) { error = String(err.message); }
-  finally { fs.closeSync(log); }
-  const resumeCancelled = read(file)?.resumeCancelled === true;
-  save(file, { ...job, status: error ? "failed" : "complete", error, resumeCancelled, updatedAt: new Date().toISOString() });
-  store.append({ kind: "note", payload: { origin: "gateway", text: error ? `Deployment failed. ${error}` : `Deployment finished. Verify the live result before reporting completion. Evidence: ${job.log}` } });
-  if (error) {
-    parkConversation(store, { reason: `Deployment failed. ${error}` });
-  }
-  if (error || resumeCancelled) return;
-  try {
-    if (resume) { await resume(job); return; }
-    const token = fs.readFileSync(path.join(job.home, "gateway-token"), "utf8").trim();
-    const res = await fetch(`${deployedGatewayUrl(job)}/conversation/kick`, { method: "POST", headers: { "content-type": "application/json", "x-garrison-token": token }, body: JSON.stringify({ conversationId: job.conversationId }), signal: AbortSignal.timeout(15_000) });
-    if (!res.ok && res.status !== 409) throw new Error(`Recovery returned HTTP ${res.status}`);
-  } catch (err) {
-    store.append({ kind: "note", payload: { origin: "gateway", text: `The deployment job finished, but the conversation could not resume: ${err.message}. Send a message to continue.` } });
-  }
+  store.append({ kind: "note", payload: { origin: "gateway", text: "Deployment deferred to preserve this Conversation. Continue deployment on another mesh node." } });
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === script) {

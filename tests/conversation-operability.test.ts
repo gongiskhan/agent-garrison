@@ -164,81 +164,23 @@ describe("hosted node deployment", () => {
     const hosted = { ...env, GARRISON_CONVERSATION_ID: "deploy", GARRISON_STRETCH_ID: "st_deploy", GARRISON_INSTANCE_ID: "node" };
     return { store, hosted, file: path.join(store.dir, "deployment.json") };
   }
-  it("queues one independent job, waits for the handoff, and resumes only after deployment", async () => {
-    const { store, hosted, file } = setup();
-    let launches = 0; const phases: string[] = [];
-    const job = requestDeployment({ env: hosted, launch: () => { launches++; } });
-    expect(requestDeployment({ env: hosted, launch: () => { launches++; } }).id).toBe(job.id);
-    expect(launches).toBe(1);
-    const worker = runWorker(file, { pollMs: 5, waitMs: 1000,
-      run: async () => { expect(store.currentStretch()).toBeNull(); phases.push("deployed"); },
-      resume: async () => { expect(JSON.parse(readFileSync(file, "utf8")).status).toBe("complete"); phases.push("resumed"); },
-    });
-    await new Promise((r) => setTimeout(r, 15));
-    expect(phases).toEqual([]);
-    store.releaseStretch("st_deploy");
-    await worker;
-    expect(phases).toEqual(["deployed", "resumed"]);
-    expect(deploymentInFlight(store)).toBeNull();
+  it("refuses a hosted restart without launching a worker or releasing its stretch", () => {
+    const { store, hosted } = setup();
+    let launches = 0;
+    expect(() => requestDeployment({ env: hosted, launch: () => { launches++; } })).toThrow("working Conversation");
+    expect(launches).toBe(0);
+    expect(store.currentStretch()).toBe("st_deploy");
   });
 
-  it("Stop cancels a queued deployment and never resumes a cancelled conversation", async () => {
-    const { store, hosted, file } = setup();
-    requestDeployment({ env: hosted, launch: () => {} });
-    expect(cancelConversationDeployment(store)).toBe(true);
+  it("cancels a legacy queued deployment without stopping or resuming work", async () => {
+    const { store, file } = setup();
+    writeFileSync(file, JSON.stringify({ status: "queued", conversationId: "deploy", home: tmp }));
     let called = false;
-    store.releaseStretch("st_deploy");
     await runWorker(file, { run: async () => { called = true; }, resume: async () => { called = true; } });
     expect(called).toBe(false);
-    expect(store.tail(1, { kinds: ["handoff"] })[0].payload.cancelled).toBe(true);
-  });
-
-  it("a failed deployment parks with its real reason and does not launch another model", async () => {
-    const { store, hosted, file } = setup();
-    requestDeployment({ env: hosted, launch: () => {} }); store.releaseStretch("st_deploy");
-    let resumed = false;
-    await runWorker(file, { run: async () => { throw new Error("build failed"); }, resume: async () => { resumed = true; } });
-    expect(resumed).toBe(false);
-    expect(store.tail(1, { kinds: ["handoff"] })[0].payload).toMatchObject({ status: "partial", nextSteps: { next: "needs-input" } });
-    expect(JSON.parse(readFileSync(file, "utf8")).error).toBe("build failed");
-  });
-
-  it("resumes through the runner's live composition gateway, without a gateway port in instance env", async () => {
-    const { store, hosted, file } = setup();
-    const requests: any[] = [];
-    const server = createServer(async (req, res) => {
-      let body = ""; for await (const chunk of req) body += chunk;
-      requests.push({ path: req.url, token: req.headers["x-garrison-token"], body: JSON.parse(body) });
-      res.writeHead(202); res.end("{}");
-    });
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-    try {
-      const port = (server.address() as any).port;
-      const records = path.join(tmp, "gateway-pids"); mkdirSync(records);
-      writeFileSync(path.join(records, `default-${port}.json`), JSON.stringify({ pid: process.pid, port }));
-      writeFileSync(path.join(records, "another-composition-12345.json"), JSON.stringify({ pid: process.pid, port: 12345 }));
-      writeFileSync(path.join(tmp, "gateway-token"), "local-test-token");
-      requestDeployment({ env: hosted, launch: () => {} }); store.releaseStretch("st_deploy");
-      await runWorker(file, { run: async () => {} });
-      expect(requests).toEqual([{ path: "/conversation/kick", token: "local-test-token", body: { conversationId: "deploy" } }]);
-    } finally {
-      server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve()));
-    }
-  });
-
-  it("the macOS and Linux launch paths belong to the service manager, with no inherited secrets or stretch identity", () => {
-    const { hosted, file } = setup();
-    const job = requestDeployment({ env: hosted, launch: () => {} });
-    const commands: any[] = [];
-    const exec = (...args: any[]) => { commands.push(args); };
-    launchWorker(job, file, { platform: "darwin", exec });
-    launchWorker(job, file, { platform: "linux", exec });
-    expect(commands[0][0]).toBe("launchctl");
-    expect(commands[0][1][0]).toBe("bootstrap");
-    expect(readFileSync(path.join(job.directory, "job.plist"), "utf8")).not.toContain("GARRISON_STRETCH_ID");
-    expect(commands[1][0]).toBe("systemd-run");
-    expect(commands[1][1]).toContain("--user");
-    expect(deploymentEnv({ ...hosted, HOME: tmp, ANTHROPIC_AUTH_TOKEN: "private", NEXT_DIST_DIR: ".next-prod" })).toEqual({ HOME: tmp });
+    expect(store.currentStretch()).toBe("st_deploy");
+    expect(JSON.parse(readFileSync(file, "utf8")).status).toBe("cancelled");
+    expect(deploymentInFlight(store)).toBeNull();
   });
 
   it("protects the hosting process in actual SDK hook options, without changing unrelated commands", async () => {
@@ -248,7 +190,7 @@ describe("hosted node deployment", () => {
     const hook = opts.hooks.PreToolUse[0].hooks[0];
     expect((await hook({ tool_name: "Bash", tool_input: { command: "kill -9 123" } })).hookSpecificOutput.permissionDecision).toBe("deny");
     for (const command of ['pkill -f "garrison.*dev"', " sudo pkill -9 -f 'node.*garrison'", "systemctl --user restart garrison-prod"]) {
-      expect(hostedCommandRejection("Bash", { command }, hosted)).toContain("independently supervised");
+      expect(hostedCommandRejection("Bash", { command }, hosted)).toContain("Deploy another mesh node");
     }
     for (const command of ["npm test", "npm run node:redeploy", "kill -9 999", 'rg "pkill.*node" docs/']) {
       expect(await hook({ tool_name: "Bash", tool_input: { command } })).toEqual({});

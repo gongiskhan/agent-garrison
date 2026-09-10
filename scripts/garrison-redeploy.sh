@@ -22,8 +22,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
-if [ -n "${GARRISON_CONVERSATION_ID:-}" ] && [ "${GARRISON_DEPLOYMENT_WORKER:-}" != "1" ]; then
-  exec node "$SCRIPT_DIR/garrison-supervised-deploy.mjs" redeploy "${1:-}"
+if [ -n "${GARRISON_CONVERSATION_ID:-}" ]; then
+  echo "Deployment deferred: this Conversation is working on this node. Deploy another mesh node first." >&2
+  exit 75
 fi
 # shellcheck source=lib/app-server.sh
 . "$SCRIPT_DIR/lib/app-server.sh"
@@ -31,6 +32,8 @@ fi
 PROD_PORT="$(bash scripts/garrison-instance.sh prod env | sed -n 's/^GARRISON_APP_PORT=//p')"
 PROD_HOME="$(bash scripts/garrison-instance.sh prod env | sed -n 's/^GARRISON_HOME=//p')"
 BASE="http://127.0.0.1:${PROD_PORT}"
+node "$SCRIPT_DIR/garrison-deployment-guard.mjs" check "$BASE" "$PROD_HOME" "$$"
+
 # The app server is OS-supervised - that is what makes it always-on across
 # reboots and logouts, so the supervisor stays with the OS: a systemd user
 # unit on Linux, a launchd agent on macOS (both installed by
@@ -55,6 +58,10 @@ say() { printf "\n[redeploy] %s\n" "$*"; }
 # --- 1. build ---------------------------------------------------------------
 say "building prod bundle (.next-prod)"
 bash scripts/garrison-instance.sh prod build
+
+# Serialize mesh restarts and close new admissions before the final live check.
+node "$SCRIPT_DIR/garrison-deployment-guard.mjs" acquire "$BASE" "$PROD_HOME" "$$"
+trap 'node "$SCRIPT_DIR/garrison-deployment-guard.mjs" release "$BASE" "$PROD_HOME" "$$"' EXIT
 
 # --- 2. stop the operative on the old code ----------------------------------
 # Best-effort: a prod server that is down (or a composition that was never up)

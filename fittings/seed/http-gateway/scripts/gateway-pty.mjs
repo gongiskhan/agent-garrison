@@ -28,6 +28,7 @@
 import http from "node:http";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
+import { deploymentDraining, DEPLOYMENT_ADMISSION_PATHS } from "@garrison/claude-pty/deployment-guard.mjs";
 import fs from "node:fs/promises";
 import { realpathSync, statSync, readFileSync as readFileSyncFs, writeFileSync as writeFileSyncFs, mkdirSync as mkdirSyncFs } from "node:fs";
 import { homedir } from "node:os";
@@ -4271,6 +4272,7 @@ async function saveAttachment(filename, contentBase64) {
   return { path: target, bytes: buffer.length };
 }
 
+const deploymentAdmissions = new Set();
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://${HOST}:${PORT}`);
   // Local-API hardening (Harness brief §7): localhost binding does not stop a
@@ -4294,6 +4296,13 @@ const server = http.createServer(async (request, response) => {
       }
     }
   }
+  if (request.method === "POST" && DEPLOYMENT_ADMISSION_PATHS.has(url.pathname)) {
+    if (deploymentDraining()) return sendJson(response, 503, { error: "This node is deploying. Continue on another mesh node.", code: "node-deploying" });
+    deploymentAdmissions.add(response);
+    const release = () => deploymentAdmissions.delete(response);
+    response.once("finish", release);
+    response.once("close", release);
+  }
   try {
     if (request.method === "GET" && url.pathname === "/health") {
       const operativeExited = ptyStatus === "ready" && !runtimeSessionAlive();
@@ -4304,6 +4313,7 @@ const server = http.createServer(async (request, response) => {
         uptime_ms: Date.now() - STARTED_AT,
         engine: "pty",
         primary_runtime: primaryRuntime(),
+        deployment: { draining: deploymentDraining(), active: deploymentAdmissions.size + activeTurns.size + generationTurnControl.turnsByGeneration.size + (globalThis.__conversationAborts?.size ?? 0) },
         pty_status: effectiveStatus,
         error: operativeExited ? "operative session exited" : ptyError,
       });

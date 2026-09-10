@@ -127,16 +127,19 @@ if [ "$REPO_SOURCE" = "mirror" ]; then
   git config core.sshCommand "$MIRROR_SSH_CMD"
 fi
 git fetch -q origin
-# The node branch is created ONCE, here — never by an agent (the no-new-
-# branches hard rule stands; this is the sanctioned exception, by plan).
-if git show-ref -q "refs/remotes/origin/node/$NAME"; then
-  git checkout -q "node/$NAME" 2>/dev/null || git checkout -q -t "origin/node/$NAME"
-  git merge -q --ff-only "origin/node/$NAME" 2>/dev/null || true
-else
-  git checkout -q -b "node/$NAME" origin/main
-  git push -q -u origin "node/$NAME"
+# All mesh checkouts track main. Refuse to discard an adopted checkout's work.
+if [ -n "$(git status --porcelain)" ]; then
+  echo "refusing: preserve and commit the existing checkout changes before enrolling" >&2
+  exit 1
 fi
-say "on branch node/$NAME @ $(git rev-parse --short HEAD)"
+if ! git merge-base --is-ancestor HEAD origin/main; then
+  echo "refusing: merge this checkout's commits into origin/main before enrolling" >&2
+  exit 1
+fi
+git checkout -q main
+git merge -q --ff-only origin/main
+git branch --set-upstream-to=origin/main main >/dev/null
+say "on branch main @ $(git rev-parse --short HEAD)"
 
 # ── 3. identity + enrolment files ───────────────────────────────────────────
 mkdir -p "$HOME/.garrison"

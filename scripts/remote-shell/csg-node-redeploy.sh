@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # csg-node-redeploy.sh <reload|redeploy>
 #
-# Pulls csg's node/csg branch to whatever dev-madrid has already pushed there
+# Pulls csg's main checkout to whatever dev-madrid has already pushed there
 # (never a merge FROM csg - code moves through git, one direction only: this
 # machine pushes to origin, csg fast-forwards), then restarts csg's Garrison
 # node process the same way `npm run node:reload`/`node:redeploy` would on
@@ -35,8 +35,8 @@ APP_ORIGIN="$(printf '%s' "$NODE_JSON" | node -e 'let d="";process.stdin.on("dat
   exit 1
 }
 
-say "pulling on csg: git fetch + fast-forward-only merge to origin/node/csg"
-ssh csg 'bash -lc "cd ~/dev/garrison && git fetch -q origin && git merge -q --ff-only origin/node/csg"' || {
+say "pulling on csg: git fetch + fast-forward-only merge to origin/main"
+ssh csg 'bash -lc "cd ~/dev/garrison && git fetch -q origin && git merge -q --ff-only origin/main"' || {
   echo "csg's checkout did not fast-forward - it may carry local commits git refuses to discard; resolve on csg directly, never with a force push from here" >&2
   exit 1
 }

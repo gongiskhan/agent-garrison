@@ -1,5 +1,5 @@
 // Protect the service hosting this session. Project commands keep their
-// existing permissions; node deployment has an independently supervised path.
+// existing permissions; node deployment must preserve the working Conversation.
 export function hostedCommandRejection(tool, input, env = {}) {
   if (tool !== "Bash" || !env.GARRISON_STRETCH_ID) return null;
   const command = typeof input?.command === "string" ? input.command : "";
@@ -10,5 +10,5 @@ export function hostedCommandRejection(tool, input, env = {}) {
   const kill = new RegExp(`${boundary}kill\\b([^\\n;&|]*)`, "g");
   const killsHost = [...command.matchAll(kill)].some((m) => (m[1].match(/\b\d+\b/g) ?? []).some((id) => protectedPids.has(id)));
   if (!broadKill.test(command) && !serviceStop.test(command) && !killsHost) return null;
-  return "This command would stop the service running your conversation and lose the handoff. Use npm run node:reload or npm run node:redeploy in the Garrison checkout. That command queues an independently supervised job. Write your handoff immediately after it returns; the conversation resumes after deployment. Do not replace this with another kill or manual restart.";
+  return "This command would stop the node running your Conversation. Deploy another mesh node with npm run node:reload or npm run node:redeploy and verify it there. Defer this node until the Conversation finishes; do not bypass the guard with a direct restart."
 }

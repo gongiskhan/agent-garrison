@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-09-09T19:40:27.081Z",
+  "updatedAt": "2026-09-10T04:45:18.926Z",
   "categories": [
     {
       "id": "c1",
@@ -455,6 +455,13 @@
           "done": false,
           "sentToKanban": null,
           "noteRef": null
+        },
+        {
+          "id": "c5.7",
+          "text": "Simplify connector setup: Google sign-in, Cortex base URL default https://app.ekoa.io, explain Remote capability CLI, and show credential acquisition instructions for every non-OAuth connector.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
         }
       ]
     },
@@ -588,6 +595,13 @@
           "done": false,
           "sentToKanban": null,
           "noteRef": null
+        },
+        {
+          "id": "c7.9",
+          "text": "Make capture credentials internal and automatic; discover every mesh node in iOS without a separate Capture node/token form. Preserve manual pause and verify native failover.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
         }
       ]
     },
@@ -662,6 +676,13 @@
         {
           "id": "c9.4",
           "text": "Secrets authority on dev-madrid and online-only positioning stay. When dev-madrid is down, new work blocks with a clear error; a fork of shared state is worse than a stop.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c9.5",
+          "text": "Use main on every mesh node, preserve concurrent work, synchronize through Git, and deploy sequentially with another healthy instance available. Never restart a node with a working Conversation; defer it until completion. Decision: docs/decisions/2026-09-10-main-and-connector-setup.md.",
           "done": false,
           "sentToKanban": null,
           "noteRef": null

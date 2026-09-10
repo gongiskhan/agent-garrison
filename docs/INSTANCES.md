@@ -199,3 +199,12 @@ is nothing to shuttle. Two of its rules were load-bearing and survive as
   `garrison-node.service` and `garrison-dev.service` both run out of it, and on
   a Mac the launchd node agent does. Code moves between nodes through git and
   nothing else.
+
+## Main and rolling deployment (10 September 2026)
+
+Every mesh checkout works on `main` and synchronizes committed code through
+`origin/main`. Never create node/task branches or overwrite uncommitted work.
+Deploy one node at a time, verify its health, then continue. Keep another healthy
+instance available. The reload/redeploy guard refuses nodes with a working
+Conversation and serializes restarts through the state service. Hosted workers
+cannot bypass this policy; a deferred node catches up after its work finishes.
