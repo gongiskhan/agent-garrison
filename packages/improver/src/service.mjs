@@ -136,6 +136,16 @@ export async function migrateLegacy(store, context) {
   await store.update("migration", context.node, () => ({ at: new Date().toISOString(), proposals: old.length }));
 }
 
+export async function vaultSyncReceipt(client, node) {
+  const jobs = (await client.listSchedulerJobs()).filter((job) => /^vault-git-sync(?:@|$)/.test(job.id) &&
+    [node, `node:${node}`].includes(job.target) && job.enabled);
+  // Scheduler projects wire IDs such as vault-git-sync@node to the local ID
+  // before execution, so historical receipts use the base ID plus owner node.
+  const ids = [...new Set(jobs.flatMap((job) => [job.id, job.id.replace(/@[^@]+$/, "")]))];
+  const runs = (await Promise.all(ids.map((id) => client.listSchedulerRuns(id)))).flat();
+  return runs.filter((entry) => entry.node === node).sort((a,b) => String(b.endedAt).localeCompare(String(a.endedAt)))[0] ?? null;
+}
+
 export async function runReview({ store = new ImprovementStore(), context, run, model, collect = collectDailyEvidence }) {
   const heartbeat = setInterval(() => { void updateRun(store, run, {}).catch(() => {}); }, 30_000);
   heartbeat.unref?.();
@@ -197,9 +207,7 @@ export async function runReview({ store = new ImprovementStore(), context, run, 
     } catch(error) {operationalErrors.push(`Node health unavailable: ${error.message}`);}
 
     try {
-      const jobs=(await store.client.listSchedulerJobs()).filter((job)=>/^vault-git-sync(?:@|$)/.test(job.id) && [context.node,`node:${context.node}`].includes(job.target) && job.enabled);
-      const syncRuns=(await Promise.all(jobs.map((job)=>store.client.listSchedulerRuns(job.id)))).flat();
-      const latest=syncRuns.filter((entry)=>entry.node===context.node).sort((a,b)=>String(b.endedAt).localeCompare(String(a.endedAt)))[0];
+      const latest = await vaultSyncReceipt(store.client, context.node);
       operational.push({kind:"vault-schedule",node:context.node,lastRun:latest??null});
       if(!latest || latest.exit!==0 || Date.now()-Date.parse(latest.endedAt)>45*60_000) operationalErrors.push("Quarter-hour vault sync has no recent successful scheduler receipt");
     } catch(error) { operationalErrors.push(`Vault scheduler receipts unavailable: ${error.message}`); }

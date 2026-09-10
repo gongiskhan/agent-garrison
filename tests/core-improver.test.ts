@@ -187,3 +187,9 @@ it("task authoring resumes a created task after a start failure without duplicat
     expect(receipt.taskId).toBe(card.id);expect(creates).toBe(1);expect(starts).toBe(2);
   }finally{await new Promise(resolve=>server.close(resolve));await fs.rm(path.join(dir,"kanban-loop.json"));}
 });
+it("matches namespaced vault jobs to base-ID receipts on the correct owner",async()=>{
+  const {vaultSyncReceipt}=await import("../packages/improver/src/service.mjs");
+  const receipt={jobId:"vault-git-sync",node:"peer",exit:0,endedAt:"2026-09-10T07:17:00Z"};
+  const client={listSchedulerJobs:async()=>[{id:"vault-git-sync@peer",target:"node:peer",enabled:true}],listSchedulerRuns:async(id)=>id==="vault-git-sync"?[{...receipt,node:"other",exit:1,endedAt:"2026-09-10T07:18:00Z"},receipt]:[]};
+  expect(await vaultSyncReceipt(client,"peer")).toEqual(receipt);
+});
