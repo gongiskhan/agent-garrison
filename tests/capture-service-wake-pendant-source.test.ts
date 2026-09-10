@@ -1,12 +1,12 @@
-// The wake bus with the Omi source (D24, 2026-09-02).
+// The wake bus with the Pendant source (D24, 2026-09-02).
 //
-// omi-channel no longer carries a wake bus: its realtime segments are forwarded
-// to capture-service, whose WakeBus runs them with OMI_WAKE_SOURCE - source
-// "omi", origin omi:wake:<id>, provenance omi_session_id, the Omi reports
-// thread. These are the omi-channel wake cases that capture-service's own suite
+// capture-service no longer carries a wake bus: its realtime segments are forwarded
+// to capture-service, whose WakeBus runs them with PENDANT_WAKE_SOURCE - source
+// "pendant", origin pendant:wake:<id>, provenance pendant_session_id, the Pendant reports
+// thread. These are the capture-service wake cases that capture-service's own suite
 // (tests/capture-service-wake.test.ts: companion identity end to end,
 // near-misses and duplicates, kill switch, echo suppression) did not already
-// cover, run against the one remaining wake.mjs. Omi passes no speak/discuss
+// cover, run against the one remaining wake.mjs. Pendant passes no speak/discuss
 // lanes, so the bus behaves as the push-only channel it always was there.
 
 import { describe, expect, it } from "vitest";
@@ -16,7 +16,7 @@ import path from "node:path";
 import { loadConfig } from "../fittings/seed/capture-service/lib/config.mjs";
 import { CaptureStore, Counters, mergedCounters } from "../fittings/seed/capture-service/lib/store.mjs";
 import {
-  OMI_WAKE_SOURCE,
+  PENDANT_WAKE_SOURCE,
   WakeBus,
   buildDelegatePrompt,
   buildWakePrompt,
@@ -31,7 +31,7 @@ const VARIANTS = ["zeca", "zeka", "zecca", "zéca", "ze ca"];
 // The declared WakeBus type covers the server-facing surface plus the command
 // entry point; these cases also drive the deferred revision pass and the
 // per-session timers directly.
-type OmiWakeBus = WakeBus & {
+type PendantWakeBus = WakeBus & {
   sessions: Map<string, any>;
   runRevision(sessionId: string): Promise<unknown>;
 };
@@ -40,7 +40,7 @@ function seg(text: string, start = 0, end = 1) {
   return { text, speaker: "SPEAKER_00", speakerId: 0, is_user: true, start, end };
 }
 
-// The same shape omi-channel's server used to build: pinned classifier lane
+// The same shape capture-service's server used to build: pinned classifier lane
 // only, no operativeFn unless a case says so, a push-style notifier.
 function makeDeps(home: string, replyFn: () => string, cfgOverrides: Record<string, unknown> = {}) {
   const store = new CaptureStore(path.join(home, "capture"));
@@ -71,7 +71,7 @@ function makeDeps(home: string, replyFn: () => string, cfgOverrides: Record<stri
     cardUrl: async (id: string | null) => (id ? `https://board.test/#/cards/${id}` : null),
     send: async (args: { template: string; params: Record<string, unknown> }) => {
       sent.push(args);
-      return [{ means: "omi-push", ok: true }];
+      return [{ means: "pendant-push", ok: true }];
     }
   };
   const memoryWriter = new MemoryWriter({ dir: path.join(home, "vault") });
@@ -86,7 +86,7 @@ function makeDeps(home: string, replyFn: () => string, cfgOverrides: Record<stri
     board,
     memoryWriter,
     notifier,
-    source: OMI_WAKE_SOURCE,
+    source: PENDANT_WAKE_SOURCE,
     log: { log: () => {}, error: () => {}, warn: () => {} }
   });
   return { store, counters, cfg, bus, board, notifier, sent, runCalls };
@@ -101,17 +101,17 @@ async function waitFor(predicate: () => boolean, timeoutMs = 3000) {
   if (!predicate()) throw new Error("waitFor timed out");
 }
 
-describe("OMI_WAKE_SOURCE", () => {
-  it("is the default source and names the omi identity end to end", () => {
-    expect(OMI_WAKE_SOURCE).toEqual({
-      id: "omi",
-      label: "Omi",
-      originPrefix: "omi",
-      originChannel: { channel: "omi", threadId: "omi-reports" },
-      sessionProvenanceKey: "omi_session_id",
-      logPrefix: "omi-channel"
+describe("PENDANT_WAKE_SOURCE", () => {
+  it("is the default source and names the pendant identity end to end", () => {
+    expect(PENDANT_WAKE_SOURCE).toEqual({
+      id: "pendant",
+      label: "Pendant",
+      originPrefix: "pendant",
+      originChannel: { channel: "pendant", threadId: "pendant-reports" },
+      sessionProvenanceKey: "pendant_session_id",
+      logPrefix: "capture-service"
     });
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-src-default-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-src-default-"));
     try {
       const store = new CaptureStore(path.join(home, "capture"));
       const bus = new WakeBus({
@@ -123,7 +123,7 @@ describe("OMI_WAKE_SOURCE", () => {
         memoryWriter: {},
         notifier: {}
       });
-      expect((bus as any).source).toEqual(OMI_WAKE_SOURCE);
+      expect((bus as any).source).toEqual(PENDANT_WAKE_SOURCE);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -202,9 +202,9 @@ describe("wake fires on the token anywhere in the segment", () => {
   });
 });
 
-describe("wake bus sessions with the omi source", () => {
-  it("captures a command across segments, dispatches after silence, creates the card with omi identity, confirms with the deep link, and emits the latency metric", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-wake-"));
+describe("wake bus sessions with the pendant source", () => {
+  it("captures a command across segments, dispatches after silence, creates the card with pendant identity, confirms with the deep link, and emits the latency metric", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-wake-"));
     try {
       const { bus, store, counters, board, sent } = makeDeps(home, () =>
         JSON.stringify({
@@ -222,24 +222,24 @@ describe("wake bus sessions with the omi source", () => {
 
       await waitFor(() => sent.length === 1);
       expect(board.created).toHaveLength(1);
-      expect(board.created[0].origin).toBe("omi");
-      expect(String(board.created[0].origin_id)).toMatch(/^omi:wake:/);
-      expect(board.created[0].originChannel).toEqual({ channel: "omi", threadId: "omi-reports" });
+      expect(board.created[0].origin).toBe("pendant");
+      expect(String(board.created[0].origin_id)).toMatch(/^pendant:wake:/);
+      expect(board.created[0].originChannel).toEqual({ channel: "pendant", threadId: "pendant-reports" });
       expect(String(board.created[0].description)).toContain(
-        'Source (Omi wake command): "create a test task called hello garrison"'
+        'Source (Pendant wake command): "create a test task called hello garrison"'
       );
       expect(sent[0].template).toBe("wake_confirmation");
       expect(String(sent[0].params.text)).toContain("Card created");
       expect(String(sent[0].params.cardUrl)).toContain("/#/cards/");
 
       // Only the assembled command persists (I5): one wake_command event whose
-      // title is the command, stamped with the omi provenance key.
+      // title is the command, stamped with the pendant provenance key.
       const events = store.listEvents();
       expect(events).toHaveLength(1);
       expect(events[0].kind).toBe("wake_command");
-      expect(events[0].source).toBe("omi");
+      expect(events[0].source).toBe("pendant");
       expect((events[0].normalized as { title: string }).title).toBe("create a test task called hello garrison");
-      expect(events[0].provenance).toEqual({ omi_session_id: "s1" });
+      expect(events[0].provenance).toEqual({ pendant_session_id: "s1" });
 
       const c = counters.read();
       expect(c.wake_hits).toBe(1);
@@ -253,7 +253,7 @@ describe("wake bus sessions with the omi source", () => {
   // The behavioural counterpart of the regex tests above, through the real bus:
   // a mid-sentence mention is a WAKE and gets captured like any other command.
   it("a mid-sentence hit opens a capture window like any other", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-wake-mid-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-wake-mid-"));
     try {
       const { bus, counters, sent } = makeDeps(home, () =>
         JSON.stringify({ intent: "note", title: "factura", note_content: "Send the invoice." })
@@ -267,7 +267,7 @@ describe("wake bus sessions with the omi source", () => {
   });
 
   it("the max-capture cap closes a session that keeps talking", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-wake-cap-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-wake-cap-"));
     try {
       const { bus, sent } = makeDeps(
         home,
@@ -291,8 +291,8 @@ describe("wake bus sessions with the omi source", () => {
     }
   });
 
-  it("query intent pushes the answer; note intent writes a memory with omi provenance; unknown saves a note and says so", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-wake-intents-"));
+  it("query intent pushes the answer; note intent writes a memory with pendant provenance; unknown saves a note and says so", async () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-wake-intents-"));
     try {
       const replies = [
         JSON.stringify({ intent: "query", answer: "You have 3 open cards; the beta email is due Friday." }),
@@ -311,7 +311,7 @@ describe("wake bus sessions with the omi source", () => {
       const vault = path.join(home, "vault");
       expect(readdirSync(vault)).toHaveLength(1);
       const note = readFileSync(path.join(vault, readdirSync(vault)[0]), "utf8");
-      expect(note).toContain("- **source**: omi wake command");
+      expect(note).toContain("- **source**: pendant wake command");
 
       // A command with no language evidence falls back to the configured
       // default (pt here, from loadConfig); either catalog entry is the same
@@ -332,7 +332,7 @@ describe("wake bus sessions with the omi source", () => {
   // surrounded a bare "Zeca"); what is gone is turning "recovered nothing" into
   // a note.
   it("discards an empty capture the classifier could not recover, instead of saving an empty note", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-wake-empty-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-wake-empty-"));
     try {
       const { bus, sent, store, counters } = makeDeps(home, () => JSON.stringify({ intent: "unknown" }));
       bus.handleSegments({ sessionId: "e1", segments: [seg("estava a falar do jantar de ontem", 0, 2)] });
@@ -359,7 +359,7 @@ describe("wake bus sessions with the omi source", () => {
   });
 
   it("degrades to a saved note with an honest confirmation when the gateway call fails", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-wake-degrade-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-wake-degrade-"));
     try {
       const deps = makeDeps(home, () => "irrelevant");
       const failingBus = new WakeBus({
@@ -488,7 +488,7 @@ describe("wake units", () => {
   });
 });
 
-// Feature (2026-07-31): Omi fragments speech across segments and mis-attributes
+// Feature (2026-07-31): Pendant fragments speech across segments and mis-attributes
 // speakers, so the detail a command refers to often sits in a segment BEFORE the
 // wake word. The classifier gets a bounded pre-wake context window.
 describe("wake pre-wake context window", () => {
@@ -531,7 +531,7 @@ describe("wake pre-wake context window", () => {
   });
 
   it("carries pre-wake segments into the classifier prompt", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-ctx-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-ctx-"));
     const { wake, prompts } = bus(home);
     wake.handleSegments({ sessionId: "s1", segments: [ctxSeg("tomorrow it could rain", 0)] });
     wake.handleSegments({ sessionId: "s1", segments: [ctxSeg("Zeca, create a task saying", 2)] });
@@ -545,7 +545,7 @@ describe("wake pre-wake context window", () => {
   });
 
   it("bounds the window by segment count", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-ctx-cap-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-ctx-cap-"));
     const { wake, prompts } = bus(home, { wakeContextSegments: 2 });
     for (let i = 0; i < 5; i++) {
       wake.handleSegments({ sessionId: "s1", segments: [ctxSeg(`filler ${i}`, i)] });
@@ -559,7 +559,7 @@ describe("wake pre-wake context window", () => {
   });
 
   it("drops context that is too old to be the same conversation", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-ctx-age-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-ctx-age-"));
     let clock = 1_000_000;
     const { wake, prompts } = bus(home, { wakeContextMaxAgeMs: 5000 }, () => clock);
     wake.handleSegments({ sessionId: "s1", segments: [ctxSeg("stale talk", 0)] });
@@ -571,7 +571,7 @@ describe("wake pre-wake context window", () => {
   });
 
   it("still records nothing when a session never wakes (I5)", () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-ctx-i5-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-ctx-i5-"));
     const { wake, store } = bus(home);
     wake.handleSegments({ sessionId: "s1", segments: [ctxSeg("private conversation", 0)] });
     expect(store.listEvents()).toHaveLength(0);
@@ -582,7 +582,7 @@ describe("wake pre-wake context window", () => {
   });
 });
 
-// Feature (2026-07-31): Omi delivers one spoken sentence across bursts with real
+// Feature (2026-07-31): Pendant delivers one spoken sentence across bursts with real
 // gaps, so the first quiet moment is not the end of the command - holding the
 // window open is what stops the truncation.
 describe("wake minimum capture window", () => {
@@ -613,7 +613,7 @@ describe("wake minimum capture window", () => {
   }
 
   it("holds the window open through silence, then still respects the cap", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-min-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-min-"));
     let clock = 1_000_000;
     const { wake, prompts } = bus(
       home,
@@ -639,7 +639,7 @@ describe("wake minimum capture window", () => {
   });
 
   it("max-capture still closes the window regardless of the minimum", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-min-cap-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-min-cap-"));
     const { wake, prompts } = bus(
       home,
       { wakeSilenceCloseMs: 1000, wakeMinCaptureMs: 999999, wakeMaxCaptureMs: 20000 },
@@ -680,12 +680,12 @@ describe("wake duplicate card suppression", () => {
       },
       memoryWriter: { write: async () => ({ ok: true }) },
       notifier: { send: async () => [], cardUrl: async () => null }
-    }) as OmiWakeBus;
+    }) as PendantWakeBus;
     return { wake, created, store };
   }
 
   it("suppresses a repeat of the same resolved title, despite different wording", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-dupe-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-dupe-"));
     const { wake, created, store } = bus(home, () => "Tomorrow it will be sunny");
     await wake.handleCommand({ command: "Create a task. Vamos, vamos. Saying that tomorrow it will be sunny.", eventId: "e1" });
     await wake.handleCommand({ command: "create a task saying that tomorrow it will be sunny. Porque...", eventId: "e2" });
@@ -695,7 +695,7 @@ describe("wake duplicate card suppression", () => {
   });
 
   it("treats accents, case and punctuation as the same title", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-dupe-acc-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-dupe-acc-"));
     let title = "Lembrar que amanhã pode chover";
     const { wake, created } = bus(home, () => title);
     await wake.handleCommand({ command: "a", eventId: "e1" });
@@ -706,7 +706,7 @@ describe("wake duplicate card suppression", () => {
   });
 
   it("still creates a genuinely different task", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-dupe-diff-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-dupe-diff-"));
     let title = "Tomorrow it will be sunny";
     const { wake, created } = bus(home, () => title);
     await wake.handleCommand({ command: "a", eventId: "e1" });
@@ -722,7 +722,7 @@ describe("wake duplicate card suppression", () => {
 // COMMAND - the rest is trailing context.
 describe("wake command window vs trailing context", () => {
   it("splits speech near the wake word from what the mic caught later", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-window-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-window-"));
     let clock = 1_000_000;
     const store = new CaptureStore(path.join(home, "capture"));
     const prompts: string[] = [];
@@ -802,12 +802,12 @@ describe("wake revision pass", () => {
       },
       memoryWriter: { write: async () => ({ ok: true }) },
       notifier: { send: async () => [], cardUrl: async () => null }
-    }) as OmiWakeBus;
+    }) as PendantWakeBus;
     return { wake, revised, store };
   }
 
   it("applies a spoken correction to the card it just created", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-rev-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-rev-"));
     const { wake, revised, store } = harness(
       home,
       JSON.stringify({ action: "revise", title: "Book car service Wednesday", description: "d2", note: "Moved to Wednesday" })
@@ -823,7 +823,7 @@ describe("wake revision pass", () => {
   });
 
   it("leaves the card alone when the talk afterwards is unrelated", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-rev-none-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-rev-none-"));
     const { wake, revised, store } = harness(home, JSON.stringify({ action: "none" }));
     await wake.handleCommand({ command: "create a task to book the car service", eventId: "e1", sessionId: "s1" });
     wake.handleSegments({ sessionId: "s1", segments: [seg("and now the weather for the weekend")] });
@@ -834,7 +834,7 @@ describe("wake revision pass", () => {
   });
 
   it("never rewrites a card on an unparseable revision reply", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-rev-bad-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-rev-bad-"));
     const { wake, revised } = harness(home, "the model rambled instead of answering");
     await wake.handleCommand({ command: "c", eventId: "e1", sessionId: "s1" });
     wake.handleSegments({ sessionId: "s1", segments: [seg("something")] });
@@ -844,7 +844,7 @@ describe("wake revision pass", () => {
   });
 
   it("makes no model call when nothing was said afterwards", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-rev-quiet-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-rev-quiet-"));
     const { wake, store } = harness(home, JSON.stringify({ action: "revise", title: "x" }));
     await wake.handleCommand({ command: "c", eventId: "e1", sessionId: "s1" });
     await wake.runRevision("s1");
@@ -871,12 +871,12 @@ describe("wake settled close (punctuated end of command)", () => {
       board: { base: () => null, listProjects: async () => [], createCard: async () => ({ id: "c1", url: null }) },
       memoryWriter: { write: () => ({ ok: true }) },
       notifier: { send: async () => [], cardUrl: async () => null }
-    }) as OmiWakeBus;
+    }) as PendantWakeBus;
   }
-  const idleTimeout = (wake: OmiWakeBus, id: string) => String(wake.sessions.get(id).silenceTimer._idleTimeout);
+  const idleTimeout = (wake: PendantWakeBus, id: string) => String(wake.sessions.get(id).silenceTimer._idleTimeout);
 
   it("closes on the short settle when the command ends a sentence, and the full window otherwise", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-settle-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-settle-"));
     const wake = bus(home);
     // A finished sentence must not wait the full 15s window.
     wake.handleSegments({ sessionId: "s-done", segments: [seg("Zeca, cria uma tarefa para comprar peixe.")] });
@@ -889,7 +889,7 @@ describe("wake settled close (punctuated end of command)", () => {
   });
 
   it("a bare wake word waits the full window even though it ends in punctuation", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-settle-bare-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-settle-bare-"));
     const wake = bus(home);
     wake.handleSegments({ sessionId: "s-bare", segments: [seg("Zeca?")] });
     expect(idleTimeout(wake, "s-bare")).toBe("15000");
@@ -898,7 +898,7 @@ describe("wake settled close (punctuated end of command)", () => {
   });
 });
 
-describe("wake delegation on the omi source", () => {
+describe("wake delegation on the pendant source", () => {
   function bus(home: string, opts: { delegateEnabled: boolean; operativeFn: (a: unknown) => Promise<{ reply: string }>; reply: Record<string, unknown> }) {
     const store = new CaptureStore(path.join(home, "capture"));
     const notifications: string[] = [];
@@ -929,7 +929,7 @@ describe("wake delegation on the omi source", () => {
   }
 
   it("acknowledges immediately, then notifies with the delegated answer", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-delegate-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-delegate-"));
     let operativeCalls = 0;
     let releaseOperative: () => void = () => {};
     const release = new Promise<void>((resolve) => {
@@ -962,8 +962,8 @@ describe("wake delegation on the omi source", () => {
   });
 
   it("falls back to a note, in the command's language, when delegation is switched off", async () => {
-    const pt = mkdtempSync(path.join(os.tmpdir(), "omi-delegate-off-"));
-    const en = mkdtempSync(path.join(os.tmpdir(), "omi-delegate-en-"));
+    const pt = mkdtempSync(path.join(os.tmpdir(), "pendant-delegate-off-"));
+    const en = mkdtempSync(path.join(os.tmpdir(), "pendant-delegate-en-"));
     const make = (home: string) =>
       bus(home, {
         delegateEnabled: false,

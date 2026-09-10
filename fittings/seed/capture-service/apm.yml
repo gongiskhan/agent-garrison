@@ -13,7 +13,7 @@ x-garrison:
   default_port: 8097
   platforms:
     - claude-code
-  summary: Garrison's one voice layer and the iOS companion capture channel. Speech-to-text and text-to-speech for every surface (the browser through the shell's voice proxy, the phone, omi-channel, automations) live here behind one Bearer-gated REST contract, one backend choice and one clip cache; the companion app's session capture, wake-word pipe, push and spoken acknowledgements ride the same service. Every pipe behind its own default-off flag.
+  summary: Garrison's one voice layer and the iOS companion capture channel. Speech-to-text and text-to-speech for every surface (the browser through the shell's voice proxy, the phone, automations) live here behind one Bearer-gated REST contract, one backend choice and one clip cache; the companion app's session capture, wake-word pipe, push and spoken acknowledgements ride the same service. Every pipe behind its own default-off flag.
   for_consumers: |
     Channel id "companion" - the Garrison iOS companion app - and the voice
     layer every other surface speaks through.
@@ -30,12 +30,7 @@ x-garrison:
     key, tts is false when no backend can speak. Automations reach the same two
     lanes through connector "voice" (actions transcribe, synthesize).
 
-    Text ingest and the active conversation (same Bearer): POST
-    /capture/ingest/text takes {source: "omi", session_id, segments: [{text,
-    speaker?, is_user?, start?, end?}]} from omi-channel's realtime feed and
-    answers 202 {session, accepted}; the segments run through the shared echo
-    guard and the wake-word bus, nothing is stored, and replies land where every
-    other reply lands (spoken on the phone or pushed). POST
+    The active conversation (same Bearer): POST
     /capture/conversation/active {session_id} pins the next spoken requests onto
     that gateway session for one window and answers {session_id, until}; GET
     reads the pin, DELETE clears it. The pin is process memory.
@@ -65,6 +60,30 @@ x-garrison:
       type: boolean
       default: false
       description: Master switch for capture ingress (session websocket + device registration). Off = every ingress surface answers 403 and nothing is stored.
+    - key: triage_enabled
+      type: boolean
+      default: false
+      description: Process phone and ambient pendant capture events into cards and memories on their owning node.
+    - key: triage_cron
+      type: string
+      default: '*/5 * * * *'
+      description: Cadence for this node's capture inbox triage job.
+    - key: triage_classify_target
+      type: string
+      default: ''
+      description: Optional target for background capture triage; empty uses classify_target.
+    - key: triage_batch_cap
+      type: integer
+      default: 20
+      description: Maximum events in one model call; remaining events wait for the next tick.
+    - key: tips_enabled
+      type: boolean
+      default: false
+      description: Allow capture triage to send tips through the Garrison phone notification service.
+    - key: tips_max_per_day
+      type: integer
+      default: 3
+      description: Daily limit for capture triage tips.
     - key: transcribe_enabled
       type: boolean
       default: false
@@ -428,10 +447,6 @@ x-garrison:
       type: integer
       default: 300000
       description: A live session with no frames for this long is closed with reason "timeout".
-    - key: text_session_idle_ms
-      type: integer
-      default: 120000
-      description: A text session (segments forwarded over POST /capture/ingest/text, source omi) with no new segments for this long is closed. Text sessions leave no media, transcript or capture_event behind either way.
     - key: active_conversation_window_ms
       type: integer
       default: 300000

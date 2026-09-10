@@ -27,7 +27,6 @@ dependencies:
     - path: ../../fittings/seed/loop-heartbeat
     - path: ../../fittings/seed/mcp-gateway
     - path: ../../fittings/seed/monitor-default
-    - path: ../../fittings/seed/omi-channel
     - path: ../../fittings/seed/openai-agents-runtime
     - path: ../../fittings/seed/opencode-runtime
     - path: ../../fittings/seed/openrouter-runtime
@@ -70,18 +69,9 @@ x-garrison:
             slack_port: 9512
             gateway_url: http://127.0.0.1:5777
             chat_timeout_ms: 600000
-        - id: omi-channel
-          config:
-            port: 8094
-            bind_host: 127.0.0.1
-            enabled: true
-            triage_enabled: true
-            wake_enabled: true
-            notify_enabled: true
-            # Wake tuning moved with the wake bus to capture-service (2026-09-02);
-            # this fitting only forwards transcripts there now.
         - id: capture-service
           config:
+            triage_enabled: true
             port: 8097
             bind_host: 127.0.0.1
             enabled: true

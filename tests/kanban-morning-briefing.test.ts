@@ -145,7 +145,7 @@ function emailFixture(output = JSON.stringify({ ok: true, result: { id: "fixture
 }
 
 describe("Morning briefing delivery", () => {
-  it("posts Web and Omi once, suppresses Omi's Web fallback, and records keyed receipts", async () => {
+  it("posts Web once, never calls retired Omi, and records keyed receipts", async () => {
     const dir = root();
     const card = await occurrence(dir, "Calendar: no events today. Active work: two cards. Focus: finish routing.");
     const calls: Array<{ url: string; body: any }> = [];
@@ -154,22 +154,18 @@ describe("Morning briefing delivery", () => {
     expect(first).toMatchObject({
       calendar: { status: "reported", eventCount: 0 },
       web: { status: "delivered", threadId: MORNING_BRIEF_WEB_THREAD },
-      omi: { status: "delivered" }
     });
     await deliverMorningBriefCompletion(dir, card.id, options);
 
     const webPosts = calls.filter((call) => call.url === `http://web/api/threads/${MORNING_BRIEF_WEB_THREAD}/messages`);
     const omiPosts = calls.filter((call) => call.url === "http://omi/api/threads/morning-briefing/messages");
     expect(webPosts).toHaveLength(1);
-    expect(omiPosts).toHaveLength(1);
-    expect(omiPosts[0].body.suppressWebFallback).toBe(true);
-    expect(omiPosts[0].body.idempotencyKey).toMatch(/^morning:.*:omi$/);
+    expect(omiPosts).toHaveLength(0);
     expect(webPosts[0].body.idempotencyKey).toMatch(/^morning:.*:web$/);
     const stored = await loadCard(dir, card.id);
     expect(stored.morningBriefDelivery).toMatchObject({
       completedAt: "2026-08-05T07:05:00.000Z",
       web: { status: "delivered", idempotencyKey: webPosts[0].body.idempotencyKey },
-      omi: { status: "delivered", idempotencyKey: omiPosts[0].body.idempotencyKey },
       calendar: { status: "reported", eventCount: 0 }
     });
     expect(stored.events.filter((event: any) => event.kind === "morning-brief-delivery")).toHaveLength(1);
@@ -189,7 +185,6 @@ describe("Morning briefing delivery", () => {
     }));
     expect(result).toMatchObject({
       web: { status: "delivered", threadId: MORNING_BRIEF_WEB_THREAD },
-      omi: { status: "delivered" }
     });
     // The talk API is mounted under /api/* on the app; the trailing slash on the
     // projected URL must not double up.
@@ -198,7 +193,7 @@ describe("Morning briefing delivery", () => {
     expect(asked).not.toContain("web-channel-default");
   });
 
-  it("makes missing Calendar and Omi visible without failing or publishing fabricated Calendar prose", async () => {
+  it("makes missing Calendar visible without failing or publishing fabricated Calendar prose", async () => {
     const dir = root();
     const card = await occurrence(dir, "Calendário: 4 eventos.\nActive cards: three. Recommended focus: the release.");
     const calls: Array<{ url: string; body: any }> = [];
@@ -212,15 +207,15 @@ describe("Morning briefing delivery", () => {
       now: () => "2026-08-05T07:06:00.000Z",
       at: () => Date.parse("2026-08-05T07:06:00.000Z")
     });
-    expect(result).toMatchObject({ calendar: { status: "degraded" }, omi: { status: "degraded" }, web: { status: "delivered" } });
+    expect(result).toMatchObject({ calendar: { status: "degraded" }, web: { status: "delivered" } });
     const webPost = calls.find((call) => call.url.endsWith("/messages"));
     expect(webPost?.body.messages[0].text).toMatch(/Calendar: degraded/);
-    expect(webPost?.body.messages[0].text).toMatch(/Omi: degraded/);
+    expect(webPost?.body.messages[0].text).not.toContain("Omi");
     expect(webPost?.body.messages[0].text).not.toContain("4 eventos");
     expect(calls.some((call) => call.url.startsWith("http://omi"))).toBe(false);
   });
 
-  for (const crashChannel of ["omi", "web"] as const) {
+  for (const crashChannel of ["web"] as const) {
     it(`replays safely after a crash immediately after the ${crashChannel} append`, async () => {
       const dir = root();
       const card = await occurrence(dir, "Active work: two cards. Focus: finish routing.");
@@ -247,7 +242,7 @@ describe("Morning briefing delivery", () => {
       expect(new Set(crashAttempts.map((call) => call.body.idempotencyKey)).size).toBe(1);
       // The destination contract de-duplicates the repeated append key, so only
       // the two logical channel messages exist despite the retried HTTP call.
-      expect(logicalKeys.size).toBe(2);
+      expect(logicalKeys.size).toBe(1);
     });
   }
 

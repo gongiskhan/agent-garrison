@@ -41,7 +41,7 @@ describe("Kanban Scheduled UI", () => {
     expect(source).toContain("card.schedule.cutoverPending === true");
     expect(source).toContain('aria-label="Morning briefing delivery status"');
     expect(source).toContain("Web: {card.morningBriefDelivery.web?.status");
-    expect(source).toContain("Omi: {card.morningBriefDelivery.omi?.status");
+    expect(source).not.toContain("Omi: {card.morningBriefDelivery.omi?.status");
   });
 
   it("makes template and occurrence provenance navigable card links", () => {

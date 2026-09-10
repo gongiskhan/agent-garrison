@@ -158,7 +158,7 @@ async function legacyMorningBriefJob(root) {
   }
 }
 
-// The occurrence's content instructions. Multi-channel delivery (Web, Omi,
+// The occurrence's content instructions. Multi-channel delivery (Web,
 // Slack, Email) and per-channel availability notices are entirely code-driven
 // (lib/morning-briefing.mjs) — this description only has to steer what the
 // briefing SAYS, not where it goes.
@@ -176,9 +176,15 @@ const MORNING_BRIEF_DESCRIPTION =
   "the day. After the actual Google connector call, write its machine-readable receipt to " +
   "<runDir>/morning-briefing-evidence.json as {\"calendar\":{\"connector\":\"google\",\"action\":\"calendar.list_events\"," +
   "\"ok\":true|false,\"checkedAt\":\"ISO timestamp\",\"eventCount\":0,\"reason\":\"failure reason when not ok\"}}; " +
-  "prose is not evidence. Your reply is the whole briefing body — delivery to Web, Omi, Slack and Email is automatic " +
+  "prose is not evidence. Your reply is the whole briefing body — delivery to Web, Slack and Email is automatic " +
   "and fans out to every channel that is currently running or configured, with each unavailable one already recorded " +
   "as a visibly degraded line; you do not need to deliver it yourself.";
+
+// Exact prior stock copy only; preserve every operator-authored description.
+const PRIOR_MORNING_BRIEF_DESCRIPTION = MORNING_BRIEF_DESCRIPTION.replace(
+  "delivery to Web, Slack and Email", "delivery to Web, Omi, Slack and Email"
+);
+const isStockPredecessor = text => text === LEGACY_MORNING_BRIEF_DESCRIPTION || text === PRIOR_MORNING_BRIEF_DESCRIPTION;
 
 // Seed the replacement while the legacy job is still live, but PAUSED. This lets
 // the operator inspect it and exercise Run now before cutover without creating a
@@ -189,9 +195,9 @@ export async function ensureMorningBriefTemplate(root, board, { force = false, n
   let existing = cards.find((card) => card.systemKey === MORNING_BRIEF_SYSTEM_KEY);
   // Upgrade only the known stock instructions. CAS rechecks the current text
   // so an operator edit racing setup is preserved too.
-  if (existing?.description === LEGACY_MORNING_BRIEF_DESCRIPTION) {
+  if (isStockPredecessor(existing?.description)) {
     const synced = await updateCardCAS(root, existing.id, (current) =>
-      current.description === LEGACY_MORNING_BRIEF_DESCRIPTION
+      isStockPredecessor(current.description)
         ? { ...current, description: MORNING_BRIEF_DESCRIPTION }
         : null
     );

@@ -50,7 +50,6 @@ declare module "*/capture-service/lib/config.mjs" {
     apnsEnvironment: "production" | "sandbox";
     apnsTopic: string;
     sessionIdleTimeoutMs: number;
-    textSessionIdleMs: number;
     activeConversationWindowMs: number;
     transcribeMuteTimeoutMs: number;
     wakeProgressIntervalMs: number;
@@ -72,7 +71,6 @@ declare module "*/capture-service/scripts/server.mjs" {
   export function makeRequestHandler(ctx: unknown): (req: unknown, res: unknown) => Promise<void>;
   export const COMPANION_WAKE_SOURCE: Record<string, unknown>;
   export const PENDANT_WAKE_SOURCE: Record<string, unknown>;
-  export const OMI_TEXT_WAKE_SOURCE: Record<string, unknown>;
   export function startServer(cfg?: unknown): Promise<{
     server: Server;
     cfg: { port: number; statusFile: string; stateDir: string };
@@ -131,16 +129,10 @@ declare module "*/capture-service/lib/ingress.mjs" {
   export function bearerToken(req: { headers?: Record<string, string> }): string | null;
   export function parseMediaFrame(buf: Buffer): { kind: number; seq: number; ts: number; bytes: Buffer } | null;
   export function encodeMediaFrame(kind: number, seq: number, ts: number, bytes: Buffer): Buffer;
-  export const TEXT_SOURCES: Set<string>;
-  export const TEXT_SESSION_ID_RE: RegExp;
   export class CaptureIngress {
     constructor(deps: Record<string, unknown>);
     sessions: Map<string, unknown>;
-    static textSessionKey(source: string, sessionId: string): string;
     handleUpgrade(req: unknown, socket: unknown, head: unknown): void;
-    openTextSession(args: { source: string; sessionId: string }): { session: { record: Record<string, any>; text: true }; created: boolean };
-    noteTextSegments(session: unknown, count: number): void;
-    finalizeTextSession(id: string, reason: string): boolean;
     finalizeSession(id: string, reason: string): void;
     close(): void;
   }
@@ -417,7 +409,7 @@ declare module "*/capture-service/lib/wake.mjs" {
   export function buildVoiceDiscussTurn(utterance: string): string;
   export function splitForSpeech(text: unknown, opts?: { maxChars?: number; maxChunks?: number }): string[];
   export function humanTime(iso: unknown, now?: Date, lang?: string): string;
-  export const OMI_WAKE_SOURCE: Record<string, unknown>;
+  export const PENDANT_WAKE_SOURCE: Record<string, unknown>;
   export class ActiveConversation {
     constructor(opts?: { windowMs?: number; now?: () => number });
     pin(sessionId: string): { session_id: string; until: string };

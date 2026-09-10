@@ -3568,7 +3568,6 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         {card.morningBriefDelivery && (
           <div className="morning-delivery" aria-label="Morning briefing delivery status">
             <span className={`chip ${card.morningBriefDelivery.web?.status === "delivered" ? "ok" : "attn"}`}>Web: {card.morningBriefDelivery.web?.status ?? "pending"}</span>
-            <span className={`chip ${card.morningBriefDelivery.omi?.status === "delivered" ? "ok" : "attn"}`}>Omi: {card.morningBriefDelivery.omi?.status ?? "pending"}</span>
             <span className={`chip ${card.morningBriefDelivery.calendar?.status === "reported" ? "ok" : "attn"}`}>Calendar: {card.morningBriefDelivery.calendar?.status ?? "pending"}</span>
           </div>
         )}

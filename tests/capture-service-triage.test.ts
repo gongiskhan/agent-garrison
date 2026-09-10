@@ -1,8 +1,8 @@
 // Capture service — M4 triage generalization.
 //
-// One brain, one triage: companion session events join omi's tick through a
+// One brain, one triage: companion session events join pendant's tick through a
 // second store root. Proven here: session-end emission with dedupe-by-session
-// and consent provenance; a MIXED batch (omi + companion) triaged in ONE
+// and consent provenance; a MIXED batch (pendant + companion) triaged in ONE
 // model call with per-source identity on cards, memories and notifications;
 // re-runs creating zero duplicates; the wait-for-context hold (a thin
 // fragment alone is held with zero model calls, rides along once context
@@ -12,19 +12,17 @@ import { describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { OmiStore, EventsDirStore } from "../fittings/seed/omi-channel/lib/store.mjs";
-import { runTriageTick, ruleFilter, HOLD_MAX_MS } from "../fittings/seed/omi-channel/lib/triage.mjs";
-import { loadConfig as loadOmiConfig } from "../fittings/seed/omi-channel/lib/config.mjs";
-import { MemoryWriter } from "../fittings/seed/omi-channel/lib/memory-writer.mjs";
+import { runTriageTick, ruleFilter, HOLD_MAX_MS } from "../fittings/seed/capture-service/lib/triage.mjs";
+import { MemoryWriter } from "../fittings/seed/capture-service/lib/memory-writer.mjs";
 import { CaptureStore, Counters } from "../fittings/seed/capture-service/lib/store.mjs";
 import { loadConfig as loadCaptureConfig } from "../fittings/seed/capture-service/lib/config.mjs";
 import { emitSessionEvent, transcriptProse } from "../fittings/seed/capture-service/lib/events.mjs";
 import { atomicWriteJSON } from "../fittings/seed/capture-service/lib/store.mjs";
 
-function omiConversationEvent(id: string, conversationId: string) {
+function pendantConversationEvent(id: string, conversationId: string) {
   return {
     id,
-    source: "omi",
+    source: "pendant",
     uid: "u1",
     received_at: new Date().toISOString(),
     occurred_at: new Date().toISOString(),
@@ -43,7 +41,7 @@ function omiConversationEvent(id: string, conversationId: string) {
       highlights: [],
       insights: []
     },
-    provenance: { omi_conversation_id: conversationId },
+    provenance: { pendant_session_id: conversationId },
     status: "pending" as const,
     triage_result_ref: null
   };
@@ -98,38 +96,38 @@ function makeCounters(dir: string) {
 }
 
 function tickDeps(home: string) {
-  const omiStore = new OmiStore(path.join(home, "omi"));
+  const pendantStore = new CaptureStore(path.join(home, "pendant"));
   const captureRoot = path.join(home, "capture");
   const captureStore = new CaptureStore(captureRoot); // creates the layout
-  const captureTickStore = new EventsDirStore(captureRoot); // what the tick uses
+  const captureTickStore = new CaptureStore(captureRoot); // what the tick uses
   const board = makeBoard();
   const prompts: string[] = [];
   const companionSent: any[] = [];
-  const omiSent: any[] = [];
-  const omiVault = path.join(home, "vault-omi");
+  const pendantSent: any[] = [];
+  const pendantVault = path.join(home, "vault-pendant");
   const companionVault = path.join(home, "vault-companion");
   const cfg = {
-    ...loadOmiConfig({ GARRISON_HOME: home, GARRISON_OMICHANNEL_TRIAGE_ENABLED: "true" }),
+    ...loadCaptureConfig({ GARRISON_HOME: home, GARRISON_CAPTURESERVICE_TRIAGE_ENABLED: "true" }),
     gatewayUrl: "http://gateway.test"
   };
   const deps = {
     cfg,
-    store: omiStore,
+    store: pendantStore,
     counters: makeCounters(home),
     board,
-    memoryWriter: new MemoryWriter({ dir: omiVault }),
+    memoryWriter: new MemoryWriter({ dir: pendantVault }),
     notifier: {
       cardUrl: async () => null,
       send: async (msg: any) => {
-        omiSent.push(msg);
-        return [{ means: "omi-push", ok: true }];
+        pendantSent.push(msg);
+        return [{ means: "pendant-push", ok: true }];
       }
     },
     extraStores: [captureTickStore],
     memoryWriterFor: (event: any) =>
       event?.source === "companion-ios"
         ? new MemoryWriter({ dir: companionVault, prefix: "companion", label: "Companion" })
-        : new MemoryWriter({ dir: omiVault }),
+        : new MemoryWriter({ dir: pendantVault }),
     notifierFor: (event: any) =>
       event?.source === "companion-ios"
         ? {
@@ -141,7 +139,7 @@ function tickDeps(home: string) {
           }
         : deps.notifier
   };
-  return { omiStore, captureStore, captureTickStore, board, prompts, companionSent, omiSent, cfg, deps, omiVault, companionVault };
+  return { pendantStore, captureStore, captureTickStore, board, prompts, companionSent, pendantSent, cfg, deps, pendantVault, companionVault };
 }
 
 function runWith(deps: any, prompts: string[], reply: unknown) {
@@ -212,11 +210,11 @@ describe("capture-service session event emission", () => {
 });
 
 describe("generalized triage tick", () => {
-  it("triages a mixed omi + companion batch in ONE model call with per-source identity, and re-runs create zero duplicates", async () => {
+  it("triages a mixed pendant + companion batch in ONE model call with per-source identity, and re-runs create zero duplicates", async () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "capture-triage-"));
     try {
       const t = tickDeps(home);
-      t.omiStore.writeEvent(omiConversationEvent("01OMIEVENT000001", "conv-1"));
+      t.pendantStore.writeEvent(pendantConversationEvent("01PENDANTEVENT000001", "conv-1"));
       atomicWriteJSON(
         path.join(t.captureStore.root, "events", "01CAPEVENT000001.json"),
         companionSessionEvent("01CAPEVENT000001", "01SESSIONX000001", 40)
@@ -224,7 +222,7 @@ describe("generalized triage tick", () => {
 
       const reply = {
         cards: [
-          { event_id: "01OMIEVENT000001", action_index: 0, title: "Ligar ao banco", description: "Telefonar ao banco.", project: null },
+          { event_id: "01PENDANTEVENT000001", action_index: 0, title: "Ligar ao banco", description: "Telefonar ao banco.", project: null },
           { event_id: "01CAPEVENT000001", action_index: 0, title: "Enviar relatório à Ana", description: "Enviar o relatório.", project: "garrison" }
         ],
         memories: [
@@ -236,15 +234,15 @@ describe("generalized triage tick", () => {
 
       expect(summary.modelCalls).toBe(1);
       expect(t.prompts.length).toBe(1);
-      expect(t.prompts[0]).toContain("the user's always-on wearable");
+      expect(t.prompts[0]).toContain("the user's always-on pendant, captured directly by Garrison");
       expect(t.prompts[0]).toContain("a deliberate companion-app capture session");
       expect(t.prompts[0]).toContain("palavra0");
       expect(summary.cardsCreated).toBe(2);
 
-      const omiCard = t.board.cards.find((c) => c.origin === "omi");
-      expect(omiCard.origin_id).toBe("omi:conv-1:0");
-      expect(omiCard.originChannel).toEqual({ channel: "omi", threadId: "omi-reports" });
-      expect(omiCard.description).toContain("Source (Omi):");
+      const pendantCard = t.board.cards.find((c) => c.origin === "pendant");
+      expect(pendantCard.origin_id).toBe("pendant:conv-1:0");
+      expect(pendantCard.originChannel).toEqual({ channel: "pendant", threadId: "pendant-reports" });
+      expect(pendantCard.description).toContain("Source (Pendant):");
 
       const compCard = t.board.cards.find((c) => c.origin === "companion");
       expect(compCard.origin_id).toBe("companion:01SESSIONX000001:0");
@@ -260,19 +258,19 @@ describe("generalized triage tick", () => {
       expect(memoryBody).toContain("source**: companion-ios");
       expect(memoryBody).toContain("companion session**: 01SESSIONX000001");
       expect(t.companionSent.map((m) => m.template)).toEqual(["card_created"]);
-      expect(t.omiSent.map((m) => m.template)).toEqual(["card_created"]);
+      expect(t.pendantSent.map((m) => m.template)).toEqual(["card_created"]);
 
       // Both events triaged in their OWN stores, result doc in both roots.
-      const omiEvent = t.omiStore.listEvents()[0];
+      const pendantEvent = t.pendantStore.listEvents()[0];
       const capEvent = t.captureTickStore.listEvents()[0];
-      expect(omiEvent.status).toBe("triaged");
+      expect(pendantEvent.status).toBe("triaged");
       expect(capEvent.status).toBe("triaged");
-      expect(existsSync(path.join(t.omiStore.root, omiEvent.triage_result_ref!))).toBe(true);
+      expect(existsSync(path.join(t.pendantStore.root, String(pendantEvent.triage_result_ref)))).toBe(true);
       expect(existsSync(path.join(t.captureStore.root, String(capEvent.triage_result_ref)))).toBe(true);
 
       // Re-run with the events forced pending again: origin dedupe, no new
       // cards, no duplicate memories... the board already holds both origins.
-      t.omiStore.updateEvent(omiEvent.id, (ev: any) => ({ ...ev, status: "pending" }));
+      t.pendantStore.updateEvent(pendantEvent.id, (ev: any) => ({ ...ev, status: "pending" }));
       t.captureTickStore.updateEvent(capEvent.id, (ev: any) => ({ ...ev, status: "pending" }));
       const rerun = await runWith(t.deps, t.prompts, reply);
       expect(rerun.modelCalls).toBe(1);
@@ -305,9 +303,9 @@ describe("generalized triage tick", () => {
       expect(held.modelCalls).toBe(0);
       expect(t.captureTickStore.listEvents("pending").length).toBe(1);
 
-      // Context arrives (an omi event): the thin fragment rides along - ONE
+      // Context arrives (an pendant event): the thin fragment rides along - ONE
       // model call for both, and the thin session cards exactly once.
-      t.omiStore.writeEvent(omiConversationEvent("01OMIEVENT000002", "conv-2"));
+      t.pendantStore.writeEvent(pendantConversationEvent("01PENDANTEVENT000002", "conv-2"));
       const reply = {
         cards: [{ event_id: "01THINEVENT00001", action_index: 0, title: "Fragmento", description: "Do fragmento.", project: null }],
         memories: [],
@@ -336,10 +334,10 @@ describe("generalized triage tick", () => {
 
   it("keeps the rule-layer verdicts stable for both sources", () => {
     const cfg = { dropDiscarded: true, blockedFolders: [], allowedCategories: [] };
-    const omiEvent = omiConversationEvent("01X", "c");
-    expect(ruleFilter(omiEvent, cfg)).toEqual({ action: "keep", taskPath: true });
-    omiEvent.normalized.action_items = [{ description: "x", completed: true, source_ref: null }];
-    expect(ruleFilter(omiEvent, cfg)).toEqual({ action: "keep", taskPath: false });
+    const pendantEvent = pendantConversationEvent("01X", "c");
+    expect(ruleFilter(pendantEvent, cfg)).toEqual({ action: "keep", taskPath: true });
+    pendantEvent.normalized.action_items = [{ description: "x", completed: true, source_ref: null }];
+    expect(ruleFilter(pendantEvent, cfg)).toEqual({ action: "keep", taskPath: false });
 
     const fat = companionSessionEvent("01Y", "s", 40);
     expect(ruleFilter(fat, cfg)).toEqual({ action: "keep", taskPath: true });

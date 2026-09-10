@@ -80,7 +80,7 @@ function statusFileUrl(fittingId) {
 // thread_ts encoded in the threadId (`<conversation>:<thread_ts>`); the adapter
 // only serves this route while it is running, and it is started by hand (it needs
 // a public tunnel), so with it down this entry is inert like the omi one.
-const CHANNEL_FITTINGS = { web: "web-channel-default", omi: "omi-channel", slack: "slack-channel" };
+const CHANNEL_FITTINGS = { web: "web-channel-default", slack: "slack-channel" };
 
 // The web channel's delivery base. Conversations lives in the Garrison shell,
 // whose loopback base the runner projects into every fitting as GARRISON_APP_URL;
@@ -475,6 +475,11 @@ export function routeBrief(root, card, { brief, gate } = {}) {
 // thread-append contract). Extracted so every channel-transport delivery uses
 // one path; the channel id picks the host via CHANNEL_FITTINGS + channelBase.
 async function postChannelMessage(channel, threadId, text, { idempotencyKey = null, fetchImpl = fetch, serveMap = null } = {}) {
+  // Historical cloud-origin cards keep a reachable notice surface after retirement.
+  if (channel === "omi") {
+    const ok = await deliverBoardNotice("Card updates", text, { idempotencyKey, fetchImpl });
+    return { ok, channel: "web", fittingId: CHANNEL_FITTINGS.web, threadId: BOARD_NOTICE_THREAD };
+  }
   const fittingId = CHANNEL_FITTINGS[channel];
   if (!fittingId || !threadId || !text) return { ok: false, channel, fittingId, reason: "invalid channel message" };
   const base = channelBase(fittingId);
@@ -693,7 +698,6 @@ export function scheduleReminderMessage(card, { started = false } = {}) {
 // the omi fitting's relay (which pushes an Omi notification and degrades to
 // the web channel by itself). With the omi fitting absent, fall back to the
 // web board-notice thread so the reminder is never silently dropped.
-const OMI_REMINDER_THREAD = "omi-reports";
 
 export async function deliverScheduleReminder(root, card, {
   started = false,
@@ -713,9 +717,7 @@ export async function deliverScheduleReminder(root, card, {
     // the fan-out or the user gets the same reminder twice on that surface.
     const chainFittingId = card.originChannel?.channel
       ? CHANNEL_FITTINGS[String(card.originChannel.channel).toLowerCase()]
-      : statusFileUrl(CHANNEL_FITTINGS.omi)
-        ? CHANNEL_FITTINGS.omi
-        : null;
+      : null;
     const fanout = await fanOutNotification(
       {
         title: started ? "Scheduled card started" : "Card due",
@@ -750,14 +752,10 @@ export async function deliverScheduleReminder(root, card, {
         detail: { scheduledFor: card.scheduledFor ?? null, started },
         idempotencyKey
       });
-      if (statusFileUrl(CHANNEL_FITTINGS.omi)) {
-        chain = await postChannelMessage("omi", OMI_REMINDER_THREAD, text, { idempotencyKey, fetchImpl });
-      } else {
-        const delivered = await deliverBoardNotice("Scheduled cards", text, { idempotencyKey, fetchImpl });
-        chain = delivered
-          ? { ok: true, channel: "web", fittingId: CHANNEL_FITTINGS.web, threadId: BOARD_NOTICE_THREAD }
-          : { ok: false, channel: "web", fittingId: CHANNEL_FITTINGS.web, reason: "no running reminder channel" };
-      }
+      const delivered = await deliverBoardNotice("Scheduled cards", text, { idempotencyKey, fetchImpl });
+      chain = delivered
+        ? { ok: true, channel: "web", fittingId: CHANNEL_FITTINGS.web, threadId: BOARD_NOTICE_THREAD }
+        : { ok: false, channel: "web", fittingId: CHANNEL_FITTINGS.web, reason: "no running reminder channel" };
     }
     const receipts = [...fanout, chain].filter(Boolean);
     return {

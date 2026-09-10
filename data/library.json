@@ -641,21 +641,6 @@
     }
   },
   {
-    "id": "omi-channel",
-    "name": "Omi channel",
-    "repo": "local:fittings/seed/omi-channel",
-    "localPath": "fittings/seed/omi-channel",
-    "summary": "Bidirectional Omi wearable channel: webhook ingress, heartbeat triage into cards and memories, wake-word commands, Omi direct notifications, ask_zeca chat tool, backfeed.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-omi-channel",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
     "id": "email-channel",
     "name": "Email channel",
     "repo": "local:fittings/seed/email-channel",
@@ -675,7 +660,7 @@
     "name": "Voice and companion capture",
     "repo": "local:fittings/seed/capture-service",
     "localPath": "fittings/seed/capture-service",
-    "summary": "The voice layer: browser push-to-talk and read-aloud (POST /stt, POST /tts behind the capture token), phone capture over a session-based websocket ingress (audio + screen stills) with Deepgram live transcription and wake-word commands, Omi realtime segments forwarded onto the same wake bus, capture events into the shared triage, APNs push out, spoken-acknowledgement sink.",
+    "summary": "The voice layer: browser push-to-talk and read-aloud (POST /stt, POST /tts behind the capture token), phone capture over a session-based websocket ingress (audio + screen stills) with Deepgram live transcription and wake-word commands, native BLE pendant audio through the same voice layer, capture events into the shared triage, APNs push out, spoken-acknowledgement sink.",
     "platforms": [
       "claude-code"
     ],

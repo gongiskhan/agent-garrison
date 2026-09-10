@@ -59,7 +59,7 @@ export function reviewPrompt({ conversationId, since, thread, day }) {
   return [
     `Nightly review of the standing Zeca conversation (${conversationId}, ${turns.length} turns since ${since ?? "its start"}, reviewed ${day}).`,
     "",
-    "This is everything the user said to Zeca by voice today - from the pendant, the phone's Listen button or Omi - and what Zeca answered. Do two things, then answer in exactly the two sections below.",
+    "This is everything the user said to Zeca by voice today - from the pendant or the phone's Listen button - and what Zeca answered. Do two things, then answer in exactly the two sections below.",
     "",
     "1. Memories: durable facts, preferences and decisions about the user or their projects that are worth remembering beyond today. Save each one with your memory tools now (basic-memory), then list what you saved. Skip anything transient (a one-off request, a message that was sent). Write \"none\" when there is nothing durable.",
     "2. Learnings: friction with Zeca itself that the improver should know about - names or words misheard, requests that landed in the wrong place, sends that failed, answers that missed the point, feedback that was late or missing. One line each, concrete, with the phrase that triggered it when there is one. Write \"none\" when the day went clean.",

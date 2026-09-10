@@ -140,7 +140,7 @@ companion."). Then stop the session. Expected, with rough timings:
 
 An `ask` arrives as a push (full question in the notification body; also in
 the app's Messages log). Answer by voice in any live session — "Zeca, ..."
-— or via Omi; the orchestrator receives recent-ask context so the answer
+— through the Garrison app; the orchestrator receives recent-ask context so the answer
 lands connected. There is no reply protocol in v1, by design.
 
 ## 9. Pendant Direct (Companion owns the pendant over BLE)
@@ -148,8 +148,8 @@ lands connected. There is no reply protocol in v1, by design.
 The pendant path (docs/adr-pendant-direct.md, docs/pendant-protocol.md) lets
 the Companion hold the Omi pendant's BLE connection and stream its audio to
 this service - your own Deepgram pipeline, your own storage, tiered haptic
-feedback on the device. The Omi cloud path is untouched; switching back is a
-Bluetooth reconnect, nothing on our side.
+feedback on the device. No Omi account, app or subscription is used.
+The cloud integration was retired on 2026-09-10; keep this hardware path.
 
 ### 9a. One-time machine prerequisites
 
@@ -171,7 +171,7 @@ Two composition config keys on capture-service (Compose > capture-service),
 both off/default by design:
 
 - `pendant_enabled: true` - accepts mode "pendant" sessions. Independent of
-  every other flag (and of the omi channel entirely).
+  the phone microphone mode.
 - `capture_policy` - `wake_only` (default: nothing is stored except wake
   commands and their cards; counters only for everything else) or `ambient`
   (pendant session transcripts are stored and feed the shared triage tick).
@@ -195,10 +195,9 @@ subscribe, streaming, haptic writes, button - works against the emulator.
 
 ### 9d. The real-device script
 
-1. In the OMI APP: disconnect the pendant (Settings > device > disconnect,
-   or just force-quit the Omi app). The pendant is single-central: whoever
-   holds the connection gets the audio.
-2. In the COMPANION: open Pendant, tap "Connect pendant". Status goes
+1. Ensure the pendant is powered on and available for BLE connection. It
+   accepts one central connection; the Garrison app must own it.
+2. In the GARRISON APP: open Pendant, tap "Connect pendant". Status goes
    scanning > connecting > connected; battery appears; the policy row shows
    "wake only (nothing stored)" under the default policy.
 3. Speak the smoke phrase: "Zeca, cria uma tarefa de teste chamada olá
@@ -213,9 +212,7 @@ subscribe, streaming, haptic writes, button - works against the emulator.
    pendant; under wake_only there is NO session row on the capture page
    (that is the policy working); under ambient the session and its
    transcript appear at the capture service page.
-6. Hand the device back to the Omi app: tap "Disconnect pendant" in the
-   Companion, then open the Omi app - it reconnects on its own (its
-   auto-reconnect is chipset-level). Nothing to undo on the Garrison side.
+6. Keep the pendant connected to Garrison for daily use.
 
 If step 4 produces no device pulses but the strip shows the events, the
 haptic write is failing (devkit1 has no motor; check "Device haptic" on the

@@ -25,17 +25,8 @@ export const HOLD_MAX_MS = 30 * 60 * 1000;
 // ---- Source identities ------------------------------------------------------
 // One triage engine, several capture channels (invariant: one brain, one
 // triage). Everything source-specific lives here, keyed by event.source; an
-// unknown source falls back to omi so a malformed event degrades loudly in
-// provenance rather than crashing the tick.
+// unsupported sources are rejected by the rule layer before classification.
 export const TRIAGE_SOURCES = {
-  omi: {
-    label: "Omi",
-    originPrefix: "omi",
-    originChannel: { channel: "omi", threadId: "omi-reports" },
-    refKey: "omi_conversation_id",
-    refLabel: "omi conversation",
-    sourceLine: "the user's always-on wearable"
-  },
   "companion-ios": {
     label: "Companion",
     originPrefix: "companion",
@@ -45,8 +36,7 @@ export const TRIAGE_SOURCES = {
     sourceLine: "a deliberate companion-app capture session"
   },
   // Pendant Direct (capture-service mode "pendant", ambient policy): the BLE
-  // pendant captured by Garrison itself. Additive - unknown sources still
-  // fall back to omi exactly as before.
+  // pendant captured directly by Garrison itself.
   pendant: {
     label: "Pendant",
     originPrefix: "pendant",
@@ -58,7 +48,7 @@ export const TRIAGE_SOURCES = {
 };
 
 export function sourceIdentity(event) {
-  return TRIAGE_SOURCES[event?.source] ?? TRIAGE_SOURCES.omi;
+  return TRIAGE_SOURCES[event?.source] ?? TRIAGE_SOURCES["companion-ios"];
 }
 
 // ---- Rule layer (zero model cost) ------------------------------------------
@@ -66,6 +56,7 @@ export function sourceIdentity(event) {
 // -> { action: "drop", reason } | { action: "hold", reason }
 //  | { action: "keep", taskPath: boolean }
 export function ruleFilter(event, cfg, now = new Date()) {
+  if (!TRIAGE_SOURCES[event.source]) return { action: "drop", reason: "unsupported capture source" };
   const n = event.normalized;
   if (!n) return { action: "drop", reason: "no normalized payload" };
   if (cfg.dropDiscarded && n.discarded) return { action: "drop", reason: "discarded" };
@@ -395,7 +386,7 @@ export async function runTriageTick({
         await sender.send({ template: "card_created", params: { title, cardUrl } });
       }
     } catch (err) {
-      log.error(`[omi-channel] card create failed (${originId}): ${err?.message ?? err}`);
+      log.error(`[capture-service] card create failed (${originId}): ${err?.message ?? err}`);
       counters.bump("cards_create_failed");
     }
   }

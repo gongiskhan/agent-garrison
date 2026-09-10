@@ -1,4 +1,4 @@
-// Gateway client for the omi-channel fitting - the cheap blocking lane only.
+// Gateway client for the capture-service fitting - the cheap blocking lane only.
 //
 // Replicates kanban-loop/lib/gateway-client.mjs `inferenceRunFn` (fittings are
 // self-contained APM packages; cross-fitting imports are forbidden, so the
@@ -9,7 +9,7 @@
 // the caller REQUEUES (inbox events stay pending) instead of dropping work; any
 // other failure is a genuine error.
 
-const OMI_INFER_TIMEOUT_MS = Number(process.env.OMI_INFER_TIMEOUT_MS) || 120 * 1000;
+const CAPTURE_INFER_TIMEOUT_MS = Number(process.env.CAPTURE_INFER_TIMEOUT_MS) || 120 * 1000;
 
 // Blocking /chat runFn ({prompt} -> {reply}) with a hard AbortController
 // timeout. channel "garrison" marks the turn as internal engine work so the
@@ -28,7 +28,7 @@ const OMI_INFER_TIMEOUT_MS = Number(process.env.OMI_INFER_TIMEOUT_MS) || 120 * 1
 // that genuinely needs tools goes through `operativeRunFn` below instead.
 export function inferenceRunFn(
   gatewayUrl,
-  { timeoutMs = OMI_INFER_TIMEOUT_MS, fetchImpl = fetch, target = null } = {}
+  { timeoutMs = CAPTURE_INFER_TIMEOUT_MS, fetchImpl = fetch, target = null } = {}
 ) {
   return async ({ prompt }) => {
     const ctrl = new AbortController();

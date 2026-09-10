@@ -161,7 +161,7 @@ webview needs one origin for the shell, the conversation and web push, and a
 channel on its own port breaks that (a second origin, a second service worker,
 mixed-content over the tailnet). What did NOT move: the gateway still owns the
 turn, the thread store stays at `<GARRISON_HOME>/web-channel/threads/`, and
-Slack, WhatsApp, Omi and email stay Fittings. The legacy own-port host is kept
+Slack, WhatsApp and email stay Fittings. The legacy own-port host is kept
 in `fittings/seed/web-channel-default`, unstationed by default, until the
 operator triggers its removal (`docs/decisions/2026-09-garrison-app.md`, D2,
 D16, I12). Servers reach Conversations through `GARRISON_APP_URL`; browsers
@@ -186,6 +186,17 @@ repository's `garrison-ios.yml` workflow (`fastlane beta`); XCTest runs on the
 mini (no Xcode on the MacBook Pro). The phone, not the simulator, is the
 criterion for every native gate; what still needs a real phone is listed in
 `HANDOFF-garrison-app.md`.
+
+### Omi hardware only (2026-09-10)
+
+The operator retired the Omi cloud channel, webhook/Funnel, MCP, notifications,
+apps and subscription integration. Do not restore them from historical notes.
+The Omi **pendant hardware remains supported and used daily**: preserve native
+BLE, GarrisonPendantPlugin, capture-service, Deepgram, wake commands, speech,
+haptics and phone/pendant triage. Capture owns the per-node `capture-triage-*`
+scheduler jobs; this processing no longer depends on an Omi fitting. No Omi
+account, app, server or subscription is involved in the native pendant path.
+See [the retirement decision](docs/decisions/2026-09-10-omi-retirement.md).
 
 ## Codex on macOS
 
@@ -311,7 +322,7 @@ and never syncing a working tree into a checkout a service is executing from
   **mesh**. The word survives only in internal identifiers and historical
   docs; `tests/vocabulary.test.ts` keeps it out of UI copy and manifest
   prose. Zeca remains the assistant persona defined inside a composition.
-- **Channel** — the way external surfaces (Slack, WhatsApp, Omi, email) reach the Operative through the gateway. Garrison ships no chat surface, with one documented exception: **Conversations** at `/talk`, the former Web Channel, is served by the shell from `packages/talk` (AGENTS.md "The web channel exception"). The legacy own-port host `web-channel-default` is unstationed by default.
+- **Channel** — the way external surfaces (Slack, WhatsApp, email) reach the Operative through the gateway. Garrison ships no chat surface, with one documented exception: **Conversations** at `/talk`, the former Web Channel, is served by the shell from `packages/talk` (AGENTS.md "The web channel exception"). The legacy own-port host `web-channel-default` is unstationed by default.
 - **`x-garrison`** — Garrison's metadata block inside the APM `apm.yml` manifest. APM preserves `x-*` keys. Schema in [`docs/METADATA.md`](./docs/METADATA.md).
 
 Legacy aliases the parser still accepts (with deprecation warnings):

@@ -18,7 +18,6 @@ import { loadAllCards, updateCardCAS } from "./board.mjs";
 
 export const MORNING_BRIEF_SYSTEM_KEY = "morning-briefing-v2";
 export const MORNING_BRIEF_WEB_THREAD = "morning-briefing";
-export const MORNING_BRIEF_OMI_THREAD = "morning-briefing";
 export const MORNING_BRIEF_SLACK_THREAD = "morning-briefing";
 
 function fittingUrl(fittingId, env = process.env) {
@@ -132,37 +131,6 @@ async function ensureThread(base, { id, title, source }, fetchImpl) {
     signal: AbortSignal.timeout(8_000)
   });
   if (!response.ok) throw new Error(`thread ensure HTTP ${response.status}`);
-}
-
-async function deliverOmi(base, text, fetchImpl, idempotencyKey) {
-  if (!base) return { status: "degraded", detail: "Omi channel is not running.", threadId: MORNING_BRIEF_OMI_THREAD };
-  try {
-    await ensureThread(base, {
-      id: MORNING_BRIEF_OMI_THREAD,
-      title: "Morning briefing",
-      source: "kanban-loop"
-    }, fetchImpl);
-    const response = await fetchImpl(`${base}/api/threads/${MORNING_BRIEF_OMI_THREAD}/messages`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        messages: [{ role: "assistant", text }],
-        suppressWebFallback: true,
-        idempotencyKey
-      }),
-      signal: AbortSignal.timeout(12_000)
-    });
-    if (!response.ok) return { status: "degraded", detail: `Omi relay HTTP ${response.status}.`, threadId: MORNING_BRIEF_OMI_THREAD };
-    const payload = await response.json().catch(() => ({}));
-    const direct = Array.isArray(payload?.deliveryReceipts)
-      ? payload.deliveryReceipts.find((receipt) => receipt?.means === "omi-push")
-      : null;
-    if (direct?.ok) return { status: "delivered", detail: direct.target ?? "Omi direct notification sent.", threadId: MORNING_BRIEF_OMI_THREAD };
-    const reason = direct?.skipped ?? direct?.error ?? "Omi direct delivery returned no receipt.";
-    return { status: "degraded", detail: String(reason).slice(0, 300), threadId: MORNING_BRIEF_OMI_THREAD };
-  } catch (error) {
-    return { status: "degraded", detail: String(error?.message ?? error).slice(0, 300), threadId: MORNING_BRIEF_OMI_THREAD };
-  }
 }
 
 async function deliverWeb(base, text, fetchImpl, idempotencyKey) {
@@ -406,22 +374,8 @@ export async function deliverMorningBriefCompletion(root, cardOrId, {
     delivery = persisted.morningBriefDelivery;
   }
 
-  const omiText = baseMessage(claimed, summary, calendar);
-  const omiKey = stableDeliveryKey(claimed, "omi");
-  let omi = delivery.omi;
-  if (!terminalReceipt(omi)) {
-    omi = {
-      ...await deliverOmi(fittingUrlFn("omi-channel"), omiText, fetchImpl, omiKey),
-      idempotencyKey: omiKey
-    };
-    if (typeof afterChannelDelivered === "function") {
-      await afterChannelDelivered({ channel: "omi", idempotencyKey: omiKey, receipt: omi });
-    }
-    const persisted = await persistDeliveryPatch(root, id, claimId, { omi });
-    if (!persisted) return { skipped: "delivery claim was replaced", card: null, calendar, omi };
-    delivery = persisted.morningBriefDelivery;
-  }
-  const webText = withPriorAvailability(omiText, [{ label: "Omi", receipt: omi }]);
+  const briefingText = baseMessage(claimed, summary, calendar);
+  const webText = briefingText;
   const webKey = stableDeliveryKey(claimed, "web");
   let web = delivery.web;
   if (!terminalReceipt(web)) {
@@ -433,11 +387,10 @@ export async function deliverMorningBriefCompletion(root, cardOrId, {
       await afterChannelDelivered({ channel: "web", idempotencyKey: webKey, receipt: web });
     }
     const persisted = await persistDeliveryPatch(root, id, claimId, { web });
-    if (!persisted) return { skipped: "delivery claim was replaced", card: null, calendar, web, omi };
+    if (!persisted) return { skipped: "delivery claim was replaced", card: null, calendar, web };
     delivery = persisted.morningBriefDelivery;
   }
-  const slackText = withPriorAvailability(omiText, [
-    { label: "Omi", receipt: omi },
+  const slackText = withPriorAvailability(briefingText, [
     { label: "Web", receipt: web }
   ]);
   const slackKey = stableDeliveryKey(claimed, "slack");
@@ -451,11 +404,10 @@ export async function deliverMorningBriefCompletion(root, cardOrId, {
       await afterChannelDelivered({ channel: "slack", idempotencyKey: slackKey, receipt: slack });
     }
     const persisted = await persistDeliveryPatch(root, id, claimId, { slack });
-    if (!persisted) return { skipped: "delivery claim was replaced", card: null, calendar, web, omi, slack };
+    if (!persisted) return { skipped: "delivery claim was replaced", card: null, calendar, web, slack };
     delivery = persisted.morningBriefDelivery;
   }
-  const emailText = withPriorAvailability(omiText, [
-    { label: "Omi", receipt: omi },
+  const emailText = withPriorAvailability(briefingText, [
     { label: "Web", receipt: web },
     { label: "Slack", receipt: slack }
   ]);
@@ -491,7 +443,7 @@ export async function deliverMorningBriefCompletion(root, cardOrId, {
       await afterChannelDelivered({ channel: "email", idempotencyKey: emailKey, receipt: email });
     }
     const persisted = await persistDeliveryPatch(root, id, claimId, { email });
-    if (!persisted) return { skipped: "delivery claim was replaced", card: null, calendar, web, omi, slack, email };
+    if (!persisted) return { skipped: "delivery claim was replaced", card: null, calendar, web, slack, email };
     delivery = persisted.morningBriefDelivery;
   }
   const completedAt = now();
@@ -500,7 +452,7 @@ export async function deliverMorningBriefCompletion(root, cardOrId, {
     const event = {
       at: completedAt,
       kind: "morning-brief-delivery",
-      message: `Morning briefing delivery — Web ${web.status}; Omi ${omi.status}; Slack ${slack.status}; Email ${email.status}; Calendar ${calendar.status}`
+      message: `Morning briefing delivery — Web ${web.status}; Slack ${slack.status}; Email ${email.status}; Calendar ${calendar.status}`
     };
     return {
       ...card,
@@ -509,7 +461,6 @@ export async function deliverMorningBriefCompletion(root, cardOrId, {
         completedAt,
         calendar,
         web,
-        omi,
         slack,
         email,
         claimId: null,
@@ -519,12 +470,12 @@ export async function deliverMorningBriefCompletion(root, cardOrId, {
     };
   });
   if (!updated?.morningBriefDelivery?.completedAt) {
-    return { skipped: "delivery claim was replaced", card: updated ?? null, calendar, web, omi, slack, email };
+    return { skipped: "delivery claim was replaced", card: updated ?? null, calendar, web, slack, email };
   }
-  return { card: updated, calendar, web, omi, slack, email };
+  return { card: updated, calendar, web, slack, email };
 }
 
-// Startup and every kanban tick recover incomplete deliveries. Web/Omi/Slack
+// Startup and every kanban tick recover incomplete deliveries. Web/Slack
 // accept stable append keys; Gmail's durable attempt fence instead prevents
 // repeating an unconfirmed send and records its uncertainty for review.
 export async function reconcileMorningBriefDeliveries(root, options = {}) {

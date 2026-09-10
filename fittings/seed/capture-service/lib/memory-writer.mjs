@@ -4,11 +4,11 @@
 // file watcher indexes it, the nightly improver dream pass consolidates it.
 //
 // Load-bearing details copied from that pattern:
-// - filename prefix `omi-` and NOT `session-` (the improver dream phase
+// - source-specific capture filename prefix and NOT `session-` (the improver dream phase
 //   auto-archives stale session-* checkpoints as expendable);
 // - secret redaction before anything touches disk;
 // - provenance as bullet fields in the body (invariant I1: the memory is OUR
-//   summary; Omi text appears only as clearly marked source context);
+//   summary; captured text appears only as clearly marked source context);
 // - never mutate existing notes, never touch MEMORY.md (hand-curated).
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -48,11 +48,9 @@ function slugify(text) {
 export class MemoryWriter {
   // dir injectable for tests; requireVault=true skips (with a reason) when the
   // vault root does not exist - memory-store is an optional-one dependency.
-  // prefix/label let a sibling channel (the iOS companion, byte-identical
-  // module copy) write its own filename prefix and tag; the defaults preserve
-  // omi behaviour exactly. Whatever the prefix, it must never be "session-"
+  // prefix/label preserve each phone/pendant source identity. Whatever the prefix, it must never be "session-"
   // (the improver dream phase auto-archives stale session-* checkpoints).
-  constructor({ dir = null, env = process.env, prefix = "omi", label = "Omi" } = {}) {
+  constructor({ dir = null, env = process.env, prefix = "capture", label = "Capture" } = {}) {
     this.prefix = prefix;
     this.label = label;
     this.explicit = Boolean(dir);

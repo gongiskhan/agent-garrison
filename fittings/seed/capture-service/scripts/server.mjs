@@ -28,9 +28,9 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { FITTING_ID, loadConfig } from "../lib/config.mjs";
 import { CaptureStore, Counters, atomicWriteJSON, mergedCounters, readJSON, ulid } from "../lib/store.mjs";
-import { CaptureIngress, TEXT_SESSION_ID_RE, TEXT_SOURCES, bearerToken, tokenMatches } from "../lib/ingress.mjs";
+import { CaptureIngress, bearerToken, tokenMatches } from "../lib/ingress.mjs";
 import { TranscriptionLane } from "../lib/deepgram-live.mjs";
-import { ActiveConversation, OMI_WAKE_SOURCE, WakeBus, wakeRegex } from "../lib/wake.mjs";
+import { ActiveConversation, WakeBus, wakeRegex } from "../lib/wake.mjs";
 import { FeedbackBus } from "../lib/feedback.mjs";
 import { EchoGuard } from "../lib/echo-guard.mjs";
 import { BoardClient } from "../lib/board-client.mjs";
@@ -72,14 +72,6 @@ export const PENDANT_WAKE_SOURCE = {
   sessionProvenanceKey: "pendant_session_id",
   logPrefix: "capture-service"
 };
-
-// Omi (D24): omi-channel forwards its realtime segments here over
-// POST /capture/ingest/text and keeps no wake bus of its own, so the omi
-// identity the retired copy of wake.mjs carried (source "omi", origin
-// "omi:wake:<id>", omi_session_id in provenance) now lives on a third bus in
-// THIS process. Only the log prefix changes: the lines are written by
-// capture-service, so they say so.
-export const OMI_TEXT_WAKE_SOURCE = { ...OMI_WAKE_SOURCE, logPrefix: "capture-service" };
 
 // True when `pid` names a live process (EPERM still means alive, just not ours).
 function pidAlive(pid) {
@@ -444,61 +436,6 @@ export function makeRequestHandler(ctx) {
         });
         res.end(audio);
         return;
-      }
-
-      // ---- Text ingest (D24): another service's transcript segments. ----
-      // POST /capture/ingest/text { source: "omi", session_id, segments: [{text,
-      // speaker?, is_user?, start?, end?}] } -> 202 { session, accepted }. Opens
-      // or extends the socket-less text session "<source>:<session_id>", runs
-      // every segment through the shared echo guard (Zeca's own voice coming
-      // back through the Omi mic is not conversation), and hands what survives
-      // to the omi wake bus as finals - never to the companion or pendant
-      // buses, which key on their own capture sessions. Nothing is persisted:
-      // the forwarding channel keeps the memory path (no media log, no
-      // transcript, no capture_event), so a conversation is never ingested twice.
-      if (req.method === "POST" && p === "/capture/ingest/text") {
-        const auth = authorizeHttp(cfg, req, counters);
-        if (!auth.ok) return json(res, auth.status, { error: auth.reason });
-        const body = await readBody(req);
-        if (body === null) return json(res, 413, { error: "body too large" });
-        let parsed;
-        try {
-          parsed = JSON.parse(body);
-        } catch {
-          return json(res, 400, { error: "invalid JSON" });
-        }
-        const source = typeof parsed?.source === "string" ? parsed.source.trim() : "";
-        if (!TEXT_SOURCES.has(source)) {
-          return json(res, 400, { error: `source must be one of: ${[...TEXT_SOURCES].join(", ")}` });
-        }
-        const externalId = typeof parsed?.session_id === "string" ? parsed.session_id.trim() : "";
-        if (!TEXT_SESSION_ID_RE.test(externalId)) {
-          return json(res, 400, { error: "session_id is required (1-80 chars of [A-Za-z0-9_.:-])" });
-        }
-        if (!Array.isArray(parsed?.segments)) return json(res, 400, { error: "segments must be an array" });
-        counters.bump("text_ingest_calls");
-        const { session } = ctx.ingress.openTextSession({ source, sessionId: externalId });
-        const accepted = [];
-        for (const seg of parsed.segments) {
-          const text = typeof seg?.text === "string" ? seg.text.trim() : "";
-          if (!text) continue;
-          // The guard counts what it eats (realtime_echo_suppressed).
-          if (ctx.echoGuard.shouldSuppress(text)) continue;
-          accepted.push({
-            text,
-            final: true,
-            speaker: seg.speaker ?? null,
-            is_user: seg.is_user !== false,
-            start: typeof seg.start === "number" ? seg.start : null,
-            end: typeof seg.end === "number" ? seg.end : null
-          });
-        }
-        if (accepted.length > 0) counters.bump("text_ingest_segments", accepted.length);
-        ctx.ingress.noteTextSegments(session, accepted.length);
-        if (accepted.length > 0 && cfg.wakeEnabled && ctx.omiWakeBus) {
-          ctx.omiWakeBus.handleSegments({ sessionId: session.record.id, segments: accepted });
-        }
-        return json(res, 202, { session: session.record.id, accepted: accepted.length });
       }
 
       // ---- The active-conversation pin (D25). ----
@@ -880,10 +817,9 @@ export function makeRequestHandler(ctx) {
         return json(res, 400, { error: "websocket upgrade required" });
       }
 
-      // Anything else under /capture/ is a later milestone.
+      // Unknown capture routes, including retired cloud ingestion, do not exist.
       if (p.startsWith("/capture/")) {
-        counters.bump("requests_unimplemented");
-        return json(res, 501, { error: "not implemented yet" });
+        return json(res, 404, { error: "not found" });
       }
 
       // ---- The spoken-ack sink (kanban fanOutAck contract). Implementing
@@ -1165,30 +1101,7 @@ export async function startServer(cfg = loadConfig()) {
     activeConversation,
     onLifecycle: (name, payload) => feedbackBus.emit(name, payload)
   });
-  // The omi bus (D24): fed by POST /capture/ingest/text, never by the
-  // transcription lane. Same deps as the companion bus and the same
-  // speakingNotifier, so an Omi request is answered where every other reply
-  // lands - spoken through the phone when a companion session can hear, else
-  // pushed. It has no socket of its own to speak into, so no speakFn: the
-  // discuss intent degrades to delegate here exactly as it did on omi-channel.
-  const omiWakeBus = new WakeBus({
-    cfg: live,
-    store,
-    counters,
-    runFn,
-    operativeFn,
-    board,
-    memoryWriter: new MemoryWriter({ prefix: "omi", label: "Omi", env: cfg.env ?? process.env }),
-    notifier: speakingNotifier,
-    source: OMI_TEXT_WAKE_SOURCE,
-    screenContextFn,
-    screenFramesFn,
-    conversationFn,
-    conversationWaitFn,
-    conversationTurnFn,
-    activeConversation
-  });
-  answerBuses.push(wakeBus, pendantWakeBus, omiWakeBus);
+  answerBuses.push(wakeBus, pendantWakeBus);
   // The interim wake watcher (ADR D8): fires the wake_detected FEEDBACK on
   // Deepgram interims so the pendant buzzes fast; the authoritative window
   // still runs on finals through the untouched WakeBus. The FeedbackBus
@@ -1372,7 +1285,6 @@ export async function startServer(cfg = loadConfig()) {
       transcriber,
       wakeBus,
       pendantWakeBus,
-      omiWakeBus,
       activeConversation,
       feedbackBus,
       echoGuard,
@@ -1428,7 +1340,6 @@ export async function startServer(cfg = loadConfig()) {
     transcriber,
     wakeBus,
     pendantWakeBus,
-    omiWakeBus,
     activeConversation,
     feedbackBus,
     echoGuard,

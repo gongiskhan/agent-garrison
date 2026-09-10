@@ -225,7 +225,7 @@ describe("capture-service server", () => {
       ["/capture/devices", { method: "POST", body: "{}" }, 403],
       ["/capture/sessions", {}, 403],
       ["/capture/stream", { method: "POST", body: "{}" }, 400],
-      ["/capture/later-milestone", { method: "POST", body: "{}" }, 501]
+      ["/capture/later-milestone", { method: "POST", body: "{}" }, 404]
     ];
     for (const [route, init, expected] of surfaces) {
       const res = await fetch(`${base}${route}`, init);

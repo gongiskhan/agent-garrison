@@ -148,6 +148,16 @@ export function loadConfig(env = process.env) {
     wakeEnabled: parseBool(env.GARRISON_CAPTURESERVICE_WAKE_ENABLED, false),
     notifyEnabled: parseBool(env.GARRISON_CAPTURESERVICE_NOTIFY_ENABLED, false),
     speakEnabled: parseBool(env.GARRISON_CAPTURESERVICE_SPEAK_ENABLED, false),
+    // Capture owns background processing for the phone and BLE pendant.
+    triageEnabled: parseBool(env.GARRISON_CAPTURESERVICE_TRIAGE_ENABLED, false),
+    triageCron: (env.GARRISON_CAPTURESERVICE_TRIAGE_CRON || "").trim() || "*/5 * * * *",
+    triageClassifyTarget: (env.GARRISON_CAPTURESERVICE_TRIAGE_CLASSIFY_TARGET || "").trim(),
+    triageBatchCap: parseIntOr(env.GARRISON_CAPTURESERVICE_TRIAGE_BATCH_CAP, 20),
+    allowedCategories: parseCsv(env.GARRISON_CAPTURESERVICE_ALLOWED_CATEGORIES),
+    blockedFolders: parseCsv(env.GARRISON_CAPTURESERVICE_BLOCKED_FOLDERS),
+    dropDiscarded: parseBool(env.GARRISON_CAPTURESERVICE_DROP_DISCARDED, true),
+    tipsEnabled: parseBool(env.GARRISON_CAPTURESERVICE_TIPS_ENABLED, false),
+    tipsMaxPerDay: parseIntOr(env.GARRISON_CAPTURESERVICE_TIPS_MAX_PER_DAY, 3),
     // Pendant Direct (ADR D5/D6): the pendant path has its own kill switch,
     // independent of the companion flags and of the omi channel entirely.
     pendantEnabled: parseBool(env.GARRISON_CAPTURESERVICE_PENDANT_ENABLED, false),
@@ -365,10 +375,6 @@ export function loadConfig(env = process.env) {
 
     // Session lifecycle (M1)
     sessionIdleTimeoutMs: parseIntOr(env.GARRISON_CAPTURESERVICE_SESSION_IDLE_TIMEOUT_MS, 300000),
-    // Text sessions (D24): a forwarded segment stream (omi) with no new
-    // segments for this long is closed. Shorter than the media idle timeout on
-    // purpose - there is no socket to keep warm and nothing to resume.
-    textSessionIdleMs: parseIntOr(env.GARRISON_CAPTURESERVICE_TEXT_SESSION_IDLE_MS, 120000),
     // The active-conversation window (D25): how long after a delegate reply
     // the next spoken request resumes that gateway session, and how long an
     // explicit pin through /capture/conversation/active lasts.

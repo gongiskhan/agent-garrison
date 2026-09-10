@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-09-10T09:02:40.614Z",
+  "updatedAt": "2026-09-10T09:09:28.888Z",
   "categories": [
     {
       "id": "c1",
@@ -544,7 +544,7 @@
     },
     {
       "id": "c7",
-      "title": "Ears and mouths: Omi, Companion, screen context",
+      "title": "Ears and mouths: pendant, Garrison iOS, screen context",
       "noteRef": "n-ears",
       "items": [
         {
@@ -556,7 +556,7 @@
         },
         {
           "id": "c7.2",
-          "text": "Drop the Omi subscription and apps without breaking compatibility. Omi stays a supported channel (for Ekoa users later); the always-on is the responsibility of whoever chooses the device; a setup wizard makes the channel easy for others.",
+          "text": "Retire Omi cloud, apps, subscription integration, webhooks, MCP and public Funnels. Preserve the Omi hardware through native BLE in the Garrison iOS app, Capture, Deepgram, wake commands, speech, haptics and phone/pendant triage. Operator decision 2026-09-10 supersedes keeping Omi as a supported cloud channel; see docs/decisions/2026-09-10-omi-retirement.md.",
           "done": false,
           "sentToKanban": null,
           "noteRef": null

@@ -21,10 +21,8 @@ import { startServer } from "../fittings/seed/capture-service/scripts/server.mjs
 import { encodeMediaFrame } from "../fittings/seed/capture-service/lib/ingress.mjs";
 import { FeedbackBus } from "../fittings/seed/capture-service/lib/feedback.mjs";
 import { Counters } from "../fittings/seed/capture-service/lib/store.mjs";
-import { OmiStore, EventsDirStore } from "../fittings/seed/omi-channel/lib/store.mjs";
-import { runTriageTick } from "../fittings/seed/omi-channel/lib/triage.mjs";
-import { loadConfig as loadOmiConfig } from "../fittings/seed/omi-channel/lib/config.mjs";
-import { MemoryWriter } from "../fittings/seed/omi-channel/lib/memory-writer.mjs";
+import { runTriageTick } from "../fittings/seed/capture-service/lib/triage.mjs";
+import { MemoryWriter } from "../fittings/seed/capture-service/lib/memory-writer.mjs";
 import { CaptureStore, atomicWriteJSON } from "../fittings/seed/capture-service/lib/store.mjs";
 
 const TOKEN = "pendant-test-token";
@@ -746,10 +744,10 @@ describe("pendant triage identity (shared tick)", () => {
   it("triages a pendant ambient session event with pendant identity in one model call", async () => {
     const home = mkdtempSync(path.join(os.tmpdir(), "pendant-triage-"));
     try {
-      const omiStore = new OmiStore(path.join(home, "omi"));
+      const pendantStore = new CaptureStore(path.join(home, "pendant"));
       const captureRoot = path.join(home, "capture");
       new CaptureStore(captureRoot); // creates the layout
-      const captureTickStore = new EventsDirStore(captureRoot);
+      const captureTickStore = new CaptureStore(captureRoot);
       atomicWriteJSON(path.join(captureRoot, "events", "01PENDANTEVENT01.json"), {
         id: "01PENDANTEVENT01",
         source: "pendant",
@@ -786,16 +784,16 @@ describe("pendant triage identity (shared tick)", () => {
       const prompts: string[] = [];
       const pendantSent: any[] = [];
       const cfg = {
-        ...loadOmiConfig({ GARRISON_HOME: home, GARRISON_OMICHANNEL_TRIAGE_ENABLED: "true" }),
+        ...loadConfig({ GARRISON_HOME: home, GARRISON_CAPTURESERVICE_TRIAGE_ENABLED: "true" }),
         gatewayUrl: "http://gateway.test"
       };
       const summary = await runTriageTick({
         cfg,
-        store: omiStore,
+        store: pendantStore,
         counters: new Counters(home, "t"),
         board,
         memoryWriter: new MemoryWriter({ dir: path.join(home, "vault") }),
-        notifier: { cardUrl: async () => null, send: async () => [{ means: "omi-push", ok: true }] },
+        notifier: { cardUrl: async () => null, send: async () => [{ means: "pendant-push", ok: true }] },
         extraStores: [captureTickStore],
         memoryWriterFor: () => new MemoryWriter({ dir: path.join(home, "vault") }),
         notifierFor: (event: any) => ({

@@ -1,6 +1,6 @@
 // Spoken card commands + spoken scheduling on the wake bus (2026-08-01).
-// The bus lives in capture-service since 2026-09-02 (omi-channel forwards its
-// realtime segments there); the omi source is what this suite exercises.
+// The bus lives in capture-service since 2026-09-02 (capture-service forwards its
+// realtime segments there); the pendant source is what this suite exercises.
 // A scheduled card's due notification tells the wearer exactly:
 //   Tell Zeca: "run card <REF>" to start it, or "snooze card <REF> for 2 hours"
 // (REF = last 4 chars of the card ULID, uppercase). This suite covers the
@@ -19,7 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import { loadConfig } from "../fittings/seed/capture-service/lib/config.mjs";
 import { CaptureStore, Counters } from "../fittings/seed/capture-service/lib/store.mjs";
-import { WakeBus, parseWakeReply, OMI_WAKE_SOURCE } from "../fittings/seed/capture-service/lib/wake.mjs";
+import { WakeBus, parseWakeReply, PENDANT_WAKE_SOURCE } from "../fittings/seed/capture-service/lib/wake.mjs";
 
 // A ULID whose last 4 chars are the spoken ref from the notification text.
 const CARD_ID = "01K1KJ0Z9GXW5B3T2R8D4F7Q2M";
@@ -88,7 +88,7 @@ function makeDeps(
 
 describe("card_command: run", () => {
   it("resolves the spoken ref and POSTs /start, confirming with the title and short ref", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-card-run-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-card-run-"));
     try {
       const { bus, board } = makeDeps(
         home,
@@ -108,7 +108,7 @@ describe("card_command: run", () => {
 
 describe("card_command: snooze", () => {
   it("snoozes with minutes and confirms a human until-time", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-card-snooze-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-card-snooze-"));
     try {
       const { bus, board } = makeDeps(
         home,
@@ -126,7 +126,7 @@ describe("card_command: snooze", () => {
   });
 
   it("snoozes with an absolute until, normalized to ISO", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-card-until-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-card-until-"));
     try {
       const { bus, board } = makeDeps(
         home,
@@ -150,7 +150,7 @@ describe("card_command: snooze", () => {
   });
 
   it("refuses to snooze on an unusable time instead of inventing one", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-card-badsnooze-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-card-badsnooze-"));
     try {
       const { bus, board } = makeDeps(
         home,
@@ -169,7 +169,7 @@ describe("card_command: snooze", () => {
 
 describe("card_command: resolution outcomes", () => {
   it("404 notifies that nothing matches and does not act", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-card-404-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-card-404-"));
     try {
       const { bus, board } = makeDeps(
         home,
@@ -186,7 +186,7 @@ describe("card_command: resolution outcomes", () => {
   });
 
   it("409 lists at most 3 candidates with their short refs and never guesses", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-card-409-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-card-409-"));
     try {
       const candidates = [
         { id: "01AAAAAAAAAAAAAAAAAAAAAAA1", title: "One", list: "backlog" },
@@ -215,7 +215,7 @@ describe("card_command: resolution outcomes", () => {
 
 describe("create_task spoken schedule", () => {
   it("passes a valid scheduled_for through to createCard and confirms the schedule", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-sched-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-sched-"));
     try {
       const { bus, board } = makeDeps(home, () =>
         JSON.stringify({
@@ -241,7 +241,7 @@ describe("create_task spoken schedule", () => {
   });
 
   it('carries schedule_action "run" when the model says the task should run itself', async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-sched-run-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-sched-run-"));
     try {
       const { bus, board } = makeDeps(home, () =>
         JSON.stringify({
@@ -260,7 +260,7 @@ describe("create_task spoken schedule", () => {
   });
 
   it("drops an unparseable model ISO, still creates the card, and says so", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-sched-bad-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-sched-bad-"));
     try {
       const { bus, board } = makeDeps(home, () =>
         JSON.stringify({
@@ -289,7 +289,7 @@ describe("create_task spoken schedule", () => {
 
 describe("classifier prompt and reply plumbing", () => {
   it("the prompt carries the current local time and the new intent vocabulary", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "omi-prompt-time-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "pendant-prompt-time-"));
     try {
       const fixed = new Date(2026, 7, 1, 14, 30); // local Saturday 2026-08-01 14:30
       const { bus, prompts } = makeDeps(

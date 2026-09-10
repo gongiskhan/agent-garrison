@@ -357,16 +357,15 @@ describe("companion E2E — all flags on, external boundaries mocked", () => {
     const gatewayCallsBefore = gatewayCalls.length;
     const { stdout } = await execFileAsync(
       process.execPath,
-      [path.join(__dirname, "..", "fittings", "seed", "omi-channel", "scripts", "triage.mjs"), "--tick"],
+      [path.join(__dirname, "..", "fittings", "seed", "capture-service", "scripts", "triage.mjs"), "--tick"],
       {
         timeout: 60000,
         env: {
           ...process.env,
           GARRISON_HOME: home,
-          GARRISON_OMI_DIR: path.join(home, "omi"),
           GARRISON_CAPTURE_DIR: path.join(home, "capture"),
           GARRISON_GATEWAY_URL: `http://127.0.0.1:${(gateway.address() as any).port}`,
-          GARRISON_OMICHANNEL_TRIAGE_ENABLED: "true",
+          GARRISON_CAPTURESERVICE_TRIAGE_ENABLED: "true",
           BASIC_MEMORY_VAULT_DIR: vaultDir,
           BASIC_MEMORY_MEMORY_DIR: "Memory"
         }

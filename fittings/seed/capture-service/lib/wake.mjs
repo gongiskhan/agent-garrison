@@ -655,16 +655,15 @@ export function splitForSpeech(text, { maxChars = 500, maxChunks = 2 } = {}) {
 
 // ---- the bus ----------------------------------------------------------------
 
-// Default source identity. A sibling channel (the iOS companion) reuses this
-// module as a byte-identical copy — cross-fitting imports are forbidden — and
-// passes its own bag; every default below preserves omi behaviour exactly.
-export const OMI_WAKE_SOURCE = {
-  id: "omi",
-  label: "Omi",
-  originPrefix: "omi",
-  originChannel: { channel: "omi", threadId: "omi-reports" },
-  sessionProvenanceKey: "omi_session_id",
-  logPrefix: "omi-channel"
+// The default identity is the BLE pendant; phone microphone sessions supply
+// their companion identity explicitly.
+export const PENDANT_WAKE_SOURCE = {
+  id: "pendant",
+  label: "Pendant",
+  originPrefix: "pendant",
+  originChannel: { channel: "pendant", threadId: "pendant-reports" },
+  sessionProvenanceKey: "pendant_session_id",
+  logPrefix: "capture-service"
 };
 
 // The active-conversation window (D25). A delegate reply comes back with the
@@ -722,11 +721,11 @@ export class ActiveConversation {
 }
 
 export class WakeBus {
-  constructor({ cfg, store, counters, runFn, operativeFn = null, board, memoryWriter, notifier, log = console, now = () => Date.now(), source = OMI_WAKE_SOURCE, onLifecycle = null, language = null, speakFn = null, discussFn = null, connectorFn = null, cortexFn = null, screenContextFn = null, activeConversation = null, conversationFn = null, conversationWaitFn = null, conversationTurnFn = null, screenFramesFn = null, fetchImpl = globalThis.fetch }) {
+  constructor({ cfg, store, counters, runFn, operativeFn = null, board, memoryWriter, notifier, log = console, now = () => Date.now(), source = PENDANT_WAKE_SOURCE, onLifecycle = null, language = null, speakFn = null, discussFn = null, connectorFn = null, cortexFn = null, screenContextFn = null, activeConversation = null, conversationFn = null, conversationWaitFn = null, conversationTurnFn = null, screenFramesFn = null, fetchImpl = globalThis.fetch }) {
     this.cfg = cfg;
     this.store = store;
     this.counters = counters;
-    this.source = { ...OMI_WAKE_SOURCE, ...source };
+    this.source = { ...PENDANT_WAKE_SOURCE, ...source };
     // Optional lifecycle reporter for feedback sinks (additive, inert when
     // absent - omi passes nothing and behaves exactly as before). Receives
     // (name, payload): wake_detected, segment_captured, window_closed,
@@ -1868,7 +1867,7 @@ export class WakeBus {
       }
       case "note": {
         const written = this.memoryWriter.write({
-          title: parsed.title || `Omi note: ${command.slice(0, 48)}`,
+          title: parsed.title || `${this.source.label} note: ${command.slice(0, 48)}`,
           content: parsed.note_content || command,
           tags: ["wake"],
           provenance: { source: `${this.source.id} wake command`, "capture event": eventId }
@@ -2238,7 +2237,7 @@ export class WakeBus {
               lang
             }),
         sessionId: gatewaySessionId,
-        sessionTitle: "Omi spoken request"
+        sessionTitle: `${this.source.label} spoken request`
       });
       // The gateway names the session that answered; that is what the window
       // resumes next time. A gateway that returns none leaves the last reply
@@ -2544,7 +2543,7 @@ export class WakeBus {
       };
     }
     const written = this.memoryWriter.write({
-      title: `Omi note: ${command.slice(0, 48)}`,
+      title: `${this.source.label} note: ${command.slice(0, 48)}`,
       content: command,
       tags: ["wake", "unclassified"],
       provenance: { source: `${this.source.id} wake command`, "capture event": eventId, reason }

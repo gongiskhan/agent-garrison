@@ -1,7 +1,6 @@
 declare module "*/kanban-loop/lib/morning-briefing.mjs" {
   export const MORNING_BRIEF_SYSTEM_KEY: string;
   export const MORNING_BRIEF_WEB_THREAD: string;
-  export const MORNING_BRIEF_OMI_THREAD: string;
   export function isMorningBriefOccurrence(card: unknown): boolean;
   export function calendarResultFromSummary(summary: unknown): Record<string, unknown>;
   export function calendarResultFromEvidence(evidence: unknown): Record<string, unknown>;
