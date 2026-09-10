@@ -435,3 +435,7 @@ else
   echo "FAILED the exit criterion: $NAME never reported to the registry — the heartbeat (scheduler daemon) may not be enrolled; check the unit log" >&2
   exit 1
 fi
+
+# Independent service-manager job: code catches up on main; active Conversations
+# and the shared rolling-deployment lease control when a node may restart.
+node scripts/garrison-main-sync.mjs install

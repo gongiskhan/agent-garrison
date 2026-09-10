@@ -272,7 +272,7 @@ export function ConnectorsPanel() {
                   <div>{c.setupHelp.links?.map((link) => <a key={link.url} href={link.url} target="_blank" rel="noreferrer">{link.label}</a>)}</div>
                 </div>
               )}
-              {c.baseUrl && openConnect !== c.id && <p>Base URL: <a href={c.baseUrl} target="_blank" rel="noreferrer">{c.baseUrl}</a></p>}
+              {c.baseUrl && openConnect !== c.id && <p>Base URL: <span style={{ overflowWrap: "anywhere" }}>{c.baseUrl}</span></p>}
 
               {/* Connect / revoke actions */}
               {c.auth !== "none" && (

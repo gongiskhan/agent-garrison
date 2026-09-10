@@ -49,3 +49,10 @@ Pro, Madrid, Air and Mini checkouts have moved to main without runtime restarts.
 Connector authority, OAuth route, capture bootstrap, view model, voice resolver,
 composition sync and proxy checks pass locally. Native tests and live rollout
 remain in progress; source checks alone are not device acceptance.
+
+Live Madrid validation: running default, 43/43 checks, 17/17 views. The Google
+button opened Google's account chooser directly using the existing shared
+OAuth app; no key form appeared. The native bootstrap derives the actual serve
+mapping (Madrid capture is currently 8498), rather than assuming the nominal
+8497 mapping. New native tests passed; the initial XCTest suite only failed
+the old bridge method-count expectation, now updated for refresh.

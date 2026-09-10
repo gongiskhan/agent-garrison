@@ -32,6 +32,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
+DEPLOY_HEAD="$(git rev-parse HEAD)"
 if [ -n "${GARRISON_CONVERSATION_ID:-}" ]; then
   echo "Deployment deferred: this Conversation is working on this node. Deploy another mesh node first." >&2
   exit 75
@@ -121,3 +122,6 @@ else
   echo "[reload] up failed — check the Run log at $BASE" >&2
   exit 1
 fi
+
+# Record only after the composition and every view are actually healthy.
+node "$REPO_ROOT/scripts/garrison-main-sync.mjs" record "$DEPLOY_HEAD" "$BASE" "$PROD_HOME"

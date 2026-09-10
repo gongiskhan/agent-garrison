@@ -163,7 +163,7 @@ export async function readCortexBase(): Promise<CortexBase> {
         const value = (item.config as Record<string, unknown> | undefined)?.[
           CORTEX_BASE_URL_CONFIG_KEY
         ];
-        if (typeof value === "string") configured = value;
+        if (typeof value === "string" && value.trim()) configured = value;
       }
     }
   } catch (error) {
