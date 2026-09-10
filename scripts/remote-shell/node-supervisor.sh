@@ -122,6 +122,11 @@ case "${1:-}" in
     do_run
     ;;
   daemon|start|ensure)
+    # Keep the independent main-sync loop alive across tether reconnects. It
+    # owns its own process group, so an app restart cannot kill its deploy job.
+    if [ "$SUPERVISED_TARGET" = "$REPO_ROOT/scripts/garrison-instance.sh" ] && [ -f "$NODE_SUPERVISOR_HOME/node.json" ]; then
+      GARRISON_HOME="$NODE_SUPERVISOR_HOME" node "$REPO_ROOT/scripts/garrison-main-sync.mjs" daemon
+    fi
     if pid="$(running_pid)"; then
       echo "already running (pid $pid)"
       exit 0

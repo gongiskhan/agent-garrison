@@ -6,7 +6,7 @@ import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync, spawn } from 'node:child_process';
 import { checkDeployment } from './garrison-deployment-guard.mjs';
-import { localConversationActivity } from '../packages/claude-pty/src/deployment-guard.mjs';
+import { localConversationActivity, processExists } from '../packages/claude-pty/src/deployment-guard.mjs';
 
 const script = fileURLToPath(import.meta.url);
 const repo = path.dirname(path.dirname(script));
@@ -87,6 +87,35 @@ async function syncMain() {
 }
 
 const xml = (value) => String(value).replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]));
+const workerPid = path.join(home, 'main-sync-worker.pid');
+function ensureWorker() {
+  if (processExists(Number(read(workerPid).pid))) return;
+  fs.mkdirSync(path.join(home, 'logs'), { recursive: true });
+  const log = fs.openSync(path.join(home, 'logs/main-sync.log'), 'a', 0o600);
+  try {
+    execFileSync('flock', ['--version'], { stdio: 'ignore' });
+    const child = spawn('flock', ['--nonblock', `${workerPid}.lock`, process.execPath, script, 'serve'], {
+      cwd: repo, detached: true, stdio: ['ignore', log, log], env: { ...process.env, GARRISON_MAIN_SYNC_WORKER: '1' }
+    });
+    child.unref();
+  } finally { fs.closeSync(log); }
+}
+async function serve() {
+  // flock owns exclusion across concurrent tether recoveries and automatically
+  // releases on exit/reboot. The PID file is an observation, never the lock.
+  if (process.env.GARRISON_MAIN_SYNC_WORKER !== '1') throw new Error('Start the synchronization worker through daemon');
+  fs.writeFileSync(workerPid, JSON.stringify({ pid: process.pid }), { mode: 0o600 });
+  const cleanup = () => { if (read(workerPid).pid === process.pid) fs.unlinkSync(workerPid); };
+  process.once('exit', cleanup);
+  process.once('SIGTERM', () => process.exit(0));
+  process.once('SIGINT', () => process.exit(0));
+  // Leave initial enrollment/recovery time to finish before the first check.
+  while (true) {
+    await pause(60_000);
+    try { await syncMain(); }
+    catch (error) { save({ status: 'deferred', reason: error.message }); }
+  }
+}
 async function install() {
   if (!fs.existsSync(path.join(home, 'node.json'))) throw new Error('Only an enrolled node may install main synchronization');
   const nodePath = path.dirname(process.execPath);
@@ -102,6 +131,14 @@ async function install() {
     fs.writeFileSync(file, text, { mode: 0o600 });
     execFileSync('launchctl', ['bootstrap', `gui/${process.getuid()}`, file]);
   } else {
+    let systemd = false;
+    try { execFileSync('systemctl', ['--user', 'show-environment'], { stdio: 'ignore' }); systemd = true; } catch {}
+    if (!systemd) {
+      if (!fs.existsSync(path.join(home, 'node-supervisor.sh'))) throw new Error('Main synchronization needs an installed node supervisor');
+      ensureWorker();
+      console.log('Main synchronization installed under the tether recovery supervisor.');
+      return;
+    }
     const dir = path.join(os.homedir(), '.config/systemd/user');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'garrison-main-sync.service'), `[Unit]\nDescription=Garrison main synchronization\n[Service]\nType=oneshot\nWorkingDirectory=${repo}\nEnvironment="PATH=${envPath}"\nEnvironment="GARRISON_HOME=${home}"\nExecStart=${process.execPath} ${script}\nTimeoutStartSec=30min\n`, { mode: 0o600 });
@@ -116,6 +153,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   try {
     const [mode, ...args] = process.argv.slice(2);
     if (mode === 'install') await install();
+    else if (mode === 'daemon') ensureWorker();
+    else if (mode === 'serve') await serve();
     else if (mode === 'record') await recordDeployment(...args);
     else await syncMain();
   } catch (error) { save({ status: 'deferred', reason: error.message }); console.error(error.message); process.exitCode = 1; }
