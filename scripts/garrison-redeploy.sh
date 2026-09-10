@@ -62,6 +62,12 @@ npm install --ignore-scripts --no-audit --no-fund
 say "building prod bundle (.next-prod)"
 bash scripts/garrison-instance.sh prod build
 
+# Do not publish a build assembled while another task changed its source.
+if [ "$(git rev-parse HEAD)" != "$DEPLOY_HEAD" ] || [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+  echo "Deployment deferred: source changed during the build; rebuild the committed main revision." >&2
+  exit 75
+fi
+
 # Serialize mesh restarts and close new admissions before the final live check.
 node "$SCRIPT_DIR/garrison-deployment-guard.mjs" acquire "$BASE" "$PROD_HOME" "$$"
 trap 'node "$SCRIPT_DIR/garrison-deployment-guard.mjs" release "$BASE" "$PROD_HOME" "$$"' EXIT

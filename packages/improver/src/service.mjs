@@ -162,6 +162,7 @@ export async function runReview({ store = new ImprovementStore(), context, run, 
       while(input().length>120_000 && modelSources.length>1)modelSources.pop();
       const prompt=input();
       const output = model ? await model(prompt) : await requestJson(`${context.gatewayUrl}/improver/review`, { prompt }, { timeoutMs: 130_000 });
+      if (output.inference) await updateRun(store, run, { inference: output.inference });
       let parsed = output;
       if (typeof output.text === "string") {
         const raw = output.text.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, ""); parsed = JSON.parse(raw);

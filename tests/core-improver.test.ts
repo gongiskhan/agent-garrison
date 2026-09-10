@@ -145,3 +145,13 @@ it("a failed delivery cannot overwrite a concurrent successful receipt",async()=
   const result=await notify(store,{...context,forwardedNotice:true,fetchImpl},"delivery-race","Ready","Review");
   expect(result.delivery.pushed).toBe(1);expect(result.deliveredAt).toBeTruthy();
 });
+it("review authentication falls back to sealed accounts, without overriding explicit pins",async()=>{
+  const {callImproverInference}=await import("../fittings/seed/http-gateway/scripts/lib/improver-inference.mjs");
+  const target={id:"review",provider:"anthropic",model:"haiku"};
+  const router={executionModel:async()=>({targets:[target],dutyLadder:{review:{rungs:[{target:"review"}]}}}),resolveSecrets:()=>({ANTHROPIC_ACCOUNT__configured:"test-secret"})};
+  const call=vi.fn(async(_r,_input,options)=>{if(!options.targetOverride.account)throw new Error("Not logged in");return '{"summary":"Done","proposals":[]}';});
+  expect((await callImproverInference(router,{prompt:"Evidence"},{call})).inference).toMatchObject({account:"configured",fallbacks:[{account:null,error:"Authentication unavailable"}]});
+  expect(call.mock.calls[1][2].schema.properties.proposals).toBeTruthy();
+  target.account="pinned";call.mockImplementation(async()=>{throw new Error("Not logged in");});call.mockClear();
+  await expect(callImproverInference(router,{prompt:"Evidence"},{call})).rejects.toThrow("Reconnect");expect(call).toHaveBeenCalledTimes(1);
+});

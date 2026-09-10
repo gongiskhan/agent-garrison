@@ -18,10 +18,10 @@ export async function callCardInference(router, { system, prompt, signal }, opti
   return callStructuredInference(router, { system, prompt, signal }, options);
 }
 
-export async function callStructuredInference(router, { system, prompt, signal }, { fetchImpl = fetch, proxyUrl, adapterFactory, timeoutMs = 20_000, maxTokens = 800, schema = { type: "object", properties: {
+export async function callStructuredInference(router, { system, prompt, signal }, { fetchImpl = fetch, proxyUrl, adapterFactory, targetOverride, timeoutMs = 20_000, maxTokens = 800, schema = { type: "object", properties: {
   title: { type: "string", maxLength: 70 }, description: { type: "string" }, messageIds: { type: "array", items: { type: "string" } }, confidence: { type: "number" }
 }, required: ["title", "description", "messageIds", "confidence"], additionalProperties: false } } = {}) {
-  const target = cheapestAnthropicTarget(await router.executionModel());
+  const target = targetOverride ?? cheapestAnthropicTarget(await router.executionModel());
   if (!target) throw new Error("No Anthropic model is configured in the board ladder.");
   const secrets = router.resolveSecrets() ?? {};
   const key = secrets[target.params?.apiKeyEnv || target.apiKeyEnv || "ANTHROPIC_API_KEY"];

@@ -4336,10 +4336,8 @@ const server = http.createServer(async (request, response) => {
       const close = () => { if (!response.writableEnded) controller.abort(); };
       response.on("close", close);
       try {
-        const { callStructuredInference } = await import("./lib/card-inference.mjs");
-        const { REVIEW_SYSTEM, REVIEW_SCHEMA } = await import("@garrison/improver/contracts");
-        const text = await callStructuredInference(router, { system: REVIEW_SYSTEM, prompt: body.prompt, signal: controller.signal }, { schema: REVIEW_SCHEMA, maxTokens: 6000, timeoutMs: 120_000 });
-        return sendJson(response, 200, { text });
+        const { callImproverInference } = await import("./lib/improver-inference.mjs");
+        return sendJson(response, 200, await callImproverInference(router, { prompt: body.prompt, signal: controller.signal }));
       } catch (error) { return sendJson(response, 502, { error: error.message }); }
       finally { clearTimeout(timer); response.off("close", close); }
     }
