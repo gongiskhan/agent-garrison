@@ -20,14 +20,56 @@ export async function overview(store = new ImprovementStore()) {
     runs: runs.map(({token,...run})=>run).sort((a,b) => String(b.startedAt).localeCompare(String(a.startedAt))).slice(0,50), settings, tracks: TRACKS,
     promotionThreshold: PROMOTION_THRESHOLD, notices: notices.sort((a,b) => String(b.at).localeCompare(String(a.at))).slice(0,30) };
 }
+function delivered(notice) {
+  return Boolean(notice?.deliveredAt && (notice.delivery?.pushed > 0 ||
+    Array.isArray(notice.delivery?.native) && notice.delivery.native.some((r) => r.means === "companion-push" && r.ok)));
+}
 export async function notify(store, context, id, title, text, link = "/improver") {
-  const previous = await store.read("notice", id);
-  if (previous?.body?.deliveredAt) return previous.body;
-  const notice = await store.update("notice", id, (current) => current ?? { id, title, text, link, at: new Date().toISOString() });
+  let claimed = false;
+  const notice = await store.update("notice", id, (current) => {
+    claimed = false;
+    if (delivered(current)) return null;
+    if (!context.forwardedNotice && Date.parse(current?.deliveryLeaseUntil) > Date.now()) return null;
+    claimed = true;
+    return { ...(current ?? { id, title, text, link, at: new Date().toISOString() }),
+      lastAttemptAt: new Date().toISOString(), deliveryLeaseUntil: new Date(Date.now() + 90_000).toISOString() };
+  });
+  if (!claimed) return notice;
+  const request = (url, body, timeoutMs) => requestJson(url, body, { timeoutMs, fetchImpl: context.fetchImpl ?? fetch });
+  const receipt = { pushed: 0, native: [] };
+  try { Object.assign(receipt, await request(`${context.appUrl}/api/notify`, {title,text,link,tag:`improver:${id}`}, 5_000)); }
+  catch (error) { receipt.reason = error.message; }
   try {
-    const receipt = await requestJson(`${context.appUrl}/api/notify`, { title, text, link, tag: `improver:${id}` });
-    return store.update("notice", id, (current) => ({ ...current, deliveredAt: new Date().toISOString(), delivery: receipt }));
-  } catch (error) { await store.update("notice", id, (current) => ({ ...current, deliveryError: error.message })); return notice; }
+    const capture = JSON.parse(await fs.readFile(path.join(context.home,"ui-fittings/capture-service.json"),"utf8"));
+    if (capture.url) {
+      const result = await request(`${capture.url}/notify`, {title,text,link,path:link,tag:`improver:${id}`,idempotencyKey:`improver:${id}`}, 8_000);
+      receipt.native = Array.isArray(result) ? result : [];
+    }
+  } catch (error) { receipt.nativeError = error.code === "ENOENT" ? "No native push provider on this node" : error.message; }
+  if (receipt.pushed > 0 || receipt.native.some((r) => r.means === "companion-push" && r.ok))
+    return store.update("notice", id, (current) => delivered(current) ? null :
+      {...current,deliveredAt:new Date().toISOString(),delivery:receipt,deliveryError:null,deliveryLeaseUntil:null});
+  // The phone may be registered on another node. Forward only this existing
+  // durable notice; a forwarded delivery cannot recurse around the mesh.
+  if (!context.forwardedNotice) {
+    for (const node of (await store.client.listNodes().catch(() => [])).filter((n) => n.name !== context.node).slice(0,4)) {
+      const origin = node.health?.node?.appOrigin ?? (node.tailnetHost ? `https://${node.tailnetHost}` : null);
+      if (!origin) continue;
+      try {
+        const out = await request(`${origin}/api/improver`, {action:"deliver-notice",id}, 10_000);
+        if (delivered(out)) return out;
+      } catch { /* Keep the notice visible and retry after the peer recovers. */ }
+    }
+  }
+  return store.update("notice", id, (current) => delivered(current) ? null :
+    {...current,deliveredAt:null,deliveryLeaseUntil:null,delivery:receipt,
+      deliveryError:[receipt.reason,...receipt.native.map((r) => r.skipped ?? r.error).filter(Boolean),receipt.nativeError].filter(Boolean).join("; ") || "No registered device received this notice"});
+}
+export async function retryPendingNotice(store, context) {
+  const pending = (await store.list("notice")).filter((n) => !delivered(n) &&
+    !(Date.parse(n.deliveryLeaseUntil) > Date.now()) && Date.now() - Date.parse(n.lastAttemptAt ?? n.at) > 5 * 60_000)
+    .sort((a,b) => String(a.lastAttemptAt ?? a.at).localeCompare(String(b.lastAttemptAt ?? b.at)))[0];
+  if (pending) await notify(store, context, pending.id, pending.title, pending.text, pending.link);
 }
 
 // Claims live in shared state. Duplicate buttons/cron ticks join the same job;
@@ -166,11 +208,11 @@ export async function runReview({ store = new ImprovementStore(), context, run, 
         catch (error) { await notify(store,context,`apply-${id}`,"Improver needs attention",`${p.title}: ${error.message}`); }
       }
     }
-    if (added.length || evidence.errors.length || operationalErrors.length) await notify(store,context,run.id,"Improver review ready",`${added.length} new proposal${added.length === 1 ? "" : "s"}${evidence.errors.length || operationalErrors.length ? "; some review steps need attention" : ""}. Review evidence and decisions in Improver.`);
+    if (added.length || evidence.errors.length || operationalErrors.length || run.attempts>1) await notify(store,context,`${run.id}-attempt-${run.attempts}`,"Improver review ready",`${added.length} new proposal${added.length === 1 ? "" : "s"}${evidence.errors.length || operationalErrors.length ? "; some review steps need attention" : ""}. Review evidence and decisions in Improver.`);
     return (await store.read("run",run.id)).body;
   } catch (error) {
     await updateRun(store, run, { status: "failed", stage: "failed", error: error.message, endedAt: new Date().toISOString() });
-    await notify(store,context,run.id,"Improver review failed",error.message); throw error;
+    await notify(store,context,`${run.id}-attempt-${run.attempts}`,"Improver review failed",error.message); throw error;
   } finally { clearInterval(heartbeat); }
 }
 

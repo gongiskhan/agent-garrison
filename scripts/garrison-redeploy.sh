@@ -57,6 +57,8 @@ fi
 say() { printf "\n[redeploy] %s\n" "$*"; }
 
 # --- 1. build ---------------------------------------------------------------
+say "installing dependencies from the committed manifest and lockfile"
+npm install --ignore-scripts --no-audit --no-fund
 say "building prod bundle (.next-prod)"
 bash scripts/garrison-instance.sh prod build
 

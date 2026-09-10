@@ -62,11 +62,11 @@ export async function runNightly({ store, context, run, sleep = (ms) => new Prom
     const result = {status:failed.length?"partial":"complete",stage:"finished",endedAt:new Date().toISOString(),steps,summary};
     await updateRun(store,run,result);
     await finishNightlyCard(store,run,result);
-    if (failed.length || count) await notify(store,context,run.id,"Nightly Sync",summary);
+    if (failed.length || count || run.attempts>1) await notify(store,context,`${run.id}-attempt-${run.attempts}`,"Nightly Sync",summary);
     return result;
   } catch(error) {
     const result={status:"failed",stage:"failed",summary:error.message,error:error.message,steps,endedAt:new Date().toISOString()};
     await updateRun(store,run,result); await finishNightlyCard(store,run,result);
-    await notify(store,context,run.id,"Nightly Sync failed",error.message); throw error;
+    await notify(store,context,`${run.id}-attempt-${run.attempts}`,"Nightly Sync failed",error.message); throw error;
   } finally { clearInterval(heartbeat); }
 }

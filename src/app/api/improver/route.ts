@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { improvementOverview, improvementDecision, setImprovementAutonomy, startImprovement, maintainImprovements, improvementProbe } from "@/lib/improver";
+import { improvementOverview, improvementDecision, setImprovementAutonomy, startImprovement, maintainImprovements, improvementProbe, deliverImprovementNotice } from "@/lib/improver";
 export const dynamic="force-dynamic";
 export const runtime="nodejs";
 function failure(error:unknown) {
@@ -12,6 +12,7 @@ export async function POST(request:NextRequest) {
     const origin=request.headers.get("origin");
     if(origin && new URL(origin).host!==request.headers.get("host")) return NextResponse.json({error:"Cross-origin authoring is not allowed"},{status:403});
     const body=await request.json();
+    if(body.action==="deliver-notice" && typeof body.id==="string") return NextResponse.json(await deliverImprovementNotice(body.id));
     if(body.action==="probe-deliver" || body.action==="probe-answer") return NextResponse.json(await improvementProbe(body));
     if(body.action==="maintain") return NextResponse.json(await maintainImprovements());
     if(body.action==="review" || body.action==="nightly") return NextResponse.json(await startImprovement(body,body.action==="nightly"?"nightly":"review"),{status:202});

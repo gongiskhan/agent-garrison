@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import {startStateService} from "./state-service-harness";
 import {ImprovementStore} from "../packages/improver/src/store.mjs";
-import {claimRun,updateRun,decide,runReview,overview} from "../packages/improver/src/service.mjs";
+import {claimRun,updateRun,decide,runReview,overview,notify} from "../packages/improver/src/service.mjs";
 import {validateReview,recordOutcome,initialTrack} from "../packages/improver/src/contracts.mjs";
 import {collectDailyEvidence} from "../packages/improver/src/collect.mjs";
 import {ensureNightlySync} from "../packages/improver/src/setup.mjs";
@@ -122,4 +122,26 @@ it("Zeca failures and new activity never rotate away unreviewed work",async()=>{
   expect((await runZecaNightly({env,fetchImpl,runFn:async()=>{throw new Error("offline");},log:{log(){},error(){}}})).ok).toBe(false);
   reads=0;const result=await runZecaNightly({env,fetchImpl,runFn:async()=>({reply:"No durable facts. One useful lesson."}),log:{log(){},error(){}}});
   expect(result.rotated).toBeNull();expect(result.reason).toContain("New activity");expect(rotated).toBe(0);
+});
+
+it("zero-recipient HTTP success stays pending, and a native receipt makes delivery idempotent",async()=>{
+  const captureDir=path.join(home,"ui-fittings");await fs.mkdir(captureDir,{recursive:true});
+  await fs.writeFile(path.join(captureDir,"capture-service.json"),JSON.stringify({url:"http://capture"}));
+  const fetchImpl=vi.fn(async()=>Response.json({ok:true,pushed:0,reason:"no VAPID keys"}));
+  const failed=await notify(store,{...context,forwardedNotice:true,fetchImpl},"delivery-test","Review ready","One decision");
+  expect(failed.deliveredAt).toBeNull();expect(failed.deliveryError).toContain("no VAPID");
+  fetchImpl.mockImplementation(async(url)=>Response.json(url.startsWith("http://capture")?[{means:"companion-push",ok:true,target:"1/1 devices"}]:{ok:true,pushed:0}));
+  const success=await notify(store,{...context,forwardedNotice:true,fetchImpl},"delivery-test","Review ready","One decision");
+  expect(success.deliveredAt).toBeTruthy();expect(success.delivery.native[0].target).toBe("1/1 devices");
+  fetchImpl.mockClear();await notify(store,{...context,fetchImpl},"delivery-test","Review ready","One decision");
+  expect(fetchImpl).not.toHaveBeenCalled();
+  await fs.rm(path.join(captureDir,"capture-service.json"));
+});
+it("a failed delivery cannot overwrite a concurrent successful receipt",async()=>{
+  const fetchImpl=async()=>{
+    await store.update("notice","delivery-race",n=>({...n,deliveredAt:new Date().toISOString(),delivery:{pushed:1},deliveryError:null}));
+    return Response.json({ok:true,pushed:0});
+  };
+  const result=await notify(store,{...context,forwardedNotice:true,fetchImpl},"delivery-race","Ready","Review");
+  expect(result.delivery.pushed).toBe(1);expect(result.deliveredAt).toBeTruthy();
 });

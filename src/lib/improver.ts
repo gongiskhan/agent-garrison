@@ -11,7 +11,7 @@ import { stateClient } from "./state-client";
 // @ts-ignore — the shared core is also executed by the independent Node worker.
 import { ImprovementStore } from "../../packages/improver/src/store.mjs";
 // @ts-ignore
-import { claimRun, overview, decide, requestJson, notify, recoverInterruptedWork, migrateLegacy } from "../../packages/improver/src/service.mjs";
+import { claimRun, overview, decide, requestJson, notify, retryPendingNotice, recoverInterruptedWork, migrateLegacy } from "../../packages/improver/src/service.mjs";
 // @ts-ignore
 import { applyProposal, reconcileOutcomes } from "../../packages/improver/src/authoring.mjs";
 // @ts-ignore
@@ -36,6 +36,11 @@ export async function improvementOverview() {
 export async function improvementProbe(body:Record<string,unknown>) {
   return body.action==="probe-deliver" ? deliverProbe(new ImprovementStore(stateClient()),improvementContext(),body.pendingId) : answerProbe(body);
 }
+export async function deliverImprovementNotice(id:string) {
+  const store=new ImprovementStore(stateClient()), notice=(await store.read("notice",id))?.body;
+  if(!notice)throw Object.assign(new Error("Notice not found"),{status:404});
+  return notify(store,{...improvementContext(),forwardedNotice:true},id,notice.title,notice.text,notice.link);
+}
 export async function maintainImprovements() {
   const store = new ImprovementStore(stateClient()), context=improvementContext();
   await ensureNightlySync(store,context);
@@ -44,6 +49,7 @@ export async function maintainImprovements() {
   const dir=path.join(context.home,"improver");await fs.mkdir(dir,{recursive:true});
   await fs.writeFile(path.join(dir,"core.json"),JSON.stringify({url:context.appUrl}),{mode:0o600});
   await reconcileOutcomes(store,context);
+  await retryPendingNotice(store,context);
   return {ok:true};
 }
 export async function startImprovement(body: {day?:string;retry?:boolean;nightly?:boolean;cardId?:string;node?:string;owner?:boolean}, mode="review") {
