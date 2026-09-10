@@ -4,7 +4,10 @@ import { REVIEW_SYSTEM, REVIEW_SCHEMA } from "@garrison/improver/contracts";
 // Reviews remain tool-free. Use the configured model and sealed accounts rather
 // than depending on a particular node's interactive Claude login.
 export async function callImproverInference(router, { prompt, signal }, { call = callStructuredInference } = {}) {
-  const target = cheapestAnthropicTarget(await router.executionModel());
+  const review = await router.executionRouteFor?.({ duty: "review", level: 2 });
+  const configured = review?.target;
+  const target = configured?.provider === "anthropic" && ["agent-sdk", "claude-code"].includes(configured.runtime)
+    ? configured : cheapestAnthropicTarget(await router.executionModel());
   if (!target) throw new Error("Configure an Anthropic review model in Run routing.");
   const secrets = router.resolveSecrets() ?? {};
   const accounts = Object.keys(secrets).filter((key) => key.startsWith("ANTHROPIC_ACCOUNT__") && secrets[key])

@@ -52,11 +52,17 @@ source IDs. Prefer explicit user corrections and repeated failures over guesses.
 Cover orchestration (triage, duty levels, runtime), skills, Garrison defects and
 durable memory where evidence warrants it. Do not invent work to fill categories.
 Do not turn unfinished features in other projects into Garrison proposals. Extract
-a reusable workflow lesson or a concrete Garrison defect instead.
+a reusable workflow lesson or a concrete Garrison defect instead. External tools
+(such as Auto-thing) are not Garrison components: do not invent a Garrison file
+predictor or phase implementation from an external project log. If ownership is
+unclear, propose a narrowly scoped investigation, not an assumed code change.
 For each proposal explain the problem, the exact intended change and observable
 acceptance criteria. A task must be implementable without asking what it means.
 Memory must distinguish a user assertion/decision from an assistant's suggestion;
 never promote speculation, credentials, private message bodies or transient tasks.
+Assistant completion claims alone are not verification. If a source merely claims
+a fix or memory write succeeded, propose verification instead of storing that as
+a durable fact. Historical verification does not prove current availability.
 Treat contradictions as a decision to review rather than choosing a winner.
 Do not propose increasing autonomy, bypassing permissions or weakening deployment
 guards. The user controls autonomy. Do not repeat resolved/rejected findings listed

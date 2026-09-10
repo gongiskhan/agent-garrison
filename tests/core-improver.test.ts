@@ -193,3 +193,10 @@ it("matches namespaced vault jobs to base-ID receipts on the correct owner",asyn
   const client={listSchedulerJobs:async()=>[{id:"vault-git-sync@peer",target:"node:peer",enabled:true}],listSchedulerRuns:async(id)=>id==="vault-git-sync"?[{...receipt,node:"other",exit:1,endedAt:"2026-09-10T07:18:00Z"},receipt]:[]};
   expect(await vaultSyncReceipt(client,"peer")).toEqual(receipt);
 });
+it("uses the configured standard review model instead of a cheap classifier",async()=>{
+  const {callImproverInference}=await import("../fittings/seed/http-gateway/scripts/lib/improver-inference.mjs");
+  const target={id:"review",provider:"anthropic",runtime:"agent-sdk",model:"configured-review-model",account:"pinned"};
+  const call=vi.fn(async()=>'{"summary":"Grounded review","proposals":[]}');
+  const result=await callImproverInference({executionRouteFor:async()=>({target}),executionModel:async()=>({}),resolveSecrets:()=>({})},{prompt:"Evidence"},{call});
+  expect(result.inference.model).toBe("configured-review-model");expect(call.mock.calls[0][2].targetOverride.account).toBe("pinned");
+});
