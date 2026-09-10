@@ -12,6 +12,12 @@ to the session the same way `/jobs` heartbeat ticks are routed.
 
 ## What the session does on receipt
 
+**First: `cd` to the composition dir.** The prompt carries it as an
+absolute path. Your session does NOT start there, so every relative
+`apm_modules/_local/.../connector.mjs` below — the data sources *and*
+the WhatsApp send — fails with `MODULE_NOT_FOUND` without it, and the
+briefing quietly loses that source instead of erroring.
+
 1. Treat the prompt like any other inbound message — same tier
    classifier, same orchestrator routing.
 2. Read today's calendar via the `google` connector:

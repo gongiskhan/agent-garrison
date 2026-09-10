@@ -67,6 +67,7 @@ DESTINATION_CLAUSES = {
 
 PROMPT_TEMPLATE = (
     "Morning briefing trigger. Today is {date} ({day_of_week}).\n\n"
+    "{workdir}"
     "Compose my morning briefing. Combine my open Trello tasks "
     "(A Fazer list) with today calendar events. "
     "{destination}"
@@ -134,6 +135,29 @@ def destination_clause(delivery: str, whatsapp_jid: str) -> str:
     return DESTINATION_CLAUSES[delivery].format(whatsapp_jid=whatsapp_jid)
 
 
+def workdir_clause() -> str:
+    """Tell the session where the connectors actually are.
+
+    The operative runs in its own session dir, not the composition dir, so a
+    relative "apm_modules/_local/<x>/scripts/connector.mjs" resolves to nothing
+    and every data source AND the delivery call fail with MODULE_NOT_FOUND.
+    GARRISON_COMPOSITION_DIR is projected into fitting processes
+    (composition-env.ts), and setup.sh bakes it into the job command because the
+    scheduler daemon's env does not carry it.
+    """
+    comp = (os.environ.get("GARRISON_COMPOSITION_DIR") or "").strip()
+    if not comp:
+        # No worse than before: the prompt keeps saying "from the composition
+        # dir" and the session has to find it. Better than inventing a path.
+        return ""
+    return (
+        f"Before anything else, cd to {comp} — that is the composition dir, and "
+        "EVERY apm_modules/_local/... path below is relative to it. Your session "
+        "does not start there, so a relative path without this cd fails with "
+        "MODULE_NOT_FOUND and the briefing silently loses that source. "
+    )
+
+
 def render_prompt(today: Optional[date] = None) -> str:
     if today is None:
         today = date.today()
@@ -141,6 +165,7 @@ def render_prompt(today: Optional[date] = None) -> str:
     return PROMPT_TEMPLATE.format(
         date=today.isoformat(),
         day_of_week=today.strftime("%A"),
+        workdir=workdir_clause(),
         destination=destination_clause(delivery, jid),
     )
 

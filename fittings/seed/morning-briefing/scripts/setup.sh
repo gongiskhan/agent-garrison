@@ -83,6 +83,11 @@ WRAPPER="GARRISON_BRIEFING_DELIVERY='${DELIVERY}' $WRAPPER"
 if [ -n "$WA_JID" ]; then
   WRAPPER="GARRISON_BRIEFING_WHATSAPP_JID='${WA_JID}' $WRAPPER"
 fi
+if [ -n "${GARRISON_COMPOSITION_DIR:-}" ]; then
+  # The session runs in its own dir, not here, so the prompt has to carry an
+  # absolute composition path or every connector call is MODULE_NOT_FOUND.
+  WRAPPER="GARRISON_COMPOSITION_DIR='${GARRISON_COMPOSITION_DIR}' $WRAPPER"
+fi
 if [ -n "${GARRISON_GATEWAY_URL:-}" ]; then
   WRAPPER="GARRISON_GATEWAY_URL='${GARRISON_GATEWAY_URL}' $WRAPPER"
 fi

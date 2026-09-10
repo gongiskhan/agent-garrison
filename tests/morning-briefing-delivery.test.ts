@@ -131,3 +131,37 @@ describe("morning-briefing manifest matches the delivery options", () => {
     expect(wa?.cardinality).toBe("optional-one");
   });
 });
+
+describe("morning-briefing composition working directory", () => {
+  // The operative runs in its OWN session dir (~/.garrison/personal), not the
+  // composition dir. Every "apm_modules/_local/.../connector.mjs" in this prompt
+  // is relative, so without an absolute cd the session gets
+  // MODULE_NOT_FOUND for Trello, for Calendar, AND for the whatsapp send — the
+  // briefing loses both its inputs and its delivery, and says so politely
+  // instead of failing, which is how it stayed broken while looking healthy.
+  const COMP = "/Users/x/dev/agent-garrison/compositions/default-2";
+
+  it("puts the absolute composition dir in the prompt when it is known", () => {
+    const r = render({ GARRISON_COMPOSITION_DIR: COMP });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain(`cd to ${COMP}`);
+    expect(r.stdout).toContain("MODULE_NOT_FOUND");
+  });
+
+  it("covers the delivery call too, not just the data sources", () => {
+    const r = render({
+      GARRISON_COMPOSITION_DIR: COMP,
+      GARRISON_BRIEFING_DELIVERY: "whatsapp",
+      GARRISON_BRIEFING_WHATSAPP_JID: JID,
+    });
+    // The cd must come before the send_text instruction it governs.
+    expect(r.stdout.indexOf(`cd to ${COMP}`)).toBeLessThan(r.stdout.indexOf("send_text"));
+  });
+
+  it("invents no path when the composition dir is unknown", () => {
+    const r = render({ GARRISON_COMPOSITION_DIR: "" });
+    expect(r.status).toBe(0);
+    expect(r.stdout).not.toContain("Before anything else");
+    expect(r.stdout).toContain("Compose my morning briefing");
+  });
+});
