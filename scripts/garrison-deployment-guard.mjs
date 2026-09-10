@@ -35,9 +35,24 @@ export async function checkDeployment({ env = process.env, app, fetcher = fetch 
   }
   if (!fs.existsSync(path.join(home, "node.json"))) return { standalone: true };
   if (!app) throw new Error("Deployment needs the instance app URL");
-  const res = await fetcher(`${app}/api/mesh/nodes`, { signal: AbortSignal.timeout(10_000) });
-  if (!res.ok) throw new Error("Cannot verify another healthy mesh instance");
-  const { nodes } = await res.json();
+  let nodes;
+  try {
+    const res = await fetcher(`${app}/api/mesh/nodes`, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error("Local roster unavailable");
+    ({ nodes } = await res.json());
+  } catch {
+    // Recovery must not depend on the app being healthy. Conversation checks
+    // above still passed; use the authenticated authority only to find peers,
+    // then probe those peers live exactly as for the normal roster path.
+    const config = JSON.parse(fs.readFileSync(path.join(home, "state.json"), "utf8"));
+    const res = await fetcher(`${config.url}/v1/nodes`, {
+      headers: { authorization: `Bearer ${config.token}` }, signal: AbortSignal.timeout(5000)
+    });
+    if (!res.ok) throw new Error("Cannot verify another healthy mesh instance");
+    const registry = await res.json();
+    nodes = registry.nodes.map((node) => ({ ...node, isSelf: node.name === config.node,
+      appOrigin: node.health?.node?.appOrigin ?? null }));
+  }
   for (const node of nodes ?? []) {
     if (node.isSelf || node.status !== "active") continue;
     const origin = node.appOrigin || (node.tailnetHost ? `https://${node.tailnetHost}` : null);
@@ -68,9 +83,14 @@ export async function acquireDeployment({ env = process.env, app, fetcher = fetc
   const file = deploymentGuardPath(env);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   if (deploymentDraining(env)) throw new Error("This node already has a deployment in progress");
-  try { fs.unlinkSync(file); } catch (error) { if (error.code !== "ENOENT") throw error; }
+  // Exclusive creation closes the two-deploy race. A stale file is retained
+  // for explicit recovery; never unlink a file another deploy may just own.
   const guard = { id: randomUUID(), pid, expiresAt: Date.now() + 30 * 60_000 };
-  fs.writeFileSync(file, JSON.stringify(guard), { flag: "wx", mode: 0o600 });
+  try { fs.writeFileSync(file, JSON.stringify(guard), { flag: "wx", mode: 0o600 }); }
+  catch (error) {
+    if (error.code === "EEXIST") throw new Error("A deployment guard already exists; verify its owner before recovery");
+    throw error;
+  }
   try {
     if (fs.existsSync(path.join(deploymentHome(env), "node.json"))) {
       const config = JSON.parse(fs.readFileSync(path.join(deploymentHome(env), "state.json"), "utf8"));

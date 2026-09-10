@@ -42,6 +42,15 @@ describe("Conversation-preserving deployments", () => {
       : { composition: { running: false }, degraded: false });
     await expect(checkDeployment({ env, app: "http://self", fetcher })).rejects.toThrow("other healthy");
   });
+  it("can recover an unhealthy app while still proving another instance is live", async () => {
+    put("node.json", { id: "self" }); put("state.json", { url: "http://state", node: "self", token: "test" });
+    const fetcher = async (url: string) => {
+      if (url.startsWith("http://self")) throw new Error("app unavailable");
+      if (url === "http://state/v1/nodes") return Response.json({ nodes: [{ name: "peer", status: "active", tailnetHost: "peer.test" }] });
+      return Response.json({ composition: { running: true }, degraded: false });
+    };
+    expect(await checkDeployment({ env, app: "http://self", fetcher })).toEqual({ peer: "peer" });
+  });
   it("serializes mesh restarts with CAS and releases only its own lease", async () => {
     put("node.json", { id: "self" }); put("state.json", { url: "http://state", node: "self", token: "test" });
     let lease: any = { rev: 0, body: {} };

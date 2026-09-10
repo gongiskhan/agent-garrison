@@ -36,7 +36,7 @@ APP_ORIGIN="$(printf '%s' "$NODE_JSON" | node -e 'let d="";process.stdin.on("dat
 }
 
 say "pulling on csg: git fetch + fast-forward-only merge to origin/main"
-ssh csg 'bash -lc "cd ~/dev/garrison && git fetch -q origin && git merge -q --ff-only origin/main"' || {
+ssh csg 'bash -lc "cd ~/dev/garrison && git fetch -q origin && git diff --quiet && git diff --cached --quiet && git merge-base --is-ancestor HEAD origin/main && git switch main && git merge -q --ff-only origin/main"' || {
   echo "csg's checkout did not fast-forward - it may carry local commits git refuses to discard; resolve on csg directly, never with a force push from here" >&2
   exit 1
 }
