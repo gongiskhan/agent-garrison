@@ -58,7 +58,9 @@ say() { printf "\n[redeploy] %s\n" "$*"; }
 
 # --- 1. build ---------------------------------------------------------------
 say "installing dependencies from the committed manifest and lockfile"
-npm install --ignore-scripts --no-audit --no-fund
+# Frozen dependencies: npm install rewrites platform-specific lock metadata
+# on macOS and then correctly trips the source-change guard below.
+npm ci --ignore-scripts --no-audit --no-fund
 BUILD_RECEIPT="$REPO_ROOT/.next-prod/garrison-build-head"
 if [ -f "$REPO_ROOT/.next-prod/BUILD_ID" ] && [ "$(cat "$BUILD_RECEIPT" 2>/dev/null || true)" = "$DEPLOY_HEAD" ]; then
   say "reusing the verified build for this main revision"
