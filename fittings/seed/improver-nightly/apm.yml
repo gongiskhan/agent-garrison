@@ -59,10 +59,10 @@ x-garrison:
     timeout_ms: 10000
   for_consumers: |
     Improver nightlies are proposal-only. Invoke manually with:
-      node apm_modules/_local/improver-nightly/scripts/improver.mjs run
+      node $GARRISON_COMPOSITION_DIR/apm_modules/_local/improver-nightly/scripts/improver.mjs run
     The setup hook registers a disabled scheduler job named `improver-nightly`.
     Enable it only after human review:
-      node apm_modules/_local/scheduler/scripts/scheduler.mjs enable improver-nightly
+      node $GARRISON_COMPOSITION_DIR/apm_modules/_local/scheduler/scripts/scheduler.mjs enable improver-nightly
     Runs read local telemetry/evidence/docs and write markdown proposal
     artifacts plus JSON run records. They do not edit source files, apply
     patches, or change Quarters primitives.

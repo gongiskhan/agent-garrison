@@ -27,13 +27,13 @@ x-garrison:
 
     CLI:
         # Create
-        echo "## Spec" | python3 apm_modules/_local/documents/scripts/documents.py create --title "Feature X spec"
+        echo "## Spec" | python3 $GARRISON_COMPOSITION_DIR/apm_modules/_local/documents/scripts/documents.py create --title "Feature X spec"
         # Update
-        echo "..." | python3 apm_modules/_local/documents/scripts/documents.py update <id>
+        echo "..." | python3 $GARRISON_COMPOSITION_DIR/apm_modules/_local/documents/scripts/documents.py update <id>
         # List / Read / Link
-        python3 apm_modules/_local/documents/scripts/documents.py list
-        python3 apm_modules/_local/documents/scripts/documents.py read <id>
-        python3 apm_modules/_local/documents/scripts/documents.py link <id>
+        python3 $GARRISON_COMPOSITION_DIR/apm_modules/_local/documents/scripts/documents.py list
+        python3 $GARRISON_COMPOSITION_DIR/apm_modules/_local/documents/scripts/documents.py read <id>
+        python3 $GARRISON_COMPOSITION_DIR/apm_modules/_local/documents/scripts/documents.py link <id>
 
     Always reply with `garrison://documents/<id>` so the user can click
     through. Don't paste the full document content into chat — link only.

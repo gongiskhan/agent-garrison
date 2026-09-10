@@ -102,7 +102,7 @@ x-garrison:
     (GOOGLE_ACCESS_TOKEN) only into the call. The token is never displayed or
     logged.
 
-      node apm_modules/_local/google/scripts/connector.mjs catalog
+      node $GARRISON_COMPOSITION_DIR/apm_modules/_local/google/scripts/connector.mjs catalog
       node .../connector.mjs call gmail.list '{"query":"is:unread","max":8}'
         -> { messages: [{ from, subject, date, unread, snippet }] } — metadata only, never bodies.
       node .../connector.mjs call gmail.send '{"to":"a@b.com","subject":"Report","body":"see attached","attachments":[{"filename":"report.pdf","mime_type":"application/pdf","path":"/abs/report.pdf"}]}'

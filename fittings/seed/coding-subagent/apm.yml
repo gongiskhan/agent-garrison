@@ -42,15 +42,15 @@ x-garrison:
 
     CLI:
         # Plan (read-only; produces plan + Documents id)
-        node apm_modules/_local/coding-subagent/scripts/coding-subagent.mjs \
+        node $GARRISON_COMPOSITION_DIR/apm_modules/_local/coding-subagent/scripts/coding-subagent.mjs \
             plan --project <name> --goal "<one-sentence-goal>"
 
         # Execute (writes files; pass the plan's document id)
-        node apm_modules/_local/coding-subagent/scripts/coding-subagent.mjs \
+        node $GARRISON_COMPOSITION_DIR/apm_modules/_local/coding-subagent/scripts/coding-subagent.mjs \
             execute --plan-id <document-id> --project <name>
 
         # Kill a running execution (rare; user clicks Stop in Run tab)
-        node apm_modules/_local/coding-subagent/scripts/coding-subagent.mjs \
+        node $GARRISON_COMPOSITION_DIR/apm_modules/_local/coding-subagent/scripts/coding-subagent.mjs \
             kill --execution-id <id>
 
     On `execute`, always re-read the plan via the document id — never

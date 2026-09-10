@@ -1469,7 +1469,20 @@ export async function runFittingSetup(
     : path.join(compositionDir, "apm_modules", "_local", entry.id);
   // The fitting's own config wins over the shared hook env, so a composition
   // that explicitly pins a value stays authoritative.
-  const env = { ...hookEnv, ...setupConfigEnv(entry.id, config) };
+  //
+  // GARRISON_COMPOSITION_DIR travels with it. A setup hook that bakes a path
+  // into standing config cannot derive the composition dir on its own: setup
+  // runs from the fitting's SEED dir when it has one and from the installed
+  // apm_modules copy when it does not (see fittingDir above), so no fixed
+  // number of "../" is correct from both. morning-briefing needs it because the
+  // scheduler daemon later runs its job with the daemon's env, which has no
+  // composition in it, and the operative does not run in the composition dir
+  // either — so a relative apm_modules path in the prompt is MODULE_NOT_FOUND.
+  const env = {
+    ...hookEnv,
+    GARRISON_COMPOSITION_DIR: compositionDir,
+    ...setupConfigEnv(entry.id, config)
+  };
   // Run each step in order; abort on the first non-zero exit (aggregating
   // output so the caller logs the full trail up to the failure).
   let aggStdout = "";

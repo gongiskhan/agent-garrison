@@ -31,7 +31,7 @@ x-garrison:
     rsync vault-sync fitting's status file).
   for_consumers: |
     Don't drive vault-git-sync yourself — it runs on the scheduler.
-    Force an immediate sync: `node apm_modules/_local/scheduler/scripts/scheduler.mjs run-now vault-git-sync`.
+    Force an immediate sync: `node $GARRISON_COMPOSITION_DIR/apm_modules/_local/scheduler/scripts/scheduler.mjs run-now vault-git-sync`.
     Last-sync state: ~/.garrison/obsidian-vault-sync-status.json; full log:
     ~/Library/Logs/obsidian-vault-sync.log. Change cadence via the `cron` config
     and re-run `up` (setup re-registers the job idempotently).
