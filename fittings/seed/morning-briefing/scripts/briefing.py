@@ -85,7 +85,8 @@ PROMPT_TEMPLATE = (
     "day!'). The principal sees this every weekday; preserve their "
     "attention. "
     "This is informational — don't offer to do work autonomously here. "
-    "If the principal wants to act they'll reply in Slack and the "
+    "If the principal wants to act they'll reply on whichever channel "
+    "this arrived on, and the "
     "heartbeat approval flow takes it from there."
 )
 
