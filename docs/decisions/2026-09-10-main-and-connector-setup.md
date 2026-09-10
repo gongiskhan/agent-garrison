@@ -56,3 +56,11 @@ OAuth app; no key form appeared. The native bootstrap derives the actual serve
 mapping (Madrid capture is currently 8498), rather than assuming the nominal
 8497 mapping. New native tests passed; the initial XCTest suite only failed
 the old bridge method-count expectation, now updated for refresh.
+
+Completed rollout: all five checkouts use main with automatic catch-up installed.
+All four primary nodes pass 17/17 service checks and native Capture bootstrap;
+CSG's smaller local composition passes 9/9 after its authority connection was
+recovered. Its existing public tether and absent Capture fitting remain separate
+availability limits. Native XCTest passed 122 tests and TestFlight build39 was
+uploaded. See `docs/validation/2026-09-10-main-connectors-capture.md` for exact
+evidence, live lease contention, upstream Cortex 404 and the remaining phone gate.

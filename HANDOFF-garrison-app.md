@@ -1,5 +1,13 @@
 # Handoff - the Garrison app run (September 2026)
 
+Mesh Capture 2026-09-10: TestFlight build39 uploaded after 122 native tests
+passed. First setup needs one mesh address; credentials are internal, and
+launch/foreground discovers the mesh automatically. Capture no longer has an
+Add node or token form. Verify the discovered list, switching, microphone and
+foreground failover on the physical phone. Existing manual pause remains in
+force. All mesh work now uses main; never restart a working Conversation's
+owner node. Evidence: `docs/validation/2026-09-10-main-connectors-capture.md`.
+
 Pendant recovery 2026-09-09 (D67): the build35 screenshot shows Bluetooth
 Connected but capture connecting. Fixed competing uploader retries, stale
 socket callbacks, unbounded handshake wait and retaining the old capture
@@ -49,8 +57,8 @@ Install the latest TestFlight build (`evidence/garrison-app/g8/testflight.txt`)
 on the iPhone and walk this list on the real device against this node
 (`https://goncalos-macbook-pro.tail31efa.ts.net`):
 
-1. First launch with no node: the bootstrap screen asks for a node URL and a
-   capture token; add this node. The shell loads at the bare host; the sidebar
+1. First launch with no node: enter one mesh node URL. The app obtains its
+   capture credential internally and discovers the other nodes. The shell loads at the bare host; the sidebar
    shows Conversations, Kanban Loop and every equipped fitting.
 2. Conversations at `/talk`: send a message, get the reply, reopen the app and
    find the thread. The record button sits in the composer only because the
@@ -269,9 +277,8 @@ on the iPhone and walk this list on the real device against this node
    only (`pushRoute` KVO on `isLoading`).
 6. Node switch (there is no Settings screen): the node badge at the top of
    the menu drawer lists the mesh roster and switches to any node the app
-   knows; a node is added on the Capture page (menu, Command, Capture, shown
-   only in the app), section Node, "Add a node" (shell URL + that node's
-   capture token), which also has Switch / Remove per node. Pick a second
+   discovers automatically at launch and foreground. Capture shows the same
+   discovered list; it has no Add node, Remove or token form. Pick a second
    node, the webview reloads on the new
    origin, Conversations show that node's threads. The list is web, the
    reload is native (D38).
