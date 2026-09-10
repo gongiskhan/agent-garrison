@@ -136,14 +136,27 @@ export async function migrateLegacy(store, context) {
   await store.update("migration", context.node, () => ({ at: new Date().toISOString(), proposals: old.length }));
 }
 
-export async function vaultSyncReceipt(client, node) {
-  const jobs = (await client.listSchedulerJobs()).filter((job) => /^vault-git-sync(?:@|$)/.test(job.id) &&
+export async function vaultSyncReceipt(client, node, configuredJobs) {
+  const jobs = (configuredJobs ?? await client.listSchedulerJobs()).filter((job) => /^vault-git-sync(?:@|$)/.test(job.id) &&
     [node, `node:${node}`].includes(job.target) && job.enabled);
   // Scheduler projects wire IDs such as vault-git-sync@node to the local ID
   // before execution, so historical receipts use the base ID plus owner node.
   const ids = [...new Set(jobs.flatMap((job) => [job.id, job.id.replace(/@[^@]+$/, "")]))];
   const runs = (await Promise.all(ids.map((id) => client.listSchedulerRuns(id)))).flat();
   return runs.filter((entry) => entry.node === node).sort((a,b) => String(b.endedAt).localeCompare(String(a.endedAt)))[0] ?? null;
+}
+
+export async function vaultSyncStatus(client, node) {
+  const jobs = (await client.listSchedulerJobs()).filter((job) => /^vault-git-sync(?:@|$)/.test(job.id) &&
+    [node, `node:${node}`].includes(job.target));
+  // Some nodes deliberately have no local vault fitting. Check the jobs that
+  // are configured here; absence is different from a failed or disabled job.
+  if (!jobs.length) return { configured:false, state:"not-configured", lastRun:null, error:null };
+  const latest = await vaultSyncReceipt(client,node,jobs);
+  const error = !jobs.some((job)=>job.enabled) ? "Quarter-hour vault sync is disabled" :
+    !latest || latest.exit!==0 || Date.now()-Date.parse(latest.endedAt)>45*60_000
+      ? "Quarter-hour vault sync has no recent successful scheduler receipt" : null;
+  return { configured:true, state:error?"failed":"ok", lastRun:latest, error };
 }
 
 export async function runReview({ store = new ImprovementStore(), context, run, model, collect = collectDailyEvidence }) {
@@ -199,7 +212,10 @@ export async function runReview({ store = new ImprovementStore(), context, run, 
       operational.push({kind:"node-health",node:context.node,at:health?.at,git:health?.git,composition:health?.composition,views:health?.views});
       if(!health || Date.now()-Date.parse(health.at)>5*60_000)operationalErrors.push("Node health heartbeat is unavailable or stale");
       else {
-        if(health.git?.branch!=="main")operationalErrors.push("The node checkout is not on main");
+        // Git telemetry can time out while this node is busy. A missing sample
+        // does not assert that the checkout changed branches; main-sync also
+        // records its independent deployment/catch-up outcome below.
+        if(health.git?.branch && health.git.branch!=="main")operationalErrors.push("The node checkout is not on main");
         if(health.composition?.running!==true || health.views?.unhealthy?.length)operationalErrors.push("The node reports unhealthy running services");
       }
       const sync=operational.find((o)=>o.title==="Main deployment sync")?.value;
@@ -207,9 +223,13 @@ export async function runReview({ store = new ImprovementStore(), context, run, 
     } catch(error) {operationalErrors.push(`Node health unavailable: ${error.message}`);}
 
     try {
-      const latest = await vaultSyncReceipt(store.client, context.node);
-      operational.push({kind:"vault-schedule",node:context.node,lastRun:latest??null});
-      if(!latest || latest.exit!==0 || Date.now()-Date.parse(latest.endedAt)>45*60_000) operationalErrors.push("Quarter-hour vault sync has no recent successful scheduler receipt");
+      const status = await vaultSyncStatus(store.client, context.node);
+      operational.push({kind:"vault-schedule",node:context.node,...status});
+      if(!status.configured) {
+        const local = operational.find((entry)=>entry.title==="Vault sync");
+        if(local) local.value={state:"not-configured",message:"Vault sync is not configured on this node"};
+      }
+      if(status.error) operationalErrors.push(status.error);
     } catch(error) { operationalErrors.push(`Vault scheduler receipts unavailable: ${error.message}`); }
     if(zeca && !zeca.ok) operationalErrors.push(`Zeca review failed: ${zeca.error??zeca.reason??zeca.skipped}`);
     await fs.writeFile(path.join(dir,"review.json"), JSON.stringify(result,null,2), { mode: 0o600 });
