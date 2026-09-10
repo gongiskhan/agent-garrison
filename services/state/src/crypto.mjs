@@ -5,11 +5,12 @@
 // one blob because the service resolves single keys constantly and a partial
 // corruption then costs one secret rather than all of them.
 //
-// Master key resolution mirrors src/lib/keychain.ts's order, minus macOS
-// (the service only ever runs on dev-madrid):
+// Master key resolution mirrors src/lib/keychain.ts's order, macOS included -
+// the service runs on any node that owns state, not only on dev-madrid:
 //   1. GARRISON_STATE_MASTER_KEY_HEX  (tests only)
-//   2. Linux secret-tool (libsecret)
-//   3. 0600 keyfile fallback at ~/.garrison/vault-master.key — the live path
+//   2. macOS Keychain via security(1), darwin only
+//   3. Linux secret-tool (libsecret)
+//   4. 0600 keyfile fallback at ~/.garrison/vault-master.key — the live path
 //      on this box, shared with the vault so the importer can decrypt the
 //      existing vault.json with the same key.
 
@@ -30,6 +31,28 @@ export function getMasterKey() {
     if (buf.length !== 32) throw new Error("GARRISON_STATE_MASTER_KEY_HEX must be 32 bytes of hex");
     cachedKey = buf;
     return cachedKey;
+  }
+  // macOS Keychain, read exactly as src/lib/keychain.ts's macReadKey does -
+  // same security(1) invocation and the same GARRISON_KEYCHAIN_SERVICE/ACCOUNT
+  // overrides - so the service opens the very key the vault sealed on this box.
+  // Without it a Mac node resolves no key at all: every secret WRITE dies on
+  // the keyfile's ENOENT while reads through the app keep working.
+  if (process.platform === "darwin") {
+    try {
+      const service = process.env.GARRISON_KEYCHAIN_SERVICE?.trim() || "agent-garrison-vault";
+      const account = process.env.GARRISON_KEYCHAIN_ACCOUNT?.trim() || "vault-master-key";
+      const out = execFileSync(
+        "security",
+        ["find-generic-password", "-a", account, "-s", service, "-w"],
+        { encoding: "utf8" }
+      ).trim();
+      if (out) {
+        cachedKey = normalizeKey(out);
+        return cachedKey;
+      }
+    } catch {
+      // Absent, or denied to a non-GUI session - fall through to the keyfile.
+    }
   }
   try {
     const out = execFileSync(
