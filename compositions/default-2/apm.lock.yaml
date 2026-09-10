@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-08-05T10:28:46.864852+00:00'
+generated_at: '2026-09-10T08:27:29.473402+00:00'
 apm_version: 0.25.0
 dependencies:
 - repo_url: _local/agent-sdk-runtime
@@ -22,7 +22,7 @@ dependencies:
   - .claude/skills/garrison-memory
   - .claude/skills/garrison-memory/SKILL.md
   deployed_file_hashes:
-    .claude/skills/garrison-memory/SKILL.md: sha256:b5a06076544c6148d64afe34ea6e8fbe3742e34adc3cd6d9e610c01446bccf3b
+    .claude/skills/garrison-memory/SKILL.md: sha256:c9da9c7693cec817432eb76344ece40b26a2dbe7a1fb6d9adb2e6e1b8d927c1b
   source: local
   local_path: ../../fittings/seed/basic-memory
 - repo_url: _local/browser-default
@@ -54,12 +54,6 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/dev-env
-- repo_url: _local/dispatcher
-  name: dispatcher
-  version: 0.1.0
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/dispatcher
 - repo_url: _local/drill
   name: drill
   version: 0.1.0
@@ -103,7 +97,7 @@ dependencies:
   - .claude/skills/google-calendar
   - .claude/skills/google-calendar/SKILL.md
   deployed_file_hashes:
-    .claude/skills/google-calendar/SKILL.md: sha256:8818d0a97c2b3ace35aba433114df755746a1b3983f5f27e07f4a8348c83e9c8
+    .claude/skills/google-calendar/SKILL.md: sha256:3b181017f926ef2d6ad6691c57afa2b889e17ce483b1d04637c5a7f5b7e16927
   source: local
   local_path: ../../fittings/seed/google
 - repo_url: _local/http-gateway
@@ -122,24 +116,6 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/huggingface-runtime
-- repo_url: _local/identity-gary
-  name: identity-gary
-  version: 0.1.0
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/identity-gary
-- repo_url: _local/improver
-  name: improver
-  version: 0.1.0
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/improver
-- repo_url: _local/improver-nightly
-  name: improver-nightly
-  version: 0.1.0
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/improver-nightly
 - repo_url: _local/jarvis-os
   name: jarvis-os
   version: 0.1.0
@@ -165,7 +141,7 @@ dependencies:
   deployed_files:
   - .claude/rules/loop-heartbeat.md
   deployed_file_hashes:
-    .claude/rules/loop-heartbeat.md: sha256:f7362ad4d0be0435a10b7e8ba4d165875fc2310cee90977c6558b4113cef7cac
+    .claude/rules/loop-heartbeat.md: sha256:c1460f86bbab5c4751aa774c699f0a23772166e00b62afd53e00b479098d1333
   source: local
   local_path: ../../fittings/seed/loop-heartbeat
 - repo_url: _local/mcp-gateway
@@ -188,7 +164,7 @@ dependencies:
   - .claude/skills/morning-briefing
   - .claude/skills/morning-briefing/SKILL.md
   deployed_file_hashes:
-    .claude/skills/morning-briefing/SKILL.md: sha256:ea80774e2730d9f9dbbdcec6110961508361fc92902677a971a8eb7323806091
+    .claude/skills/morning-briefing/SKILL.md: sha256:e2f182cf94c4c451220cb1b0bbf55f3e6d472f90062a97af5c37923b2bc65a83
   source: local
   local_path: ../../fittings/seed/morning-briefing
 - repo_url: _local/omi-channel
@@ -197,12 +173,6 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/omi-channel
-- repo_url: _local/opencode-runtime
-  name: opencode-runtime
-  version: 0.1.0
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/opencode-runtime
 - repo_url: _local/openrouter-runtime
   name: openrouter-runtime
   version: 0.1.0
@@ -216,15 +186,9 @@ dependencies:
   deployed_files:
   - .claude/commands/orchestrator.md
   deployed_file_hashes:
-    .claude/commands/orchestrator.md: sha256:d552383cec1d495c8128279df336820c7fcb48993b8d50b595e5c3b02b660671
+    .claude/commands/orchestrator.md: sha256:89c156c3c5902d384f5c81f6ce9846a11e909007a82ed27a6ffb076a660d8e1c
   source: local
   local_path: ../../fittings/seed/orchestrator
-- repo_url: _local/outpost-tailscale-host
-  name: outpost-tailscale-host
-  version: 0.3.0
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/outpost-tailscale-host
 - repo_url: _local/ports-default
   name: ports-default
   version: 0.1.0
@@ -237,6 +201,23 @@ dependencies:
   package_type: invalid
   source: local
   local_path: ../../fittings/seed/power-default
+- repo_url: _local/preflight
+  name: preflight
+  version: 0.1.0
+  package_type: invalid
+  source: local
+  local_path: ../../fittings/seed/preflight
+- repo_url: _local/project-viewer
+  name: project-viewer
+  version: 0.1.0
+  package_type: apm_package
+  deployed_files:
+  - .claude/skills/garrison-project-viewer
+  - .claude/skills/garrison-project-viewer/SKILL.md
+  deployed_file_hashes:
+    .claude/skills/garrison-project-viewer/SKILL.md: sha256:b8fc15f495bffa67cff36d66940ab89249acaf14f4e211add6ba40aec4d9ea5e
+  source: local
+  local_path: ../../fittings/seed/project-viewer
 - repo_url: _local/scheduler
   name: scheduler
   version: 0.1.0
@@ -245,7 +226,7 @@ dependencies:
   - .claude/skills/scheduler
   - .claude/skills/scheduler/SKILL.md
   deployed_file_hashes:
-    .claude/skills/scheduler/SKILL.md: sha256:3137fb60e14786dd4c5755dbb34f2d1295ab8c342391f9b518f919f3d31a939e
+    .claude/skills/scheduler/SKILL.md: sha256:a2cc34e33596582ee206d9d00ea47464b9eb3c2ed21d063427dbf85c336d502e
   source: local
   local_path: ../../fittings/seed/scheduler
 - repo_url: _local/screen-share-default
@@ -318,7 +299,7 @@ deployments:
   owners:
   - ../../fittings/seed/orchestrator
   active_owner: ../../fittings/seed/orchestrator
-  content_hash: sha256:d552383cec1d495c8128279df336820c7fcb48993b8d50b595e5c3b02b660671
+  content_hash: sha256:89c156c3c5902d384f5c81f6ce9846a11e909007a82ed27a6ffb076a660d8e1c
 - kind: project-relative
   target: claude
   value: .claude/rules/http-gateway.md
@@ -336,7 +317,7 @@ deployments:
   owners:
   - ../../fittings/seed/loop-heartbeat
   active_owner: ../../fittings/seed/loop-heartbeat
-  content_hash: sha256:f7362ad4d0be0435a10b7e8ba4d165875fc2310cee90977c6558b4113cef7cac
+  content_hash: sha256:c1460f86bbab5c4751aa774c699f0a23772166e00b62afd53e00b479098d1333
 - kind: project-relative
   target: claude
   value: .claude/rules/trello-data-source.md
@@ -426,7 +407,25 @@ deployments:
   owners:
   - ../../fittings/seed/basic-memory
   active_owner: ../../fittings/seed/basic-memory
-  content_hash: sha256:b5a06076544c6148d64afe34ea6e8fbe3742e34adc3cd6d9e610c01446bccf3b
+  content_hash: sha256:c9da9c7693cec817432eb76344ece40b26a2dbe7a1fb6d9adb2e6e1b8d927c1b
+- kind: project-relative
+  target: claude
+  value: .claude/skills/garrison-project-viewer
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/project-viewer
+  active_owner: ../../fittings/seed/project-viewer
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/garrison-project-viewer/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - ../../fittings/seed/project-viewer
+  active_owner: ../../fittings/seed/project-viewer
+  content_hash: sha256:b8fc15f495bffa67cff36d66940ab89249acaf14f4e211add6ba40aec4d9ea5e
 - kind: project-relative
   target: claude
   value: .claude/skills/google-calendar
@@ -444,7 +443,7 @@ deployments:
   owners:
   - ../../fittings/seed/google
   active_owner: ../../fittings/seed/google
-  content_hash: sha256:8818d0a97c2b3ace35aba433114df755746a1b3983f5f27e07f4a8348c83e9c8
+  content_hash: sha256:3b181017f926ef2d6ad6691c57afa2b889e17ce483b1d04637c5a7f5b7e16927
 - kind: project-relative
   target: claude
   value: .claude/skills/morning-briefing
@@ -462,7 +461,7 @@ deployments:
   owners:
   - ../../fittings/seed/morning-briefing
   active_owner: ../../fittings/seed/morning-briefing
-  content_hash: sha256:ea80774e2730d9f9dbbdcec6110961508361fc92902677a971a8eb7323806091
+  content_hash: sha256:e2f182cf94c4c451220cb1b0bbf55f3e6d472f90062a97af5c37923b2bc65a83
 - kind: project-relative
   target: claude
   value: .claude/skills/redesign-existing-projects
@@ -507,7 +506,7 @@ deployments:
   owners:
   - ../../fittings/seed/scheduler
   active_owner: ../../fittings/seed/scheduler
-  content_hash: sha256:3137fb60e14786dd4c5755dbb34f2d1295ab8c342391f9b518f919f3d31a939e
+  content_hash: sha256:a2cc34e33596582ee206d9d00ea47464b9eb3c2ed21d063427dbf85c336d502e
 - kind: project-relative
   target: claude
   value: .claude/skills/trello
