@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-09-10T06:53:39.121Z",
+  "updatedAt": "2026-09-10T09:02:40.614Z",
   "categories": [
     {
       "id": "c1",
@@ -410,7 +410,7 @@
         {
           "id": "c4.7",
           "text": "Core Improver and Nightly Sync: shared decisions and user-controlled autonomy for orchestration, skills, Garrison, memory and operations; bounded daily owner-node reviews, verified memory authoring, implementation tasks, safe retries, outcome notices and legacy migration. Implementation and live validation: docs/decisions/2026-09-10-core-improver-nightly-sync.md.",
-          "done": false,
+          "done": true,
           "sentToKanban": null,
           "noteRef": null
         }
@@ -465,7 +465,7 @@
         },
         {
           "id": "c5.7",
-          "text": "Simplify connector setup: Google sign-in, Cortex base URL default https://app.ekoa.io, explain Remote capability CLI, and show credential acquisition instructions for every non-OAuth connector.",
+          "text": "Simplify connector setup: Google sign-in, editable Cortex base URL default https://staging.ekoa.io while the new API is on staging, explain Remote capability CLI, and show credential acquisition instructions for every non-OAuth connector.",
           "done": true,
           "sentToKanban": null,
           "noteRef": null
