@@ -20,15 +20,14 @@ briefing quietly loses that source instead of erroring.
 
 1. Treat the prompt like any other inbound message — same tier
    classifier, same orchestrator routing.
-2. Read today's calendar via the `google` connector:
-   `node apm_modules/_local/google/scripts/connector.mjs call
-   calendar.list_events '{"time_min":"<RFC3339 UTC>"}'` — there is
-   no `time_max` arg, so filter to today client-side on
-   `start.dateTime // start.date`. Skip if the google connector
-   isn't selected (an `awaiting_connector` reply means it isn't
-   OAuth-connected yet — say so, don't fabricate).
-3. Read open Trello tasks (the trello data source's "A Fazer"
-   list). Skip if the Trello Fitting isn't selected.
+2. **The data is already in the prompt.** `briefing.py` fetches the
+   calendar and the tasks before the job is posted, because the
+   operative has NO connector credentials — those are injected only
+   into the Automations engine, so a connector call from your Bash
+   returns `awaiting_connector` however well the user is connected.
+   Do not run a connector here. If the prompt marks a source
+   UNAVAILABLE, say so in one clause and move on; never invent it,
+   and never treat it as something to go and fix.
 4. Compose a Slack message — events first (chronological), then up
    to two task suggestions with one-sentence reasons each. Skip
    any section whose data source is empty. Skip a "blocking"

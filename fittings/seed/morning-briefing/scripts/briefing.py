@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 import time
 import urllib.error
@@ -68,8 +69,8 @@ DESTINATION_CLAUSES = {
 PROMPT_TEMPLATE = (
     "Morning briefing trigger. Today is {date} ({day_of_week}).\n\n"
     "{workdir}"
-    "Compose my morning briefing. Combine my open Trello tasks "
-    "(A Fazer list) with today calendar events. "
+    "Compose my morning briefing from the data below. "
+    "{sources}"
     "{destination}"
     "Format: events in chronological order, two task suggestions with "
     "one-sentence reasons, anything blocking (only if you genuinely "
@@ -77,10 +78,6 @@ PROMPT_TEMPLATE = (
     "If both inputs are empty, post a one-line acknowledgement instead "
     "of staying silent — briefings have a fixed cadence and the "
     "principal expects proof-of-life. "
-    "Calendar source: the google connector — from the composition dir "
-    "run node apm_modules/_local/google/scripts/connector.mjs call "
-    "calendar.list_events with a time_min arg (RFC3339 UTC for local "
-    "midnight); there is no time_max, so filter to today client-side. "
     "Keep it under 200 words. No filler ('Good morning!', 'Have a great "
     "day!'). The principal sees this every weekday; preserve their "
     "attention. "
@@ -90,6 +87,188 @@ PROMPT_TEMPLATE = (
     "heartbeat approval flow takes it from there."
 )
 
+
+
+# ── Source gathering ─────────────────────────────────────────────────────────
+# The operative gets DATA, not fetch instructions. See the module docstring for
+# why it cannot fetch: connector credentials reach only the Automations engine.
+
+CONNECTOR_TIMEOUT_S = 60
+
+
+def garrison_home() -> str:
+    return os.environ.get("GARRISON_HOME") or os.path.join(
+        os.path.expanduser("~"), ".garrison"
+    )
+
+
+def app_url() -> str:
+    explicit = os.environ.get("GARRISON_APP_URL")
+    if explicit:
+        return explicit.rstrip("/")
+    # Same derivation as the gateway's: the committed base shifted by the
+    # instance profile's offset. Never a literal for one instance.
+    offset = int(os.environ.get("GARRISON_PORT_OFFSET", "0") or "0")
+    return f"http://127.0.0.1:{8777 + offset}"
+
+
+def internal_token() -> str:
+    """The 0600 capability token that gates the auth-env route.
+
+    Same trust boundary as the vault key file: readable by this user's own
+    processes only, and briefing.py is one of Garrison's own.
+    """
+    path = os.environ.get("GARRISON_INTERNAL_TOKEN_PATH") or os.path.join(
+        garrison_home(), "internal-token"
+    )
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
+
+
+def connector_auth_env(connector: str) -> Optional[dict]:
+    """This connector's freshly-materialised auth env, or None if not connected.
+
+    None means "no usable credential" for every reason (409 awaiting_connector,
+    no internal token, app unreachable) — the briefing reports the source as
+    unavailable rather than guessing which.
+    """
+    token = internal_token()
+    if not token:
+        return None
+    req = urllib.request.Request(
+        f"{app_url()}/api/connectors/{connector}/auth-env",
+        data=b"{}",
+        method="POST",
+        headers={"Content-Type": "application/json", "x-garrison-internal": token},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode("utf-8")).get("env") or {}
+    except Exception:
+        return None
+
+
+def connector_call(connector: str, action: str, args: dict):
+    """(result, error). error is a short human phrase, never a stack trace."""
+    comp = (os.environ.get("GARRISON_COMPOSITION_DIR") or "").strip()
+    if not comp:
+        return None, "composition dir unknown"
+    script = os.path.join(
+        comp, "apm_modules", "_local", connector, "scripts", "connector.mjs"
+    )
+    if not os.path.exists(script):
+        return None, "connector not installed in this composition"
+    auth = connector_auth_env(connector)
+    if auth is None:
+        return None, "not connected"
+    env = {**os.environ, **auth}
+    try:
+        proc = subprocess.run(
+            ["node", script, "call", action, json.dumps(args)],
+            capture_output=True, text=True, env=env, cwd=comp,
+            timeout=CONNECTOR_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        return None, "timed out"
+    try:
+        payload = json.loads((proc.stdout or "").strip() or "{}")
+    except json.JSONDecodeError:
+        return None, "unreadable connector output"
+    if not payload.get("ok"):
+        return None, str(payload.get("error") or "call failed")
+    return payload.get("result"), None
+
+
+def _today_events(today: date):
+    """Today's calendar events, chronological. calendar.list_events has no
+    time_max, so the day window is applied here."""
+    result, err = connector_call(
+        "google", "calendar.list_events", {"time_min": f"{today.isoformat()}T00:00:00Z"}
+    )
+    if err:
+        return None, err
+    # The connector returns the Google shape: {"items": [...]}. Reading a
+    # guessed "events" key silently yielded an empty day with ok:true, which
+    # reads exactly like a free calendar.
+    if isinstance(result, list):
+        items = result
+    else:
+        result = result or {}
+        items = result.get("items") or result.get("events") or []
+    out = []
+    for ev in items:
+        start = ev.get("start") or {}
+        when = start.get("dateTime") or start.get("date") or ""
+        if not when.startswith(today.isoformat()):
+            continue
+        out.append({"when": when, "summary": ev.get("summary") or "(no title)"})
+    out.sort(key=lambda e: e["when"])
+    return out, None
+
+
+def _todo_cards():
+    """Open cards in the Trello board's A Fazer list."""
+    lists, err = connector_call("trello", "lists", {})
+    if err:
+        return None, err
+    target = None
+    for lst in lists or []:
+        if str(lst.get("name", "")).strip().lower() == "a fazer":
+            target = lst.get("id")
+            break
+    if not target:
+        return None, "no 'A Fazer' list on the board"
+    cards, err = connector_call("trello", "list_cards", {"list_id": target})
+    if err:
+        return None, err
+    return [c.get("name") for c in (cards or []) if c.get("name")], None
+
+
+def gather_sources(today: date) -> dict:
+    events, ev_err = _today_events(today)
+    tasks, task_err = _todo_cards()
+    return {
+        "events": events, "events_error": ev_err,
+        "tasks": tasks, "tasks_error": task_err,
+    }
+
+
+def sources_clause(data: dict) -> str:
+    """The gathered data as prompt text, and an honest note for what failed."""
+    parts = []
+    events, tasks = data.get("events"), data.get("tasks")
+
+    if events is None:
+        parts.append(
+            f"Calendar: UNAVAILABLE ({data['events_error']}). Say so plainly in "
+            "one clause; do not invent events and do not try to fetch them "
+            "yourself — you have no credentials for connectors. "
+        )
+    elif not events:
+        parts.append("Calendar: no events today. ")
+    else:
+        listed = "; ".join(f"{e['when']} {e['summary']}" for e in events)
+        parts.append(f"Today's calendar events, already in order: {listed}. ")
+
+    if tasks is None:
+        parts.append(
+            f"Tasks: UNAVAILABLE ({data['tasks_error']}). Same rule — say so, "
+            "invent nothing, fetch nothing. "
+        )
+    elif not tasks:
+        parts.append("Tasks: the A Fazer list is empty. ")
+    else:
+        parts.append("Open A Fazer tasks: " + "; ".join(tasks) + ". ")
+
+    parts.append(
+        "These are the ONLY inputs. They are already fetched for you — do not "
+        "run any connector, and do not treat a missing source as something to "
+        "go and fix. "
+    )
+    return "".join(parts)
 
 def delivery_config() -> tuple[str, str]:
     """(delivery, whatsapp_jid) from env.
@@ -159,14 +338,16 @@ def workdir_clause() -> str:
     )
 
 
-def render_prompt(today: Optional[date] = None) -> str:
+def render_prompt(today: Optional[date] = None, sources: Optional[dict] = None) -> str:
     if today is None:
         today = date.today()
     delivery, jid = delivery_config()
+    data = sources if sources is not None else gather_sources(today)
     return PROMPT_TEMPLATE.format(
         date=today.isoformat(),
         day_of_week=today.strftime("%A"),
         workdir=workdir_clause(),
+        sources=sources_clause(data),
         destination=destination_clause(delivery, jid),
     )
 
@@ -189,6 +370,7 @@ def gateway_url() -> str:
 def cmd_fire() -> int:
     today = date.today()
     delivery, _jid = delivery_config()
+    sources = gather_sources(today)
     body = {
         "kind": "morning-briefing",
         "date": today.isoformat(),
@@ -197,7 +379,7 @@ def cmd_fire() -> int:
         # without it a briefing that vanished is indistinguishable from one that
         # was delivered somewhere nobody was looking.
         "delivery": delivery,
-        "instructions": render_prompt(today),
+        "instructions": render_prompt(today, sources),
     }
     url = f"{gateway_url()}/jobs"
     data = json.dumps(body).encode("utf-8")

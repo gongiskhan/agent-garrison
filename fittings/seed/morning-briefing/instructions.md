@@ -4,6 +4,20 @@ This Fitting fires a daily synthetic prompt that asks the Operative
 to compose a briefing (Trello + Calendar) and post it to Slack via
 the orchestrator's `report_channel`. It's opt-in.
 
+## 0. How it gets its data
+
+`briefing.py` fetches the calendar and the Trello list ITSELF, before it
+posts the job, and hands the session the data. It does that because the
+operative cannot read a connector: credentials are materialised only for
+the Automations engine, through `/api/connectors/<id>/auth-env` behind the
+0600 internal token. A connector call from the session's own Bash returns
+`awaiting_connector` no matter how well the connector is connected — which
+is exactly how this Fitting looked healthy while delivering nothing.
+
+So the job needs `GARRISON_APP_URL`, `GARRISON_HOME` and
+`GARRISON_COMPOSITION_DIR`; setup.sh bakes all three into the command,
+since the scheduler daemon's env has none of them.
+
 ## 1. Prerequisites
 
 - The `scheduler` Fitting must be in your composition (required —

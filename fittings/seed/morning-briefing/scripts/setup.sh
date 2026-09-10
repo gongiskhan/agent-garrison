@@ -83,6 +83,16 @@ WRAPPER="GARRISON_BRIEFING_DELIVERY='${DELIVERY}' $WRAPPER"
 if [ -n "$WA_JID" ]; then
   WRAPPER="GARRISON_BRIEFING_WHATSAPP_JID='${WA_JID}' $WRAPPER"
 fi
+# briefing.py resolves the connector auth env from the app and calls the
+# connectors ITSELF (the operative has no credentials), so the job needs to
+# know where the app and the internal token live. The scheduler daemon's env
+# carries neither.
+if [ -n "${GARRISON_APP_URL:-}" ]; then
+  WRAPPER="GARRISON_APP_URL='${GARRISON_APP_URL}' $WRAPPER"
+fi
+if [ -n "${GARRISON_HOME:-}" ]; then
+  WRAPPER="GARRISON_HOME='${GARRISON_HOME}' $WRAPPER"
+fi
 if [ -n "${GARRISON_COMPOSITION_DIR:-}" ]; then
   # The session runs in its own dir, not here, so the prompt has to carry an
   # absolute composition path or every connector call is MODULE_NOT_FOUND.

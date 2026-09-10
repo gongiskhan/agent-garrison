@@ -165,3 +165,42 @@ describe("morning-briefing composition working directory", () => {
     expect(r.stdout).toContain("Compose my morning briefing");
   });
 });
+
+describe("morning-briefing carries its data instead of fetch instructions", () => {
+  // The operative has NO connector credentials — they are materialised only for
+  // the Automations engine, behind the 0600 internal token. Probed live:
+  //
+  //   TOKEN=ABSENT
+  //   {"ok":false,"error":"Google not connected ...","awaiting_connector":true}
+  //
+  // So the old prompt, which told the session to run the google connector, could
+  // never work — not even with a valid OAuth grant in the Vault. briefing.py
+  // fetches the sources itself and hands over the data.
+
+  it("never tells the session to run a connector for its data", () => {
+    const r = render({ GARRISON_COMPOSITION_DIR: "", GARRISON_BRIEFING_DELIVERY: "stdout" });
+    expect(r.status).toBe(0);
+    expect(r.stdout).not.toContain("connector.mjs call calendar");
+    expect(r.stdout).toContain("already fetched for you");
+    expect(r.stdout).toContain("do not run any connector");
+  });
+
+  it("names an unavailable source instead of hiding it as an empty day", () => {
+    // An unreachable calendar that reads as "no events" is indistinguishable
+    // from a free morning — the failure this Fitting kept shipping.
+    const r = render({ GARRISON_COMPOSITION_DIR: "", GARRISON_BRIEFING_DELIVERY: "stdout" });
+    expect(r.stdout).toContain("UNAVAILABLE");
+    expect(r.stdout).toContain("invent nothing");
+  });
+
+  it("still renders a delivery clause alongside the data", () => {
+    const r = render({
+      GARRISON_COMPOSITION_DIR: "",
+      GARRISON_BRIEFING_DELIVERY: "whatsapp",
+      GARRISON_BRIEFING_WHATSAPP_JID: JID,
+    });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain(JID);
+    expect(r.stdout).toContain("UNAVAILABLE");
+  });
+});
