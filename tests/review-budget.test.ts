@@ -63,8 +63,12 @@ describe("counting off the ledger", () => {
     store.append(started("review"));
     expect(reviewsUsed(store)).toBe(2);
     store.append({ kind: "handoff", duty: "implement", payload: { nextSteps: { next: "adversarial-review" } } });
-    store.append({ kind: "handoff", duty: "implement", payload: { nextSteps: { next: "done" } } });
     expect(reviewsRequested(store)).toBe(1);
+    store.append({ kind: "handoff", duty: "implement", payload: { nextSteps: { next: "done" } } });
+    expect(reviewsRequested(store)).toBe(0);
+    expect(reviewsUsed(store)).toBe(0);
+    store.append({ kind: "user-message", payload: { text: "Now implement the next request" } });
+    expect(reviewBudgetDecision(store, { env })).toMatchObject({ used: 0, allowed: true });
   });
 });
 
@@ -76,16 +80,16 @@ describe("applyFlowPolicy with the budget", () => {
     expect(res).toMatchObject({ next: "adversarial-review", rewritten: false });
   });
 
-  it("converts the ask to done once the budget is spent, and says how many were asked for", () => {
+  it("pauses an outstanding review once the budget is spent instead of calling it done", () => {
     const store = openConversation("rb-2", { role: "gateway", env });
     store.append(started("adversarial-review"));
     store.append(started("adversarial-review"));
     store.append({ kind: "handoff", duty: "implement", payload: { nextSteps: { next: "adversarial-review" } } });
     store.append({ kind: "handoff", duty: "review", payload: { status: "complete", evidenceRefs: [{ kind: "run", ref: proof }] } });
     const res = applyFlowPolicy("adversarial-review", { store, duty: "adversarial-review", selectedDuties: DUTIES, cwd: tmp, env });
-    expect(res.next).toBe("done");
+    expect(res.next).toBe("needs-input");
     expect(res.rewritten).toBe(true);
-    expect(res.reviewBudget).toMatchObject({ cap: 2, used: 2, trigger: "asked", from: "adversarial-review", to: "done" });
+    expect(res.reviewBudget).toMatchObject({ cap: 2, used: 2, trigger: "asked", from: "adversarial-review", to: "needs-input" });
     expect(res.reviewBudget.requested).toBeGreaterThanOrEqual(2);
     expect(res.reason).toContain("review-budget");
   });
@@ -98,9 +102,9 @@ describe("applyFlowPolicy with the budget", () => {
       store, duty: "implement", selectedDuties: DUTIES, cwd: tmp, stretchId: "st_1",
       handoff: { status: "complete" }, card: { description: "review budget: 0" }, env,
     });
-    expect(res.next).toBe("done");
+    expect(res.next).toBe("needs-input");
     expect(res.reviewBudget).toMatchObject({ cap: 0, used: 0, trigger: "insert" });
-    expect(res.skippedReview).toContain("review budget spent");
+    expect(res.reason).toContain("required review");
   });
 
   it("without the cap that same change would have been sent to review", () => {
@@ -120,7 +124,7 @@ describe("applyFlowPolicy with the budget", () => {
     store.append(started("adversarial-review"));
     store.append(started("adversarial-review"));
     const res = applyFlowPolicy("adversarial-review", { store, duty: "adversarial-review", selectedDuties: DUTIES, cwd: tmp, env });
-    expect(res.next).toBe("test");
+    expect(res.next).toBe("needs-input");
     expect(res.reviewBudget).toBeTruthy();
   });
 });
@@ -187,11 +191,11 @@ describe("the loop with a brief that sets the cap to zero", () => {
 
     expect(duties).toContain("implement");
     expect(duties.filter((d) => d === "adversarial-review"), "no review stretch may run").toEqual([]);
-    expect(result.terminal).toBe("done");
+    expect(result.terminal).toBe("needs-input");
     const events = openConversation("rb-loop", { env }).tail(200);
     const bit = events.find((e: any) => e.kind === "review-budget");
     expect(bit, "the ledger says the budget bit").toBeTruthy();
-    expect(bit.payload).toMatchObject({ cap: 0, used: 0, allowed: false, to: "done" });
+    expect(bit.payload).toMatchObject({ cap: 0, used: 0, allowed: false, to: "needs-input" });
     expect(bit.payload.requested).toBeGreaterThanOrEqual(1);
   }, 20000);
 });

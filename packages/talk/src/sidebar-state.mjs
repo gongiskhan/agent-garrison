@@ -109,10 +109,16 @@ export async function loadSidebar() {
 
 export async function saveSidebar(raw) {
   const clean = sanitizeSidebar(raw);
+  const previous = await loadSidebar();
   const file = sidebarPath();
   await mkdir(path.dirname(file), { recursive: true });
   const tmp = `${file}.tmp-${process.pid}`;
   await writeFile(tmp, JSON.stringify(clean, null, 2), "utf8");
   await rename(tmp, file);
+  const added = clean.archived.filter((key) => key.startsWith("local:") && !previous.archived.includes(key));
+  if (added.length) {
+    const cards = await import("./conversation-cards.mjs");
+    await Promise.all(added.map((key) => cards.endSessionCard(key.slice(6)).catch(cards.reportCardHook)));
+  }
   return clean;
 }

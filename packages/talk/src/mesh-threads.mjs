@@ -139,6 +139,7 @@ export async function meshThreads({ limitPerNode = 2000, fetchImpl = fetch } = {
       node: peer.name,
       accentColor: peer.accentColor ?? null,
       status: peer.status,
+      connection: live ? "connected" : "disconnected",
       lastSeenAt: peer.lastSeenAt ?? null,
       openBase: base,
       threads: threads.map((t) => ({

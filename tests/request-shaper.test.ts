@@ -22,6 +22,14 @@ const req = (over: Record<string, unknown> = {}) => ({
 });
 
 describe("cache TTL rewriting", () => {
+  it("forces only the structured-output envelope for an explicitly bounded inference", () => {
+    const input = req({ tools: [{ name: "StructuredOutput", input_schema: { type: "object" } }, { name: "tool_search_tool_regex" }] });
+    const result = shapeAnthropicRequest(input, { forceTool: "StructuredOutput" });
+    expect(result.body.tool_choice).toEqual({ type: "tool", name: "StructuredOutput" });
+    expect(result.body.tools).toHaveLength(1); expect(result.body.tools[0].defer_loading).toBe(false);
+    expect(result.changes.forcedTool).toEqual({ name: "StructuredOutput" });
+    expect(input.tools).toHaveLength(2); expect(input).not.toHaveProperty("tool_choice");
+  });
   it("raises the system breakpoints to 1h", () => {
     const { body, changes } = shapeAnthropicRequest(req(), { cacheTtl: "1h" });
     expect(changes.cacheTtl).toEqual({ ttl: "1h", blocks: 2 });

@@ -199,3 +199,21 @@ is nothing to shuttle. Two of its rules were load-bearing and survive as
   `garrison-node.service` and `garrison-dev.service` both run out of it, and on
   a Mac the launchd node agent does. Code moves between nodes through git and
   nothing else.
+
+## Main and rolling deployment (10 September 2026)
+
+Every mesh checkout works on `main` and synchronizes committed code through
+`origin/main`. Never create node/task branches or overwrite uncommitted work.
+Deploy one node at a time, verify its health, then continue. Keep another healthy
+instance available. The reload/redeploy guard refuses nodes with a working
+Conversation and serializes restarts through the state service. Hosted workers
+cannot bypass this policy; a deferred node catches up after its work finishes.
+
+The installer enables an independent `garrison-main-sync` service-manager job
+(`io.garrison.main-sync` on macOS) that checks for main updates roughly once a
+minute. It fast-forwards clean main checkouts and invokes the guarded redeploy
+when runtime files changed. Uncommitted work, unpublished/divergent commits,
+active Conversations and unavailable peers defer the job. Documentation, tests
+and native-only changes sync without restarting the node. A failed deployment
+backs off for ten minutes, and the node-local `main-sync.json` receipt records
+the outcome. Success requires the running composition and all views healthy.

@@ -12,10 +12,11 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { styleSource } from "./helpers/style-source";
 
 const REPO = path.resolve(__dirname, "..");
 const chat = readFileSync(path.join(REPO, "packages/claude-chat/src/claude-chat.css"), "utf8");
-const skin = readFileSync(path.join(REPO, "fittings/seed/kanban-loop/ui/styles.css"), "utf8");
+const skin = styleSource(path.join(REPO, "fittings/seed/kanban-loop/ui/styles.css"));
 const css = `${chat}\n${skin}`.replace(/<\/style/gi, "<\\/style");
 
 let browser: Browser;

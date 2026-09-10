@@ -1,6 +1,6 @@
 import { getActiveComposition } from "./active-composition";
 import { readComposition } from "./compositions";
-import { scopedSecrets } from "./vault";
+import { scopedSecrets } from "./connector-auth";
 
 // Server side of the cortex-automations `session` view. The view is a test rig
 // over a REMOTE capability API reached with a user-scoped gateway key, and two
@@ -119,7 +119,7 @@ export function checkCortexRequest(method: unknown, rawPath: unknown): PathCheck
 
 export interface CortexBase {
   baseUrl: string | null;
-  source: "config" | "env" | null;
+  source: "config" | "env" | "default" | null;
   stationed: boolean;
   compositionId: string | null;
   /** Set when a base URL IS configured but cannot be used. */
@@ -138,6 +138,7 @@ function normalizeBase(raw: string, source: "config" | "env"): CortexBase["baseU
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     return { bad: `${source} base URL must be http or https, got "${parsed.protocol}"` };
   }
+  if (parsed.username || parsed.password || parsed.search || parsed.hash) return { bad: "Use a base URL without credentials, a query or a fragment" };
   return parsed.origin + parsed.pathname.replace(/\/+$/, "");
 }
 
@@ -157,12 +158,12 @@ export async function readCortexBase(): Promise<CortexBase> {
     const composition = await readComposition(compositionId);
     for (const items of Object.values(composition.selections)) {
       for (const item of items ?? []) {
-        if (item?.id !== CORTEX_FITTING_ID) continue;
+        if (item?.id !== CORTEX_FITTING_ID && item?.id !== "cortex-client") continue;
         stationed = true;
         const value = (item.config as Record<string, unknown> | undefined)?.[
           CORTEX_BASE_URL_CONFIG_KEY
         ];
-        if (typeof value === "string") configured = value;
+        if (typeof value === "string" && value.trim()) configured = value;
       }
     }
   } catch (error) {
@@ -186,7 +187,7 @@ export async function readCortexBase(): Promise<CortexBase> {
     if (resolved) return { baseUrl: resolved, source: "env", stationed, compositionId };
   }
 
-  return { baseUrl: null, source: null, stationed, compositionId };
+  return { baseUrl: "https://staging.ekoa.io", source: "default", stationed, compositionId };
 }
 
 export interface CortexKeyState {

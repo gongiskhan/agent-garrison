@@ -169,6 +169,8 @@ export interface SessionBlock {
    * "needs your input" banner) without parsing ledger prose. */
   next?: string | null;
   summary?: string | null;
+  /** Rich ledger prose uses the same safe Markdown renderer as messages. */
+  detailFormat?: "markdown";
   blockerWhat?: string | null;
   blockerNeeds?: string | null;
   blockerWho?: string | null;
@@ -257,6 +259,7 @@ export interface SessionStretchBlock extends SessionBlock {
  * payload in the conversation store (an opaque reference, not a path). */
 export type SessionLedgerKind =
   | "handoff"
+  | "finding"
   | "delegation-dispatched"
   | "delegation-returned"
   | "delegation-failed"

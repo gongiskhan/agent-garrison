@@ -91,6 +91,19 @@ export function shellSocketUrl(origin: string): string {
   return origin.replace(/^http/, "ws").replace(/\/+$/, "") + "/io";
 }
 
+// REST controls use the page's existing mesh path. Only the low-latency
+// terminal WebSocket needs the fitting's published origin.
+export function shellApiBase(node: string, self: string | null): string {
+  return !self || node === self ? "/api/remote-shell" : `/api/mesh/nodes/${encodeURIComponent(node)}/remote-shell`;
+}
+
+export function newShellRequestId(): string {
+  return typeof crypto.randomUUID === "function" ? crypto.randomUUID()
+    : Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export const SHELL_START_TIMEOUT_MS = 65_000;
+
 /** fetch() against a Shells fitting origin, classifying every failure mode
  *  into one ShellOriginError kind rather than letting a bare TypeError reach
  *  the UI. `path` starts with "/". */
@@ -107,18 +120,25 @@ export async function shellFetch<T = unknown>(
   try {
     res = await fetchImpl(`${origin}${path}`, { ...init, mode: "cors", credentials: "omit", signal: AbortSignal.timeout(timeoutMs) });
   } catch (err) {
+    if (origin.startsWith("/") || (err instanceof Error && ["TimeoutError", "AbortError"].includes(err.name))) {
+      throw new ShellOriginError("unreachable", "The connection did not finish. Retry to reconnect to the same session.");
+    }
     // A CORS refusal and a network failure both surface as an opaque
     // TypeError to fetch(); distinguish them with a no-cors probe of /health,
     // which succeeds (opaque response) iff the server is actually up.
+    let reachable = false;
     try {
       await fetchImpl(`${origin}/health`, { mode: "no-cors", signal: AbortSignal.timeout(timeoutMs) });
-      throw new ShellOriginError("cors", `the fitting refused this page's origin`, { detail: String(origin) });
-    } catch {
-      throw new ShellOriginError("unreachable", err instanceof Error ? err.message : String(err));
-    }
+      reachable = true;
+    } catch { /* the probe also failed */ }
+    if (reachable) throw new ShellOriginError("cors", "the fitting refused this page's origin", { detail: String(origin) });
+    throw new ShellOriginError("unreachable", "This machine is not answering. Your draft is still here.");
   }
   if (!res.ok) {
     const body = await res.json().catch(() => null);
+    if (res.status >= 500 && /peer-unreachable|signal timed out|aborted due to timeout|remote-shell upstream/i.test(body?.error ?? "")) {
+      throw new ShellOriginError("unreachable", "This machine is not answering. Retry will reconnect to the same session.", { status: res.status });
+    }
     throw new ShellOriginError("http", body?.error ?? `http ${res.status}`, { status: res.status, detail: body?.reason });
   }
   return (await res.json()) as T;

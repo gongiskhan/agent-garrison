@@ -366,6 +366,13 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       }
       if (req.method === "POST" && pathname === "/sessions") {
         const body = await readJsonBody(req);
+        if (typeof body.sessionId === "string") {
+          const existing = manager.get(body.sessionId);
+          if (!existing) return jsonRes(res, 404, { error: "This shell is no longer available. Start a new shell from its project." });
+          if (body.recycle === true) manager.detach(existing);
+          manager.ensureAttached(existing);
+          return jsonRes(res, 200, { session: manager.summary(existing) });
+        }
         const session = await manager.start(String(body.transport || ""), {
           label: typeof body.label === "string" ? body.label : undefined,
           recycle: body.recycle === true,
@@ -380,7 +387,9 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
           // (optionally) which of its own sessions to resume or attach.
           runtime: typeof body.runtime === "string" && body.runtime.trim() ? body.runtime.trim() : null,
           resume: typeof body.resume === "string" && body.resume.trim() ? body.resume.trim() : null,
-          attach: body.attach === true
+          attach: body.attach === true,
+          requestId: body.requestId,
+          terminalRef: typeof body.terminalRef === "string" ? body.terminalRef : null
         });
         return jsonRes(res, 200, { session: manager.summary(session) });
       }
@@ -457,6 +466,20 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
           await manager.sendInstruction(session, String(body.text ?? ""));
           return jsonRes(res, 200, { ok: true });
         }
+        if (req.method === "POST" && rest === "/bytes") {
+          const body = await readJsonBody(req);
+          if (typeof body.data !== "string" || Buffer.byteLength(body.data) > 32768) return jsonRes(res, 400, { error: "invalid terminal input" });
+          manager.ensureAttached(session);
+          if (!session.pty) return jsonRes(res, 409, { error: "Terminal is reconnecting. Try again." });
+          manager.writeRaw(session, body.data);
+          return jsonRes(res, 200, { ok: true });
+        }
+        if (req.method === "POST" && rest === "/resize") {
+          const body = await readJsonBody(req);
+          if (!Number.isFinite(body.cols) || !Number.isFinite(body.rows)) return jsonRes(res, 400, { error: "invalid terminal size" });
+          manager.resize(session, body.cols, body.rows);
+          return jsonRes(res, 200, { ok: true });
+        }
         if (req.method === "POST" && rest === "/keys") {
           const body = await readJsonBody(req);
           await manager.sendKeys(session, String(body.keys ?? ""));
@@ -492,8 +515,8 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
           });
         }
         if (req.method === "GET" && rest === "/screen") {
-          const text = await manager.capturePane(session, Number(query.lines) || 60);
-          return jsonRes(res, 200, { text });
+          const text = await manager.capturePane(session, query.terminal === "1" ? session.rows || 24 : Number(query.lines) || 60, query.terminal === "1");
+          return jsonRes(res, 200, { text, state: session.state, cols: session.cols, rows: session.rows });
         }
         if (req.method === "POST" && rest === "/detach") {
           manager.detach(session);

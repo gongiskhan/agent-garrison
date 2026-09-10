@@ -1,6 +1,6 @@
 ---
 name: garrison-merge
-description: Merge another Garrison node's branch into this node's checkout of a project, under the two rails - a pre-merge revert tag and a decision card for every non-trivial merge. Use when a merge card arrives on this node's board (duty `merge`), when a node's work needs to land here, or when the nightly convergence card asks for a merge. Not for ordinary same-branch commits and not for resolving a conflict a human is already sitting in.
+description: Integrate origin/main into this node's main checkout of a project, under the two rails - a pre-merge revert tag and a decision card for every non-trivial merge. Use when a merge card arrives on this node's board (duty `merge`), when a node's work needs to land here, or when the nightly convergence card asks for a merge. Not for ordinary same-branch commits and not for resolving a conflict a human is already sitting in.
 ---
 
 # Merging another node's work
@@ -37,6 +37,15 @@ the chosen resolution for each conflict. A **trivial fast-forward files
 nothing** - a board full of "merged 3 commits, no conflicts" stops being read,
 and a rail nobody reads is not a rail.
 
+## Main and availability
+
+Every mesh node works on `main`. Source branch names on older cards are historical;
+fetch their commits into `main` without discarding work, then use `origin/main`.
+Deploy one node at a time, verify it healthy before the next, and keep another
+healthy instance available. Never restart a node with a working Conversation;
+defer its deployment and continue on other nodes. Use the guarded reload/redeploy
+commands, never a direct service restart.
+
 ## Procedure
 
 1. **Read the card.** It names the project, the source node, the source branch
@@ -51,13 +60,13 @@ and a rail nobody reads is not a rail.
 3. **Fetch.** `git fetch --all --prune`. This is the only network call you need
    before deciding anything.
 
-4. **Decide whether it is trivial.** `isTrivialFastForward(cwd, "origin/<branch>")`.
+4. **Decide whether it is trivial.** `isTrivialFastForward(cwd, "origin/main")`.
    If it is, fast-forward, push, and file **nothing**. You are done.
 
 5. **Tag.** `git tag garrison/premerge/<project>/<node>/<stamp>` at the current
    HEAD, before the merge command runs.
 
-6. **Merge.** `git merge --no-ff origin/<sourceBranch>`.
+6. **Merge.** `git merge --no-ff origin/main`.
 
    **Never `-X ours` or `-X theirs`.** Ever. A blanket strategy option is how you
    silently lose a day of someone else's work, and it is invisible in the
@@ -91,7 +100,7 @@ and a rail nobody reads is not a rail.
    minimum a typecheck and the test file(s) touching the conflicted paths. A
    merge that compiles is the floor, not the goal.
 
-10. **Commit and push** on the current branch.
+10. **Commit and push** on `main`. Never create node/task branches or force-push shared main.
 
 11. **File the decision card** when the merge was non-trivial: the premerge tag,
     `from` sha, `to` sha, the conflict list, and one line per resolution saying

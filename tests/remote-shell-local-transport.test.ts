@@ -155,3 +155,58 @@ describe.skipIf(!hasTmux)("SessionManager.start(\"local\", ...) - real tmux", ()
     expect(listed.status).toBe(0);
   });
 });
+
+it.skipIf(!hasTmux)("retries one launch without creating another shell, even after restoring the manager", async () => {
+  const transports = await loadTransports({GARRISON_HOME:tmpHome});
+  const manager = new SessionManager({transports,tunnels:{ensure:async()=>({ok:true})}});
+  const spec = {runtime:"shell",cwd:tmpHome,allocate:true,requestId:"launch-retry-123"};
+  try {
+    const [a,b] = await Promise.all([manager.start("local",spec),manager.start("local",spec)]);
+    expect(a.id).toBe(b.id);
+    expect(manager.sessions.size).toBe(1);
+    await expect(manager.start("local",{...spec,runtime:"cursor"})).rejects.toMatchObject({status:409});
+    const restored = new SessionManager({transports,tunnels:{ensure:async()=>({ok:true})}});
+    await restored.restore();
+    const c = await restored.start("local",spec);
+    expect(c.id).toBe(a.id);
+    await restored.remove(c.id);
+    a.runtime="codex"; a.createdAt="2020-01-01T00:00:00Z";
+    await expect(manager.sendInstruction(a,"This must not execute as a shell command")).rejects.toMatchObject({status:409});
+    a.runtime="shell";
+    await manager.sendInstruction(a,"printf '%s\\n' 'first\nsecond' > message.txt");
+    await expect.poll(async () => (await localExec(a.transport,`cat '${tmpHome}/message.txt'`)).stdout,{timeout:3000}).toBe("first\nsecond\n");
+  } finally {
+    for (const s of [...manager.sessions.values()]) await manager.remove(s.id,{killRemote:true});
+  }
+});
+
+it.skipIf(!hasTmux)("attaches the exact Dev Env pane, preserves it on removal and refuses stale identities", async () => {
+  const socket = path.join(tmpHome,"tmux","dev-env.sock");
+  mkdirSync(path.dirname(socket),{recursive:true});
+  mkdirSync(path.join(tmpHome,"sessions"),{recursive:true});
+  const nativeId="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+  const prefix = process.env.GARRISON_INSTANCE_ID ? `garrison_${process.env.GARRISON_INSTANCE_ID.replace(/[^A-Za-z0-9_-]/g,"_")}_` : "garrison_";
+  const name=prefix+"fixture-claude";
+  writeFileSync(path.join(tmpHome,"sessions/state.json"),JSON.stringify({projects:{project:{path:tmpHome,sessions:{fixture:{id:"fixture",claudeSessionId:nativeId,projectPath:tmpHome}}}}}));
+  const fakeAgent=path.join(tmpHome,"agent.py");
+  writeFileSync(fakeAgent,"import sys,pathlib\nfor line in sys.stdin: pathlib.Path('accepted.txt').write_text(line.strip())\n");
+  expect(spawnSync("tmux",["-S",socket,"new-session","-d","-s",name,"-c",tmpHome,`python3 '${fakeAgent}'`],{timeout:5000}).status).toBe(0);
+  await expect.poll(()=>spawnSync("tmux",["-S",socket,"display-message","-p","-t",name,"#{pane_current_command}"],{encoding:"utf8"}).stdout.trim().toLowerCase(),{timeout:5000}).toContain("python");
+  const before=spawnSync("tmux",["-S",socket,"display-message","-p","-t",name,"#{pane_pid}"],{encoding:"utf8"}).stdout;
+  const manager = new SessionManager({transports:await loadTransports({GARRISON_HOME:tmpHome}),tunnels:{ensure:async()=>({ok:true})}});
+  try {
+    const s=await manager.start("local",{runtime:"claude",terminalRef:nativeId,resume:nativeId,cwd:"/wrong-folder",requestId:"dev-env-attach-123"});
+    expect(s.transport.local.socket).toBe(socket);
+    expect(s.tmuxSession).toBe(name);
+    expect(s.cwd).toBe(tmpHome);
+    expect(spawnSync("tmux",["-S",socket,"display-message","-p","-t",name,"#{pane_pid}"],{encoding:"utf8"}).stdout).toBe(before);
+    await manager.sendInstruction(s,"DEV_ENV_INPUT_OK");
+    expect((await localExec(s.transport,`cat '${tmpHome}/accepted.txt'`)).stdout).toBe("DEV_ENV_INPUT_OK");
+    await manager.remove(s.id,{killRemote:true});
+    expect(spawnSync("tmux",["-S",socket,"has-session","-t",name]).status).toBe(0);
+    await expect(manager.start("local",{runtime:"claude",terminalRef:"missing-native-id"})).rejects.toMatchObject({status:409});
+  } finally {
+    for (const s of [...manager.sessions.values()]) await manager.remove(s.id);
+    spawnSync("tmux",["-S",socket,"kill-server"],{timeout:5000});
+  }
+});

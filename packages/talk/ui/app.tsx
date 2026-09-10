@@ -1,3 +1,6 @@
+import { PushNotice } from "./push-notice";
+export { PushNotice } from "./push-notice";
+import { ZecaCardControl, nativeCardHost } from "./zeca-card";
 // Conversations UI (@garrison/talk) - the ONE generic, context-driven chat
 // surface with a SESSIONS sidebar: persisted per-conversation threads you can
 // move between and whose history is restored on open. Exported as `TalkApp`;
@@ -50,9 +53,10 @@ import { COMPOSER_OVERLAY_SELECTOR, composerInset } from "./composer-inset";
 import { RecordButton, type CaptureBridge, type PushBridge } from "./record-button";
 import type { SpeechBridge } from "./capture-feedback";
 import { ShellPanel, type ShellThreadBinding } from "./shell-panel";
+import { SessionUsage } from "./session-usage";
 import { ExternalSessionView } from "./session-view";
 import { NewShellModal, type NewShellSpec } from "./new-shell-modal";
-import { errorCopy, resolveShellOrigin, ShellOriginError } from "./shell-origin";
+import { errorCopy, resolveShellOrigin, shellApiBase, newShellRequestId, shellFetch, SHELL_START_TIMEOUT_MS, ShellOriginError } from "./shell-origin";
 import { useConversationLayout } from "./use-conversation-layout";
 
 // The streaming voice surface (S6b): hands-free conversation mode + push-to-talk,
@@ -194,6 +198,9 @@ export interface RemoteShellTransport {
 }
 
 interface ThreadMeta {
+  boardCardId?: string | null;
+  connection?: string;
+  shell?: ShellThreadBinding | null;
   id: string;
   /** The conversation this thread IS the channel surface of - the same id, for
    *  every thread the store could give one to (see threads.mjs
@@ -474,21 +481,22 @@ async function apiListThreads(): Promise<ThreadMeta[]> {
 
 interface SessionsListResult {
   self: { node: string | null; accentColor: string | null };
-  nodes: Array<{ node: string; accentColor: string | null; status: string; lastSeenAt: string | null; shellOrigin: string | null }>;
+  nodes: Array<{ node: string; accentColor: string | null; status: string; connection?: string; lastSeenAt: string | null; shellOrigin: string | null }>;
   rows: RailSession[];
 }
 const EMPTY_SESSIONS: SessionsListResult = { self: { node: null, accentColor: null }, nodes: [], rows: [] };
-async function apiListSessions(): Promise<SessionsListResult> {
+async function apiListSessions(signal: AbortSignal): Promise<SessionsListResult | null> {
   try {
-    const r = await fetch("/api/sessions", { cache: "no-store" });
-    if (!r.ok) return EMPTY_SESSIONS;
+    const r = await fetch("/api/sessions", { cache: "no-store", signal });
+    if (!r.ok) return null;
     const d = await r.json();
+    if (!Array.isArray(d?.rows)) return null;
     return {
       self: d.self ?? EMPTY_SESSIONS.self,
       nodes: Array.isArray(d.nodes) ? d.nodes : [],
-      rows: Array.isArray(d.rows) ? d.rows : [],
+      rows: d.rows,
     };
-  } catch { return EMPTY_SESSIONS; }
+  } catch { return null; }
 }
 async function apiGetThread(id: string, signal?: AbortSignal): Promise<Thread | null> {
   try {
@@ -1094,14 +1102,15 @@ function ThreadedApp({
     const load = () => {
       if (pending || document.visibilityState === "hidden") return;
       pending = true;
-      fetch("/api/mesh-threads", { cache: "no-store" })
-        .then((r) => r.json())
+      fetch("/api/mesh-threads", { cache: "no-store", signal: AbortSignal.timeout(12000) })
+        .then((r) => { if (!r.ok) throw new Error("Mesh unavailable"); return r.json(); })
         .then((d) => {
           if (!alive) return;
-          setMeshNodes(d.nodes ?? []);
+          if (!Array.isArray(d.nodes)) throw new Error("Missing mesh index");
+          setMeshNodes(d.nodes);
           if (d.self) setMeshSelf(d.self);
         })
-        .catch(() => { /* retain the last known list while reconnecting */ })
+        .catch(() => { if (alive) setMeshNodes(previous => previous.map(node => ({...node, connection:"disconnected", threads:node.threads.map(thread => ({...thread,runningSince:null}))}))); })
         .finally(() => { pending = false; });
     };
     load();
@@ -1117,9 +1126,34 @@ function ThreadedApp({
   // component and is not needed here - a session-list refresh mid-turn costs
   // one harmless fetch, not a lost keystroke).
   const [sessionsResult, setSessionsResult] = useState<SessionsListResult>(EMPTY_SESSIONS);
-  const loadSessions = useCallback(async () => {
-    const result = await apiListSessions();
-    setSessionsResult(result);
+  const sessionsRequest = useRef<{ controller: AbortController; promise: Promise<void> } | null>(null);
+  const loadSessions = useCallback(() => {
+    // Focus and timer refreshes share one request, so a slow earlier response
+    // cannot overwrite a newer list. Callers creating shells await that request.
+    if (sessionsRequest.current) return sessionsRequest.current.promise;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 12_000);
+    const promise = (async () => {
+      try {
+        const result = await apiListSessions(controller.signal);
+        if (sessionsRequest.current?.controller !== controller) return;
+        setSessionsResult(previous => result ?? {
+          ...previous,
+          // Failed reads do not erase sessions or refresh their activity date.
+          // Nor can an unconfirmed running indicator remain spinning forever.
+          nodes: previous.nodes.map(node => ({ ...node, connection: "disconnected" })),
+          rows: previous.rows.filter(row => {
+            const activity = Date.parse(row.lastActivityAt || row.startedAt || "");
+            return Number.isFinite(activity) && Date.now() - activity <= 5 * 24 * 60 * 60 * 1000;
+          }).map(row => ({ ...row, connection: "disconnected", status: row.status === "working" ? "unknown" : row.status, statusSource: "stale-node" })),
+        });
+      } finally {
+        window.clearTimeout(timeout);
+        if (sessionsRequest.current?.controller === controller) sessionsRequest.current = null;
+      }
+    })();
+    sessionsRequest.current = { controller, promise };
+    return promise;
   }, []);
   useEffect(() => {
     let alive = true;
@@ -1133,23 +1167,29 @@ function ThreadedApp({
     window.addEventListener("focus", onVisible);
     return () => {
       alive = false;
+      sessionsRequest.current?.controller.abort();
+      sessionsRequest.current = null;
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadSessions]);
+  const nodeConnections = useMemo(() => Object.fromEntries(sessionsResult.nodes.map(n => [n.node, n.connection ?? "unknown"])), [sessionsResult.nodes]);
   const visibleSessions = useMemo(() => visibleSessionRows(sessionsResult.rows), [sessionsResult.rows]);
 
   const [activeSessionRow, setActiveSessionRow] = useState<RailSession | null>(null);
   useEffect(() => {
     setActiveSessionRow((current) => current ? sessionsResult.rows.find((row) =>
-      row.id === current.id && row.node === current.node) ?? current : null);
+      row.id === current.id && row.node === current.node) ?? (current.status === "working"
+        ? { ...current, status: "unknown", statusSource: "stale-node" }
+        : current) : null);
   }, [sessionsResult.rows]);
   const [newShellOpen, setNewShellOpen] = useState(false);
   const [shellOrigin, setShellOrigin] = useState<string | null>(null);
   const [shellOriginError, setShellOriginError] = useState<ShellOriginError | null>(null);
   const [continueBusy, setContinueBusy] = useState(false);
+  const sessionLaunches = useRef(new Map<string, string>());
 
   const [rshSessionId, setRshSessionId] = useState<string | null>(null);
   const [rshError, setRshError] = useState<string | null>(null);
@@ -1234,9 +1274,15 @@ function ThreadedApp({
           {voiceAdornment(api)}
           <RecordButton bridge={captureBridge} conversationId={conversationId} mode="screen" feedback={false} />
           <RecordButton bridge={captureBridge} conversationId={conversationId} mode="listen" alwaysWatch speech={speechBridge} push={pushBridge} />
+          <SessionUsage base="/api" node={sessionsResult.self.node || "this machine"} iconOnly={true} />
         </>
-      ) : voiceAdornment(api),
-    [captureBridge, speechBridge, pushBridge, conversationId, isZeca]
+      ) : (
+        <>
+          {voiceAdornment(api)}
+          <SessionUsage base="/api" node={sessionsResult.self.node || "this machine"} iconOnly={true} />
+        </>
+      ),
+    [captureBridge, speechBridge, pushBridge, conversationId, isZeca, sessionsResult.self.node]
   );
 
   useEffect(() => {
@@ -1278,12 +1324,16 @@ function ThreadedApp({
 
   const refreshList = useCallback(async (expectedEpoch = activityEpochRef.current) => {
     const list = await readThreadList();
-    if (!list || expectedEpoch !== activityEpochRef.current) return false;
-    setThreads(list);
+    if (expectedEpoch !== activityEpochRef.current) return false;
+    if (!list) { setThreads(previous => previous.map(thread => ({...thread,connection:"disconnected",runningSince:null}))); return false; }
+    setThreads(list.map(thread => ({...thread,connection:"connected"})));
     return true;
   }, []);
 
-  const openThread = useCallback(async (id: string, opts?: { kickoff?: boolean }) => {
+  const openThread = useCallback(async (id: string, opts?: { kickoff?: boolean; background?: boolean }) => {
+    // Initial restoration must yield to a session the user already selected.
+    if (opts?.background && openThreadEpochRef.current !== 0) return;
+    if (!opts?.background) setSidebarOpen(false);
     setActiveSessionRow(null);
     const epoch = ++openThreadEpochRef.current;
     openThreadAbortRef.current?.abort();
@@ -1304,7 +1354,6 @@ function ThreadedApp({
     setPins(t?.routing ?? null);
     setTranscriptSession(null);
     setKickoffFor(opts?.kickoff && shouldArmDiscussKickoff(t) ? id : null);
-    setSidebarOpen(false);
   }, []);
 
   useEffect(() => () => openThreadAbortRef.current?.abort(), []);
@@ -1369,7 +1418,7 @@ function ThreadedApp({
           // silently demoted it back to a light chat.
           await apiSetRouting(id, { duty: "discuss", level: url.level ?? 1 });
         }
-        await openThread(id, { kickoff: Boolean(url.kickoff) });
+        await openThread(id, { kickoff: Boolean(url.kickoff), background: true });
       } else if (url.context !== undefined || url.source !== undefined || url.kickoff !== undefined) {
         // Context-driven but no stable key → a fresh ad-hoc thread carrying it.
         const ensured = await apiEnsureThread({
@@ -1382,25 +1431,25 @@ function ThreadedApp({
           if (url.source === "discuss" || Boolean(url.kickoff)) {
             await apiSetRouting(ensured.id, { duty: "discuss", level: url.level ?? 1 });
           }
-          await openThread(ensured.id, { kickoff: Boolean(url.kickoff) });
+          await openThread(ensured.id, { kickoff: Boolean(url.kickoff), background: true });
         }
       } else if (url.fresh) {
         // Cross-node "+ New" landing: start a fresh conversation, then drop
         // the ?new=1 from the address bar so a reload doesn't mint another.
         const ensured = await apiEnsureThread({ source: "chat" });
         if (!alive) return;
-        if (ensured) await openThread(ensured.id);
+        if (ensured) await openThread(ensured.id, { background: true });
         try {
           const u = new URL(window.location.href);
           u.searchParams.delete("new");
           window.history.replaceState(null, "", u.toString());
         } catch { /* address bar keeps the param; harmless */ }
       } else if (list.length > 0) {
-        await openThread(list[0].id);
+        await openThread(list[0].id, { background: true });
       } else {
         const ensured = await apiEnsureThread({ source: "chat" });
         if (!alive) return;
-        if (ensured) await openThread(ensured.id);
+        if (ensured) await openThread(ensured.id, { background: true });
       }
       if (alive) setLoading(false);
     })();
@@ -1514,6 +1563,8 @@ function ThreadedApp({
   // threadId) just opens its thread; a bare external row opens the read-live
   // view instead of the chat.
   const selectSessionRow = useCallback((row: RailSession) => {
+    openThreadEpochRef.current += 1;
+    openThreadAbortRef.current?.abort();
     if (row.threadId) { void selectThread(row.threadId); return; }
     if (row.shell?.sessionId && row.shell.tmuxSession) {
       void apiEnsureThread({
@@ -1526,40 +1577,48 @@ function ThreadedApp({
     }
     setActiveId(null);
     setActiveThread(null);
+    setRshError(null);
     setActiveSessionRow(row);
+    setLoading(false);
     setSidebarOpen(false);
   }, [selectThread, openThread]);
 
   // "Continue in a shell" / "Attach": start (or resume) the session on its
   // owning node and turn it into an owned shell thread - the same
   // ensure-then-open shape start()/spawnProjectShell() already use.
-  const continueSession = useCallback(async (row: RailSession) => {
+  const continueSession = useCallback(async (row: RailSession, plainShell = false, prompt?: string) => {
     setContinueBusy(true);
+    setRshError(null);
+    const runtime = plainShell ? "shell" : row.runtime;
     try {
       const origin = await resolveShellOrigin({ node: row.node, shellOrigin: row.shellOrigin }, sessionsResult.self.node);
       if (!origin) throw new ShellOriginError("no-origin", "no reachable origin");
       const transport = row.shell?.transport ?? "local";
-      const body = await fetch(`${origin}/sessions`, {
+      const controlBase = shellApiBase(row.node, sessionsResult.self.node);
+      const launchKey = JSON.stringify([row.node, row.id, plainShell]);
+      if (!sessionLaunches.current.has(launchKey)) sessionLaunches.current.set(launchKey, newShellRequestId());
+      const body = await shellFetch<{ session: { id: string; tmuxSession: string; cwd?: string; label?: string } }>(controlBase, "/sessions", {
         method: "POST",
         mode: "cors",
         credentials: "omit",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           transport,
-          runtime: row.runtime,
+          runtime,
           cwd: row.cwd,
-          resume: row.resumeRef,
-          attach: row.kind === "bg",
-          label: row.title || row.project || row.runtime,
-          allocate: true
+          resume: plainShell ? undefined : row.resumeRef,
+          terminalRef: plainShell ? undefined : row.terminalRef,
+          attach: !plainShell && row.kind === "bg",
+          label: plainShell ? `Shell · ${row.project || row.cwd || row.node}` : row.title || row.project || row.runtime,
+          allocate: true,
+          requestId: sessionLaunches.current.get(launchKey)
         })
-      }).then(async (r) => {
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(data?.error || `could not start a session (${r.status})`);
-        return data;
-      });
+      }, { timeoutMs: SHELL_START_TIMEOUT_MS });
       const session = body?.session as { id?: string; tmuxSession?: string; cwd?: string; label?: string } | undefined;
       if (!session?.tmuxSession) throw new Error("the shell started no session");
+      if (prompt) await shellFetch(controlBase, `/sessions/${encodeURIComponent(session.id!)}/input`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: prompt })
+      }, { timeoutMs: 25000 });
       const ensured = await apiEnsureThread({
         id: `shell-${row.node}-${transport}-${session.tmuxSession}`,
         title: session.label || row.title || row.project || row.runtime,
@@ -1567,7 +1626,7 @@ function ThreadedApp({
         context: {
           shell: {
             node: row.node, transport, tmuxSession: session.tmuxSession, cwd: session.cwd ?? row.cwd,
-            runtime: row.runtime, label: session.label ?? row.title, sessionId: session.id, shellOrigin: origin
+            runtime, label: session.label ?? row.title, sessionId: session.id, shellOrigin: origin
           }
         }
       });
@@ -1578,6 +1637,7 @@ function ThreadedApp({
       await loadSessions();
     } catch (err) {
       setRshError(err instanceof ShellOriginError ? errorCopy(err, row.node).sub : err instanceof Error ? err.message : String(err));
+      if (prompt) throw err;
     } finally {
       setContinueBusy(false);
     }
@@ -1875,12 +1935,13 @@ function ThreadedApp({
     if (!conversationId) return;
     const working = ["starting", "working", "handoff"].includes(activity.mode);
     setConversationActivity({ id: conversationId, working });
+    void refreshList();
     // The canonical conversation stream knows immediately; the legacy FIFO
     // transport is not involved in these turns. Other clients refresh by poll.
     setThreads((current) => current.map((thread) => thread.id === conversationId
       ? { ...thread, runningSince: working ? thread.runningSince ?? new Date().toISOString() : null }
       : thread));
-  }, [conversationId]);
+  }, [conversationId, refreshList]);
   const stopConversation = useCallback(async () => {
     if (!conversationId) return;
     const id = conversationId;
@@ -1945,6 +2006,7 @@ function ThreadedApp({
           threads={threads}
           pinnedId={zecaId}
           meshNodes={meshNodes}
+          nodeConnections={nodeConnections}
           self={meshSelf}
           transports={rshTransports}
           activeId={activeId}
@@ -2038,8 +2100,9 @@ function ThreadedApp({
         )}
         {/* A compact elapsed-time anchor for a resumed turn. The chat below also
             replays and follows every buffered live frame; this notice is context,
-            no longer the only sign of activity. */}
-        {activeThread?.runningSince ? <ResumedWorkingNotice since={activeThread.runningSince} /> : null}
+            no longer the only sign of activity. The usage button is now in the
+            composer adornment (bottom button row). */}
+        {activeThread?.runningSince && nodeConnections[sessionsResult.self.node || ""] !== "disconnected" ? <ResumedWorkingNotice since={activeThread.runningSince} /> : null}
         {activeRshTransport && rshError && <div className="wc-rsh-error">Remote shell: {rshError}</div>}
         {(() => {
           if (activeSessionRow) {
@@ -2048,23 +2111,36 @@ function ThreadedApp({
               : `/api/mesh/nodes/${encodeURIComponent(activeSessionRow.node)}/sessions/${encodeURIComponent(activeSessionRow.id)}/stream`;
             return (
               <ExternalSessionView
+                key={`${activeSessionRow.node}:${activeSessionRow.id}`}
                 row={activeSessionRow}
                 streamUrl={streamUrl}
                 busy={continueBusy}
+                error={rshError}
+                usageBase={activeSessionRow.node === sessionsResult.self.node ? "/api" : `/api/mesh/nodes/${encodeURIComponent(activeSessionRow.node)}`}
+                onRetry={() => { void loadSessions(); }}
+                onOpenShell={activeSessionRow.cwd ? () => { void continueSession(activeSessionRow, true); } : undefined}
                 onContinue={(activeSessionRow.resumable || activeSessionRow.attachable) ? () => { void continueSession(activeSessionRow); } : undefined}
+                onSend={(activeSessionRow.resumable || activeSessionRow.attachable) ? text => continueSession(activeSessionRow, false, text) : undefined}
                 onCopyResume={activeSessionRow.resumeCommand ? () => copyResumeCommand(activeSessionRow) : undefined}
                 onClose={() => setActiveSessionRow(null)}
               />
             );
           }
           if (activeShellBinding) {
+            const indexedShell = sessionsResult.rows.find(row => row.node === activeShellBinding.node &&
+              row.shell?.transport === activeShellBinding.transport && row.shell?.tmuxSession === activeShellBinding.tmuxSession && row.transcript);
+            const streamUrl = indexedShell ? `${indexedShell.node === sessionsResult.self.node ? "/api" : `/api/mesh/nodes/${encodeURIComponent(indexedShell.node)}`}/sessions/${encodeURIComponent(indexedShell.id)}/stream` : null;
             return (
               <ShellPanel
                 key={activeId ?? undefined}
                 threadId={activeId ?? ""}
                 binding={activeShellBinding}
+                streamUrl={streamUrl}
+                disconnected={nodeConnections[activeShellBinding.node] === "disconnected"}
+                usageBase={activeShellBinding.node === sessionsResult.self.node ? "/api" : `/api/mesh/nodes/${encodeURIComponent(activeShellBinding.node)}`}
                 title={activeThread?.title || activeShellBinding.label || activeShellBinding.tmuxSession || "Shell"}
                 origin={shellOrigin}
+                controlBase={shellApiBase(activeShellBinding.node, sessionsResult.self.node)}
                 originError={shellOriginError}
                 onRetryOrigin={() => { void resolveActiveShellOrigin(); }}
               />
@@ -2083,9 +2159,10 @@ function ThreadedApp({
           <ConversationView
             key={conversationId}
             conversationId={conversationId}
+            focusSeq={url.thread === conversationId && typeof window !== "undefined" && /^\d+$/.test(new URLSearchParams(window.location.search).get("message") || "") ? Number(new URLSearchParams(window.location.search).get("message")) : null}
             base={CONVERSATION_BASE}
             transport={conversationTransport}
-            title={activeThread?.title || "Conversation"}
+            title={threads.find((thread) => thread.id === conversationId)?.title || activeThread?.title || "Conversation"}
             placeholder={activeId === zecaId ? "Message Zeca…" : "Write a message…"}
             composerAdornment={conversationAdornment}
             draftKey={activeId ?? undefined}
@@ -2102,6 +2179,13 @@ function ThreadedApp({
             headerLeading={threadsButton(false)}
             headerExtra={
               <>
+              {(activeThread?.boardCardId || threads.find((t) => t.id === activeId)?.boardCardId) && (
+                <>
+                  <a className="wc-board-chip" title="Open card" href={`/embed/kanban-loop?card=${encodeURIComponent(activeThread?.boardCardId || threads.find((t) => t.id === activeId)?.boardCardId || "")}`}>On the board</a>
+                  <details className="wc-card-overflow"><summary aria-label="Conversation actions">•••</summary><a title="Open card" href={`/embed/kanban-loop?card=${encodeURIComponent(activeThread?.boardCardId || threads.find((t) => t.id === activeId)?.boardCardId || "")}`}>On the board</a></details>
+                </>
+              )}
+              {!captureBridge && !nativeCardHost() && activeThread?.source === "zeca" && <ZecaCardControl key={conversationId} conversationId={conversationId} project={pins?.project || (activeThread.context as { project?: string } | null)?.project} projects={routeOptions?.projects ?? []} hasMessages={Math.max(activeThread.messageCount || 0, threads.find((thread) => thread.id === conversationId)?.messageCount || 0) > 0 || conversationActivity?.id === conversationId && conversationActivity.working} />}
               {conversationStop?.id === conversationId && conversationStop.error && <span className="wc-conversation-error" role="alert">{conversationStop.error}</span>}
               {conversationActivity?.id === conversationId && conversationActivity.working && (
                 <button type="button" className="wc-conversation-stop" onClick={() => { void stopConversation(); }}
@@ -2201,29 +2285,6 @@ export interface TalkAppProps {
  * browser has no Push API at all until the app is on the Home Screen, and
  * showing "unsupported" there would be wrong and unactionable.
  */
-export function PushNotice({
-  text,
-  kind = "notice",
-  onDismiss,
-}: {
-  text: string;
-  kind?: "notice" | "toast";
-  onDismiss: () => void;
-}) {
-  return (
-    <div className={kind === "toast" ? "wc-push-toast" : "wc-push-notice"} role="status">
-      <span>{text}</span>
-      <button
-        type="button"
-        onClick={onDismiss}
-        aria-label={kind === "toast" ? "Dismiss notification" : "Dismiss notification notice"}
-      >
-        ×
-      </button>
-    </div>
-  );
-}
-
 // Dismissing a push notice is a decision, and a decision must survive the tab.
 // The dismissal was plain component state, so an installed PWA with
 // notifications deliberately blocked re-showed "Notifications blocked" on

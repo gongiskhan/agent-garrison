@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { setOAuthGrant } from "@/lib/vault";
+import { setOAuthGrant } from "@/lib/connector-auth";
 import { jsonError } from "@/lib/http";
 
 export const runtime = "nodejs";

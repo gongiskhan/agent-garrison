@@ -1,0 +1,5 @@
+RUN testRepeatedConnectDoesNotOpenCompetingSockets
+FAIL /tmp/garrison-pendant-baseline/UploaderResumeTests.swift:248 40 != 1 
+RUN testStaleSocketCallbacksCannotDisruptCurrentConnection
+FAIL /tmp/garrison-pendant-baseline/UploaderResumeTests.swift:265 21 != 1 
+Baseline finished: 2 assertion failures

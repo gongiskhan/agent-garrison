@@ -815,11 +815,18 @@ export function makeRequestHandler(ctx) {
         }
         const text = String(parsed?.text ?? "").trim();
         if (!text) return json(res, 400, { error: "text is required" });
+        if (typeof parsed.replyKey === "string" && parsed.replyKey.length <= 300 &&
+            !ctx.ackSink.claimReply(parsed.replyKey, "page")) {
+          return json(res, 200, { ok: true, speak: false });
+        }
         // The guard window is 30 s from registration; a page speaking a long
         // answer re-posts while it is still talking.
-        ctx.echoGuard.register({ text });
+        const playbackId = typeof parsed.playbackId === "string" ? parsed.playbackId.slice(0, 200) : null;
+        if (playbackId && parsed.finished === true) ctx.echoGuard.finishPlayback(playbackId);
+        else if (playbackId) ctx.echoGuard.startPlayback(playbackId, text, { ttlMs: 30_000 });
+        else ctx.echoGuard.register({ text });
         counters.bump("spoken_registered");
-        return json(res, 202, { ok: true, chars: text.length });
+        return json(res, 202, { ok: true, speak: true, chars: text.length });
       }
 
       // ---- Notification sink (the kanban fanOutNotification contract and
@@ -978,6 +985,10 @@ export async function startServer(cfg = loadConfig()) {
       // is the fallback. The broadcast lane never speaks here (no AEC coupling
       // to the app speaker, ADR §6); its answer is spoken by the page itself.
       const spokenFirst = template === "wake_confirmation" || template === "conversation_reply";
+      if (template === "conversation_reply" && ackSinkRef?.speakableSession() && params.conversationId && params.stretchId &&
+          !ackSinkRef.claimReply(`${params.conversationId}:${params.stretchId}`, "native")) {
+        return [{ means: "companion-speech", ok: true, deduplicated: true }];
+      }
       if (spokenFirst && text && ackSinkRef?.speakableSession()) {
         const ackId = `wake-${ulid()}`;
         // Progress pings and "didn't catch that" are presence, not information:
@@ -1203,7 +1214,7 @@ export async function startServer(cfg = loadConfig()) {
       // Language is learned ONLY from speech aimed at Zeca: a segment carrying
       // the wake word, or one arriving while the capture window is open.
       // Ambient television in another language must never flip the cue.
-      if (segment.final && (languageMemory.isCapturing(sessionId) || pendantInterimRegex?.test(segment.text))) {
+      if ((segment.final && languageMemory.isCapturing(sessionId)) || pendantInterimRegex?.test(segment.text)) {
         languageMemory.note(sessionId, segment.text);
       }
       if (mode === "pendant") {

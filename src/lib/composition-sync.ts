@@ -21,6 +21,8 @@ import { createHash } from "node:crypto";
 import { stateClient, StateUnavailableError } from "./state-client";
 import { discoverStateConfig } from "@garrison/state-client";
 import { readFileSync } from "node:fs";
+// @ts-ignore — shared migration also runs in the release CLI.
+import { migrateImproverManifest } from "../../packages/improver/src/composition.mjs";
 
 export function nodeIsEnrolled(): boolean {
   try {
@@ -65,14 +67,27 @@ export async function syncCompositionFromState(
 ): Promise<CompositionSyncResult> {
   if (!nodeIsEnrolled()) return { source: "unenrolled", refreshedFiles: [] };
   const client = stateClient();
-  const comp = await client.getComposition(compositionId);
+  let comp = await client.getComposition(compositionId);
   const manifestPath = path.join(compositionDir, "apm.yml");
 
   if (!comp) {
     // First contact: push the local tree up.
-    const manifestYaml = await readFile(manifestPath, "utf8");
+    const manifestYaml = migrateImproverManifest(await readFile(manifestPath, "utf8")).manifestYaml;
     await client.putComposition(compositionId, manifestYaml, { ifMatchRev: 0 });
     return { source: "seeded-to-service", refreshedFiles: [] };
+  }
+
+  for(let attempt=0;attempt<4;attempt++) {
+    const migration=migrateImproverManifest(comp.manifestYaml);
+    if(!migration.changed)break;
+    try {
+      await client.putComposition(compositionId,migration.manifestYaml,{ifMatchRev:comp.rev});
+      comp={...comp,manifestYaml:migration.manifestYaml};break;
+    } catch(error) {
+      if((error as {status?:number}).status!==409 || attempt===3)throw error;
+      const fresh=await client.getComposition(compositionId);
+      if(!fresh)throw new Error("Composition disappeared during migration");comp=fresh;
+    }
   }
 
   const refreshed: string[] = [];
@@ -112,6 +127,8 @@ export async function materializeEnvViaAuthority(
   compositionDir: string,
   compositionId: string
 ): Promise<{ envPath: string; source: "authority" | "local-vault" }> {
+  const { ensureCaptureCredential } = await import("./capture-credential");
+  await ensureCaptureCredential();
   const envPath = path.join(compositionDir, ".env");
   if (!nodeIsEnrolled()) {
     const { materializeEnv } = await import("./vault");
@@ -144,6 +161,10 @@ export type ScopedSecretsResult = {
 
 export async function scopedSecretsViaAuthority(scope: readonly string[]): Promise<ScopedSecretsResult> {
   const keys = [...new Set(scope)];
+  if (keys.includes("CAPTURE_TOKEN")) {
+    const { ensureCaptureCredential } = await import("./capture-credential");
+    await ensureCaptureCredential();
+  }
   if (!nodeIsEnrolled()) {
     const { scopedSecrets } = await import("./vault");
     const secrets = await scopedSecrets(keys);

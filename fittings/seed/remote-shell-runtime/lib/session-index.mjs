@@ -24,6 +24,7 @@ import * as claudeLister from "./listers/claude.mjs";
 import * as codexLister from "./listers/codex.mjs";
 import * as cursorLister from "./listers/cursor.mjs";
 import * as geminiLister from "./listers/gemini.mjs";
+import { devEnvTerminals } from "./dev-env-terminals.mjs";
 
 const CAP = 2000;
 const RUNNING_TRUST_MS = 6 * 60 * 60_000; // how long a hook-driven "running" is trusted
@@ -212,6 +213,14 @@ export function buildIndex({
     ...cursorLister.list({ windowDays, now, env }),
     ...geminiLister.list({ windowDays, now, env })
   ];
+  // An owned shell represents its native client in the index. Keep that
+  // client's journal on the shell row before suppressing the duplicate below,
+  // so switching to a controllable shell does not discard the conversation.
+  for (const row of rows) {
+    const native = listerRows.find(r => r.runtime === row.runtime && r.id === (row.nativeSessionId || row.resumeRef));
+    if (native?.transcript) row.transcript = native.transcript;
+    if (Date.parse(native?.lastActivityAt) > (Date.parse(row.lastActivityAt) || 0)) row.lastActivityAt = native.lastActivityAt;
+  }
   // Some native clients emit lifecycle metadata before creating their journal.
   // Keep that session visible immediately; a later lister row supplies its title
   // and transcript without changing the identity.
@@ -239,6 +248,7 @@ export function buildIndex({
       resumeRef: e.runtime === "cursor" ? null : e.session_id, transcript: null });
   }
   const contextCounts = new Map();
+  const terminals = devEnvTerminals(garrisonHomeDir);
   for (const r of listerRows) {
     const key = `${r.runtime}\0${normCwd(r.cwd)}`;
     contextCounts.set(key, (contextCounts.get(key) ?? 0) + 1);
@@ -258,7 +268,8 @@ export function buildIndex({
       : cardSessionIds.has(row.id)
         ? { kind: "card", id: cardSessionIds.get(row.id) }
         : null;
-    rows.push({ ...row, resumeCommand, claimedBy });
+    rows.push({ ...row, resumeCommand, claimedBy,
+      ...(row.runtime === "claude" && terminals.has(row.id) ? { attachable: true, terminalRef: row.id } : {}) });
   }
 
   const rank = (status) => (status === "working" ? 0 : status === "idle" ? 1 : status === "unknown" ? 2 : 3);

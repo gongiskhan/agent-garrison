@@ -619,7 +619,7 @@ describe("applyFlowPolicy — triage never closes the conversation", () => {
   it("rewrites a triage done to the first working duty (observed live: the floor model did the whole task inside triage)", () => {
     const store = { tail: () => [] } as any;
     const res = applyFlowPolicy("done", { store, duty: "triage", selectedDuties: ["triage", "plan", "implement", "test"] });
-    expect(res).toMatchObject({ next: "plan", rewritten: true, reason: "triage-never-done" });
+    expect(res).toMatchObject({ next: "implement", rewritten: true, reason: "triage-never-done" });
     const noPlan = applyFlowPolicy("done", { store, duty: "triage", selectedDuties: ["triage", "implement"] });
     expect(noPlan.next).toBe("implement");
   });

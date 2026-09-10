@@ -27,6 +27,20 @@
 const DEFAULT_TTL_MS = 30_000;
 const MIN_TOKENS = 3; // "yes", "do it" must never be swallowed
 const CONTAINMENT = 0.8;
+// A reply that takes 88s to generate and 45s to synthesize/confirm outran the
+// old 120s absolute ceiling (2026-09-09 echo diagnosis, zeca-20260904t123622z-fgs7).
+// This is a CEILING, not the normal case: real expiry is still driven by
+// finishPlayback (the phone's completion receipt) or this bound, whichever
+// comes first.
+const PLAYBACK_CEILING_MS = 200_000;
+// Grace after the phone confirms it finished speaking. The words were still
+// audible up to that instant, and Deepgram's own round trip on the tail of
+// the clip lands after the receipt - 1.5s was shorter than that round trip
+// and let the tail of long replies escape suppression.
+const FINISH_GRACE_MS = 6_000;
+// Floor for the mixed-segment contiguous-run check below - five exact words
+// in a row is not a coincidence, so it does not need CONTAINMENT's 0.8 ratio.
+const MIXED_RUN_MIN = 5;
 // Short spoken CUES ("Sim?", "Ok.") are a different problem from acks, and the
 // MIN_TOKENS floor above is precisely why: it exists so a real "yes" is never
 // swallowed, so it can never suppress a one-word cue coming back through the
@@ -51,6 +65,23 @@ export function normalizeTokens(text) {
     .filter(Boolean);
 }
 
+// Longest run where the segment's tokens match a contiguous stretch of the
+// registered playback, in order. A mixed segment ("Zeca terminou o relatório
+// pedido e o rato roeu a rolha") dilutes below CONTAINMENT when measured
+// against its own full length, but the reply is still fully present inside it
+// - this finds that run regardless of what real speech rides along with it.
+function longestContiguousRun(tokens, entryWords) {
+  let best = 0;
+  for (let start = 0; start < entryWords.length; start++) {
+    for (let ti = 0; ti < tokens.length; ti++) {
+      let len = 0;
+      while (start + len < entryWords.length && ti + len < tokens.length && entryWords[start + len] === tokens[ti + len]) len++;
+      if (len > best) best = len;
+    }
+  }
+  return best;
+}
+
 export class EchoGuard {
   constructor({ ttlMs = DEFAULT_TTL_MS, counters = null, now = () => Date.now(), log = console } = {}) {
     this.ttlMs = ttlMs;
@@ -59,6 +90,7 @@ export class EchoGuard {
     this.log = log;
     this.window = []; // [{ tokens:Set, at, text, echo }] - in memory only (I5)
     this.shortWindow = []; // [{ key, at, ttlMs }] - exact-match cue echoes
+    this.playing = new Map(); // speech id -> { words, until }; bounded playback leases
   }
 
   prune() {
@@ -66,6 +98,28 @@ export class EchoGuard {
     this.window = this.window.filter((e) => e.at >= cutoff);
     const at = this.now();
     this.shortWindow = this.shortWindow.filter((e) => at - e.at < e.ttlMs);
+    for (const [id, entry] of this.playing) if (entry.until <= at) this.playing.delete(id);
+  }
+
+  // Rendering and queueing can outlast the ordinary fingerprint window. Keep
+  // the spoken words protected until the phone's completion receipt, with a
+  // ceiling so a disconnected phone cannot suppress words indefinitely.
+  startPlayback(id, text, { ttlMs = 120_000 } = {}) {
+    const words = normalizeTokens(text);
+    if (!id || !words.length) return false;
+    this.prune();
+    this.playing.set(id, { words, until: this.now() + Math.min(PLAYBACK_CEILING_MS, ttlMs) });
+    while (this.playing.size > 100) this.playing.delete(this.playing.keys().next().value);
+    this.register({ text });
+    return true;
+  }
+
+  finishPlayback(id) {
+    const entry = this.playing.get(id);
+    if (!entry) return;
+    // Delayed STT finals can arrive just after playback ends.
+    entry.until = this.now() + FINISH_GRACE_MS;
+    this.register({ text: entry.words.join(" ") });
   }
 
   // Register a short utterance for EXACT-match suppression. Called before the
@@ -93,9 +147,34 @@ export class EchoGuard {
   // -> true when this transcript segment looks like our own voice coming back.
   shouldSuppress(segmentText) {
     this.prune();
-    if (this.window.length === 0 && this.shortWindow.length === 0) return false;
+    if (this.window.length === 0 && this.shortWindow.length === 0 && this.playing.size === 0) return false;
     const tokens = normalizeTokens(segmentText);
     const exact = tokens.join(" ");
+    for (const entry of this.playing.values()) {
+      // During playback STT also returns one/two-word fragments, including
+      // "Zeca" itself. Require an ordered contiguous match for those. A real
+      // yes/no answer still gets through unless that is the entire spoken cue.
+      const answer = tokens.length === 1 && /^(sim|yes|no|nao|ok|okay)$/.test(tokens[0]);
+      const contiguous = tokens.length > 0 && entry.words.some((_, i) => tokens.every((word, j) => entry.words[i + j] === word));
+      const hits = tokens.filter((word) => entry.words.includes(word)).length;
+      // The reply itself, found as a contiguous run inside a segment that also
+      // carries other (real) speech - covers mixed segments the whole-segment
+      // containment ratio below misses.
+      // Only meaningful once the registered playback has enough words to form
+      // a real run - against a one/two-word cue ("Sim?") this would trivially
+      // match any segment that merely starts with the same word (see the cues
+      // test right below this file's sibling).
+      const mixedRun = tokens.length > entry.words.length && entry.words.length >= MIXED_RUN_MIN
+        ? longestContiguousRun(tokens, entry.words)
+        : 0;
+      if ((contiguous && (!answer || entry.words.length === 1)) ||
+          (tokens.length >= 3 && hits / tokens.length >= CONTAINMENT) ||
+          mixedRun >= MIXED_RUN_MIN) {
+        this.counters?.bump?.("realtime_echo_suppressed_playback");
+        this.counters?.bump?.("realtime_echo_suppressed");
+        return true;
+      }
+    }
     if (exact && this.shortWindow.some((e) => e.key === exact)) {
       this.counters?.bump?.("realtime_echo_suppressed_short");
       return true;

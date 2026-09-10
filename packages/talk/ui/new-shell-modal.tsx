@@ -1,10 +1,10 @@
 // New shell: start a fresh (or resumed) CLI session on ANY mesh node, in any
 // project folder, for any runtime the target node's Shells fitting can see.
-// Talks to the target node's fitting DIRECTLY (shell-origin.ts) - never a
-// same-origin relay, since the node picked here is usually not "this node".
+// Sends controls through the current app and its bounded peer relay. The
+// published fitting origin is retained for the optional terminal WebSocket.
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { errorCopy, resolveShellOrigin, shellFetch, ShellOriginError } from "./shell-origin";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { errorCopy, resolveShellOrigin, shellApiBase, newShellRequestId, shellFetch, ShellOriginError, SHELL_START_TIMEOUT_MS } from "./shell-origin";
 
 export interface NewShellNodeOption {
   node: string;
@@ -64,6 +64,8 @@ export function NewShellModal({
   const [manualPath, setManualPath] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const launch = useRef<{ spec: string; id: string } | null>(null);
+  const controlBase = shellApiBase(node, self.node);
 
   useEffect(() => {
     let alive = true;
@@ -82,11 +84,11 @@ export function NewShellModal({
         }
         setOrigin(o);
         try {
-          const rt = await shellFetch<{ runtimes: RuntimeOption[] }>(o, "/runtimes?transport=local");
+          const rt = await shellFetch<{ runtimes: RuntimeOption[] }>(shellApiBase(node, self.node), "/runtimes?transport=local", {}, { timeoutMs: 15000 });
           if (alive) setRuntimes(rt.runtimes ?? []);
         } catch { /* runtime list optional */ }
         try {
-          const pr = await shellFetch<{ projects: ProjectRow[] }>(o, "/projects?transport=local");
+          const pr = await shellFetch<{ projects: ProjectRow[] }>(shellApiBase(node, self.node), "/projects?transport=local", {}, { timeoutMs: 15000 });
           if (alive) setProjects(pr.projects ?? []);
         } catch { /* project list optional */ }
       })
@@ -104,11 +106,13 @@ export function NewShellModal({
     setBusy(true);
     setError(null);
     try {
-      const body = await shellFetch<{ session: NewShellStartedSession }>(origin, "/sessions", {
+      const spec = JSON.stringify([node, runtime, path]);
+      if (launch.current?.spec !== spec) launch.current = { spec, id: newShellRequestId() };
+      const body = await shellFetch<{ session: NewShellStartedSession }>(controlBase, "/sessions", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ transport: "local", runtime, cwd: path, label: path.split("/").pop() || path, allocate: true })
-      });
+        body: JSON.stringify({ transport: "local", runtime, cwd: path, label: path.split("/").pop() || path, allocate: true, requestId: launch.current.id })
+      }, { timeoutMs: SHELL_START_TIMEOUT_MS });
       if (!body.session?.tmuxSession) throw new Error("the shell started no session");
       onStarted({ node, origin, transport: "local", runtime, cwd: path, label: body.session.label ?? path, session: body.session });
     } catch (err) {
@@ -116,7 +120,7 @@ export function NewShellModal({
     } finally {
       setBusy(false);
     }
-  }, [origin, manualPath, cwd, runtime, node, onStarted]);
+  }, [origin, controlBase, manualPath, cwd, runtime, node, onStarted]);
 
   return (
     <div className="wc-prompt-scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>

@@ -244,14 +244,16 @@ describe("capture-service ack sink", () => {
   });
 
   it("suppresses the app's own spoken ack from the STORED transcript while keeping real speech", async () => {
-    const ACK_TEXT = "Created a task, hello companion.";
+    const ACK_TEXT = "O Zeca terminou o relatório pedido.";
     const REAL_TEXT = "Preciso de rever o contrato com a Ana amanhã.";
     // The mock returns the ack coming back through the mic (fragmented, as
     // transcribers do) followed by genuine operator speech.
     const { handle, home, base } = await boot([
-      { afterFrames: 3, message: dgResults("created a task hello companion", 0) },
+      { afterFrames: 2, message: dgResults("Zeca", 0) },
+      { afterFrames: 3, message: dgResults("terminou", 0.3) },
+      { afterFrames: 4, message: dgResults("o relatório pedido", 0.6) },
       { afterFrames: 6, message: dgResults(REAL_TEXT, 2) }
-    ]);
+    ], { wakeEnabled: true });
     const app = await appSession(base, "01ACKSESSION0004");
 
     // The ack is spoken (registered BEFORE the mic hears it).
@@ -271,9 +273,26 @@ describe("capture-service ack sink", () => {
     const transcript = JSON.parse(readFileSync(transcriptFile, "utf8"));
     const texts = transcript.segments.map((s: any) => s.text);
     expect(texts).toEqual([REAL_TEXT]);
-    expect(handle.counters.read().realtime_echo_suppressed).toBe(1);
+    expect(handle.counters.read().realtime_echo_suppressed).toBe(3);
     // And no card path was ever armed: the wake gate never saw the echo.
     expect(handle.counters.read().wake_hits ?? 0).toBe(0);
+  });
+
+  it("arbitrates the page and native reply paths at the authenticated HTTP boundary", async () => {
+    const { handle, base } = await boot();
+    const app = await appSession(base, "01SPEECHOWNER0001", "audio");
+    const request = (body: object) => fetch(`${base}/spoken`, {
+      method: "POST", headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" }, body: JSON.stringify(body)
+    }).then((res) => res.json());
+    expect(await request({ text: "O relatório está pronto.", replyKey: "c:s", playbackId: "page-1" })).toMatchObject({ speak: false });
+    expect((handle.ackSink as any).claimReply("c:s", "native")).toBe(true);
+    app.ws.close();
+    await waitFor(() => !(handle.ackSink as any).speakableSession());
+    expect(await request({ text: "The report is ready.", replyKey: "c:s", playbackId: "page-2" })).toMatchObject({ speak: false });
+    expect(await request({ text: "Uma resposta nova.", replyKey: "c:next", playbackId: "page-3" })).toMatchObject({ speak: true });
+    expect(await request({ text: "Uma resposta nova.", replyKey: "c:next", playbackId: "page-4" })).toMatchObject({ speak: false });
+    expect(await request({ text: "Uma resposta nova.", playbackId: "page-3" })).toMatchObject({ speak: true });
+    expect(await request({ text: "Uma resposta nova.", playbackId: "page-3", finished: true })).toMatchObject({ speak: true });
   });
 
   // 2026-08-18: ~30 error acks in one minute put ~30 buzzes on the phone. The

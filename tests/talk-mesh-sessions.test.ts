@@ -5,7 +5,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { StateClient } from "@garrison/state-client";
 import { startStateService, type StateHarness } from "./state-service-harness";
 // @ts-ignore — pure .mjs
 import { meshSessions, _resetCachesForTests } from "../packages/talk/src/mesh-sessions.mjs";
@@ -37,12 +38,19 @@ beforeEach(async () => {
   writeFileSync(path.join(sandbox, "node.json"), JSON.stringify({ accent: "moss" }));
   mkdirSync(path.join(sandbox, "ui-fittings"), { recursive: true });
   writeFileSync(path.join(sandbox, "ui-fittings", "remote-shell-runtime.json"), JSON.stringify({ url: "http://127.0.0.1:1" }));
-  const previousPeer = await harness.client.getConfig("shells.sessions", "node:peer-node");
-  if (previousPeer) await harness.client.putConfig("shells.sessions", "node:peer-node", { rows: [] }, { ifMatchRev: previousPeer.rev });
+  for (const node of ["self-node", "peer-node"]) {
+    const previous = await harness.client.getConfig("shells.sessions", `node:${node}`);
+    if (previous) await harness.client.putConfig("shells.sessions", `node:${node}`, { rows: [] }, { ifMatchRev: previous.rev });
+  }
+  const originalListNodes = StateClient.prototype.listNodes;
+  vi.spyOn(StateClient.prototype, "listNodes").mockImplementation(async function(this: StateClient) {
+    return (await originalListNodes.call(this)).map(node => node.name === "peer-node" ? {...node, tailnetHost:"peer.test"} : node);
+  });
   _resetCachesForTests();
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   for (const [k, v] of Object.entries(savedEnv)) {
     if (v === undefined) delete process.env[k];
     else process.env[k] = v;
@@ -53,10 +61,82 @@ afterEach(async () => {
 const NOW = new Date().toISOString();
 
 function fakeFetchWithBody(body: unknown) {
-  return async () => ({ ok: true, json: async () => body });
+  return async (url: string) => ({ ok: true, json: async () => url.endsWith("/api/sessions/status") ? {available:true} : body });
+}
+
+function nativeSnapshot(id: string, at: number) {
+  const timestamp = new Date(at).toISOString();
+  return { updatedAt: timestamp, rows: [{ id, runtime: "codex", kind: "cli", status: "working", statusSource: "hooks", lastActivityAt: timestamp }] };
+}
+
+async function publishSnapshot(node: string, body: unknown) {
+  const previous = await harness.client.getConfig("shells.sessions", `node:${node}`);
+  await harness.client.putConfig("shells.sessions", `node:${node}`, body, { ifMatchRev: previous?.rev ?? 0 });
 }
 
 describe("meshSessions", () => {
+  it("uses the owner's published sessions when its cold local index exceeds the fetch deadline", async () => {
+    await publishSnapshot("self-node", nativeSnapshot("slow-owner-session", Date.now()));
+    const slowFetch = vi.fn((_url: string, { signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    }));
+    const result = await meshSessions({ fetchImpl: slowFetch });
+    expect(result.rows).toEqual([expect.objectContaining({ id: "slow-owner-session", node: "self-node", status: "unknown", connection: "disconnected", shellOrigin: null })]);
+    expect(result.nodes.filter((node: { node: string }) => node.node === "self-node")).toHaveLength(1);
+    expect(slowFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("retains local sessions after failed refreshes, expires original activity, and honors recovery and empty reads", async () => {
+    const started = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(started);
+    const initial = nativeSnapshot("local-retained", started);
+    expect((await meshSessions({ fetchImpl: fakeFetchWithBody(initial) })).rows[0].status).toBe("working");
+
+    clock.mockReturnValue(started + 5_001);
+    const failedFetch = async () => { throw new Error("owner temporarily unavailable"); };
+    const stale = await meshSessions({ fetchImpl: failedFetch });
+    expect(stale.rows).toEqual([expect.objectContaining({ id: "local-retained", status: "unknown", statusSource: "stale-node", lastActivityAt: initial.rows[0].lastActivityAt })]);
+
+    clock.mockReturnValue(started + 6 * 86_400_000);
+    expect((await meshSessions({ fetchImpl: failedFetch })).rows).toEqual([]);
+
+    clock.mockReturnValue(started + 6 * 86_400_000 + 5_001);
+    const recovered = nativeSnapshot("local-retained", Date.now());
+    expect((await meshSessions({ fetchImpl: fakeFetchWithBody(recovered) })).rows[0]).toMatchObject({ status: "working", statusSource: "hooks" });
+    await publishSnapshot("self-node", recovered);
+    clock.mockReturnValue(Date.now() + 5_001);
+    expect((await meshSessions({ fetchImpl: fakeFetchWithBody({ rows: [], updatedAt: new Date(Date.now()).toISOString() }) })).rows).toEqual([]);
+  });
+
+  it("retains peer snapshots and the owner registry during authority failures, then replaces them on recovery", async () => {
+    const started = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(started);
+    const initial = nativeSnapshot("peer-retained", started);
+    await publishSnapshot("peer-node", initial);
+    const localFetch = fakeFetchWithBody({ rows: [] });
+    expect((await meshSessions({ fetchImpl: localFetch })).rows[0].status).toBe("working");
+
+    clock.mockReturnValue(started + 95_000);
+    const configFailure = vi.spyOn(StateClient.prototype, "getConfig").mockRejectedValue(new Error("temporary config failure"));
+    const stale = await meshSessions({ fetchImpl: localFetch });
+    expect(stale.rows).toEqual([expect.objectContaining({ id: "peer-retained", status: "unknown", statusSource: "stale-node", lastActivityAt: initial.rows[0].lastActivityAt })]);
+
+    clock.mockReturnValue(started + 190_000);
+    const registryFailure = vi.spyOn(StateClient.prototype, "listNodes").mockRejectedValue(new Error("temporary registry failure"));
+    expect((await meshSessions({ fetchImpl: localFetch })).rows[0]).toMatchObject({ id: "peer-retained", node: "peer-node", status: "unknown" });
+
+    clock.mockReturnValue(started + 6 * 86_400_000);
+    expect((await meshSessions({ fetchImpl: localFetch })).rows).toEqual([]);
+    configFailure.mockRestore();
+    registryFailure.mockRestore();
+    await publishSnapshot("peer-node", nativeSnapshot("peer-retained", Date.now()));
+    clock.mockReturnValue(Date.now() + 5_001);
+    expect((await meshSessions({ fetchImpl: localFetch })).rows[0]).toMatchObject({ id: "peer-retained", status: "working", statusSource: "hooks" });
+    await publishSnapshot("peer-node", { rows: [], updatedAt: new Date(Date.now()).toISOString() });
+    clock.mockReturnValue(Date.now() + 5_001);
+    expect((await meshSessions({ fetchImpl: localFetch })).rows).toEqual([]);
+  });
+
   it("merges local (injected fetch) and peer (real state service) rows, node accents included", async () => {
     const previousPeer = await harness.client.getConfig("shells.sessions", "node:peer-node");
     await harness.client.putConfig("shells.sessions", "node:peer-node", {

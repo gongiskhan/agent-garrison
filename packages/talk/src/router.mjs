@@ -23,12 +23,13 @@
 
 import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { meshThreads } from "./mesh-threads.mjs";
-import { localSessionForStream, meshSessions } from "./mesh-sessions.mjs";
+import { localSessionForStream, localSessionsStatus, meshSessions } from "./mesh-sessions.mjs";
 import { readCursorDesktopTranscript } from "./cursor-desktop-transcript.mjs";
 import { parseByFormat } from "./transcript-formats.mjs";
 import { gatewayCancelForwarder, gatewayMessageForwarder, handleConversationRequest } from "@garrison/claude-pty";
 import { rotateZecaConversation, zecaConversation } from "./zeca.mjs";
 import { loadSidebar, saveSidebar } from "./sidebar-state.mjs";
+import { createZecaCard, inferZecaCard } from "./zeca-cards.mjs";
 import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
@@ -249,7 +250,7 @@ export function readRemoteShellInfo() {
 // Subpaths the browser may reach through the relay. DELETE (forget session) and
 // anything unlisted stay on the fitting's own surface.
 const REMOTE_SHELL_PROXY_RE =
-  /^\/(transports|projects|sessions|sessions\/[A-Za-z0-9-]+(\/(input|keys|turn|detach|screen|turns\/[A-Za-z0-9-]+))?)$/;
+  /^\/(transports|runtimes|projects|sessions|sessions\/[A-Za-z0-9-]+(\/(input|keys|bytes|resize|turn|detach|screen|turns\/[A-Za-z0-9-]+))?)$/;
 // DELETE relays only for the one shape that supports it: a session teardown.
 const REMOTE_SHELL_DELETE_RE = /^\/sessions\/[A-Za-z0-9-]+$/;
 
@@ -273,7 +274,7 @@ async function handleRemoteShellProxy(req, res, subpath, query) {
       headers: body ? { "content-type": "application/json" } : {},
       body: body ?? undefined,
       // Long-poll turn settlement rides this relay; everything else is quick.
-      signal: AbortSignal.timeout(subpath.includes("/turns/") ? 125_000 : 20_000)
+      signal: AbortSignal.timeout(subpath.includes("/turns/") ? 125_000 : subpath === "/sessions" && req.method === "POST" ? 60_000 : 20_000)
     });
     const text = await upstream.text();
     res.statusCode = upstream.status;
@@ -2864,6 +2865,7 @@ async function handleThreadRename(req, res, id) {
 // Returns true
 // when it handled the request.
 function routeSessions(req, res, pathname, method, log = console) {
+  if (pathname === "/api/sessions/status" && method === "GET") { settle(res, localSessionsStatus().then(body => jsonRes(res, 200, body)), log); return true; }
   if (pathname === "/api/sessions" && method === "GET") { settle(res, handleSessionsList(res), log); return true; }
   const m = pathname.match(/^\/api\/sessions\/([^/]+)\/stream$/);
   if (m && method === "GET") {
@@ -3609,6 +3611,22 @@ export function createTalkRouter(liveOpts, { distDir = null, log = console } = {
       if (pathname === "/api/chat/interrupt" && method === "POST") { settle(res, handleChatInterrupt(req, res, liveOpts), log); return true; }
       if (pathname === "/api/chat" && method === "POST") { settle(res, handleChat(req, res, liveOpts), log); return true; }
       if (pathname === "/api/route-options" && method === "GET") { settle(res, handleRouteOptions(req, res, liveOpts), log); return true; }
+      if (method === "POST" && ["/api/cards/from-zeca", "/api/cards/from-zeca/infer"].includes(pathname)) {
+        try {
+          let body;
+          try { body = await readJsonBody(req, 2 * 1024 * 1024); } catch { jsonRes(res, 400, { error: "Invalid request body." }); return true; }
+          if (!body || typeof body !== "object" || Array.isArray(body)) { jsonRes(res, 400, { error: "Invalid request body." }); return true; }
+          const result = pathname.endsWith("/infer") ? await inferZecaCard(body, async ({ signal, ...input }) => {
+            const response = await fetch(new URL("/conversation/card-inference", liveOpts.gatewayUrl), {
+              method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input), signal,
+            });
+            if (!response.ok) throw new Error(`Inference returned HTTP ${response.status}.`);
+            return (await response.json()).text;
+          }) : await createZecaCard(body);
+          jsonRes(res, pathname.endsWith("/infer") ? 200 : 201, result);
+        } catch (error) { jsonRes(res, error.status || 503, { error: error.message }); }
+        return true;
+      }
       if (pathname === "/api/sidebar" && method === "GET") {
         void loadSidebar()
           .then((body) => jsonRes(res, 200, body))
@@ -3645,9 +3663,9 @@ export function createTalkRouter(liveOpts, { distDir = null, log = console } = {
       if (pathname === "/api/zeca/rotate" && method === "POST") {
         void readJsonBody(req)
           .catch(() => ({}))
-          .then((body) => rotateZecaConversation({ reason: typeof body?.reason === "string" ? body.reason.slice(0, 80) : "rotate" }))
+          .then((body) => rotateZecaConversation({ reason: typeof body?.reason === "string" ? body.reason.slice(0, 80) : "rotate", expectedConversationId: typeof body?.expectedConversationId === "string" ? body.expectedConversationId : null, expectedUpdatedAt:body?.expectedUpdatedAt,expectedInputRevision:body?.expectedInputRevision }))
           .then((body) => jsonRes(res, 200, body))
-          .catch((err) => jsonRes(res, 500, { error: String(err?.message ?? err) }));
+          .catch((err) => jsonRes(res, err.status || 500, { error: String(err?.message ?? err) }));
         return true;
       }
       if (pathname === "/api/claude/stream" && method === "GET") { settle(res, handleClaudeStream(req, res, liveOpts), log); return true; }

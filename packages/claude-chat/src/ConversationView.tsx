@@ -4,6 +4,7 @@ import { ClaudeChat, type ChatFeatures, type ComposerAdornmentApi } from "./Clau
 import type { ConversationActivity } from "./journal";
 import { resolvedChatScheme, subscribeChatTheme } from "./chat-theme";
 import { PayloadModal } from "./PayloadModal";
+import { ConversationQuestion } from "./ConversationQuestion";
 import { ConversationCost } from "./ConversationCost";
 import { PayloadOpenerContext, type PayloadTarget } from "./payload-context";
 import type { RailOptions } from "./AttributionRail";
@@ -74,6 +75,7 @@ export interface ConversationViewProps {
    *  on Running). `false` vetoes the stream's derived working spinners; absent
    *  leaves the event-derived activity in charge. */
   live?: boolean;
+  questions?: boolean;
   /** Fired whenever the stream's own derived activity changes - lets a host
    *  composer adornment offer quick replies while the conversation is
    *  `needs-input` or `awaiting-approval` without re-deriving it. */
@@ -119,8 +121,11 @@ export function ConversationView({
   headerLeading,
   headerExtra,
   live,
+  questions = true,
   onActivityChange,
 }: ConversationViewProps) {
+  const [activity, setActivity] = useState<ConversationActivity | null>(null);
+  const activityChanged = useCallback((next: ConversationActivity) => { setActivity(next); onActivityChange?.(next); }, [onActivityChange]);
   const root = useMemo(() => relativeBase(base), [base]);
   // The host's `focusSeq` is the initial/authoritative value; a hit clicked in
   // this view's own results moves it locally, exactly as the rail treats `routing`.
@@ -255,18 +260,21 @@ export function ConversationView({
           <ClaudeChat
             transport={transport}
             title={title}
-            placeholder={placeholder}
+            placeholder={activity?.mode === "needs-input" ? "Write your reply, or choose an option above…" : placeholder}
             features={features}
             transcriptUrl={streamUrl}
             transcriptOnly
             transcriptLive={live}
-            transcriptOnActivityChange={onActivityChange}
+            transcriptOnActivityChange={activityChanged}
             transcriptEmptyMessage={<div className="cc-conv-welcome"><strong>What would you like to work on?</strong><span>Ask a question, explore an idea, or describe a task. Your conversation will stay here.</span></div>}
             transcriptFocusEventId={seq == null ? undefined : conversationEventId(conversationId, seq)}
             routing={routing}
             routeOptions={routeOptions}
             onPinChange={onPinChange}
             draftKey={draftKey}
+            composerHeader={questions && <ConversationQuestion key={`${root}:${conversationId}`}
+              conversationId={conversationId} base={root} freeForm={false}
+              enabled={activity?.mode === "needs-input"} routing={routing} />}
             composerAdornment={composerAdornment}
             onOpenTranscript={onOpenRuntimeTranscript}
           />

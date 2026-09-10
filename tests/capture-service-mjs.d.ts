@@ -354,6 +354,8 @@ declare module "*/capture-service/lib/echo-guard.mjs" {
     constructor(opts?: { ttlMs?: number; counters?: unknown; now?: () => number; log?: unknown });
     register(entry: { text: string; echo?: string | null }): boolean;
     registerShort(text: unknown, opts?: { ttlMs?: number }): boolean;
+    startPlayback(id: string, text: string, opts?: { ttlMs?: number }): boolean;
+    finishPlayback(id: string): void;
     shouldSuppress(segmentText: unknown): boolean;
     prune(): void;
   }

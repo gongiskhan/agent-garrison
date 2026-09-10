@@ -25,6 +25,7 @@
 // and a state sink reached over its HTTP API (writeCardWithHooks fires its
 // terminal side effects exactly once).
 
+import { pendingConversationQuestion } from "@garrison/claude-pty/conversation-question.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -40,9 +41,11 @@ import {
   repetitionReport,
 } from "@garrison/claude-pty";
 import { boardBase, cardById } from "./autonomous-cards.mjs";
+import { endSessionCard, resumeSessionCard, syncWorkSessionTitle, reportCardHook } from "@garrison/talk/conversation-cards";
 import { resolveRunScope, listProjectNames, readDevRoot, PERSONAL_SCOPE_TOKEN } from "./project-source.mjs";
 import { applyDutyHarnessProfile, runtimeCodexEnabled } from "./harness-profiles.mjs";
 import { prepareStretchContinuity } from "./stretch-continuity.mjs";
+import { originalRequest, recoverInterruptedStretch, deploymentInFlight, parkConversation } from "./conversation-recovery.mjs";
 import {
   routingTableEnabled,
   readRoutingTable,
@@ -139,15 +142,21 @@ export function reviewBudgetFor({ card = null, env = process.env, briefText = nu
 
 /** Review stretches this task has already STARTED, off the ledger rather than a
  *  card counter: the ledger is the record and survives a gateway restart. */
+function workCycleEvents(store, kinds, limit = 400) {
+  const events = store?.tail?.(limit, { kinds: [...new Set([...kinds, "handoff"])] }) ?? [];
+  const completed = events.findLastIndex((e) => e.kind === "handoff" && e.payload?.nextSteps?.next === "done");
+  return events.slice(completed + 1).filter((e) => kinds.includes(e.kind));
+}
+
 export function reviewsUsed(store) {
-  return (store?.tail?.(400, { kinds: ["stretch-started"] }) ?? [])
+  return workCycleEvents(store, ["stretch-started"])
     .filter((e) => REVIEW_DUTIES.has(e.payload?.duty ?? e.duty)).length;
 }
 
 /** Review stretches ASKED for so far, including any the budget already refused
  *  - the number worth knowing when the cap looks too tight. */
 export function reviewsRequested(store) {
-  return (store?.tail?.(400, { kinds: ["handoff", "review-budget"] }) ?? [])
+  return workCycleEvents(store, ["handoff", "review-budget"])
     .filter((e) => (e.kind === "review-budget" ? true : REVIEW_DUTIES.has(e.payload?.nextSteps?.next))).length;
 }
 
@@ -384,7 +393,13 @@ export function applyFlowPolicy(next, { store, duty, selectedDuties = [], cwd = 
   // evidence invariants below judge WORK, and a question is not work. Without
   // this, "is this deployed?" on a done card without on-disk evidence became a
   // fresh implement stretch.
-  if (duty === "responder") return { next, rewritten: false, reason: null };
+  if (duty === "responder") {
+    const unfinishedWork = workCycleEvents(store, ["handoff", "stretch-started"])
+      .some((event) => !ANSWER_CYCLE_DUTIES.has(event.duty ?? event.payload?.duty));
+    // A follow-up cannot turn an unfinished implementation/check into an
+    // evidence-free answer. Questions on a settled cycle keep the fast path.
+    if (!unfinishedWork) return { next, rewritten: false, reason: null };
+  }
   // Dialogue is the spoken conversation (D62): one pass, one answer, then stop.
   // It has no work to show evidence for and nothing to hand off to - the work it
   // recognises becomes its own card, which runs the loop there. Without this
@@ -399,10 +414,9 @@ export function applyFlowPolicy(next, { store, duty, selectedDuties = [], cwd = 
     // The model asked for another review. Inside the budget this is its call and
     // nothing here touches it.
     if (budget.allowed) return { next, rewritten: false, reason: null };
-    // Over the budget: the ask becomes done, and done still has to clear the
-    // invariants below - the budget buys no shortcut out of them.
-    reviewBudget = { ...budget, from: next, to: "done", trigger: "asked" };
-    next = "done";
+    // A spent budget is a pause, never evidence that unfinished work passed.
+    reviewBudget = { ...budget, from: next, to: "needs-input", trigger: "asked" };
+    return { next: "needs-input", rewritten: true, reason: `review-budget: ${budget.used}/${budget.cap} spent`, reviewBudget };
   }
   if (next !== "done") return { next, rewritten: false, reason: null };
   let skippedReview = reviewBudget ? `review budget spent: ${reviewBudget.used}/${reviewBudget.cap}` : null;
@@ -412,7 +426,7 @@ export function applyFlowPolicy(next, { store, duty, selectedDuties = [], cwd = 
   // the whole deliverable written inside triage, skipping plan, implement and
   // review). needs-input stays allowed: parking for clarity IS triage's call.
   if (duty === "triage") {
-    const first = ["plan", "implement"].find((d) => selectedDuties.includes(d));
+    const first = ["implement", "plan"].find((d) => selectedDuties.includes(d));
     if (first) return { next: first, rewritten: true, reason: "triage-never-done" };
   }
   // review-before-done: implement work is not done until someone else read it -
@@ -428,8 +442,8 @@ export function applyFlowPolicy(next, { store, duty, selectedDuties = [], cwd = 
       if (gate.review) {
         // The gate wanted one and the budget refused. Recorded like an asked-for
         // review, because that is what it is: the orchestrator asked.
-        reviewBudget = { ...budget, from: insert, to: "done", trigger: "insert" };
-        skippedReview = `review budget spent: ${budget.used}/${budget.cap}`;
+        reviewBudget = { ...budget, from: insert, to: "needs-input", trigger: "insert" };
+        return { next: "needs-input", rewritten: true, reason: `required review exceeds the ${budget.cap}-review budget`, reviewBudget };
       } else {
         // Skipping is a decision, recorded as one. `done` still has to clear
         // done-requires-evidence below, so this is not a shortcut to closing.
@@ -440,9 +454,9 @@ export function applyFlowPolicy(next, { store, duty, selectedDuties = [], cwd = 
   // done-requires-evidence: somewhere in this conversation a gate/run evidence
   // ref must still resolve on disk. Restates the old terminal Test→Done
   // invariant without a phase graph.
-  const handoffs = store.tail(50, { kinds: ["handoff"] });
-  const hasResolvable = handoffs.some((evt) =>
-    (evt.payload?.evidenceRefs ?? []).some((ev) => {
+  const handoffs = workCycleEvents(store, ["handoff"]);
+  const hasResolvable = [handoff, ...handoffs.map((evt) => evt.payload)].some((candidateHandoff) =>
+    (candidateHandoff?.evidenceRefs ?? []).some((ev) => {
       if (!CONVERSATION_FLOW.doneRequiresEvidence.kinds.includes(ev?.kind)) return false;
       // Anchor relative refs where the stretches WORK — the same anchoring the
       // exit gate's rule 10 uses. A bare statSync resolved against the gateway
@@ -458,9 +472,17 @@ export function applyFlowPolicy(next, { store, duty, selectedDuties = [], cwd = 
   );
   if (!hasResolvable) {
     const otherwise = CONVERSATION_FLOW.doneRequiresEvidence.otherwise;
-    if (selectedDuties.includes(otherwise) && duty !== otherwise) {
-      return { next: otherwise, rewritten: true, reason: "done-without-evidence", skippedReview, reviewBudget };
+    const corrected = workCycleEvents(store, ["policy-rewrite"])
+      .some((event) => event.payload?.reason === "verification-evidence-missing");
+    if (selectedDuties.includes(otherwise) && (duty !== otherwise || !corrected)) {
+      return {
+        next: otherwise, rewritten: true,
+        reason: duty === otherwise ? "verification-evidence-missing" : "done-without-evidence",
+        verificationMissing: true, skippedReview, reviewBudget,
+        items: ["Record the completed verification in a non-empty owner file, including actual commands/checks, outcomes and remaining limits. Reference it in evidenceRefs with kind run or gate. Reuse existing results where valid; source files and build markers alone are not verification. Finish any missing checks before reporting done."],
+      };
     }
+    return { next: "needs-input", rewritten: true, reason: "No completed verification was recorded; work cannot be marked done", skippedReview, reviewBudget };
   }
   return {
     next,
@@ -535,6 +557,18 @@ next stretch is actually handed.`,
 // what the work was parked on) has to become WORK again rather than a haiku
 // paragraph - by handing off to the duty that does it, never by doing it.
 export const DUTY_GUIDANCE = {
+  triage: `### Intake, then hand off
+Read the user's complete request, the prior handoff and any attached context.
+Identify the desired result, scope, acceptance checks and existing authorization.
+Use at most a few targeted reads when a fact changes the route. Do not perform
+the work, delegate exploration, edit files, run commands or restart services.
+For a bounded fix go straight to implement; use plan only when there is a real
+design decision. Route operational work to ops, questions to discuss/research.
+Missing facts you can inspect are not blockers. Ask for user input only when an
+essential decision cannot be inferred or checked. Do not re-ask for authorized work.
+Return a concise handoff with concrete remaining steps and constraints, using
+the fenced handoff form. Findings belong in the findings tool, not just prose.
+Finish intake within eight tool turns; the working duty can investigate further.`,
   // The one duty a person SPEAKS to (D62). Everything here is read aloud into an
   // earpiece, so the register is the voice lane's, not the loop's: the word cap
   // and the markdown ban are the same ones buildVoiceDiscussPrompt has carried
@@ -583,13 +617,28 @@ to do it "now" here, and never hand off: your handoff is always
   responder: `### How to answer on this duty
 
 You are the conversation's responder: a person wrote into a conversation with no
-work running, and you answer them from the summary and handoffs above. The
-message has one of two shapes:
+work running. Use the summary and handoffs as context, and answer their LATEST
+message even when it changes the subject. Do not append unrelated old work updates.
+For a question, use the tools available to find the answer: public web search or
+fetch can supply current information without a dedicated connector. A bounded
+lookup belongs in this reply. Try another suitable source or method if the first
+fails; ask one focused question if an essential detail, such as location, is
+missing. Link the specific sources you actually checked, preserve their units,
+and verify any conversions. Never fabricate an answer or claim an attempt you
+did not make. Complete tool calls and handoff bookkeeping BEFORE your final
+visible reply, then give the user the answer itself in their language. Do not
+replace it with an internal completion note, routing markers, or an unrequested
+translation. The message has one of two shapes:
 
 - A QUESTION or a remark. Answer it plainly in your reply, record anything you
   promised in your handoff summary, and hand off with "nextSteps.next" set to
-  where the conversation already stood: "done" when the work was finished,
-  "needs-input" when it was parked and still is.
+  "done" when answered, or "needs-input" only when an essential detail is
+  missing. A delivered clarification question completes this responder stretch:
+  use status "complete", completion "work", and next "needs-input"; do not
+  invent a failed approach to justify asking for missing information.
+  Use completion "answer" only for a complete answer with next "done",
+  no blocker and no remaining items. A clarification or a handoff to another
+  duty uses completion "work".
 - A REQUEST FOR WORK: a follow-up task, a change, a fix, or the answer to what
   the work was parked on. Do NOT do the work yourself. Say in one or two
   sentences what happens next, put the request into "nextSteps.items", and hand
@@ -655,10 +704,21 @@ keys are not:
   "forceEscalation": null | "<reason>",
   "synthesized": false
 }
+When next is "needs-input", include an optional "question": {"question":"one concise question", "options":[{"label":"a short reply the user can send", "description":"optional consequence"}]}. Offer up to 4 concrete, distinct replies when useful; an empty options array is valid and free-form input is always available. These labels are sent verbatim as the user's message. For missing Vault credentials offer "I have added the keys to the vault". For an unresolved merge decision, where the alternatives actually apply, offer "Drop it - stash", "Drop it - delete", "Merge it in" and explain what each does. Never suggest destructive choices for completed decision records. Omit question outside needs-input. No extra model call is needed to generate these choices.
+
 Rules: blocked requires a blocker; partial/failed require at least one
 failedApproaches entry; next "done" requires status "complete"; a gate/run/file
 evidence ref must point at a real non-empty file. Update nothing else — the
 exit gate applies your handoff to the conversation summary.
+
+For completion "work", next "done" also requires a verification report with
+evidenceRefs kind "run" or "gate". Save the actual checks/commands, outcomes and
+remaining limits in a non-empty file under the conversation store, and use its
+absolute path as ref. Reuse already-completed checks when their results still
+apply; do not repeat them just to produce a report. A source file, commit or
+build marker alone does not establish that verification passed. If checks are
+missing, continue with test/validate and name what remains; this is work for
+the agent, not a reason to ask the user to record evidence.
 
 completion defaults to "work" for older handoffs. Use "answer" ONLY when the
 user requested an informational reply (for example a prose plan, explanation,
@@ -685,6 +745,14 @@ The summary is read by a HUMAN — when next is "done" it is shown whole as the
 conversation's final report. Write it tight: lead with the outcome in one short
 sentence, then short markdown bullets for what changed and how it was verified.
 No filler, no restating the task, no hedging.
+
+HOSTED NODE DEPLOYMENT: never kill or restart the gateway, app, or parent
+process directly. In the Garrison checkout use npm run node:reload or
+npm run node:redeploy. The command queues a job owned by the machine's service
+supervisor. When it returns, hand off immediately to ops or validate; do not
+wait or start another restart. The job resumes this conversation after the node
+returns so the next stretch can verify the live result. This is the one
+exception to waiting for foreground commands below.
 
 YOUR SESSION ENDS THE MOMENT YOUR TURN ENDS. There is no later: nothing will
 re-invoke you, and a background task's completion notification will never reach
@@ -719,12 +787,17 @@ export function buildStretchBrief({
   findingsText = "",
   findingsExpectation = null,
   dutyGuidance = null,
+  objective = null,
+  dutyDescriptions = {},
+  recovery = null,
 }) {
   const parts = [];
   parts.push(`# Stretch brief — conversation ${conversationId}`);
   parts.push(`Conversation store: ${conversationDir} (log.jsonl is the full record; grep it when you need history)`);
   parts.push("");
   parts.push(summaryText?.trim() || "(no summary yet — you are the first stretch; write the objective into your handoff summary)");
+  if (objective) parts.push("", "## Original request (keep this in scope until delivered)", objective);
+  if (recovery) parts.push("", "## Interrupted work to resume", recovery);
   if (card) {
     // The card IS the task. The first live run inferred the whole purpose from
     // the TITLE alone and went off to do something else entirely — every brief
@@ -770,8 +843,11 @@ export function buildStretchBrief({
     parts.push("", "## Recent handoffs (newest last)");
     for (const { ordinal, handoff } of lastHandoffs) {
       parts.push(
-        `- #${ordinal} [${handoff.duty}/${handoff.status}] ${String(handoff.summary ?? "").slice(0, 300)} → next: ${handoff.nextSteps?.next}`
+        `- #${ordinal} [${handoff.duty}/${handoff.status}] ${String(handoff.summary ?? "").slice(0, ordinal === lastHandoffs.at(-1)?.ordinal ? 4000 : 600)} → next: ${handoff.nextSteps?.next}`
       );
+      for (const item of handoff.nextSteps?.items ?? []) parts.push(`  Remaining: ${String(item).slice(0, 1000)}`);
+      for (const failed of handoff.failedApproaches ?? []) parts.push(`  Do not repeat: ${failed.approach} — ${failed.why}`);
+      for (const ref of handoff.evidenceRefs ?? []) parts.push(`  Evidence: ${ref.ref}${ref.note ? ` — ${ref.note}` : ""}`);
     }
     parts.push(`Older handoffs are under ${path.join(conversationDir, "handoffs")}.`);
   }
@@ -783,6 +859,10 @@ export function buildStretchBrief({
   parts.push("", `## Your duty: ${duty} (level ${level}${attempt > 1 ? `, attempt ${attempt}` : ""})`);
   if (dutyDescription) parts.push(dutyDescription);
   if (dutyGuidance) parts.push("", dutyGuidance);
+  if (duty === "triage") {
+    parts.push("", "Available duties:");
+    for (const name of selectedDuties) parts.push(`- ${name}: ${String(dutyDescriptions[name]?.description ?? "").slice(0, 300)}`);
+  }
   if (skill) parts.push(`Bound skill: ${skill}`);
   if (task) parts.push("", "## Task", task);
   if (userMessages.length) {
@@ -940,11 +1020,13 @@ export async function runStretch(gateway, {
   const started = Date.now();
   let continuity = null;
   let stop = null;
+  let partialReply = "";
+  let timedOut = false;
   const registerStop = (fn) => {
     stop = fn;
     // Stop can arrive while the runtime is spawning or waiting for its lock.
     // Deliver it as soon as the adapter exposes its cancellation primitive.
-    if (signal?.aborted) { try { stop?.(); } catch { /* cancellation is best-effort */ } }
+    if (signal?.aborted || timedOut) { try { stop?.(); } catch { /* cancellation is best-effort */ } }
   };
   const abort = () => {
     try {
@@ -971,18 +1053,25 @@ export async function runStretch(gateway, {
     // no timeout promise can reject while its consumer is still preparing.
     const timeout = new Promise((_, reject) => {
       timer = setTimeout(() => {
+        timedOut = true;
         abort();
         reject(new Error(`stretch timeout after ${timeoutMs}ms`));
       }, timeoutMs);
     });
     const isAgentSdk = route.target.runtime === "agent-sdk";
+    const captureChunk = (text, replace) => {
+      partialReply = replace ? String(text ?? "") : partialReply + String(text ?? "");
+      partialReply = partialReply.slice(-100_000);
+      onChunk?.(text, replace);
+    };
     const turnPromise = isAgentSdk
-      ? gateway.runAgentSdkTurn(route, groundedBrief, onChunk, {
+      ? gateway.runAgentSdkTurn(route, groundedBrief, captureChunk, {
           sessionKey: `stretch:${stretchId}`,
           turnId: turnId ?? `stretch:${stretchId}`,
           // The stretch's own conversation, so the layer-3 tools default to it
           // instead of making the model quote an id back out of its brief.
           ...(conversationId ? { conversationId } : {}),
+          stretchId,
           ...(cwd ? { cwd } : {}),
           onEvent,
           onUsage,
@@ -990,7 +1079,7 @@ export async function runStretch(gateway, {
           onRuntimeAdmission,
         })
       : gateway.runSecondaryTurn(route, groundedBrief, {
-          onChunk,
+          onChunk: captureChunk,
           registerStop,
           signal,
           onRuntimeAdmission,
@@ -1029,7 +1118,7 @@ export async function runStretch(gateway, {
   } catch (err) {
     return {
       ok: false,
-      reply: "",
+      reply: partialReply,
       sessionId: null,
       // A timed-out stretch returns no rows, but the ones it already streamed
       // through onUsage are in the ledger — which is precisely why capture is
@@ -1062,13 +1151,17 @@ export async function runStretch(gateway, {
 
 export function parseFencedHandoff(reply) {
   const text = String(reply ?? "");
-  const fenced = /```handoff\s*\n([\s\S]*?)```/i.exec(text) ?? /```json\s*\n([\s\S]*?)```\s*$/i.exec(text);
-  if (!fenced) return null;
-  try {
-    return JSON.parse(fenced[1]);
-  } catch {
-    return null;
+  // Prefer the last corrected handoff. A prose sentence after a JSON fence or
+  // an earlier malformed attempt must not trigger another paid model call.
+  const candidates = [...text.matchAll(/```(?:handoff|json)\s*\n([\s\S]*?)```/gi)].map((m) => m[1]);
+  if (!candidates.length && text.trim().startsWith("{")) candidates.push(text.trim());
+  for (const candidate of candidates.reverse()) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === "object" && parsed.nextSteps && parsed.summary) return parsed;
+    } catch { /* try an earlier complete handoff; schema validation still follows */ }
   }
+  return null;
 }
 
 /**
@@ -1096,11 +1189,12 @@ export async function runExitGate(gateway, {
   let repairs = 0;
   let source = "file";
 
-  const readCandidate = () => {
+  const readCandidate = (text = reply) => {
     const fromFile = store.readHandoff(ordinal);
-    if (fromFile) return { handoff: fromFile, from: "file" };
-    const fromReply = parseFencedHandoff(reply);
+    if (fromFile && validateHandoff(fromFile, { selectedDuties, resolveEvidence: resolver }).ok) return { handoff: fromFile, from: "file" };
+    const fromReply = parseFencedHandoff(text);
     if (fromReply) return { handoff: fromReply, from: "reply" };
+    if (fromFile) return { handoff: fromFile, from: "file" };
     return { handoff: null, from: "absent" };
   };
 
@@ -1115,10 +1209,11 @@ export async function runExitGate(gateway, {
     const prompt = `Your handoff is invalid: ${verdict.errors.join("; ")}.\nRewrite the handoff JSON at ${file} (or reply with ONLY a \`\`\`handoff fenced block). Fix every error. Use the EXACT schema from your brief's exit contract - do not invent fields. "nextSteps.next" must be one of: ${allowedNext}. Reply with nothing else.`;
     try {
       const reAskReply = await reAsk(prompt);
-      const again = store.readHandoff(ordinal) ?? parseFencedHandoff(reAskReply);
+      const candidate = readCandidate(reAskReply);
+      const again = candidate.handoff;
       if (again) {
         handoff = again;
-        source = store.readHandoff(ordinal) ? "file" : "re-ask-reply";
+        source = candidate.from === "file" ? "file" : "re-ask-reply";
         verdict = validateHandoff(handoff, { selectedDuties, resolveEvidence: resolver });
       }
     } catch {
@@ -1132,7 +1227,7 @@ export async function runExitGate(gateway, {
     // A FRESH session repairs this - it has never seen the brief, so the
     // contract travels with the prompt or the repairer cannot know the schema.
     const allowedNext = [...(selectedDuties ?? []), "done", "needs-input"].join(", ");
-    const prompt = `A work stretch (duty: ${duty}) ended without a valid handoff. Errors: ${verdict.errors.join("; ")}.\nFrom the stretch's reply below, write the most honest handoff JSON you can. Do NOT invent evidence: if the reply names no verifiable evidence, evidenceRefs stays []. If the work seems incomplete, status is "partial" and failedApproaches says what fell short. "nextSteps.next" must be one of: ${allowedNext}. Reply with ONLY a \`\`\`handoff fenced block.\n\n${HANDOFF_CONTRACT}\n\nSTRETCH REPLY (may be truncated; full copy at ${spill.ref}):\n${String(reply ?? "").slice(0, 20_000)}`;
+    const prompt = `A work stretch (duty: ${duty}, stretchId: ${stretchId}) ended without a valid handoff. Errors: ${verdict.errors.join("; ")}.\nFrom the stretch's reply below, write the most honest handoff JSON you can. Do NOT invent evidence: if the reply names no verifiable evidence, evidenceRefs stays []. If the work seems incomplete, status is "partial" and failedApproaches says what fell short. "nextSteps.next" must be one of: ${allowedNext}. Reply with ONLY a \`\`\`handoff fenced block. Do not use tools or continue the task.\n\n${HANDOFF_CONTRACT}\n\nSTRETCH REPLY (may be truncated; full copy at ${spill.ref}):\n${String(reply ?? "").slice(0, 20_000)}`;
     try {
       const repairReply = await repair(prompt);
       const again = parseFencedHandoff(repairReply);
@@ -1194,7 +1289,7 @@ export function applyHandoffToSummary(parsed, handoff, { floorUpdate = null } = 
   const next = { ...(parsed ?? {}) };
   next.title = next.title || "Conversation";
   next.objective = next.objective || "";
-  next.currentState = `${handoff.duty}/${handoff.status}: ${String(handoff.summary).slice(0, 600)}`;
+  next.currentState = `${handoff.duty}/${handoff.status}: ${String(handoff.summary).slice(0, 1200)}`;
   next.decisions = [...(next.decisions ?? [])];
   // A handoff's nextSteps.why is the decision trail worth keeping.
   if (handoff.nextSteps?.why) {
@@ -1261,6 +1356,12 @@ export async function patchCardEngine({ id, patch, logFn = () => {} }) {
 
 async function writeCardTransition(gateway, { cardId, conversationId, stretchId, phase, handoff = null, duty = null }) {
   if (!cardId) return;
+  const workCard = await cardById(cardId).catch(() => null);
+  if (workCard?.origin?.type === "workSession") {
+    if (phase === "started") await resumeSessionCard(conversationId).catch(reportCardHook);
+    await syncWorkSessionTitle(conversationId).catch(reportCardHook);
+    return;
+  }
   const logFn = (e) => gateway.logFn?.(e);
   if (duty === "responder") {
     // The responder used to leave the card untouched, so a message on a done
@@ -1270,7 +1371,7 @@ async function writeCardTransition(gateway, { cardId, conversationId, stretchId,
     // question, to needs-attention when it is still parked, or on to the duty
     // a follow-up asked for (whose own start keeps it running).
     if (phase === "started") {
-      await patchCardEngine({ id: cardId, patch: { list: "running", status: "running", runningSince: new Date().toISOString(), awaitingApproval: null }, logFn });
+      await patchCardEngine({ id: cardId, patch: { conversationId, list: "running", status: "running", runningSince: new Date().toISOString(), awaitingApproval: null }, logFn });
       return;
     }
     const next = handoff?.nextSteps?.next;
@@ -1290,7 +1391,7 @@ async function writeCardTransition(gateway, { cardId, conversationId, stretchId,
   if (phase === "started") {
     // A starting stretch consumes any standing approval ask — the approval
     // arrived (or Autonomous was flipped), so the card must stop wearing it.
-    await patchCardEngine({ id: cardId, patch: { list: "running", status: "running", runningSince: new Date().toISOString(), awaitingApproval: null }, logFn });
+    await patchCardEngine({ id: cardId, patch: { conversationId, list: "running", status: "running", runningSince: new Date().toISOString(), awaitingApproval: null }, logFn });
     return;
   }
   const next = handoff?.nextSteps?.next;
@@ -1329,8 +1430,8 @@ function unconsumedUserMessages(store) {
     .filter((e) => e.kind === "user-message" && e.index > hwm)
     .map((e) => ({
       index: e.index,
-      text: String(e.payload?.text ?? "").slice(0, 4000),
-      context: typeof e.payload?.context === "string" ? e.payload.context.slice(0, 4000) : null,
+      text: String(e.payload?.text ?? ""),
+      context: typeof e.payload?.context === "string" ? e.payload.context : null,
       routing: e.payload?.routing && typeof e.payload.routing === "object" && !Array.isArray(e.payload.routing) ? e.payload.routing : null,
     }))
     .filter((m) => m.text);
@@ -1544,6 +1645,13 @@ export async function runConversation(gateway, {
   return gateway._onLane(`conversation:${conversationId}`, async () => {
     const store = openConversation(conversationId, { role: "gateway", env });
     store.init({ title: task ? String(task).slice(0, 80) : "Conversation" });
+    let ownedStretchId = null;
+    let ownsWorkLifecycle = false;
+    try {
+    if (deploymentInFlight(store)) return { stretches: 0, terminal: "deploying" };
+    if (store.currentStretch()) return { stretches: 0, terminal: "already-running" };
+    ownsWorkLifecycle = true;
+    const recovered = recoverInterruptedStretch(store);
     // The opening task IS the first user message — one vocabulary, one record.
     if (task && store.count("user-message") === 0) {
       recordUserMessage(store, { text: task, origin: "advance" });
@@ -1552,6 +1660,22 @@ export async function runConversation(gateway, {
     const selectedDuties = model?.selectedDuties ?? [];
     const card = await cardById(conversationId).catch(() => null);
     let scope = stretchScopeForCard(card);
+    if (!card) {
+      const previous = store.tail(1, { kinds: ["stretch-started"] })[0]?.payload;
+      if (previous?.cwd && previous?.project) scope = { cwd: previous.cwd, label: previous.project, degraded: false };
+    }
+    const objective = card ? null : originalRequest(store);
+    const summary = store.parseSummary() ?? {};
+    if (objective && summary.objective !== objective.slice(0, 1800)) {
+      summary.objective = objective.slice(0, 1800);
+      summary.title = summary.title === "Conversation" ? objective.split("\n")[0].slice(0, 100) : summary.title;
+      store.writeSummary(summary);
+    }
+    if (recovered?.parked) {
+      await writeCardTransition(gateway, { cardId: card?.id, conversationId, stretchId: recovered.start.stretch,
+        phase: "error", handoff: recovered.handoff, duty: recovered.start.duty });
+      return { stretches: 0, terminal: "needs-input" };
+    }
     if (scope.degraded) {
       const failure = projectResolutionFailure(scope, {
         compositionDir: gateway.compositionDir ?? null,
@@ -1586,6 +1710,7 @@ export async function runConversation(gateway, {
     let terminal = null;
 
     while (stretches < maxStretches) {
+      if (deploymentInFlight(store)) { terminal = "deploying"; break; }
       if (signal?.aborted) {
         terminal = "cancelled";
         break;
@@ -1775,13 +1900,6 @@ export async function runConversation(gateway, {
         }
         route = applyDutyHarnessProfile(route, duty);
       }
-      // Only a built brief consumes inputs. A message that lands after this
-      // snapshot stays pending and is picked up by the next stretch.
-      if (pendingMessages.length) store.append({
-        kind: "messages-consumed", duty,
-        payload: { throughIndex: Math.max(...pendingMessages.map((message) => message.index ?? -1)), count: pendingMessages.length },
-      });
-
       const stretchId = `st_${newConversationId()}`;
       const ordinal = store.nextHandoffOrdinal();
       const handoffPath = store.handoffPath(ordinal);
@@ -1807,13 +1925,15 @@ export async function runConversation(gateway, {
       // Stale marker from a crashed run: this lane is the only stretch driver
       // for the conversation, so a marker nobody in-process owns is stale.
       if (!store.claimStretch(stretchId)) {
+        // Sweep dead holders, but never steal a live process's marker.
         const holder = store.currentStretch();
-        if (holder) store.releaseStretch(holder);
+        if (holder) { terminal = "already-running"; break; }
         if (!store.claimStretch(stretchId)) {
           terminal = "error";
           break;
         }
       }
+      ownedStretchId = stretchId;
 
       const startedPayload = {
         stretchId,
@@ -1917,7 +2037,12 @@ export async function runConversation(gateway, {
         selectedDuties,
         findingsExpectation: findingsExpectationFor(duty, env),
         dutyGuidance: dutyGuidanceFor(duty),
+        objective,
+        dutyDescriptions: model?.duties ?? {},
+        recovery: recovered ? `Read ${recovered.context} before acting. Verify the last commands' effects; an interrupted command is not proof of success. Continue the same objective.` : null,
       });
+      if (pendingMessages.length) store.append({ kind: "messages-consumed", duty, stretch: stretchId,
+        payload: { throughIndex: Math.max(...pendingMessages.map((m) => m.index ?? -1)), count: pendingMessages.length } });
 
       const tee = makeStretchEventTee(store, {
         stretchId,
@@ -1976,6 +2101,7 @@ export async function runConversation(gateway, {
           },
           onUsage,
           signal: stretchAbort.signal,
+          timeoutMs: duty === "triage" ? Math.min(STRETCH_TIMEOUT_MS, 120_000) : STRETCH_TIMEOUT_MS,
           env,
         });
       } finally {
@@ -2058,33 +2184,22 @@ export async function runConversation(gateway, {
       }
 
       // Exit gate — with an in-session re-ask only where the session is warm.
-      const reAsk = route.target.runtime === "agent-sdk" && result.ok
-        ? async (prompt) => {
-            const r = await gateway.runAgentSdkTurn(route, prompt, null, {
-              sessionKey: `stretch:${stretchId}`,
-              conversationId,
-              turnId: `${conversationId}#${ordinal}#re-ask`,
-              onUsage: (row) => onUsage({ ...row, phase: "re-ask" }),
-            });
-            return r?.reply ?? "";
-          }
-        : null;
+      // runStretch already closed the native session. Re-asking that key used
+      // to create a fresh agent without its brief, cwd or exit contract.
+      const reAsk = null;
       const repair = async (prompt) => {
-        const floorLadder = await ladderForDuty(gateway, duty, 1);
-        const floorRoute = routeFromRung(floorLadder.rungs[0], { effort: "low", duty, level: 1 });
-        const r = await gateway.runAgentSdkTurn(
-          floorRoute.target.runtime === "agent-sdk" ? floorRoute : baseRoute ?? floorRoute,
-          prompt,
-          null,
-          {
-            sessionKey: `repair:${stretchId}`,
-            conversationId,
-            turnId: `${conversationId}#${ordinal}#repair`,
-            onUsage: (row) => onUsage({ ...row, phase: "repair" }),
-            ...(scope.cwd ? { cwd: scope.cwd } : {}),
-          }
-        );
-        await gateway.releaseConversationSessions?.(`repair:${stretchId}`)?.catch?.(() => {});
+        const floorLadder = await ladderForDuty(gateway, "triage", 1);
+        const repairRung = floorLadder?.rungs?.find((r) => r.runtime === "agent-sdk");
+        if (!repairRung) return ""; // only this adapter enforces an empty tool inventory
+        const floorRoute = routeFromRung(repairRung, { effort: "low", duty, level: 1 });
+        // Formatting repair cannot do more work or wait indefinitely. The
+        // provider-neutral run path preserves cancellation and teardown.
+        const repairRoute = { ...floorRoute, target: { ...floorRoute.target,
+          tools: [], mcpServers: null, mcpTools: [], maxTurns: 1 } };
+        const r = await runStretch(gateway, { route: repairRoute, brief: prompt,
+          stretchId: `repair-${stretchId}`, conversationId, cwd: scope.cwd,
+          timeoutMs: 45_000, signal, env,
+          onUsage: (row) => onUsage({ ...row, phase: "repair" }) });
         return r?.reply ?? "";
       };
 
@@ -2100,7 +2215,7 @@ export async function runConversation(gateway, {
         // generic no-handoff line even for a dead runtime.
         runtimeError: !result.ok && runtimeCodexEnabled(env) ? (result.error ?? null) : null,
         reAsk,
-        repair,
+        repair: result.ok ? repair : null,
         // Rule 10 (anti-fabrication) must look where the stretch actually
         // worked: a project stretch's file/gate/run refs live in the repo,
         // not the composition dir.
@@ -2134,9 +2249,26 @@ export async function runConversation(gateway, {
       if (policy.rewritten) {
         store.append({ kind: "policy-rewrite", duty, stretch: stretchId, payload: { from: gate.handoff.nextSteps.next, to: policy.next, reason: policy.reason } });
         gate.handoff.nextSteps = { ...gate.handoff.nextSteps, next: policy.next, why: `${gate.handoff.nextSteps.why} [policy: ${policy.reason}]` };
+        if (policy.items) gate.handoff.nextSteps.items = [...new Set([...gate.handoff.nextSteps.items, ...policy.items])];
+        if (policy.verificationMissing) {
+          gate.handoff.status = "partial";
+          gate.handoff.failedApproaches.push({ approach: "Report completion", why: "Completed verification was not recorded with a resolvable run/gate reference; record it before closing." });
+        }
         // A refused answer classification resumes the work rail. Persist a
         // valid contract rather than answer + a nonterminal next duty.
         if (gate.handoff.completion === "answer") gate.handoff.completion = "work";
+        if (policy.next === "needs-input") {
+          gate.handoff.status = "partial";
+          gate.handoff.blocker = { what: policy.reason, needs: "Review the saved work and send a message to continue", who: "user" };
+          gate.handoff.summary = `${policy.reason}.\n\n${gate.handoff.summary}`.slice(0, 4000);
+        }
+        store.writeHandoff(ordinal, gate.handoff);
+      }
+      if (deploymentInFlight(store) && !signal?.aborted) {
+        const verificationDuty = ["ops", "validate", "test"].find((d) => selectedDuties.includes(d)) ?? duty;
+        gate.handoff.status = "partial";
+        gate.handoff.completion = "work";
+        gate.handoff.nextSteps = { next: verificationDuty, why: "The supervised deployment must finish and be verified", items: ["Read deployment.json and the deployment log; verify the live node before reporting completion"] };
         store.writeHandoff(ordinal, gate.handoff);
       }
       store.append({
@@ -2204,7 +2336,13 @@ export async function runConversation(gateway, {
       }
     }
 
-    if (terminal === null) terminal = "cap";
+    if (terminal === null) {
+      const lastNext = store.tail(1, { kinds: ["handoff"] })[0]?.payload?.nextSteps?.next;
+      terminal = CONVERSATION_FLOW.terminal.includes(lastNext) ? lastNext : "needs-input";
+      if (!CONVERSATION_FLOW.terminal.includes(lastNext)) parkConversation(store, {
+        reason: `Paused after ${maxStretches} stretches without completing the request. All work and remaining steps are saved; send a message to continue.`,
+      });
+    }
     if (terminal === "done" || terminal === "needs-input") {
       // The closing stretch already wrote the terminal transition — normally.
       // A failed write (evidence guard, rev storm, a board momentarily
@@ -2235,15 +2373,30 @@ export async function runConversation(gateway, {
     }
     onFrame("done", { terminal, stretches });
     return { stretches, terminal };
+    } catch (err) {
+      if (ownedStretchId) store.releaseStretch(ownedStretchId);
+      const failure = recoverInterruptedStretch(store, { reason: `The conversation stopped: ${String(err?.message ?? err).slice(0, 350)}`, maxRecoveries: 0 });
+      store.append({ kind: "note", payload: { origin: "gateway", text: failure?.handoff.summary ?? `The conversation could not continue: ${String(err?.message ?? err).slice(0, 350)}` } });
+      if (failure) await writeCardTransition(gateway, { cardId: (await cardById(conversationId).catch(() => null))?.id,
+        conversationId, stretchId: failure.start.stretch, phase: "error", handoff: failure.handoff, duty: failure.start.duty });
+      onFrame("done", { terminal: "needs-input", error: String(err?.message ?? err) });
+      return { stretches: 0, terminal: "needs-input", error: String(err?.message ?? err) };
+    } finally {
+      if (ownedStretchId) store.releaseStretch(ownedStretchId);
+      steerRegistry().delete(conversationId);
+      await syncWorkSessionTitle(conversationId).catch(reportCardHook);
+      if (ownsWorkLifecycle) await endSessionCard(conversationId).catch(reportCardHook);
+    }
   });
 }
 
 /** Record a user message in the store; a running stretch picks it up at its
  *  next brief, and when nothing is running the caller kicks an advance so a
  *  responder stretch answers from L1. */
-export function recordUserMessage(store, { text, origin = "web", threadId = null, context = null, routing = null, delivery = null, steered = false, clientRequestId = null }) {
+export function recordUserMessage(store, { text, origin = "web", threadId = null, context = null, routing = null, delivery = null, steered = false, clientRequestId = null, questionId = null }) {
   const requestId = typeof clientRequestId === "string" && clientRequestId.trim() ? clientRequestId.trim().slice(0, 200) : null;
-  const normalizedText = String(text ?? "").slice(0, 32_000);
+  const fullText = String(text ?? "");
+  const normalizedText = fullText.slice(0, 32_000);
   if (requestId) {
     // A browser may retry after the gateway recorded the message but its HTTP
     // reply was lost. Read the durable ledger, not a process-local cache: this
@@ -2253,18 +2406,24 @@ export function recordUserMessage(store, { text, origin = "web", threadId = null
     const previous = store.tail(Number.MAX_SAFE_INTEGER, { kinds: ["user-message"] })
       .find((event) => event.payload?.clientRequestId === requestId);
     if (previous) {
-      if (previous.payload.text !== normalizedText) {
+      const previousText = previous.payload.textRef ? store.readPayload(previous.payload.textRef) : previous.payload.text;
+      if (previousText !== fullText) {
         return { ok: false, conflict: true, error: "clientRequestId was already used for a different message" };
       }
       return { ok: true, duplicate: true, ts: previous.ts, seq: previous.seq };
     }
+  }
+  if (questionId != null && pendingConversationQuestion(store)?.id !== questionId) {
+    return { ok: false, conflict: true, error: "This question has already been answered or is no longer active. Refresh the conversation." };
   }
   const running = store.currentStretch();
   return store.append({
     kind: "user-message",
     payload: {
       text: normalizedText,
+      ...(fullText.length > normalizedText.length ? { textRef: store.spillPayload(fullText).ref } : {}),
       ...(requestId ? { clientRequestId: requestId } : {}),
+      ...(questionId ? { questionId } : {}),
       origin,
       threadId,
       arrivedDuringStretch: running,

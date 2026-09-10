@@ -308,7 +308,14 @@ export interface ConnectorOAuth {
   clientSecretSecret: string; // Vault secret NAME holding the OAuth client secret
 }
 
+export interface ConnectorSetupHelp {
+  steps: string[];
+  links?: { label: string; url: string }[];
+}
+
 export interface ConnectorSpec {
+  managed?: boolean;
+  setup_help?: ConnectorSetupHelp;
   auth: "oauth2" | "api_key" | "none";
   actions: ConnectorAction[];
   triggers?: ConnectorTrigger[];

@@ -47,10 +47,23 @@ describe("parseFencedHandoff", () => {
     expect(parseFencedHandoff("text\n```json\n" + JSON.stringify(h) + "\n```")).toMatchObject({ status: "complete" });
     expect(parseFencedHandoff("no fence here")).toBeNull();
     expect(parseFencedHandoff("```handoff\nnot json\n```")).toBeNull();
+    expect(parseFencedHandoff("```handoff\nnot json\n```\n```json\n" + JSON.stringify(h) + "\n```\nReady for the next duty.")).toMatchObject({ status: "complete" });
   });
 });
 
 describe("runExitGate", () => {
+  it("accepts a valid fenced handoff when a malformed file was left behind", async () => {
+    const store = openConversation("corrected-fence", { role: "gateway", env });
+    store.writeHandoff(1, { summary: "unfinished file" });
+    let repairs = 0;
+    const gate = await runExitGate(gateway, {
+      store, stretchId: "st_corrected", ordinal: 1, duty: "implement", route: {},
+      reply: "```handoff\n" + JSON.stringify(goodHandoff()) + "\n```", selectedDuties: DUTIES,
+      repair: async () => { repairs++; return ""; },
+    });
+    expect(gate).toMatchObject({ valid: true, source: "reply", repairs: 0 });
+    expect(repairs).toBe(0);
+  });
   it("a valid handoff FILE passes and gets its identity normalized", async () => {
     const store = openConversation("g1", { role: "gateway", env });
     store.writeHandoff(1, goodHandoff());

@@ -18,6 +18,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runConversation, recordUserMessage, steerRunningStretch, steerableStretch, tripwires, steeredHandoff, applyFlowPolicy } from "../fittings/seed/http-gateway/scripts/lib/stretch.mjs";
 // @ts-ignore — pure .mjs
 import { openConversation } from "../packages/claude-pty/src/conversation-store.mjs";
+// @ts-ignore
+import { pendingConversationQuestion } from "../packages/claude-pty/src/conversation-question.mjs";
 
 const CARD = "01M1STEERCARD0000000000001";
 const LADDER = {
@@ -229,10 +231,10 @@ describe("steering a stretch in flight", () => {
 });
 
 describe("a message on a settled card puts it back to work", () => {
-  it("the responder moves the card to Running, answers, and settles it back to done", async () => {
+  it.each(["typed", "suggested"])("a %s reply moves the card to Running, answers, and settles it back to done", async (mode) => {
     const port = await startBoard();
     writeFileSync(path.join(tmp, "ui-fittings", "kanban-loop.json"), JSON.stringify({ url: `http://127.0.0.1:${port}` }));
-    boardCard = { ...boardCard, list: "done", status: "ok" };
+    boardCard = { ...boardCard, list: "done", status: "ok", conversationId: null };
     const briefs: Array<{ duty: string; brief: string }> = [];
     const gateway = fakeGateway(["triage", "responder"], async (route, brief) => {
       briefs.push({ duty: route.duty, brief });
@@ -245,9 +247,12 @@ describe("a message on a settled card puts it back to work", () => {
     patches.length = 0;
 
     const store = openConversation(CARD, { role: "test", env });
-    recordUserMessage(store, { text: "is this deployed already?", origin: "kanban" });
+    expect(recordUserMessage(store, { text: "is this deployed already?", origin: "kanban",
+      ...(mode === "suggested" ? { questionId: pendingConversationQuestion(store).id, clientRequestId: "suggested-reply" } : {}),
+    }).ok).toBe(true);
     const result = await runConversation(gateway as never, { conversationId: CARD, env });
     expect(result).toEqual({ stretches: 1, terminal: "done" });
+    expect(patches.find((patch) => patch.list === "running")?.conversationId).toBe(CARD);
     expect(briefs.at(-1)!.duty).toBe("responder");
     expect(briefs.at(-1)!.brief).toContain("How to answer on this duty");
     expect(briefs.at(-1)!.brief).toContain("is this deployed already?");

@@ -48,6 +48,8 @@ export class AckSink {
     this.voice = voice;
     this.languageMemory = languageMemory;
     this.pendingSpeaks = new Map(); // ack id -> {sentAt, sessionId, timer}
+    this.replyClaims = new Map();
+    this.ackDeliveries = new Map();
     // Fired when a forwarded speak gets NO receipt inside the window. A socket
     // send is not delivery - the app can be suspended with the socket looking
     // open - and 26 of 44 speaks timing out in one day is what "I didn't get a
@@ -168,18 +170,39 @@ export class AckSink {
     for (const [id, until] of this.mutedSessions) if (until <= this.now()) this.mutedSessions.delete(id);
   }
 
+  // The native sink and the visible page watch the same reply. Claim before
+  // any await; content/language must not be used as a reply identity.
+  claimReply(key, owner) {
+    if (!key) return true;
+    const cutoff = this.now() - 10 * 60_000;
+    for (const [id, claim] of this.replyClaims) if (claim.at < cutoff) this.replyClaims.delete(id);
+    if (this.replyClaims.has(key)) return false;
+    if (owner === "page" && this.speakableSession()) return false;
+    this.replyClaims.set(key, { owner, at: this.now() });
+    while (this.replyClaims.size > 200) this.replyClaims.delete(this.replyClaims.keys().next().value);
+    return true;
+  }
+
   async handleAck(ack) {
     if (!ack || typeof ack !== "object" || typeof ack.text !== "string" || ack.text.trim() === "") {
       return { status: 400, body: { error: "ack.text is required" } };
     }
-    // The other half of the user's rule: "or a reply was in english". An ack
-    // is Zeca speaking, and what he just spoke sets the language of the next
-    // cue. The ack carries its own `lang` when kanban-loop resolved one;
-    // failing that the text itself is the evidence.
-    if (this.languageMemory) {
-      if (typeof ack.lang === "string") this.languageMemory.noteLanguage(null, ack.lang);
-      else this.languageMemory.note(null, ack.text);
+    // Retries must not speak a second time, even when they arrive mid-render.
+    const key = ack.idempotencyKey || ack.id;
+    const cutoff = this.now() - 10 * 60_000;
+    for (const [id, entry] of this.ackDeliveries) if (entry.at < cutoff) this.ackDeliveries.delete(id);
+    if (key && this.ackDeliveries.has(key)) return this.ackDeliveries.get(key).work;
+    const work = this.deliverAck(ack);
+    if (key) {
+      this.ackDeliveries.set(key, { at: this.now(), work });
+      while (this.ackDeliveries.size > 200) this.ackDeliveries.delete(this.ackDeliveries.keys().next().value);
     }
+    return work;
+  }
+
+  async deliverAck(ack) {
+    // Output is not a language observation: an unrelated English card update
+    // must not turn the next Portuguese wake cue into "Yes?".
     // 1. Echo window opens FIRST — before any speak instruction leaves.
     const registered = this.echoGuard.register({ text: ack.text, echo: ack.echo ?? null });
     this.counters.bump("acks_in");
@@ -197,11 +220,21 @@ export class AckSink {
         // never on localhost, so an absolute machine-local URL would be
         // unreachable AND mixed content (the standing house rule).
         const speak = clip ? { ...ack, audioPath: `/speak/${clip.id}.mp3` } : ack;
+        // The echo-guard fingerprint and the receipt timer must expire together:
+        // a longer wait for the phone's receipt with a shorter echo-suppression
+        // window means the tail of a slow reply escapes suppression the moment
+        // the guard's window closes first (2026-09-09 echo diagnosis).
+        const receiptTimeoutMs = this.cfg.speakReceiptTimeoutMs ?? Math.min(200_000, Math.max(SPEAK_RECEIPT_TIMEOUT_MS, ack.text.split(/\s+/).length * 700 + 30_000));
+        // Never shorter than the old flat 120s default - the receipt-timer
+        // formula's floor (30s) is far too tight a fingerprint window for a
+        // short ack; only stretch it past 120s when the formula asks for more.
+        this.echoGuard.startPlayback(ack.id, ack.text, { ttlMs: Math.max(120_000, receiptTimeoutMs) });
         session.socket.send(JSON.stringify({ type: "speak", ack: speak }));
         this.counters.bump("speaks_forwarded");
         const timer = setTimeout(() => {
           const pending = this.pendingSpeaks.get(ack.id);
           if (this.pendingSpeaks.delete(ack.id)) {
+            this.echoGuard.finishPlayback(ack.id);
             this.counters.bump("speak_receipt_timeouts");
             // It did not answer: stop choosing it for a while.
             this.muteSession(pending?.sessionId);
@@ -211,7 +244,7 @@ export class AckSink {
               this.log.error(`[capture-service] speak-timeout hook failed: ${err?.message ?? err}`);
             }
           }
-        }, this.cfg.speakReceiptTimeoutMs ?? SPEAK_RECEIPT_TIMEOUT_MS);
+        }, receiptTimeoutMs);
         timer.unref?.();
         this.pendingSpeaks.set(ack.id, { sentAt: this.now(), sessionId: session.record.id, timer });
         this.logAck({
@@ -225,6 +258,7 @@ export class AckSink {
         });
         return { status: 200, body: { ok: true, registered, delivered: "socket" } };
       } catch (err) {
+        this.echoGuard.finishPlayback(ack.id);
         this.counters.bump("speak_forward_failed");
         this.log.error(`[capture-service] speak forward failed: ${err?.message ?? err}`);
         // fall through to push
@@ -279,6 +313,7 @@ export class AckSink {
     }
     clearTimeout(pending.timer);
     this.pendingSpeaks.delete(msg.spoken);
+    this.echoGuard.finishPlayback(msg.spoken);
     if (msg.ok) {
       this.counters.bump("speaks_confirmed");
       this.counters.observe("speak_confirm_ms", this.now() - pending.sentAt);

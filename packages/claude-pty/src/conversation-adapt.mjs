@@ -39,6 +39,7 @@ export function conversationEventId(conversationId, seq) {
  *  outside it is dropped by the sanitizer, taking its whole event with it. */
 export const RENDERED_LEDGER_KINDS = [
   "handoff",
+  "finding",
   "delegation-dispatched",
   "delegation-returned",
   "delegation-failed",
@@ -62,6 +63,7 @@ export const RENDERED_LEDGER_KINDS = [
  */
 const LEDGER_KIND_MAP = {
   handoff: "handoff",
+  finding: "finding",
   "delegation-dispatched": "delegation-dispatched",
   "delegation-returned": "delegation-returned",
   "delegation-failed": "delegation-failed",
@@ -331,6 +333,8 @@ function ledgerRow(record, payload, kind, index) {
     kind,
     title: built.title,
     ...(built.detail ? { detail: cap(built.detail, DETAIL_CAP) } : {}),
+    ...(built.summary ? { summary: cap(built.summary, DETAIL_CAP) } : {}),
+    ...(built.detailFormat ? { detailFormat: built.detailFormat } : {}),
     ...(built.next ? { next: built.next } : {}),
     ...(payloadRef ? { payloadRef } : {}),
     seq: index,
@@ -342,15 +346,35 @@ function buildTitleAndDetail(record, payload) {
     case "handoff": {
       const next = payload?.nextSteps?.next ?? "?";
       const title = `Handoff #${payload.ordinal ?? "?"} - ${payload.status ?? "?"} -> ${next}`;
-      // The row's detail is the WHOLE handoff, pretty-printed and capped: the
-      // summary and the reasoning read first, and the fields a reviewer would
-      // otherwise have to open the raw log for (failedApproaches, evidenceRefs,
-      // blocker) are right there under them.
-      const head = [
-        typeof payload.summary === "string" ? payload.summary : "",
-        payload?.nextSteps?.why ? `Next: ${next} - ${payload.nextSteps.why}` : "",
+      const bullets = (values) => (Array.isArray(values) ? values : []).map(text).filter(Boolean).map((v) => `- ${v}`).join("\n");
+      const section = (name, content) => content ? `### ${name}\n${content}` : "";
+      const evidence = (Array.isArray(payload.evidenceRefs) ? payload.evidenceRefs : [])
+        .map((ref) => [text(ref?.ref), text(ref?.note)].filter(Boolean).join(" — ")).filter(Boolean);
+      const attempts = (Array.isArray(payload.failedApproaches) ? payload.failedApproaches : [])
+        .map((attempt) => [text(attempt?.approach), text(attempt?.why)].filter(Boolean).join(" — ")).filter(Boolean);
+      const blocker = payload.blocker && typeof payload.blocker === "object" ? payload.blocker : {};
+      const detail = [
+        text(payload.nextSteps?.why),
+        section("Next steps", bullets(payload.nextSteps?.items)),
+        section("Evidence", bullets(evidence)),
+        section("Needs attention", [text(blocker.what), text(blocker.needs), text(blocker.who)].filter(Boolean).join("\n\n")),
+        section("Constraints", bullets(payload.activeConstraints)),
+        section("Tried already", bullets(attempts)),
+        section("Discoveries", bullets(payload.surprises)),
       ].filter(Boolean).join("\n\n");
-      return { title, detail: [head, safeJson(payload)].filter(Boolean).join("\n\n") };
+      return { title, summary: text(payload.summary), next: text(next), detail, detailFormat: "markdown" };
+    }
+    case "finding": {
+      const summary = text(payload.claim);
+      if (!summary) return null;
+      const labels = { decision: "Decision saved", change: "Change recorded", fact: "Finding saved" };
+      const pointers = (Array.isArray(payload.pointers) ? payload.pointers : []).map(text).filter(Boolean);
+      return {
+        title: labels[payload.kind] ?? "Finding saved",
+        summary,
+        detail: pointers.length ? `### Sources\n${pointers.map((p) => `- ${p}`).join("\n")}` : null,
+        detailFormat: "markdown",
+      };
     }
     case "approval-requested": {
       const next = text(payload.next) || "the next step";

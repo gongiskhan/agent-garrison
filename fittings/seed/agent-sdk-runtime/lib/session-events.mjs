@@ -494,20 +494,31 @@ export class AgentSdkSessionEventNormalizer {
     if (retracts.length > 0) {
       state.retracts = [...new Set([...state.retracts, ...retracts])].slice(0, RETRACTION_CAP);
     }
-    let blocks = contentArray(message?.message?.content).map(settledBlock).filter(Boolean);
+    const incoming = contentArray(message?.message?.content).map(settledBlock).filter(Boolean);
     // The CLI settles ONE API message as several assistant envelopes sharing the
-    // message id, each carrying a subset of its content - and the thinking block
-    // only ever rides the first. A plain replace therefore ERASES the reasoning
-    // from the event's final revision (the one every reload renders). Thinking,
-    // once seen for a message id, survives every later settle.
-    const priorThinking = state.blocks.filter((block) => block?.type === "thinking");
-    if (priorThinking.length > 0 && !blocks.some((block) => block?.type === "thinking")) {
-      blocks = [...priorThinking, ...blocks];
+    // message id, each carrying a subset of its content. Preserve ALL earlier
+    // blocks, including an answer followed by another text/tool shard. Keep the
+    // stream's block indices intact so later deltas still update the right slot.
+    const blocks = state.blocks.slice();
+    const matched = new Set();
+    for (const block of incoming) {
+      let index = blocks.findIndex((prior, i) => !matched.has(i) && prior && (
+        blocksEqual([prior], [block]) ||
+        (block.type === "tool_use" && block.toolUseId && prior.type === "tool_use" && prior.toolUseId === block.toolUseId)
+      ));
+      if (index < 0 && (block.type === "text" || block.type === "thinking")) {
+        index = blocks.findIndex((prior, i) => !matched.has(i) && state.rawByIndex.has(i)
+          && prior?.type === block.type && block.text.startsWith(prior.text));
+      }
+      if (index < 0) index = blocks.length;
+      blocks[index] = block;
+      matched.add(index);
+      state.rawByIndex.delete(index);
     }
     if (message?.error) {
       blocks.push(errorBlock(assistantFailure(message)));
     }
-    if (blocks.length === 0) {
+    if (blocks.filter(Boolean).length === 0) {
       blocks.push({
         type: "status",
         status: "assistant",
@@ -515,9 +526,8 @@ export class AgentSdkSessionEventNormalizer {
         text: "Assistant emitted an empty message."
       });
     }
-    if (!blocksEqual(state.blocks.filter(Boolean), blocks)) {
+    if (!blocksEqual(state.blocks, blocks)) {
       state.blocks = blocks;
-      state.rawByIndex.clear();
     }
     return [this._assistantEvent(state)].filter(Boolean);
   }

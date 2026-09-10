@@ -10,6 +10,7 @@
     "./router": "./src/router.mjs",
     "./server": "./src/server.mjs",
     "./threads": "./src/threads.mjs",
+    "./conversation-cards": "./src/conversation-cards.mjs",
     "./sidebar-state": "./src/sidebar-state.mjs",
     "./live-event-stream": "./src/live-event-stream.mjs",
     "./thread-registry": "./src/thread-registry.mjs",

@@ -868,7 +868,7 @@ async function selectionsOf(compositionId: string): Promise<FittingSelectionMap>
     expect(entry?.metadata.verify.command).toContain("scripts/verify.sh");
   });
 
-  it("ships INERT: no repository, origin or credential in the shipped config or defaults", async () => {
+  it("ships no client repository or credential and defaults the address to Ekoa", async () => {
     // Rule 6 governs what the FITTING ships, not what a composition configures -
     // exactly as the note below this test states. Asserting the STATIONED config
     // empty here contradicted that, and only passed because this read a
@@ -884,7 +884,7 @@ async function selectionsOf(compositionId: string): Promise<FittingSelectionMap>
     );
     expect(defaults.get("repo_url")).toBe("");
     expect(defaults.get("git_ref")).toBe("");
-    expect(defaults.get("base_url")).toBe("");
+    expect(defaults.get("base_url")).toBe("https://staging.ekoa.io");
   });
 
   // The original working agreement ("compositions/default sees zero change") was

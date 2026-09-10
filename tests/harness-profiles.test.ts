@@ -16,27 +16,39 @@ const agentSdkRoute = (extra: Record<string, unknown> = {}) => ({
 });
 
 describe("duty harness profiles", () => {
-  it("gives every profile Write and Read, because every duty ends by writing its handoff", () => {
+  it("keeps working profiles able to write their handoff, with read-only intake using a fenced handoff", () => {
     for (const [name, tools] of Object.entries(TOOL_PROFILES)) {
-      if (name === "none") continue;
+      if (name === "none" || name === "triage") continue;
       expect(tools, name).toContain("Write");
       expect(tools, name).toContain("Read");
     }
   });
 
-  it("replaces the preset inventory with the shared measured tool set", () => {
+  it("replaces the preset inventory with shared tools including public web lookup", () => {
     const route = applyDutyHarnessProfile(agentSdkRoute(), "implement");
-    expect(route.target.tools).toEqual(["Bash", "Read", "Write", "Edit", "Agent", "TaskOutput", "AskUserQuestion"]);
+    expect(route.target.tools).toEqual(["Bash", "Read", "Write", "Edit", "Agent", "TaskOutput", "AskUserQuestion", "WebSearch", "WebFetch"]);
     expect(route.target.toolProfile).toBe("shared");
   });
 
   // The cache prefix hashes tools -> system -> messages. A tools block that
   // varies by duty forks the prefix, and no stretch can then read another
   // stretch's cached boot. Sharing is worth ~10x what narrowing is.
-  it("gives EVERY duty a byte-identical tools block", () => {
-    const duties = ["implement", "test", "review", "triage", "adversarial-review", "plan", "research", "unmapped"];
+  it("gives working duties a byte-identical tools block", () => {
+    const duties = ["implement", "test", "review", "adversarial-review", "plan", "research", "discuss", "dialogue", "responder", "unmapped"];
     const blocks = duties.map((d) => JSON.stringify(applyDutyHarnessProfile(agentSdkRoute(), d).target.tools));
     expect(new Set(blocks).size).toBe(1);
+  });
+
+  it("bounds triage to read-only intake even when the coding target carries full tools", () => {
+    const route = applyDutyHarnessProfile(agentSdkRoute({ tools: ["Bash", "Agent", "Write"], maxTurns: 50 }), "triage");
+    expect(route.target.tools).toEqual(["Read", "Glob", "Grep"]);
+    expect(route.target.maxTurns).toBe(8);
+    expect(route.target.mcpTools).toEqual(SHARED_MCP_TOOLS);
+  });
+
+  it.each(["responder", "dialogue", "discuss", "research"])("lets %s look up changing facts without a connector", (duty) => {
+    const route = applyDutyHarnessProfile(agentSdkRoute(), duty);
+    expect(route.target.tools).toEqual(expect.arrayContaining(["WebSearch", "WebFetch"]));
   });
 
   it("gives EVERY duty a byte-identical MCP tool set, for the same reason", () => {

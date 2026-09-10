@@ -48,7 +48,12 @@ describe("peer proxy allow-list", () => {
     ["POST", ["threads", "t-1", "permissions", "req-4"]],
     ["GET", ["mesh", "self"]],
     ["GET", ["sessions"]],
-    ["GET", ["sessions", "sess-1", "stream"]]
+    ["GET", ["sessions", "sess-1", "stream"]],
+    ...(["runtimes","projects","sessions"] as const).map(p => ["GET", ["remote-shell",p]] as [string,string[]]),
+    ["POST", ["remote-shell","sessions"]],
+    ["GET", ["remote-shell","sessions","s-1"]],
+    ["GET", ["remote-shell","sessions","s-1","screen"]],
+    ...(["input","keys","bytes","resize"] as const).map(p => ["POST", ["remote-shell","sessions","s-1",p]] as [string,string[]])
   ];
 
   it.each(allowed)("relays %s /%s", (method, segments) => {
@@ -68,20 +73,27 @@ describe("peer proxy allow-list", () => {
   it("every allowed path is described, and the description is the table", () => {
     // A cheap tripwire on the thing that must never grow by accident: if a row
     // is added to ALLOW, this count changes and the diff is visible in review.
-    expect(allowListDescription()).toHaveLength(11);
+    expect(allowListDescription()).toContain("GET session-usage/:id");
+    expect(allowListDescription().filter((entry) => entry.includes("conversation/"))).toEqual([
+      "GET conversation/:id", "GET conversation/:id/question", "GET conversation/:id/log",
+      "GET conversation/:id/summary", "GET conversation/:id/metrics", "GET conversation/:id/stream (SSE)",
+      "GET conversation/:id/handoff/:id", "GET conversation/:id/payload/:id",
+      "POST conversation/:id/message", "POST conversation/:id/cancel",
+    ]);
+    expect(allowListDescription()).toHaveLength(31);
   });
 
   // These are the paths a generic passthrough WOULD have exposed. The web
   // channel's own surface carries attachments, arbitrary file reads and the
-  // remote-shell relay; the app carries the vault. None may cross a node
-  // boundary.
+  // arbitrary exec relay; the app carries the vault. None may cross a node
+  // boundary. Only the explicit terminal controls above can cross it.
   const refused = [
     ["GET", ["vault", "secrets"]],
     ["PUT", ["vault", "secrets"]],
     ["POST", ["attachments"]],
     ["GET", ["file"]],
-    ["GET", ["remote-shell", "sessions"]],
-    ["POST", ["remote-shell", "sessions", "s-1", "input"]],
+    ["POST", ["remote-shell", "exec"]],
+    ["POST", ["remote-shell", "sessions", "s-1", "arbitrary"]],
     ["GET", ["host-map"]],
     ["POST", ["chat"]],
     ["GET", ["compositions"]],
@@ -105,6 +117,9 @@ describe("peer proxy allow-list", () => {
     const del = classifyPeerPath("DELETE", ["threads", "t-1"]);
     expect(del.ok).toBe(false);
     if (!del.ok) expect(del.status).toBe(405);
+
+    expect(classifyPeerPath("DELETE", ["remote-shell", "sessions", "s-1"])).toMatchObject({ok:false,status:405});
+    expect(classifyPeerPath("GET", ["remote-shell", "sessions", "s-1", "input"])).toMatchObject({ok:false,status:405});
 
     const put = classifyPeerPath("PUT", ["threads", "t-1", "inputs"]);
     expect(put.ok).toBe(false);

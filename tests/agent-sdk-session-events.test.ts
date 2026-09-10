@@ -236,6 +236,43 @@ describe("Agent SDK channel-neutral session events", () => {
     ]);
   });
 
+  it("retains a streamed answer when the same API message later settles text and tool shards", () => {
+    const normalizer = new AgentSdkSessionEventNormalizer({ turnId: "forecast" });
+    const events: any[] = [];
+    const stream = (event: any) => events.push(...normalizer.push({ type: "stream_event", event }));
+    const settle = (uuid: string, content: any[]) => events.push(...normalizer.push({
+      type: "assistant", uuid, message: { id: "forecast-message", content },
+    }));
+    stream({ type: "message_start", message: { id: "forecast-message", content: [] } });
+    stream({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } });
+    stream({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Porto: 24°C. [Source](https://example.com/forecast)" } });
+    const answer = { type: "text", text: "Porto: 24°C. [Source](https://example.com/forecast)" };
+    settle("answer", [answer]);
+    stream({ type: "content_block_start", index: 1, content_block: { type: "text", text: "Writing handoff." } });
+    settle("bookkeeping", [{ type: "text", text: "Writing handoff." }]);
+    stream({ type: "content_block_start", index: 2, content_block: { type: "tool_use", id: "write-handoff", name: "Write", input: {} } });
+    stream({ type: "content_block_delta", index: 2, delta: { type: "input_json_delta", partial_json: '{"file_path":"/tmp/handoff.json"}' } });
+    const tool = { type: "tool_use", id: "write-handoff", name: "Write", input: { file_path: "/tmp/handoff.json" } };
+    settle("handoff", [tool]);
+    // A full envelope/replay must not duplicate already streamed or settled blocks.
+    settle("full", [answer, { type: "text", text: "Writing handoff." }, tool]);
+    const retained = latestById(events).get("forecast-message");
+    expect(retained.blocks).toEqual([
+      answer, { type: "text", text: "Writing handoff." },
+      expect.objectContaining({ type: "tool_use", toolUseId: "write-handoff", name: "Write" }),
+    ]);
+    expect(JSON.parse(retained.blocks[2].input)).toEqual({ file_path: "/tmp/handoff.json" });
+  });
+
+  it("merges settled-only shards and completes streamed prefixes without duplicate partial text", () => {
+    const normalizer = new AgentSdkSessionEventNormalizer();
+    normalizer.push({ type: "stream_event", event: { type: "message_start", message: { id: "m", content: [] } } });
+    normalizer.push({ type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "text", text: "The fore" } } });
+    normalizer.push({ type: "assistant", uuid: "a", message: { id: "m", content: [{ type: "text", text: "The forecast." }] } });
+    const last = normalizer.push({ type: "assistant", uuid: "b", message: { id: "m", content: [{ type: "text", text: "Sources checked." }] } }).at(-1);
+    expect(last.blocks).toEqual([{ type: "text", text: "The forecast." }, { type: "text", text: "Sources checked." }]);
+  });
+
   it("preserves retry/rate-limit fields and maps assistant failures without provider secrets", () => {
     const normalizer = new AgentSdkSessionEventNormalizer({
       generationId: "generation-errors",

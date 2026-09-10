@@ -48,6 +48,10 @@ x-garrison:
       default: 3500
       description: Upper bound of the randomized pacing delay added before a send.
   connector:
+    setup_help:
+      steps:
+        - "Open the WhatsApp fitting to show its QR code."
+        - "On your phone, open WhatsApp → Settings → Linked devices → Link a device and scan that code. No API key is needed."
     auth: none
     actions:
       - name: resolve_contact

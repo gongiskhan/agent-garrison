@@ -129,6 +129,8 @@ export class Cues {
   registerEcho(echoGuard, speak) {
     if (!echoGuard || !speak?.text) return;
     echoGuard.registerShort(speak.text);
+    // Short cues may also arrive split into separate STT fragments.
+    echoGuard.startPlayback(`cue:${speak.text}`, speak.text, { ttlMs: 4_000 });
   }
 }
 

@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-09-07T18:21:00.824Z",
+  "updatedAt": "2026-09-10T06:53:39.121Z",
   "categories": [
     {
       "id": "c1",
@@ -83,7 +83,7 @@
           "text": "Voice good enough to be the default on the phone. Dictation with the existing voice capture (or Wispr Flow into the composer) and spoken answers via TTS with barge-in, latency measured and shown, the answer also readable as text. The Companion app's car mode reuses this.",
           "done": false,
           "sentToKanban": null,
-          "noteRef": null
+          "noteRef": "n-voice-feedback-20260909"
         },
         {
           "id": "c1.12",
@@ -160,7 +160,7 @@
           "text": "The conversation component is one component. Badges (model, effort, provider, account, node), click-through to handoffs, findings and files in formatted modals, no raw JSON at the first level, shared by the card modal and the web channel. Audit against plan v2 and list what is missing rather than assume.",
           "done": false,
           "sentToKanban": null,
-          "noteRef": null
+          "noteRef": "n-c2.7"
         },
         {
           "id": "c2.8",
@@ -192,7 +192,7 @@
         },
         {
           "id": "c2.12",
-          "text": "Compact conversation controls and preserve reading space in Conversations and Kanban; show native Claude Code, Codex and Cursor sessions active within five days from every mesh node, open native output as a shell, and show running indicators for local and remote work. Implementation and local checks: docs/validation/2026-09-07-native-session-visibility.md. Complete after live mesh verification.",
+          "text": "Compact conversation controls and preserve reading space in Conversations and Kanban; show native Claude Code, Codex and Cursor sessions active within five days from every mesh node, open native output as a shell, and show running indicators for local and remote work. Native sessions now offer a mobile terminal in their project folder; disconnected owners retain gray rows without spinners and scoped warnings. A compact owner-routed usage panel reads Claude and Codex limits; Cursor exposes its locally available account plan and dashboard, with quotas explicitly unavailable. Shell controls now use the current node, with xterm fallback when direct WebSockets fail, retry-safe launch, exact Dev Env terminal attachment and a native-session composer with an explicit busy-message queue. Implementation and checks: docs/validation/2026-09-07-native-session-visibility.md. Complete after physical-phone acceptance and sustained mesh connectivity.",
           "done": false,
           "sentToKanban": null,
           "noteRef": null
@@ -350,6 +350,13 @@
           "done": false,
           "sentToKanban": null,
           "noteRef": null
+        },
+        {
+          "id": "c3.22",
+          "text": "Suggested replies on Needs Attention cards and in Conversations: bounded handoff choices, free-form replies, owner-node delivery, stale-answer rejection and retry deduplication. Implemented and verified with 265 tests; Pro deployed. Madrid build passed but runtime startup awaits account eligibility and final live response acceptance. Validation: docs/validation/2026-09-09-attention-questions.md.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
         }
       ]
     },
@@ -396,6 +403,13 @@
         {
           "id": "c4.6",
           "text": "Order of training cases. Mode selection first (daily, cheap to get wrong); inbox triage second (high volume, reversible); reply drafting third. Outbound sending earns autonomy last and only through hold windows.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c4.7",
+          "text": "Core Improver and Nightly Sync: shared decisions and user-controlled autonomy for orchestration, skills, Garrison, memory and operations; bounded daily owner-node reviews, verified memory authoring, implementation tasks, safe retries, outcome notices and legacy migration. Implementation and live validation: docs/decisions/2026-09-10-core-improver-nightly-sync.md.",
           "done": false,
           "sentToKanban": null,
           "noteRef": null
@@ -446,6 +460,13 @@
           "id": "c5.6",
           "text": "Credentials live only in the Cofre and the Vault, never in cards, conversations or prompts; the injection tripwire (c3.18) applies to every integration that ingests third-party content.",
           "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c5.7",
+          "text": "Simplify connector setup: Google sign-in, Cortex base URL default https://app.ekoa.io, explain Remote capability CLI, and show credential acquisition instructions for every non-OAuth connector.",
+          "done": true,
           "sentToKanban": null,
           "noteRef": null
         }
@@ -531,7 +552,7 @@
           "text": "Omi channel to Garrison's standard. Pendant BLE direct in the Companion app (the app owns the connection and the speaker); device sound feedback by phase (wake heard, per segment, window closed, task created, failure); Deepgram transcription on Garrison's side; transcripts into memory. Validated end to end with a device mock before his device. Found: partial - the pendant-direct brief of 20 August shipped (docs/pendant-direct-report.md, docs/adr-pendant-direct.md) with configurable pipes and the Zeca wake word, but end-to-end validation against a device mock is not confirmed. Update 2026-09-02 (G7): the pendant reaches the app through the GarrisonPendant plugin with a mock harness on MockPendantTransport (ios/Tests/PendantPluginMockTests.swift) and the session words relayed to the capture page through /api/voice/sessions/<id>/events; the device criterion on a real phone is still the operator's (HANDOFF-garrison-app.md).",
           "done": false,
           "sentToKanban": null,
-          "noteRef": null
+          "noteRef": "n-pendant-recovery-20260909"
         },
         {
           "id": "c7.2",
@@ -579,6 +600,13 @@
           "id": "c7.8",
           "text": "Notifications, one behaviour everywhere. Web push from the PWA with a deep link to the card or conversation, Companion push, Omi push, Slack; no action buttons (iOS does not support them); tapping opens the Command Center row. Update 2026-09-02 (G4): native APNs push from the app with deep links into /talk and Kanban, no action buttons, web push kept as the fallback.",
           "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c7.9",
+          "text": "Make capture credentials internal and automatic; discover every mesh node in iOS without a separate Capture node/token form. Preserve manual pause and verify native failover.",
+          "done": true,
           "sentToKanban": null,
           "noteRef": null
         }
@@ -656,6 +684,13 @@
           "id": "c9.4",
           "text": "Secrets authority on dev-madrid and online-only positioning stay. When dev-madrid is down, new work blocks with a clear error; a fork of shared state is worse than a stop.",
           "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c9.5",
+          "text": "Use main on every mesh node, preserve concurrent work, synchronize through Git, and deploy sequentially with another healthy instance available. Never restart a node with a working Conversation; defer it until completion. Decision: docs/decisions/2026-09-10-main-and-connector-setup.md.",
+          "done": true,
           "sentToKanban": null,
           "noteRef": null
         }
@@ -783,6 +818,11 @@
   ],
   "notes": [
     {
+      "id": "n-conversation-cards-20260909",
+      "title": "Cards from web conversations (9 September 2026)",
+      "body": "The bounded conversation-card slice is accepted on the Pro: automatic cards for web work conversations and an editable Zeca card draft from a recent-message window. Work cards reuse the conversation, preserve the first message and follow runtime lifetime; Zeca cards use board-default start and schedule paths, with self-contained descriptions and source links. All eleven requested journeys and sixteen browser cases pass, including crash, Retry, validation and phone layout. The full suite passed 8,356 tests; focused provider/runtime checks and TypeScript passed afterward. Deployed HTTPS creation at 390px and real configured inference at 10 and 20 messages passed on ca9c06bb. Evidence: docs/validation/2026-09-09-cards-from-conversations.md. This does not close the broader c1 brief workflow or add native, mesh or improver behavior.\n\n9 September approval correction: ending a response no longer completes a card awaiting approval. It remains in To do through exit, archive and startup reconciliation; resuming consumes the ask. The board rejects Done while approval is pending. Two affected Pro cards were recovered with their approval contents preserved. Five focused regressions and a seventeenth browser journey cover the correction; the validation report records deployment and live evidence."
+    },
+    {
       "id": "n-agent-continuity-conversations-20260906",
       "title": "Shared agent context and Conversations audit (6 September 2026)",
       "body": "Claude Code, Codex and Garrison runtimes share one project-scoped Basic Memory authority on dev-madrid, common instructions and metadata-only session awareness. Garrison AGENTS.md is a relative symlink to CLAUDE.md. Existing authored native memory import requires explicit opt-in; no transcripts are imported. Selected default planning/review duties use Astra and validation/test/report duties use Sol, with existing Claude fallbacks. Conversations audit fixes history replay, burst draining, durable input retry deduplication, normal routing controls and cancellation, and improves search, pinned Zeca, compact navigation and composer usability. Evidence and remaining live rollout gates are in docs/validation/2026-09-06-conversations-audit.md, docs/validation/2026-09-06-conversations-ui.md, docs/validation/2026-09-06-codex-duty-quality.md and docs/CODEX_MEMORY_WORKFLOW.md. The broader conversation, mesh and native-phone roadmap items remain open until their own acceptance gates pass."
@@ -830,7 +870,7 @@
     {
       "id": "n-c2-benchmarks",
       "title": "What the three benchmark campaigns concluded, so nobody runs a fourth",
-      "body": "Campaign one (29 August): the mechanism cost 1.6x a plain Claude Code session on the same task; the cause was the boot prefix of each stretch (about 76k tokens of harness: preset, a 41k character CLAUDE.md, tool schemas, eleven gateway tools), not the brief or the conversation context. Campaign two (29 August): cutting the prefix 59 to 61 percent per stretch did not move the bill, because the prefix is paid once per stretch and the invoice is per call, and variance between identical runs (43 percent) exceeded every change. The prefix work still landed and is kept: the request shaper as a seam (the proxy rewrites Anthropic request bodies), tool search through the proxy, a one hour cache TTL on the system breakpoints, credentials symlinked never copied, and the finding that the cwd sits inside the cached prefix (fix in c2.5). Campaign three (30 August, todo app on a seeded repo, frozen spec, four runs per arm): plain Claude Code with a 121k prefix was cheaper and eight times more consistent than Garrison at 16k; cost is driven by the number of stretches (six versus eight stretches swung cost 71 percent) and by the number of adversarial reviews the model chooses (2.4x); n=3 detects only an 80 percent effect and twenty nine runs per arm would be needed. Findings slice 1 (31 August): no detectable cost or quality difference; the register is used but did not reduce re-reads within one provider.\n\nDecision, 31 August: the cost thesis is dropped. Stretches are kept for the freedom they give: subscription, API, different accounts and different providers used indifferently, with cheaper models arriving over time. Measurement is over; the mechanism is improved by using it for real work. Costs are reviewed only later, from the per-stretch numbers already visible. One manual step remains (c2.9): compare the served apps by using them."
+      "body": "Campaign one (29 August): the mechanism cost 1.6x a plain Claude Code session on the same task; the cause was the boot prefix of each stretch (about 76k tokens of harness: preset, a 41k character CLAUDE.md, tool schemas, eleven gateway tools), not the brief or the conversation context. Campaign two (29 August): cutting the prefix 59 to 61 percent per stretch did not move the bill, because the prefix is paid once per stretch and the invoice is per call, and variance between identical runs (43 percent) exceeded every change. The prefix work still landed and is kept: the request shaper as a seam (the proxy rewrites Anthropic request bodies), tool search through the proxy, a one hour cache TTL on the system breakpoints, credentials symlinked never copied, and the finding that the cwd sits inside the cached prefix (fix in c2.5). Campaign three (30 August, todo app on a seeded repo, frozen spec, four runs per arm): plain Claude Code with a 121k prefix was cheaper and eight times more consistent than Garrison at 16k; cost is driven by the number of stretches (six versus eight stretches swung cost 71 percent) and by the number of adversarial reviews the model chooses (2.4x); n=3 detects only an 80 percent effect and twenty nine runs per arm would be needed. Findings slice 1 (31 August): no detectable cost or quality difference; the register is used but did not reduce re-reads within one provider.\n\nDecision, 31 August: the cost thesis is dropped. Stretches are kept for the freedom they give: subscription, API, different accounts and different providers used indifferently, with cheaper models arriving over time. Measurement is over; the mechanism is improved by using it for real work. Costs are reviewed only later, from the per-stretch numbers already visible. One manual step remains (c2.9): compare the served apps by using them.\n\n9 September 2026 operability update: The screenshot investigation found triage editing/restarting its host, an ops redeploy killing the gateway before handoff, and a blank objective in the continuing ledger. Repair preserves native provider/model/effort stretches while adding bounded read-only Sonnet triage, full original requests and actionable handoffs, owner-ledger restart recovery, supervised node deployment and honest completion checks. Working duties retain the shared tool prefix. Tool calls are collapsed by default and expanded headers align with their content. Validation and deployment evidence: docs/validation/2026-09-09-conversation-operability.md. Broader roadmap gates remain open."
     },
     {
       "id": "n-cc-principles",
@@ -910,7 +950,7 @@
     {
       "id": "n-mesh",
       "title": "Multi-node, what is settled",
-      "body": "Decided late August and implemented per AGENTS.md: Garrison is a full node on four machines (dev-madrid, Mac Pro, Mac mini, MacBook Air), all live, no main/dev asymmetry; shared state in exactly one place (the state service on dev-madrid, SQLite behind a tailnet-only HTTP API); code moves only through git on permanent node branches, main updated by convergence; session artifacts stay on their node with a nightly one-way backup; memory moves through git via vault-git-sync; nothing synced by ad-hoc copy; sessions pinned to their node but visible and controllable from anywhere through the mesh proxy; merges autonomous with a pre-merge tag and a decision card; the nightly convergence card at 03:00; secrets authority on dev-madrid; online-only. Cross-machine delegation and session migration are parked. The Command Center inherits all of this: rows carry the node, actions route to the owner."
+      "body": "Decided late August and implemented per AGENTS.md: Garrison is a full node on four machines (dev-madrid, Mac Pro, Mac mini, MacBook Air), all live, no main/dev asymmetry; shared state in exactly one place (the state service on dev-madrid, SQLite behind a tailnet-only HTTP API); code moves only through git on main on every node (operator decision 2026-09-10); idle nodes catch up automatically, restarts are serialized with another healthy node available, and a working Conversation prevents its owner node from restarting; session artifacts stay on their node with a nightly one-way backup; memory moves through git via vault-git-sync; nothing synced by ad-hoc copy; sessions pinned to their node but visible and controllable from anywhere through the mesh proxy; merges autonomous with a pre-merge tag and a decision card; the nightly convergence card at 03:00; secrets authority on dev-madrid; online-only. Cross-machine delegation and session migration are parked. The Command Center inherits all of this: rows carry the node, actions route to the owner."
     },
     {
       "id": "n-memory",
@@ -936,6 +976,26 @@
       "id": "n-open",
       "title": "Open questions to settle as work reaches them",
       "body": "- c1.2: where does intent classification live today (tier classifier, orchestrator matrix, duty-discuss itself), and which of them should own it so the autonomy track has one home?\n- c1.6: when does the background memory pass run for a conversation that never formally ends (idle timeout, or at each stretch exit)?\n- c1.9: brief destination rules: Documents fitting versus the project's docs folder; a project brief probably belongs with the project (agents read it there) and personal or product notes belong in Documents.\n- c3.4: does the attention read model live in the Next app (src) or on its own port; the Command Center is the home page, so src, unless a producer needs it running without the app.\n- c3.13: how a card is \"queued for the loop\": a flag on the card, or the order of the To do list within a project; the flag is explicit and survives reordering.\n- c3.14: which mailbox first, Ekoa or personal; Ekoa has less noise and more client-relevant deadlines.\n- c7.6: which redaction rules on Mac screenshots are enforceable before a frame is stored (window title allowlist is the cheap first rule).\n- c8.1: Signals versus Adjutant; decide when the audit in c8.2 is written.\n- c10.5: memory in Cortex or in the vault; decide after c1.14 passes."
+    },
+    {
+      "id": "n-c2.7",
+      "title": "Readable conversation progress",
+      "body": "9 September 2026 follow-along UI: existing handoff summaries and durable findings now render as readable Markdown in the shared Conversations/Kanban timeline. Next steps, evidence, constraints and failed approaches remain expandable; source records are unchanged. Conversation stretches remain chronological through settlement, preserve manual disclosures, keep tools collapsed, and expose current duty/model/time above the scroller. Readable provider thinking remains visible; empty provider markers are not reconstructed. Focused validation and rollout limits are recorded in docs/validation/2026-09-09-conversation-follow-along.md. Physical-phone acceptance remains open."
+    },
+    {
+      "id": "n-pendant-recovery-20260909",
+      "title": "Pendant connection recovery (9 September 2026)",
+      "body": "D67: fixed CaptureUploader competing retries and stale callbacks, bounded the connection/session handshake, and made the app-lifetime pendant uploader follow the selected capture endpoint and token without reconnecting Bluetooth. Nine local standalone Swift/WebSocket checks pass; 120/120 native XCTest passed and TestFlight build37 uploaded from30c3ceda at15:38 UTC on9 September. Apple processing/installation is not yet observed. Physical-phone launch, background/network recovery, node switch and manual pause acceptance remain open. Evidence: evidence/garrison-app/pendant-recovery-20260909/README.md. This repairs c7.1 without closing its broader scope."
+    },
+    {
+      "id": "n-voice-feedback-20260909",
+      "title": "Voice echo and duplicate reply repair (9 September 2026)",
+      "body": "Fixed native playback echo expiry and short fragments, retry speech duplication, competing native/page reply playback, and unrelated assistant notifications changing the wake language. User speech controls Portuguese/English selection; spoken replies use one language unless translation is requested. Regression and rollout evidence: docs/validation/2026-09-09-voice-feedback.md. Physical-phone acoustic acceptance remains open; this does not close c1.11."
+    },
+    {
+      "id": "n-zeca-resourcefulness-20260909",
+      "title": "Zeca tries practical answer paths (9 September 2026)",
+      "body": "Public web search and fetch are restored to the shared working-tool profile; capability guidance distinguishes installed providers from native tools. Zeca should seek current sources, try a suitable fallback, ask only for essential missing details, and give supported partial answers without fabricating access or facts. Responder follows the latest question without unrelated old work updates. 283 focused tests pass. Initial Pro deployment revealed deferred-tool discovery failure; the follow-up advertises the effective native inventory and exact-name tool discovery. Live Pro responders now perform web lookups and find alternative forecast sources. Final-answer guidance and SDK settled-message preservation address overwritten answers and internal handoff commentary. Deployed on the Pro as 667b1b3b: HTTPS saved-conversation acceptance retained a fresh sourced Portuguese forecast; the missing-location clarification passed. 43/43 startup checks and 17/17 views healthy. Model answer-quality limits remain documented; other nodes were not deployed. Evidence: docs/validation/2026-09-09-zeca-resourcefulness.md. This improves c1.5 without closing its broader research and reading scope."
     }
   ]
 }

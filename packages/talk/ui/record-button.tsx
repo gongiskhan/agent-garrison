@@ -272,7 +272,7 @@ export function RecordButton({ bridge, conversationId, mode = "screen", feedback
       onReply: (reply) => {
         const bridgeNow = speechRef.current;
         if (!bridgeNow || typeof document === "undefined" || document.visibilityState !== "visible") return;
-        void speakReply(bridgeNow, reply.text, { onFallback: (reason) => setVoiceNote(`Phone voice used: ${reason}.`) });
+        void speakReply(bridgeNow, reply.text, { replyKey: `${conversationId}:${reply.stretchId}`, onFallback: (reason) => setVoiceNote(`Phone voice used: ${reason}.`) });
       }
     });
     return stop;

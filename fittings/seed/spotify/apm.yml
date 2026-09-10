@@ -23,6 +23,13 @@ x-garrison:
       description: Preferred Spotify Connect device to target (SPOTIFY_DEVICE_NAME). Empty = the currently active device. Exact names take priority, otherwise a case-insensitive substring must match exactly one controllable device. Missing or ambiguous names fail without playing elsewhere.
       required: false
   connector:
+    setup_help:
+      steps:
+        - "Sign in with Spotify to authorize playback. Playback controls require Spotify Premium and an active Spotify device."
+        - "If this installation has no OAuth app yet, create one in the Spotify Developer Dashboard and register the callback shown below. Copy its Client ID and Client Secret once."
+      links:
+        - label: "Spotify Developer Dashboard"
+          url: "https://developer.spotify.com/dashboard"
     auth: oauth2
     actions:
       - name: current

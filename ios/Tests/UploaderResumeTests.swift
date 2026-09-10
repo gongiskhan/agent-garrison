@@ -18,6 +18,7 @@ final class MockCaptureServer {
     private(set) var receipts: [[String: Any]] = []
     var resumeHighWater: (audio: UInt32, video: UInt32) = (0, 0)
     private var seenSession = false
+    private var startRepliesEnabled = true
 
     init() throws {
         let parameters = NWParameters.tcp
@@ -63,6 +64,7 @@ final class MockCaptureServer {
             switch object["type"] as? String {
             case "session_start":
                 sessionStarts.append(object)
+                guard startRepliesEnabled else { return }
                 let reply: [String: Any] = seenSession
                     ? ["type": "session_resumed", "session_id": object["session_id"] ?? "", "audio_seq": Int(resumeHighWater.audio), "video_seq": Int(resumeHighWater.video)]
                     : ["type": "session_started", "session_id": object["session_id"] ?? ""]
@@ -115,13 +117,20 @@ final class MockCaptureServer {
         queue.sync { sessionStarts.count }
     }
 
+    func setStartRepliesEnabled(_ enabled: Bool) {
+        queue.sync { startRepliesEnabled = enabled }
+    }
+
     func snapshotReceipts() -> [[String: Any]] {
         queue.sync { receipts }
     }
 
     func stop() {
         listener.cancel()
-        connections.forEach { $0.cancel() }
+        queue.sync {
+            connections.forEach { $0.cancel() }
+            connections.removeAll()
+        }
     }
 }
 
@@ -136,6 +145,7 @@ private final class expectationHolder {
 final class UploaderResumeTests: XCTestCase {
     private var server: MockCaptureServer!
     private var spoolDirectory: URL!
+    private var uploaders: [CaptureUploader] = []
 
     override func setUpWithError() throws {
         server = try MockCaptureServer()
@@ -143,20 +153,25 @@ final class UploaderResumeTests: XCTestCase {
     }
 
     override func tearDown() {
+        uploaders.forEach { $0.abandon() }
+        uploaders.removeAll()
         server.stop()
         try? FileManager.default.removeItem(at: spoolDirectory)
     }
 
-    private func makeUploader() -> CaptureUploader {
-        CaptureUploader(
+    private func makeUploader(connectionTimeout: TimeInterval = 10) -> CaptureUploader {
+        let uploader = CaptureUploader(
             baseURL: URL(string: "http://127.0.0.1:\(server.port)")!,
             token: "test-token",
             sessionId: "01UPLOADTEST00001",
             mode: .audio,
             deviceName: "test",
             consent: .shown,
-            spoolDirectory: spoolDirectory
+            spoolDirectory: spoolDirectory,
+            connectionTimeout: connectionTimeout
         )
+        uploaders.append(uploader)
+        return uploader
     }
 
     private func waitUntil(_ timeout: TimeInterval = 8, _ condition: @escaping () -> Bool) {
@@ -223,5 +238,81 @@ final class UploaderResumeTests: XCTestCase {
         let receipt = server.snapshotReceipts()[0]
         XCTAssertEqual(receipt["spoken"] as? String, "ack-1")
         XCTAssertEqual(receipt["ok"] as? Bool, true)
+    }
+
+    func testRepeatedConnectDoesNotOpenCompetingSockets() {
+        let uploader = makeUploader()
+        for _ in 0..<20 { uploader.connect() }
+        waitUntil { uploader.state == .streaming }
+        for _ in 0..<20 { uploader.connect() }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        XCTAssertEqual(server.snapshotSessionStarts(), 1)
+        XCTAssertEqual(uploader.state, .streaming)
+    }
+
+    func testStaleSocketCallbacksCannotDisruptCurrentConnection() {
+        let uploader = makeUploader()
+        uploader.connect()
+        waitUntil { uploader.state == .streaming }
+        let stale = URLSession.shared.webSocketTask(with: URL(string: "ws://127.0.0.1:\(server.port)")!)
+        // Delegate callbacks carry the originating task, including callbacks
+        // that arrive after another socket has already taken over.
+        for _ in 0..<20 {
+            uploader.urlSession(.shared, webSocketTask: stale, didCloseWith: .abnormalClosure, reason: nil)
+            uploader.urlSession(.shared, webSocketTask: stale, didOpenWithProtocol: nil)
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(1.3))
+        XCTAssertEqual(uploader.state, .streaming)
+        XCTAssertEqual(server.snapshotSessionStarts(), 1)
+        uploader.sendAudioPacket(Data([1, 2]), ts: 20)
+        waitUntil { uploader.ackedAudio == 1 }
+    }
+
+    func testDropDuringManySendsRecoversWithOneReplacement() {
+        let uploader = makeUploader()
+        uploader.connect()
+        waitUntil { uploader.state == .streaming }
+        server.dropConnections()
+        for i in 1...300 { uploader.sendAudioPacket(Data(repeating: 7, count: 256), ts: Double(i) * 20) }
+        waitUntil(15) { uploader.ackedAudio == 300 }
+        RunLoop.current.run(until: Date().addingTimeInterval(2))
+        XCTAssertEqual(server.snapshotSessionStarts(), 2, "one broken socket must schedule only one replacement")
+        XCTAssertEqual(uploader.state, .streaming)
+    }
+
+    func testUnconfirmedHandshakeTimesOutAndRecovers() {
+        server.setStartRepliesEnabled(false)
+        let uploader = makeUploader(connectionTimeout: 0.3)
+        uploader.connect()
+        waitUntil { self.server.snapshotSessionStarts() == 1 }
+        waitUntil { uploader.state == .failed("Capture connection timed out") }
+        server.setStartRepliesEnabled(true)
+        waitUntil { uploader.state == .streaming }
+        XCTAssertEqual(server.snapshotSessionStarts(), 2)
+    }
+
+    func testAbandonCancelsPendingRetryAndIgnoresLateCallbacks() {
+        server.setStartRepliesEnabled(false)
+        let uploader = makeUploader(connectionTimeout: 0.2)
+        uploader.connect()
+        waitUntil { uploader.state == .failed("Capture connection timed out") }
+        uploader.abandon()
+        waitUntil { uploader.state == .idle }
+        uploader.connect()
+        RunLoop.current.run(until: Date().addingTimeInterval(1.3))
+        XCTAssertEqual(server.snapshotSessionStarts(), 1)
+        XCTAssertEqual(uploader.state, .idle)
+    }
+
+    func testEndWhileConnectingStopsWithoutServerAcknowledgement() {
+        server.setStartRepliesEnabled(false)
+        let uploader = makeUploader(connectionTimeout: 0.2)
+        uploader.connect()
+        waitUntil { self.server.snapshotSessionStarts() == 1 }
+        uploader.end()
+        waitUntil { uploader.state == .ended }
+        RunLoop.current.run(until: Date().addingTimeInterval(1.3))
+        XCTAssertEqual(server.snapshotSessionStarts(), 1)
+        XCTAssertEqual(uploader.state, .ended)
     }
 }

@@ -777,6 +777,8 @@ export function QuestionBlock({
   answering,
   error,
   active = true,
+  showFreeForm = false,
+  hideOther = false,
   onSelect,
   onOther,
 }: {
@@ -785,10 +787,12 @@ export function QuestionBlock({
   answering?: boolean;
   error?: string;
   active?: boolean;
+  showFreeForm?: boolean;
+  hideOther?: boolean;
   onSelect: (label: string) => void;
   onOther: (text: string) => void;
 }) {
-  const [otherOpen, setOtherOpen] = useState(false);
+  const [otherOpen, setOtherOpen] = useState(showFreeForm);
   const [otherText, setOtherText] = useState("");
   const locked = !active || Boolean(answered) || Boolean(answering);
   const title = q.header?.trim() || q.question?.trim() || "Choose an option";
@@ -811,7 +815,7 @@ export function QuestionBlock({
             {o.description && <span className="cc-question-opt-desc">{o.description}</span>}
           </button>
         ))}
-        {!locked && !otherOpen && (
+        {!locked && !otherOpen && !hideOther && (
           <button type="button" className="cc-question-other" onClick={() => setOtherOpen(true)}>
             Other...
           </button>
@@ -822,11 +826,12 @@ export function QuestionBlock({
           <input
             className="cc-question-otherinput"
             value={otherText}
-            placeholder="Type your answer"
-            autoFocus
+            placeholder="Or write your own reply…"
+            aria-label="Your reply"
+            autoFocus={!showFreeForm}
             onChange={(e) => setOtherText(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && otherText.trim()) {
+              if (e.key === "Enter" && !e.nativeEvent.isComposing && otherText.trim()) {
                 e.preventDefault();
                 onOther(otherText.trim());
               }
@@ -1128,6 +1133,8 @@ export interface ClaudeChatProps {
    * the node form behaves exactly as before.
    */
   composerAdornment?: React.ReactNode | ((api: ComposerAdornmentApi) => React.ReactNode);
+  /** Contextual question above the normal free-form composer. */
+  composerHeader?: React.ReactNode;
   /** Optional title shown in the header. */
   title?: string;
   /**
@@ -1284,7 +1291,7 @@ export interface ClaudeChatProps {
   musterUrl?: string;
 }
 
-export function ClaudeChat({ transport, composerAdornment, title, placeholder, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, autoShowTranscript = false, transcriptOnly = false, transcriptFocusEventId, transcriptLive, transcriptOnActivityChange, transcriptEmptyMessage, draftKey, routing, routeOptions, onPinChange, onOpenTranscript, musterUrl }: ClaudeChatProps) {
+export function ClaudeChat({ transport, composerAdornment, composerHeader, title, placeholder, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, autoShowTranscript = false, transcriptOnly = false, transcriptFocusEventId, transcriptLive, transcriptOnActivityChange, transcriptEmptyMessage, draftKey, routing, routeOptions, onPinChange, onOpenTranscript, musterUrl }: ClaudeChatProps) {
   const feat = features ?? {};
   const railOn = Boolean(feat.routing);
   // Seed from a persisted thread's transcript when the host provides one. Computed
@@ -3442,6 +3449,7 @@ export function ClaudeChat({ transport, composerAdornment, title, placeholder, f
       )}
 
       <div className="cc-composer">
+        {composerHeader}
         {/* The flight rail: live badges for the turn in flight plus the pin
             dropdowns, mounted while busy, while anything is pinned, or on demand
             from the toolbar's Route chip. */}

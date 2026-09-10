@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { readLibrary } from "@/lib/library";
-import { scopedSecrets, setOAuthGrant } from "@/lib/vault";
+import { scopedSecrets, setOAuthGrant } from "@/lib/connector-auth";
 import { connectorIdOf } from "@/lib/connectors-view";
 import { consumeOAuthState } from "@/lib/oauth-state";
 import { publicOrigin } from "@/lib/public-origin";
@@ -45,6 +45,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
 
     const res = await fetch(oauth.tokenUrl, {
       method: "POST",
+      signal: AbortSignal.timeout(10_000),
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         grant_type: "authorization_code",

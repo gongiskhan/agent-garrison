@@ -32,6 +32,7 @@ test("capture page: with the native bridge the controls render and the menu list
         GarrisonNode: {
           current: resolve({ name: "sim", shellOrigin: location.origin, captureBaseURL: location.origin, hasToken: true }),
           list: resolve({ nodes: [] }),
+          refresh: resolve({ nodes: [] }),
           info: resolve({ appVersion: "1.0", build: "0", platform: "ios", bundleId: "test" }),
           ...events()
         },
@@ -47,6 +48,9 @@ test("capture page: with the native bridge the controls render and the menu list
   });
   await page.goto("/capture");
   await expect(page.getByTestId("capture-native")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add a node" })).toHaveCount(0);
+  await expect(page.getByLabel("Capture token", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("The app discovers every node automatically", { exact: false })).toBeVisible();
   await expect(page.getByTestId("capture-fallback")).toHaveCount(0);
   await expect(page.getByTestId("capture-phase")).toHaveText("idle");
   await expect(page.getByRole("button", { name: "Record microphone" })).toBeVisible();
@@ -81,6 +85,7 @@ test("conversation composer: the record button appears with the native bridge an
         GarrisonNode: {
           current: resolve({ name: "sim", shellOrigin: location.origin, captureBaseURL: location.origin, hasToken: true }),
           list: resolve({ nodes: [] }),
+          refresh: resolve({ nodes: [] }),
           info: resolve({ appVersion: "1.0", build: "0", platform: "ios", bundleId: "test" }),
           ...events()
         },
@@ -144,6 +149,7 @@ test("capture page: a connected pendant shows its state and streams the session'
         GarrisonNode: {
           current: resolve({ name: "sim", shellOrigin: location.origin, captureBaseURL: location.origin, hasToken: true }),
           list: resolve({ nodes: [] }),
+          refresh: resolve({ nodes: [] }),
           info: resolve({ appVersion: "1.0", build: "0", platform: "ios", bundleId: "test" }),
           ...events()
         },

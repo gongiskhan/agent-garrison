@@ -59,6 +59,21 @@ function codexHomes(env = process.env) {
   return homes;
 }
 
+/** The service's isolated profile is not the user's native CLI profile.
+ * Resolve resumes by recorded identity; never borrow a same-cwd sibling.
+ * Sandboxes retain their explicit isolated home. */
+export function localCodexHome(resume = null, env = process.env) {
+  const home = env.HOME?.trim() || os.homedir();
+  const nodeHome = path.join(home, ".garrison");
+  if (["dev", "codex"].includes(env.GARRISON_INSTANCE_ID) ||
+      path.resolve(env.GARRISON_HOME || nodeHome) !== nodeHome) return env.CODEX_HOME || null;
+  if (resume) {
+    const row = list({ env }).find(row => row.id === resume);
+    if (row?.runtimeHome) return row.runtimeHome;
+  }
+  return path.join(home, ".codex");
+}
+
 function readSessionIndex(home) {
   const map = new Map();
   let text;
@@ -150,6 +165,7 @@ export function list({ windowDays = 5, now = Date.now(), env = process.env } = {
         rows.push({
           id: meta.id,
           runtime: "codex",
+          runtimeHome: home,
           kind: "cli",
           cwd: typeof meta.cwd === "string" ? meta.cwd : null,
           project: projectName(meta.cwd),

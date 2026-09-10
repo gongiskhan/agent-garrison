@@ -32,12 +32,19 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
+DEPLOY_HEAD="$(git rev-parse HEAD)"
+if [ -n "${GARRISON_CONVERSATION_ID:-}" ]; then
+  echo "Deployment deferred: this Conversation is working on this node. Deploy another mesh node first." >&2
+  exit 75
+fi
 # shellcheck source=lib/app-server.sh
 . "$SCRIPT_DIR/lib/app-server.sh"
 
 PROD_PORT="$(bash scripts/garrison-instance.sh prod env | sed -n 's/^GARRISON_APP_PORT=//p')"
 PROD_HOME="$(bash scripts/garrison-instance.sh prod env | sed -n 's/^GARRISON_HOME=//p')"
 BASE="http://127.0.0.1:${PROD_PORT}"
+node "$SCRIPT_DIR/garrison-deployment-guard.mjs" check "$BASE" "$PROD_HOME" "$$"
+
 UNIT="garrison-prod.service"
 LAUNCHD_LABEL="io.garrison.node"
 
@@ -47,6 +54,10 @@ say() { printf "\n[reload] %s\n" "$*"; }
 # Fail here and prod keeps serving the last good build, exactly as redeploy does.
 say "building prod bundle (.next-prod)"
 bash scripts/garrison-instance.sh prod build
+
+# Serialize mesh restarts and close new admissions before the final live check.
+node "$SCRIPT_DIR/garrison-deployment-guard.mjs" acquire "$BASE" "$PROD_HOME" "$$"
+trap 'node "$SCRIPT_DIR/garrison-deployment-guard.mjs" release "$BASE" "$PROD_HOME" "$$"' EXIT
 
 # --- swap the app server ----------------------------------------------------
 # Same OS detection as garrison-redeploy.sh: systemd user unit on Linux,
@@ -111,3 +122,6 @@ else
   echo "[reload] up failed — check the Run log at $BASE" >&2
   exit 1
 fi
+
+# Record only after the composition and every view are actually healthy.
+node "$REPO_ROOT/scripts/garrison-main-sync.mjs" record "$DEPLOY_HEAD" "$BASE" "$PROD_HOME"

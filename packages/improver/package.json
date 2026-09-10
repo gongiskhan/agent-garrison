@@ -1,0 +1,19 @@
+{
+  "name": "@garrison/improver",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Core continuous improvement and Nightly Sync for Garrison",
+  "exports": {
+    ".": "./src/service.mjs",
+    "./contracts": "./src/contracts.mjs",
+    "./store": "./src/store.mjs",
+    "./collect": "./src/collect.mjs",
+    "./setup": "./src/setup.mjs",
+    "./nightly": "./src/nightly.mjs"
+  },
+  "peerDependencies": {
+    "@garrison/state-client": "*",
+    "@garrison/claude-pty": "*"
+  }
+}

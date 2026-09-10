@@ -41,6 +41,26 @@ Selecting a known shell attaches its existing terminal without allocating anothe
 
 ## Implementation note
 
+### 2026-09-08: phone discovery and the misleading Shells entry point
+
+The user's iOS build 35 screenshots showed a separate usability failure: native rows followed the complete conversation history, while the terminal icon opened the project-shell spawner. Its transport array began with CSG, so opening it tried an unavailable local `devtunnel` executable on the Pro. The existing row-count acceptance did not establish phone discoverability.
+
+The rail now has an always-visible Shell sessions switch with its count and running indicator. The terminal icon selects that list, expands it and scrolls to its beginning. Machine and app filters make Mini/Claude Code/Cursor sessions directly reachable. Opening a native row keeps the existing read-only terminal; creating a new shell remains a separate action. The legacy project-folder browser now prefers the local machine even when CSG is first in its transport array.
+
+Full TalkApp regressions use a 393 × 852 phone viewport in Chromium and WebKit, eighty preceding conversations and an old saved collapsed-session preference. They verify the switch is visible without scrolling, machine/app filtering reveals the matching row in the viewport, its spinner is present, the legacy picker defaults to local, and selecting existing native output does not create a shell or invoke CSG. Fourteen focused tests and TypeScript passed. These are browser checks; actual iOS build 35 acceptance remains the user's device.
+
+The first live WebKit run on the Pro confirmed all four requested owner/app selections and opened Mini Cursor output. A repeat caught a late initial-conversation response closing the drawer. Initial restoration now preserves a drawer the user opened and yields to explicit session selection; selecting native output aborts pending conversation restoration. The phone regressions hold the initial response until the drawer is open or a native session has been selected, then prove neither is replaced. Explicit styling also preserves 44 px native-filter touch targets in WebKit. The same fourteen focused checks and TypeScript passed with these delayed-response cases.
+
+A metadata-only Mini check found the expected seven recent Cursor sessions and one native Claude Code session. Its local Claude Desktop Code session files were last changed in April, and Cowork session artifacts in August; recent scheduler/plugin configuration writes are not session activity. No client transcript, prompt, project or desktop account was changed. The CSG origin remains unavailable, so sessions worked there after its last publication cannot be independently confirmed until it reconnects.
+
+### 2026-09-08: retain the complete list during slow or failed refreshes
+
+A full owner-index comparison reproduced eight recent Mini sessions disappearing from the Mini's own Conversations API: its index took 5,148 ms against the collector's 2,500 ms deadline. Pro and dev-madrid retained those same eight through published metadata. The collector now falls back to the owner's published snapshot and retains successful local, peer and node-registry reads across failures. Successful empty reads still remove rows. Retained snapshots keep their original activity dates; stale working states become unknown before the five-day filter runs.
+
+The browser also distinguishes failed or malformed refreshes from a successful empty list. It retains recent rows without claiming unconfirmed running status, shares overlapping focus/timer requests, and aborts stalled requests or unmounted views. A selected transcript can remain open without retaining a stale running lamp.
+
+Twenty focused checks passed, including the actual 2.5-second local timeout and a full TalkApp Chromium test comparing fifteen distinct identities across five owners and three clients. The browser test covers HTTP failure, malformed results, status recovery, overlapping requests, five-day expiry and successful empty results. TypeScript and diff checks passed. Before release, all three reachable app origins agreed on 77 identities: Pro 21, dev-madrid 39, Mini 8, csg 4 and Air 5. Live post-release acceptance is recorded in shared Garrison Node Operations; csg's own origin and Air were unavailable at this baseline, so cached metadata is not evidence of live owner availability.
+
 A later long-running HTTPS check found 214 native DOM rows for only 70 unique identities, with stale spinners. The Mini supplied two Cursor sessions twice: their real Cursor journals and hook-only Claude aliases sharing the same node/session React key. Cursor deliberately executes compatible `~/.claude/settings.json` hooks alongside native hooks ([compatibility contract](https://prod.cursor.com/docs/reference/third-party-hooks)); the installed Mini code also confirmed that its documented `cursor_version` payload field reaches both invocations. The observer now uses that payload marker to identify Cursor, without trusting an environment variable that a real Claude terminal could inherit.
 
 The index favors directly discovered identities, suppresses aliases of owned shells, and prefers a native Cursor event when an older observer recorded paired hooks before the first journal. Hook-only Cursor identities cannot resume until CLI metadata proves a resume target. The rail also protects against older peer snapshots: it renders each node/session identity once, prefers its transcript, and applies conversation/card ownership to all aliases. The browser regression changes duplicate ordering across six polls and verifies one Cursor row, a working spinner during quiet polls, and no spinner after completion. The focused final run passed 54 tests plus TypeScript; `/private/tmp/garrison-native-alias-final-20260907.log` holds owner evidence. Actual client behavior was observed without sending a prompt: a Mini Cursor IDE session was working at 16:14:02 UTC, emitted its stop at 16:14:55.530, and subsequently appeared idle on both Mini and the Pro's mesh API.
@@ -73,3 +93,138 @@ stream and browser run passed all 30 tests, including the existing conversation
 stream regressions; TypeScript passed. Owner evidence:
 `/private/tmp/garrison-native-final-checks-20260908.log` and
 `/private/tmp/garrison-native-stream-batched-typecheck-20260908.log`.
+
+## Structured native conversations — 2026-09-08
+
+The user's latest screenshot exposed tool results labelled USER in the terminal
+observer. Claude deliberately records tool results inside user envelopes; the
+parser already identifies these correctly. Native sessions now open in the shared
+conversation renderer, which associates results with their tool calls and folds
+completed activity. Plain output remains available, with block-specific labels
+for tool calls, results and progress rather than envelope-role labels.
+
+Owned shells retain the matching native journal in the session index before the
+native duplicate is suppressed. Their conversation view stays visible while the
+real terminal remains mounted behind Show shell. The composer sends to that exact
+shell through its existing input endpoint. Failed sends retain the draft and show
+the failure; duplicate submissions and composition-key Enter are guarded. This
+does not manufacture an input channel for a running external IDE or arbitrary
+unattached terminal. Resumable sessions retain the explicit Continue in a shell
+action, and attachable background sessions retain Attach.
+
+Collapsing custom groups, Ungrouped, or the shell section hides every contained
+row, including selected and running sessions. Only the standing Zeca row remains
+outside those groups. Each native machine has a persistent collapse control and
+a running indicator on its header. Ungrouped has a header even without custom
+groups. The mobile terminal button now has a 44px target and centered icon.
+
+Focused browser checks cover actual Chromium and WebKit phone rendering, tool
+result attribution, collapsed tool activity, complete group collapse, machine
+collapse persistence, a hidden connected terminal, prompt delivery and failed
+send recovery. Native idle streams also retry closed HTTP failures without
+reopening a successfully completed stream. Existing list-retention, alias,
+initial-load, session-stream and rail tests remain green. Live deployment and
+neutral-shell acceptance are recorded in shared Garrison Node Operations.
+
+The neutral live Codex-shell check found that the service's inherited CODEX_HOME
+selected Garrison's isolated runtime profile. Local node shells now explicitly
+launch new Codex clients with the native profile; resumes select the profile that
+actually contains that session identity. Existing tmux-server environment cannot
+override that choice. Dev/codex sandboxes keep their isolated profiles. The first
+temporary shell was removed without sending a model prompt. A follow-up also
+restores action-button contrast and compacts the native header on phones.
+
+
+## Mobile shells, owner connectivity and account usage — 2026-09-08
+
+Native sessions with a known project folder now offer **Open shell**, including
+busy or non-resumable Cursor IDE sessions. This opens a plain terminal on the
+same node in that folder; it does not start a second agent or inject a prompt into
+the existing IDE. Resume and attach remain explicit. Launch failures are visible
+inside the selected native session, and stalled launches time out. Owned shells
+render the real xterm on phones and keep the existing input composer.
+
+A bounded owner-only session-status endpoint checks reachability without recursive
+mesh aggregation. Published rows remain available during failures, but failed
+owner reads immediately remove running claims. The rail grays disconnected native,
+Garrison and owned-shell rows, including aggregate indicators. Failure warnings
+stay within the selected session; successful polling restores the same identities.
+Failed mesh/thread-list requests also retain rows without stale running indicators.
+
+The compact Usage disclosure performs lazy, owner-routed reads. Claude uses the
+existing minimal one-token header probe with the machine's native credential
+(file or macOS Keychain), plus explicitly labelled cached Garrison account limits.
+Codex uses the documented read-only app-server account API without creating a
+thread; all returned limit buckets are shown. See the
+[OpenAI app-server account protocol](https://learn.chatgpt.com/docs/app-server).
+Credentials and reset-credit controls are never returned. Reads are bounded,
+deduplicated and cached for five minutes; failed refreshes keep prior numbers
+marked stale. These are account-wide observations, not costs attributed to an
+individual session or proof that an old session used today's machine login.
+
+Cursor's local account email/plan are read through an explicit SQLite key allow-list.
+No reliable quota fields were available in the inspected desktop state; the UI
+says so and links to the authenticated Cursor usage dashboard. No client account,
+IDE project or Cursor prompt was changed. A CSG Windows database read through WSL
+returned an I/O error; it remains an unavailable account observation, not zero usage.
+
+TypeScript passed. Focused checks cover full TalkApp Chromium/WebKit phone actions,
+plain-shell launch payloads and owner failures, actual xterm rendering and input,
+connection failure/recovery across all rail types, usage lazy loading while typing,
+malformed/null multi-bucket usage, credential redaction, read-only proxy scope and
+app-server termination. Live Pro probes returned Claude five-hour/weekly and Codex
+multi-bucket limits. Deployment and live browser evidence are recorded separately
+in shared Garrison Node Operations. These browser checks do not substitute for the
+operator's physical iOS build 35 acceptance.
+
+
+Live mobile acceptance caught Safari touch not generating the mouse event used to
+dismiss account usage. The disclosure now closes on pointer input outside it and
+has a visible, 44px Close control; WebKit touch tests cover both paths. The same
+acceptance found dev-madrid publishing its formula-derived Shells address at an
+existing capture-service mapping. Its supported node.json shellOrigin override
+was set from the actual Tailscale serve map (not a new hardcoded code port).
+
+
+## Shell control and Mini Cursor launch — 2026-09-08
+
+The timed-out Mini launch combined an eight-second browser control deadline and
+an independent connection to the owner's fitting. REST controls now traverse the
+current Garrison app and its explicit peer allow-list. Launches have a bounded
+65-second client budget and a persisted request identity: retrying the same
+attempt reconnects to the same tmux session, including after a service restart.
+Arbitrary exec, file access and shell deletion remain outside the peer relay.
+The optional direct terminal WebSocket retains the fast path; its failure enables
+same-origin ANSI screen reads and serialized keyboard input in the real xterm.
+
+Dev Env and Conversations now share the same separate paste/Enter submission
+helper. Multiline text is preserved through a named tmux buffer. Native Claude
+rows can attach to an existing Dev Env terminal only when its native session ID,
+ledger record and live tmux pane agree. Opening or removing this attachment does
+not create, restart or kill the original pane. A bare shell or an unfinished
+agent trust/login screen refuses agent prompts and preserves the draft.
+
+Resumable native sessions expose a composer. An exact attached terminal accepts
+messages directly; a busy, unattached session offers an explicit Queue message
+that waits for idle while its view remains open. Leaving returns the message as
+a recoverable draft, without background submission. Arbitrary Cursor IDE windows
+remain observable; Open shell creates a plain terminal in their project, and
+New shell can start the installed Cursor CLI. This does not claim an IDE input API.
+
+Live Mini diagnostics found the local Cursor CLI start completed in 2.03 seconds.
+The dedicated neutral test reached Workspace Trust Required in indy-api; after
+accepting that scoped workspace, it answered Ready to a prompt forbidding tools
+and file changes. Owner evidence: ~/.garrison/convergence/shell-control-check/.
+No existing client IDE session was altered. Final deployment and browser results
+are recorded in shared Garrison Node Operations; physical iPhone acceptance is
+still separate from phone-sized WebKit evidence.
+
+
+Mini startup subsequently reproduced a separate transport deadline: its first
+native Node authenticated request to the state authority took 7,391ms; the next
+config read took 339ms. The shared client's former five-second default repeatedly
+aborted Basic Memory and Kanban startup. Its bounded default is now fifteen
+seconds; explicit probe/request budgets and the existing single connection retry
+remain unchanged. Generated fitting copies come from the one shared client.
+A delayed real HTTP response beyond five seconds and an explicit short deadline
+cover this operational fix. No optional fitting behavior or authority changed.

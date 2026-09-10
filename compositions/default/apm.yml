@@ -23,8 +23,6 @@ dependencies:
     - path: ../../fittings/seed/google
     - path: ../../fittings/seed/http-gateway
     - path: ../../fittings/seed/huggingface-runtime
-    - path: ../../fittings/seed/improver
-    - path: ../../fittings/seed/improver-nightly
     - path: ../../fittings/seed/kanban-loop
     - path: ../../fittings/seed/loop-heartbeat
     - path: ../../fittings/seed/mcp-gateway
@@ -205,15 +203,6 @@ x-garrison:
           config:
             port: 8090
             bind_host: 127.0.0.1
-        - id: improver
-          config:
-            port: 8093
-            bind_host: 127.0.0.1
-            cron: 30 3 * * *
-            vault_dir: ~/ObsidianVault
-            memory_primary: true
-            checkpoint_retention_days: 14
-            dream_model: haiku
         - id: scheduler
           config:
             jobs_file: ~/.garrison/scheduler-jobs.json
@@ -229,6 +218,7 @@ x-garrison:
             tick_cron: '*/2 * * * *'
             review_cron: 0 8 * * 1
             review_stall_hours: 2
+            morning_brief_email: goncalo.p.gomes@gmail.com
         - id: loop-heartbeat
           config:
             cadence_minutes: 40
@@ -253,13 +243,6 @@ x-garrison:
         - id: snapshots-default
           config:
             projects_root: ~/dev
-        - id: improver-nightly
-          config:
-            autonomy_mode: enabled
-            schedule_cron: 17 3 * * *
-            state_dir: data/improver
-            proposal_namespace: improver
-            require_unlocked_vault: true
       surfaces:
         - id: screen-share-default
           config:
@@ -305,12 +288,12 @@ x-garrison:
           config: {}
         - id: cortex-automations
           config:
-            base_url: http://127.0.0.1:4111
+            base_url: https://staging.ekoa.io
         - id: cortex-client
           config:
             repo_url: https://github.com/gongiskhan/ekoa-code.git
             git_ref: 8b7d5812f581b06930ec8ce3023e7a21c2d00467
-            base_url: http://127.0.0.1:4111
+            base_url: https://staging.ekoa.io
             bin_dir: ''
             clone_dir: ''
             package_subdir: clients/cortex-cli
@@ -337,17 +320,19 @@ x-garrison:
         title: Implement
         description: 'Write or change code: features, fixes, refactors, carried end to end.'
         levels:
-          - description: 'trivial: a rename, a typo, a one-line fix, a mechanical edit confined to one spot'
+          - description: 'trivial: a rename, a typo, a one-line fix, a mechanical edit
+              confined to one spot'
             cell:
               target: opus
               effort: medium
-          - description: 'standard: a bounded feature, a localized bug fix, a focused refactor in one area'
+          - description: 'standard: a bounded feature, a localized bug fix, a focused
+              refactor in one area'
             cell:
               target: opus
               effort: high
           - description: >-
-              deep: architecture, cross-cutting refactors, tricky bugs with unclear cause,
-              security-sensitive or multi-subsystem work
+              deep: architecture, cross-cutting refactors, tricky bugs with
+              unclear cause, security-sensitive or multi-subsystem work
             cell:
               target: opus
               effort: xhigh
@@ -366,7 +351,8 @@ x-garrison:
             cell:
               target: sol
               effort: medium
-          - description: 'deep: adversarial cases, failure modes, and the paths nobody exercises'
+          - description: 'deep: adversarial cases, failure modes, and the paths nobody
+              exercises'
             cell:
               target: cc-opus
               effort: high
@@ -404,7 +390,8 @@ x-garrison:
             cell:
               target: cc-opus
               effort: medium
-          - description: 'deep-dive: a thorough multi-source investigation with synthesis and citations'
+          - description: 'deep-dive: a thorough multi-source investigation with synthesis
+              and citations'
             cell:
               target: cc-opus
               effort: high
@@ -416,11 +403,13 @@ x-garrison:
             cell:
               target: fable
               effort: low
-          - description: 'level 2: research it mid-conversation and write the brief when it settles'
+          - description: 'level 2: research it mid-conversation and write the brief when it
+              settles'
             cell:
               target: fable
               effort: medium
-          - description: 'level 3: argue both sides properly before converging, then write it up'
+          - description: 'level 3: argue both sides properly before converging, then write
+              it up'
             cell:
               target: fable
               effort: high
@@ -542,14 +531,16 @@ x-garrison:
       - id: adversarial-review
         title: Adversarial Review
         description: >-
-          A decorrelated second read whose job is to find what the first one missed. START with the
-          request's own explicit constraints and prohibitions - a stated "do not add X", a named
-          dependency or scope limit, a required output shape - and check the change against each one
-          by name. A violated constraint is a finding even when the code is correct, and it is the
-          class of finding a correctness-only read reliably misses. Then cite behavioural violations
-          that materially change correctness or safety; when your PREVIOUS findings have been
-          addressed and nothing substantive remains, hand off complete with next=done - endless
-          re-refutation is a failure mode, not rigor.
+          A decorrelated second read whose job is to find what the first one
+          missed. START with the request's own explicit constraints and
+          prohibitions - a stated "do not add X", a named dependency or scope
+          limit, a required output shape - and check the change against each one
+          by name. A violated constraint is a finding even when the code is
+          correct, and it is the class of finding a correctness-only read
+          reliably misses. Then cite behavioural violations that materially
+          change correctness or safety; when your PREVIOUS findings have been
+          addressed and nothing substantive remains, hand off complete with
+          next=done - endless re-refutation is a failure mode, not rigor.
         levels:
           - description: 'quick: the diff against its stated invariants'
             cell:
@@ -585,7 +576,8 @@ x-garrison:
       - id: security-review
         title: Security Review
         description: >-
-          The security-boundary rubric: authorization, injection, secrets, tenancy, input validation.
+          The security-boundary rubric: authorization, injection, secrets,
+          tenancy, input validation.
         levels:
           - description: 'quick: the boundary checklist on the diff'
             cell:
@@ -653,11 +645,13 @@ x-garrison:
         title: Other
         description: Anything that fits no other duty.
         levels:
-          - description: 'quick: a direct answer, a lookup, a small ask that needs no real work'
+          - description: 'quick: a direct answer, a lookup, a small ask that needs no real
+              work'
             cell:
               target: cc-haiku
               effort: low
-          - description: 'involved: unclassified work that still needs real thought or multiple steps'
+          - description: 'involved: unclassified work that still needs real thought or
+              multiple steps'
             cell:
               target: cc-opus
               effort: low
@@ -680,29 +674,31 @@ x-garrison:
       - id: triage
         title: Triage
         description: >-
-          Read the request, write the conversation's opening summary, and name the duty the work
-          starts on. NEVER do the work in this stretch - even a small task goes to a working duty
-          (plan or implement); your handoff's nextSteps.next names it.
+          Read the request, write the conversation's opening summary, and name
+          the duty the work starts on. NEVER do the work in this stretch - even
+          a small task goes to a working duty (plan or implement); your
+          handoff's nextSteps.next names it.
         levels:
           - description: >-
-              standard: read the request and what is already known, write the opening summary, name
-              the first working duty
+              standard: read the request and what is already known, write the
+              opening summary, name the first working duty
             cell:
-              target: sdk-haiku
-              effort: medium
-        default: floor
-        ceiling: middle
+              target: cc-sonnet
+              effort: low
+        default: middle
+        ceiling: top
       - id: dialogue
         title: Dialogue
         description: >-
-          Talk with the person and finish it in this one pass: answer the question, keep the note,
-          remember the fact, put the reminder on the board, do the small thing now. Never opens the
-          delivery loop and never hands off - real project or automation work becomes its own card,
+          Talk with the person and finish it in this one pass: answer the
+          question, keep the note, remember the fact, put the reminder on the
+          board, do the small thing now. Never opens the delivery loop and never
+          hands off - real project or automation work becomes its own card,
           which runs on triage there while this reply just says so.
         levels:
           - description: >-
-              standard: answer from what is already known, act on what is small, card what is work,
-              then stop
+              standard: answer from what is already known, act on what is small,
+              card what is work, then stop
             cell:
               target: cc-sonnet
               effort: medium
@@ -711,8 +707,8 @@ x-garrison:
         description: Answer a user message in a conversation when no work is running.
         levels:
           - description: >-
-              standard: answer from the conversation summary, and record anything promised back into
-              it
+              standard: answer from the conversation summary, and record
+              anything promised back into it
             cell:
               target: sdk-haiku
               effort: medium

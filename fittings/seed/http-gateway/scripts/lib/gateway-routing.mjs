@@ -35,6 +35,7 @@ import {
   resolveRunScope
 } from "./project-source.mjs";
 import { SHARED_MCP_TOOLS, runtimeCodexEnabled } from "./harness-profiles.mjs";
+import { stretchProcessEnv } from "./stretch-process-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -1690,9 +1691,9 @@ export class RoutedGateway {
       // GARRISON_STRETCH_CLAUDE_HOME, when set, redirects the CLI away from the
       // user's real ~/.claude: see stretch-claude-home.mjs for why a stretch
       // must not read the user's memory index, skills or agents.
-      env: process.env.GARRISON_STRETCH_CLAUDE_HOME
+      env: stretchProcessEnv(process.env.GARRISON_STRETCH_CLAUDE_HOME
         ? { ...process.env, CLAUDE_CONFIG_DIR: process.env.GARRISON_STRETCH_CLAUDE_HOME }
-        : process.env,
+        : process.env, { conversationId: opts.conversationId, stretchId: opts.stretchId }),
       permissionMode: fixed.permissionMode,
       ...(streamingInput ? { streamingInput: true } : {}),
     };
@@ -2033,7 +2034,7 @@ export class RoutedGateway {
       captureRuntimeOutcome(resp);
       reportJournalSession(resp?.sessionId);
       const attribution = runtimeAttribution(resp);
-      if (this.buildWorkspace) routeObservation(attribution);
+      if (this.buildWorkspace && !opts.stretchId) routeObservation(attribution);
       else flushTerminalEvents(attribution);
     } catch (error) {
       captureRuntimeOutcome(error);
@@ -2049,7 +2050,10 @@ export class RoutedGateway {
     // instead of code), so regenerate on a FRESH session until the output is
     // committable — bounded attempts.
     let committed = null;
-    if (this.buildWorkspace) {
+    // Native stretches already edit with tools and return a ledger handoff.
+    // Treating that JSON as generated application code corrupts both the
+    // project and the reply (and bypasses the read-only triage profile).
+    if (this.buildWorkspace && !opts.stretchId) {
       committed = commitGeneratedFile(this.buildWorkspace, message, resp.text ?? "");
       for (let attempt = 2; !committed && attempt <= 6; attempt++) {
         this.logFn({ kind: "agent-sdk-regenerate", attempt, provider: t.provider, model: t.model });
@@ -2522,7 +2526,7 @@ export class RoutedGateway {
       (this._secondaryScratch ??= fs.mkdtempSync(path.join(os.tmpdir(), "garrison-secondary-")));
     const spawnModel = model;
     // Trust the cwd for gemini 0.46 (else it downgrades yolo + blocks); harmless for codex.
-    const env = { ...process.env, GEMINI_CLI_TRUST_WORKSPACE: "true" };
+    const env = stretchProcessEnv({ ...process.env, GEMINI_CLI_TRUST_WORKSPACE: "true" }, opts);
     // Provider-two step 3: a STRETCH turn (identified by its conversation id)
     // on a codex target mounts the same Garrison MCP server every Claude Code
     // stretch carries, env-scoped to its conversation and working directory -

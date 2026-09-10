@@ -85,7 +85,7 @@ async function healthCheck() {
       const res = await fetch(`${APP}/api/mesh/self`, { signal: AbortSignal.timeout(5000) });
       if (res.ok) {
         const self = await res.json();
-        const compUp = self?.composition?.running !== false;
+        const compUp = self?.composition?.running === true && self.degraded === false;
         if (compUp) return { ok: true, self };
       }
     } catch {
@@ -105,11 +105,12 @@ try {
     const tag = arg2;
     if (!project || !tag) throw new Error("usage: garrison-converge.mjs revert <project> <premerge-tag>");
     const projectDir = project === "garrison" ? REPO : path.join(os.homedir(), "dev", project);
+    if (project === "garrison") sh("node scripts/garrison-deployment-guard.mjs check " + APP, { stdio: "inherit" });
+    if (execFileSync("git", ["-C", projectDir, "status", "--porcelain"], { encoding: "utf8" }).trim()) throw new Error("Refusing to discard uncommitted work");
     await putIntent(node, { state: "reverting", project, tag });
     execFileSync("git", ["-C", projectDir, "reset", "--hard", tag], { stdio: "inherit" });
     if (project === "garrison") {
-      sh("npm run node:build");
-      execFileSync("systemctl", ["--user", "restart", "garrison-prod.service"], { stdio: "inherit" });
+      sh("npm run node:redeploy", { stdio: "inherit" });
       const health = await healthCheck();
       await putIntent(node, { state: health.ok ? "reverted" : "revert-unhealthy", terminal: true });
       process.exit(health.ok ? 0 : 1);
@@ -118,42 +119,14 @@ try {
     process.exit(0);
   }
 
-  // Default: redeploy (install + typecheck + test happened BEFORE the intent
-  // was written — the card gates on them; this one-shot only swaps + proves).
-  await putIntent(node, { state: "building" });
-  sh("npm install --no-audit --no-fund >/dev/null 2>&1 || true");
-  sh("npm run node:build");
-  await putIntent(node, { state: "restarting" });
-  execFileSync("systemctl", ["--user", "restart", "garrison-prod.service"], { stdio: "inherit" });
+  // The same guarded, OS-neutral deployment path as an operator uses.
+  // It serializes mesh restarts and refuses active Conversations.
+  await putIntent(node, { state: "deploying" });
+  sh("npm run node:redeploy", { stdio: "inherit" });
   const health = await healthCheck();
-  if (health.ok) {
-    // Bring the composition up on the new code.
-    await fetch(`${APP}/api/vault/unlock`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "{}",
-      signal: AbortSignal.timeout(20_000)
-    }).catch(() => {});
-    await fetch(`${APP}/api/runner/default/up`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "{}",
-      signal: AbortSignal.timeout(600_000)
-    }).catch(() => {});
-    await putIntent(node, { state: "done", terminal: true, healthyAt: new Date().toISOString() });
-    process.exit(0);
-  }
-  // Health failed: reset to the premerge tag if the intent named one; DO NOT
-  // restart again.
-  const intent = await api("GET", `/v1/config/mesh.converge/node:${node}`).catch(() => null);
-  const tag = intent?.body?.premergeTag;
-  if (tag) {
-    execFileSync("git", ["-C", REPO, "reset", "--hard", tag], { stdio: "inherit" });
-    sh("npm run node:build");
-    execFileSync("systemctl", ["--user", "restart", "garrison-prod.service"], { stdio: "inherit" });
-  }
-  await putIntent(node, { state: "failed", terminal: true, revertedTo: tag ?? null });
-  process.exit(1);
+  await putIntent(node, { state: health.ok ? "done" : "failed", terminal: true,
+    ...(health.ok ? { healthyAt: new Date().toISOString() } : {}) });
+  process.exit(health.ok ? 0 : 1);
 } catch (err) {
   await putIntent(node, { state: "failed", terminal: true, error: String(err?.message ?? err) }).catch(() => {});
   console.error(`[converge] ${err?.message ?? err}`);

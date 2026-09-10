@@ -3,7 +3,7 @@
 Claude Code, ChatGPT/Codex and Garrison sessions use the same repository
 instructions and durable memory. This workflow replaces the August 2026
 Garrison-only, remote-editing setup. Every enrolled machine is a full mesh node;
-code travels through git on permanent node branches, and session artifacts stay
+code travels through git on main on every node, and session artifacts stay
 on their owner node.
 
 ## One instruction source

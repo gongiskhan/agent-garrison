@@ -6,13 +6,12 @@ function safeText(value: unknown): string {
 }
 export function nativeTerminalEventText(entry: { role?: string; blocks?: Array<Record<string, unknown>> }): string {
   const sections: string[] = [];
+  const heading = (label: string, text: string) => `\n\x1b[1;33m${label}\x1b[0m\n${text}\n`;
   for (const block of entry.blocks ?? []) {
-    if (block.type === "text") sections.push(safeText(block.text));
-    if (block.type === "thinking") sections.push(`Thinking\n${safeText(block.text)}`);
-    if (block.type === "tool_use") sections.push(`$ ${safeText(block.name)}\n${safeText(block.input)}`);
-    if (block.type === "tool_result") sections.push(`${block.isError ? "Error\n" : ""}${safeText(block.text)}`);
+    if (block.type === "text") sections.push(heading(entry.role === "user" ? "USER" : "AGENT", safeText(block.text)));
+    if (block.type === "thinking") sections.push(heading("THINKING", safeText(block.text)));
+    if (block.type === "tool_use") sections.push(heading("TOOL CALL", `$ ${safeText(block.name)}\n${safeText(block.input)}`));
+    if (block.type === "tool_result" || block.type === "tool_progress") sections.push(heading(block.isError ? "TOOL ERROR" : "TOOL OUTPUT", safeText(block.text)));
   }
-  if (!sections.length) return "";
-  const role = entry.role === "user" ? "USER" : "AGENT";
-  return `\n\x1b[1;33m${role}\x1b[0m\n${sections.join("\n\n")}\n`;
+  return sections.join("");
 }

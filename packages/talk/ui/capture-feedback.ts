@@ -325,7 +325,7 @@ export async function speakViaVoiceLayer(
 export async function speakReply(
   speech: SpeechBridge,
   text: string,
-  { lang, fetchImpl, registerEveryMs = 20_000, player = createAudioClipPlayer(), onFallback }: { lang?: string; fetchImpl?: typeof fetch; registerEveryMs?: number; player?: ClipPlayer | null; onFallback?: (reason: string) => void } = {},
+  { lang, replyKey, fetchImpl, registerEveryMs = 20_000, player = createAudioClipPlayer(), onFallback }: { lang?: string; replyKey?: string; fetchImpl?: typeof fetch; registerEveryMs?: number; player?: ClipPlayer | null; onFallback?: (reason: string) => void } = {},
 ): Promise<boolean> {
   const doFetch = fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
   try {
@@ -334,13 +334,19 @@ export async function speakReply(
   } catch {
     // An older native build without settings still speaks.
   }
-  const register = () =>
+  const playbackId = `page-${globalThis.crypto.randomUUID()}`;
+  const register = (first = false, finished = false) =>
     doFetch("/api/voice/spoken", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, playbackId, ...(first && replyKey ? { replyKey } : {}), ...(finished ? { finished: true } : {}) }),
     }).catch(() => undefined);
-  await register();
+  const registered = await register(true);
+  // Never start a second voice when the native sink owns this reply. If we
+  // cannot acquire echo protection/ownership, keep the readable answer.
+  if (!registered?.ok) return false;
+  const decision = await registered.json().catch(() => null) as { speak?: boolean } | null;
+  if (decision?.speak === false) return false;
   const timer = setInterval(() => { void register(); }, registerEveryMs);
   try {
     if (player) {
@@ -356,5 +362,6 @@ export async function speakReply(
     return false;
   } finally {
     clearInterval(timer);
+    await register(false, true);
   }
 }

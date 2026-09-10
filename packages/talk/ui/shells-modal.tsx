@@ -60,7 +60,7 @@ export function ShellsModal({ transports, onOpen, onSpawn, onClose }: {
   onSpawn: (spec: ShellSpawnSpec) => void;
   onClose: () => void;
 }) {
-  const [transport, setTransport] = useState<string>(transports[0]?.name ?? "");
+  const [transport, setTransport] = useState<string>(() => transports.find(t => t.name === "local")?.name ?? transports[0]?.name ?? "");
   const [projects, setProjects] = useState<ProjectRow[] | null>(null);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -192,7 +192,7 @@ export function ShellsModal({ transports, onOpen, onSpawn, onClose }: {
         )}
 
         <div className="wc-shells-head">Projects on {transports.find((t) => t.name === transport)?.label || transport}</div>
-        {projects === null && <div className="wc-shells-empty">Listing ~/dev over the tunnel…</div>}
+        {projects === null && <div className="wc-shells-empty">Loading project folders…</div>}
         {projects !== null && projects.length === 0 && !error && <div className="wc-shells-empty">Nothing under ~/dev on this machine</div>}
         {error && <div className="wc-shells-error">{error}</div>}
         {projects !== null && projects.length > 0 && (

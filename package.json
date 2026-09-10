@@ -75,7 +75,8 @@
     "three": "0.176.0",
     "ws": "^8.18.0",
     "yaml": "^2.9.0",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "@garrison/improver": "file:packages/improver"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",

@@ -194,6 +194,9 @@ describe("cues - the echo they create", () => {
       // exact-match rule is what makes that safe.
       expect(guard.shouldSuppress("Sim, compra o comando para a televisão")).toBe(false);
       expect(guard.shouldSuppress("comprar pão amanhã de manhã")).toBe(false);
+      h.cues.registerEcho(guard, h.cues.speechFor("window_closed", "pt")!);
+      expect(guard.shouldSuppress("Deixa")).toBe(true);
+      expect(guard.shouldSuppress("comigo")).toBe(true);
     } finally {
       h.cleanup();
     }

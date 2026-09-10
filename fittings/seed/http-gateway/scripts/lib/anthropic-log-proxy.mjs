@@ -76,7 +76,7 @@ export function startAnthropicLogProxy({ upstream = UPSTREAM, shape = null } = {
         try {
           const parsed = JSON.parse(body.toString("utf8"));
           const result = shapeAnthropicRequest(parsed, shape);
-          if (result.changes.cacheTtl || result.changes.toolSearch) {
+          if (result.changes.cacheTtl || result.changes.toolSearch || result.changes.forcedTool) {
             body = Buffer.from(JSON.stringify(result.body));
             shaped = result.changes;
           }

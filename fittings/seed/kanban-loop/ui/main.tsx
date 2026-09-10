@@ -1,3 +1,6 @@
+import { Sheet } from "./sheet";
+import { ZecaOriginChip } from "./zeca-origin";
+import { AttentionReply } from "./attention-reply";
 // Kanban Loop board UI — responsive, phone-first (the v4 wireframe is the spec).
 // Lists are columns in a horizontally-scrollable board; each card front shows
 // title, project chip, list, iter N/cap, goalMode and the actions:
@@ -648,7 +651,7 @@ function AutoTextarea({
 function cardActionFlags(card: CardSummary, list: ListView) {
   // Conversations: a card is the human's to move EXCEPT while a stretch holds
   // it. That is the whole ownership model now — no engine-owned columns, one bit.
-  const launcherHeld = card.status === "running" || list.id === "running";
+  const launcherHeld = !(typeof card.origin === "object" && card.origin?.type === "workSession") && (card.status === "running" || list.id === "running");
   const engineOwned = launcherHeld;
   const scheduled = list.id === "scheduled";
   const archived = false; // the Archived column is gone (frozen history holds the old one)
@@ -914,7 +917,7 @@ function Card({
   const titleEditJustEnded = useRef(false);
   // Conversations: a card is held by the LAUNCHER only while a stretch runs on
   // it; every other card is the human's to edit and move.
-  const engineOwned = card.status === "running" || list.id === "running";
+  const engineOwned = !(typeof card.origin === "object" && card.origin?.type === "workSession") && (card.status === "running" || list.id === "running");
   const scheduled = list.id === "scheduled";
 
   function markTitleEditEnded() {
@@ -1231,6 +1234,7 @@ function Card({
       {parked && card.attentionReason && (
         <div className="dispatch-err">{card.attentionReason}</div>
       )}
+      {parked && !card.frozen && <AttentionReply card={card} onAnswered={() => { void onRenamed(); }} />}
       {/* ABANDONED (S2, Q7): a parked card with a prepared revert — the confirm block.
           Applying is a deliberate, guarded press (never auto-applied); the button is
           disabled once the revert is applied or has conflicted (state !== "prepared"),
@@ -2646,6 +2650,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
     try {
       const next = await api.patch(detail.card.id, {
         autonomous: !detail.card.autonomous,
+        ...(!detail.card.autonomous && detail.card.schedule ? { schedule: { ...detail.card.schedule, action: "run" as const } } : {}),
         rev: detail.card.rev
       });
       setDetail((d) => d ? { ...d, card: next.card } : d);
@@ -3075,7 +3080,8 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
   // server enforces it; the UI says so instead of offering a doomed control).
   // Schedule / checklist / attachments are benign and stay editable.
   const cardList = board?.lists.find((l) => l.id === card.list) ?? null;
-  const lockedCard = readOnly || Boolean(cardList && cardList.kind === "agent" && !cardList.interactive && !card.quick);
+  const workSessionCard = typeof card.origin === "object" && card.origin?.type === "workSession";
+  const lockedCard = readOnly || (!workSessionCard && Boolean(cardList && cardList.kind === "agent" && !cardList.interactive && !card.quick));
   // A conversation-linked card shows its CONVERSATION here: the ledger carries
   // the evidence refs a stretch's handoff had to prove, so a second Evidence
   // block would be the same facts one layer thinner. A legacy card - one frozen
@@ -3142,13 +3148,17 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
           ? <span className="chip">proj: {card.project}</span>
           : <span className="chip muted">no project</span>}
         {card.scope === "personal" && <span className="chip goal">personal</span>}
+        {card.machineId && <span className="chip">{card.machineId}</span>}
+        {typeof card.origin === "object" && card.origin?.type === "zeca" && <ZecaOriginChip origin={card.origin} available={card.originAvailable} />}
         <span className="chip">list: {card.list}</span>
         <span className="chip">iter {card.iterations}/{ITERATION_CAP}</span>
         {card.goalMode && <span className="chip goal">goalMode</span>}
         {!frozenAt && (
           <button
             className={`chip chip-toggle${card.autonomous ? " on" : ""}`}
-            title={card.autonomous
+            title={card.schedule?.kind === "cron"
+              ? "Applies to every future occurrence. Enabling autonomy also sets the schedule to run automatically."
+              : card.autonomous
               ? "Autonomous ON — runs end to end without asking. Click to turn off."
               : "Autonomous OFF — pauses after planning and asks before doing the work. Click to turn on."}
             onClick={() => { void toggleAutonomous(); }}
@@ -3579,7 +3589,7 @@ function DetailSheet({ cardId, board, onClose, onChanged, onWatch, onTerminal, o
         <div className="detail-desc">
           <div className="dd-title">
             Description
-            {descDraft === null && !lockedCard && (
+            {descDraft === null && !lockedCard && !workSessionCard && (
               <button className="btn tiny" title="edit the description" onClick={() => setDescDraft(stripAttachmentBlock(card.description ?? ""))}>
                 edit
               </button>
@@ -4675,37 +4685,6 @@ function EditableSheetTitle({ value, locked, onSave }: {
         else { cancelled.current = true; setDraft(null); }
       }}
     />
-  );
-}
-
-function Sheet({ title, onClose, children, size = "default", tabs, className }: {
-  title: ReactNode;
-  onClose: () => void;
-  children: ReactNode;
-  size?: "default" | "mid" | "wide" | "conv";
-  /** A row under the header - the phone's section tabs. */
-  tabs?: ReactNode;
-  className?: string;
-}) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-  return (
-    <div className="sheet-backdrop" onClick={onClose}>
-      <div
-        className={`sheet${size === "wide" ? " wide" : size === "mid" ? " mid" : size === "conv" ? " wide conv" : ""}${className ? ` ${className}` : ""}`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="sh-head">
-          <h3>{title}</h3>
-          <button className="btn small sh-close" onClick={onClose} aria-label="Close"><CloseIcon /></button>
-        </div>
-        {tabs}
-        <div className="sh-body">{children}</div>
-      </div>
-    </div>
   );
 }
 

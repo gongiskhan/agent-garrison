@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { readLibrary } from "@/lib/library";
-import { scopedSecrets } from "@/lib/vault";
+import { scopedSecrets } from "@/lib/connector-auth";
 import { connectorIdOf } from "@/lib/connectors-view";
 import { createOAuthState } from "@/lib/oauth-state";
 import { publicOrigin } from "@/lib/public-origin";
@@ -21,19 +21,29 @@ export async function GET(request: Request, { params }: { params: { id: string }
     const oauth = entry.metadata.connector?.oauth;
     if (!oauth) return NextResponse.json({ error: "connector has no oauth config" }, { status: 400 });
 
-    // Resolve by NAME (scopedSecrets order is not guaranteed).
-    const clientId = (await scopedSecrets([oauth.clientIdSecret])).find((s) => s.key === oauth.clientIdSecret)?.value?.trim();
-    if (!clientId) {
-      // Client credentials not set yet — the panel shows the client-id/secret form.
-      return NextResponse.json({ error: "client-credentials-missing", needs: [oauth.clientIdSecret, oauth.clientSecretSecret] }, { status: 409 });
-    }
-
     // The origin the BROWSER used, not the loopback one this process saw behind
     // tailscale serve. Google redirects the user's browser to this value after
     // consent, so a machine-local origin lands them on ERR_CONNECTION_REFUSED
     // with a valid code they can never spend.
     const origin = publicOrigin(request);
     const redirectUri = `${origin}/api/connectors/${encodeURIComponent(id)}/oauth-callback`;
+
+    // Resolve by NAME (scopedSecrets order is not guaranteed). Both the client
+    // id AND secret must be present before we send the browser to the
+    // provider — an id-only Vault state would otherwise redirect and only
+    // fail later, at the callback's token exchange.
+    const creds = await scopedSecrets([oauth.clientIdSecret, oauth.clientSecretSecret]);
+    const clientId = creds.find((s) => s.key === oauth.clientIdSecret)?.value?.trim();
+    const clientSecret = creds.find((s) => s.key === oauth.clientSecretSecret)?.value?.trim();
+    if (!clientId || !clientSecret) {
+      // Client credentials not set yet — the panel shows the client-id/secret
+      // form and needs this exact value to tell the user what to register.
+      return NextResponse.json(
+        { error: "client-credentials-missing", needs: [oauth.clientIdSecret, oauth.clientSecretSecret], redirectUri },
+        { status: 409 }
+      );
+    }
+
     const state = createOAuthState(id, redirectUri);
 
     const authUrl = new URL(oauth.authUrl);

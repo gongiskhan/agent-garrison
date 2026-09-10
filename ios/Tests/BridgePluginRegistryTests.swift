@@ -9,7 +9,7 @@ import XCTest
 @MainActor
 final class BridgePluginRegistryTests: XCTestCase {
     private static let expectedMethods: [String: Set<String>] = [
-        "GarrisonNode": ["current", "list", "add", "select", "remove", "reload", "info"],
+        "GarrisonNode": ["current", "list", "refresh", "add", "select", "remove", "reload", "info"],
         "GarrisonCapture": ["status", "start", "stop", "consent", "setConsentSuppressed"],
         "GarrisonSpeech": ["speak", "stop", "voices", "settings", "configure", "muteFor", "unmute"],
         "GarrisonPush": ["register", "status", "pendingRoute"],

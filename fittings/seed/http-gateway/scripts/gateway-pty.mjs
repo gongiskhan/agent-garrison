@@ -28,6 +28,7 @@
 import http from "node:http";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
+import { deploymentDraining, DEPLOYMENT_ADMISSION_PATHS } from "@garrison/claude-pty/deployment-guard.mjs";
 import fs from "node:fs/promises";
 import { realpathSync, statSync, readFileSync as readFileSyncFs, writeFileSync as writeFileSyncFs, mkdirSync as mkdirSyncFs } from "node:fs";
 import { homedir } from "node:os";
@@ -61,6 +62,7 @@ import {
 import { listProjectNames, resolvePersonalScope } from "./lib/project-source.mjs";
 import { continuityMemoryServer } from "./lib/stretch-continuity.mjs";
 import { SessionLog, runLog } from "@garrison/claude-pty";
+import { createSessionCard, endSessionCard, reportCardHook } from "@garrison/talk/conversation-cards";
 import { createCompactController, resolveCompactConfig, COMPACT_TIMEOUT_MS } from "./lib/compact-controller.mjs";
 import {
   isCardOriginatedChannel,
@@ -2359,6 +2361,28 @@ async function startCardConversation(routerObj, { cardId, task = null, title = n
   return true;
 }
 
+async function resumeInterruptedConversations() {
+  const { reconcileSessionCards } = await import("@garrison/talk/conversation-cards");
+  await reconcileSessionCards();
+  const { recoverableConversations } = await import("./lib/conversation-recovery.mjs");
+  const { runConversation } = await import("./lib/stretch.mjs");
+  const controllers = (globalThis.__conversationAborts ??= new Map());
+  for (const conversationId of recoverableConversations({ compositionId: COMPOSITION_ID })) {
+    if (controllers.has(conversationId)) continue;
+    // Work conversations resume only when the person continues them.
+    const endedWorkCard = await endSessionCard(conversationId).catch(() => null);
+    if (endedWorkCard) continue;
+    const controller = new AbortController();
+    controllers.set(conversationId, controller);
+    try {
+      const result = await runConversation(router, { conversationId, signal: controller.signal });
+      logEvent("stdout", { kind: "conversation-recovered", conversationId, ...result });
+    } catch (err) {
+      logEvent("stderr", { kind: "conversation-recovery-error", conversationId, error: err.message });
+    } finally { controllers.delete(conversationId); }
+  }
+}
+
 async function runRoutedTurn(message, onChunk, hints, opts = {}) {
   // Session log (Harness brief §1): the injection is written BEFORE the runtime
   // sees it, and the settled outcome after — every lane, one seam.
@@ -4248,6 +4272,7 @@ async function saveAttachment(filename, contentBase64) {
   return { path: target, bytes: buffer.length };
 }
 
+const deploymentAdmissions = new Set();
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://${HOST}:${PORT}`);
   // Local-API hardening (Harness brief §7): localhost binding does not stop a
@@ -4271,6 +4296,13 @@ const server = http.createServer(async (request, response) => {
       }
     }
   }
+  if (request.method === "POST" && DEPLOYMENT_ADMISSION_PATHS.has(url.pathname)) {
+    if (deploymentDraining()) return sendJson(response, 503, { error: "This node is deploying. Continue on another mesh node.", code: "node-deploying" });
+    deploymentAdmissions.add(response);
+    const release = () => deploymentAdmissions.delete(response);
+    response.once("finish", release);
+    response.once("close", release);
+  }
   try {
     if (request.method === "GET" && url.pathname === "/health") {
       const operativeExited = ptyStatus === "ready" && !runtimeSessionAlive();
@@ -4281,6 +4313,7 @@ const server = http.createServer(async (request, response) => {
         uptime_ms: Date.now() - STARTED_AT,
         engine: "pty",
         primary_runtime: primaryRuntime(),
+        deployment: { draining: deploymentDraining(), active: deploymentAdmissions.size + activeTurns.size + generationTurnControl.turnsByGeneration.size + (globalThis.__conversationAborts?.size ?? 0) },
         pty_status: effectiveStatus,
         error: operativeExited ? "operative session exited" : ptyError,
       });
@@ -4293,6 +4326,35 @@ const server = http.createServer(async (request, response) => {
     // turn runs).
     if (request.method === "GET" && url.pathname === "/route/options") {
       return sendJson(response, 200, buildRouteOptions());
+    }
+    if (request.method === "POST" && url.pathname === "/improver/review") {
+      if (!router) return sendJson(response, 409, { error: "The gateway is not ready." });
+      const body = await readJsonBody(request);
+      if (typeof body.prompt !== "string" || body.prompt.length > 140_000) return sendJson(response, 400, { error: "A bounded review evidence prompt is required." });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 120_000);
+      const close = () => { if (!response.writableEnded) controller.abort(); };
+      response.on("close", close);
+      try {
+        const { callImproverInference } = await import("./lib/improver-inference.mjs");
+        return sendJson(response, 200, await callImproverInference(router, { prompt: body.prompt, signal: controller.signal }));
+      } catch (error) { return sendJson(response, 502, { error: error.message }); }
+      finally { clearTimeout(timer); response.off("close", close); }
+    }
+    if (request.method === "POST" && url.pathname === "/conversation/card-inference") {
+      if (!router) return sendJson(response, 409, { error: "The gateway is not ready." });
+      const body = await readJsonBody(request);
+      if (typeof body.system !== "string" || typeof body.prompt !== "string") return sendJson(response, 400, { error: "An inference prompt is required." });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 20_000);
+      const close = () => { if (!response.writableEnded) controller.abort(); };
+      response.on("close", close);
+      try {
+        const { callCardInference } = await import("./lib/card-inference.mjs");
+        const text = await callCardInference(router, { system: body.system, prompt: body.prompt, signal: controller.signal });
+        return sendJson(response, 200, { text });
+      } catch (error) { return sendJson(response, 502, { error: error.message }); }
+      finally { clearTimeout(timer); response.off("close", close); }
     }
 
     // Authored Orchestrator changes take effect on the next turn. Queue a warm
@@ -4823,6 +4885,7 @@ const server = http.createServer(async (request, response) => {
         const rec = stretchLib.recordUserMessage(store, {
           text: message,
           clientRequestId: body.clientRequestId,
+          questionId: body.questionId,
           origin: typeof body.origin === "string" ? body.origin : "web",
           threadId: typeof body.threadId === "string" ? body.threadId : null,
           context: typeof body.context === "string" ? body.context : null,
@@ -4833,6 +4896,7 @@ const server = http.createServer(async (request, response) => {
         if (!rec.ok) {
           return sendJson(response, rec.conflict ? 409 : 503, { error: rec.error ?? "the message could not be recorded" });
         }
+        await createSessionCard(conversationId).catch(reportCardHook);
         if (rec.duplicate) {
           // The first admission owns the work, including a completed or
           // stopped response. A retry must never start or steer a second one.
@@ -4908,8 +4972,12 @@ const server = http.createServer(async (request, response) => {
         const conversationId = typeof body.conversationId === "string" ? body.conversationId : "";
         const controllers = (globalThis.__conversationAborts ??= new Map());
         const controller = controllers.get(conversationId);
-        if (!controller) return sendJson(response, 404, { error: "no advancing conversation", conversationId });
-        controller.abort();
+        const { cancelConversationDeployment } = await import("./lib/conversation-recovery.mjs");
+        const { openConversation } = await import("@garrison/claude-pty");
+        const cancelledDeploy = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(conversationId)
+          && cancelConversationDeployment(openConversation(conversationId, { role: "gateway" }));
+        if (!controller && !cancelledDeploy) return sendJson(response, 404, { error: "no advancing conversation", conversationId });
+        controller?.abort();
         logEvent("stdout", { kind: "conversation-cancel", conversationId });
         return sendJson(response, 202, { cancelled: true, conversationId });
       }
@@ -5449,6 +5517,8 @@ async function main() {
         if (ROUTING_ENABLED && (await initRouting())) {
           void touchSession(SESSION_LOG_RUN, "idle", { runtime: primaryRuntime() });
           readyResolve();
+          setTimeout(() => void resumeInterruptedConversations().catch((err) =>
+            logEvent("stderr", { kind: "conversation-recovery-error", error: err.message })), 2000).unref();
           return;
         }
         await spawnOperative({ resume: true }); // calls readyResolve internally

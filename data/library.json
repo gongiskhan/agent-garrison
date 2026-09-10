@@ -154,20 +154,20 @@
   },
   {
     "id": "cortex-automations",
-    "name": "Remote automations",
+    "name": "Cortex automations",
     "repo": "local:fittings/seed/cortex-automations",
     "localPath": "fittings/seed/cortex-automations",
-    "summary": "Drive an automation runner that lives off this machine: find what a user-scoped key may start, start a run at-most-once, poll it to a conclusion, read its logs. A skill plus a view over an already-installed capability CLI - no local engine, no port, no state of its own. Inert with no CLI installed, and verify passes then.",
+    "summary": "Run and follow Cortex automations: browse available workflows, start runs, and read their progress and logs. Uses the Cortex CLI fitting and your shared Cortex connection.",
     "platforms": [
       "all"
     ]
   },
   {
     "id": "cortex-client",
-    "name": "Remote capability CLI",
+    "name": "Cortex CLI",
     "repo": "local:fittings/seed/cortex-client",
     "localPath": "fittings/seed/cortex-client",
-    "summary": "A remote capability reached through one pinned CLI binary, byte-contained under GARRISON_HOME and recorded in an install receipt every consumer can read. Ships inert: no repository, origin or credential in the defaults, and verify passes unconfigured. Configuring a repository grants it code execution during its build.",
+    "summary": "The Cortex command-line client gives Garrison access to your Cortex memory, knowledge and automations. Configure the client installation in its fitting and connect your account here.",
     "platforms": [
       "all"
     ]

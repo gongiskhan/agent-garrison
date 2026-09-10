@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { revokeOAuthGrant } from "@/lib/vault";
+import { revokeOAuthGrant } from "@/lib/connector-auth";
 import { jsonError } from "@/lib/http";
 
 export const runtime = "nodejs";

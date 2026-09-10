@@ -38,6 +38,16 @@ x-garrison:
         (C...), a DM id (D...), or the operator's user id (U..., delivered as a DM). Unset
         means POST /notify reports "no notify_channel configured" rather than delivering.
   connector:
+    setup_help:
+      steps:
+        - "Create or open your Slack app. Under OAuth & Permissions, add the bot scopes needed for messaging and channel access, then install the app in your workspace."
+        - "Copy the Bot User OAuth Token into SLACK_BOT_TOKEN. Under Basic Information, copy Signing Secret into SLACK_SIGNING_SECRET."
+        - "Invite the bot to the channels it should use. Configure event subscriptions in the Slack fitting to receive messages."
+      links:
+        - label: "Slack apps"
+          url: "https://api.slack.com/apps"
+        - label: "Slack token setup"
+          url: "https://api.slack.com/authentication/quickstart"
     auth: api_key
     actions:
       - name: send_message

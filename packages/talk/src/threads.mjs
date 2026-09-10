@@ -277,6 +277,7 @@ const STRETCH_PHASES = new Set(["started", "ended"]);
 // the contract, and the parity test keeps the two lists in step.
 const SESSION_LEDGER_KINDS = new Set([
   "handoff",
+  "finding",
   "delegation-dispatched",
   "delegation-returned",
   "delegation-failed",
@@ -851,8 +852,12 @@ export function sanitizeSessionBlock(raw) {
     const title = capSessionText(raw.title);
     if (title === null || !title.trim()) return null;
     const out = { type, kind, title };
-    if (Object.hasOwn(raw, "detail") && raw.detail !== null) {
-      if (!copyOptionalText(out, raw, "detail")) return null;
+    for (const key of ["detail", "summary"]) {
+      if (Object.hasOwn(raw, key) && raw[key] !== null && !copyOptionalText(out, raw, key)) return null;
+    }
+    if (Object.hasOwn(raw, "detailFormat")) {
+      if (raw.detailFormat !== "markdown") return null;
+      out.detailFormat = raw.detailFormat;
     }
     // An approval ask names the duty it wants to run next; opaque label, same
     // reasoning as the stretch-row labels above.
@@ -1241,6 +1246,10 @@ export function inferredConversationTitle(conversationId) {
   }
   title = title ? title.replace(/^#+\s*/, "").slice(0, 60).trim() || null : null;
   inferredTitleCache.set(conversationId, { key: cacheKey, title });
+  if (title && cached?.title !== title) {
+    void import("./conversation-cards.mjs").then(({ syncSessionCardTitle, reportCardHook }) =>
+      syncSessionCardTitle(conversationId, title).catch(reportCardHook));
+  }
   return title;
 }
 
@@ -1324,6 +1333,7 @@ function toMeta(thread) {
     ...(shell ? { shell } : {}),
     id: thread.id,
     conversationId,
+    boardCardId: thread.boardCardId ?? null,
     title: deriveTitle(thread),
     source: thread.source ?? "chat",
     createdAt: thread.createdAt ?? null,
@@ -1509,6 +1519,18 @@ export async function setThreadSession(id, sessionId) {
     if (!recordThreadSession(thread, sessionId)) return toMeta(thread);
     await atomicWriteJson(threadPath(safe), thread);
     return toMeta(thread);
+  });
+}
+
+export async function setThreadBoardCard(id, cardId) {
+  const safe = safeThreadId(id);
+  if (!safe) return null;
+  return serializeThreadMutation(safe, async () => {
+    const thread = await readThreadFile(safe);
+    if (!thread || thread.boardCardId === cardId) return thread;
+    thread.boardCardId = cardId;
+    await atomicWriteJson(threadPath(safe), thread);
+    return thread;
   });
 }
 
@@ -2155,6 +2177,10 @@ export async function renameThread(id, title) {
     thread.title = clean;
     thread.renamedAt = new Date().toISOString();
     await atomicWriteJson(threadPath(safe), thread);
+    if (thread.boardCardId) {
+      const cards = await import("./conversation-cards.mjs");
+      await cards.syncSessionCardTitle(safe, clean).catch(cards.reportCardHook);
+    }
     return thread;
   });
 }

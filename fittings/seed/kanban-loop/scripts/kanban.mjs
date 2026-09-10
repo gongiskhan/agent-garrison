@@ -21,7 +21,7 @@ import { syncCalendar } from "../lib/calendar-sync.mjs";
 import { isDispatchClaimLive } from "../lib/dispatch-lease.mjs";
 import { conversationKickFn } from "../lib/gateway-client.mjs";
 import { syncAllBeats } from "../lib/scheduler-beats.mjs";
-import { resolveGatewayUrl, instanceEnvPrefix, registeredJobHasGateway } from "../lib/instance-env.mjs";
+import { resolveGatewayUrl, resolveGarrisonBaseUrl, instanceEnvPrefix, registeredJobHasGateway } from "../lib/instance-env.mjs";
 import { computeReview, renderReviewMarkdown, reviewNoticeText, DEFAULT_STALL_HOURS } from "../lib/review.mjs";
 import { deliverBoardNotice } from "../lib/notify-origin.mjs";
 import { MORNING_BRIEF_SYSTEM_KEY, reconcileMorningBriefDeliveries } from "../lib/morning-briefing.mjs";
@@ -584,6 +584,33 @@ async function tick() {
   for (const failure of morning.errors) {
     console.log(`kanban-loop: Morning briefing reconciliation failed for ${failure.cardId}: ${failure.error}`);
   }
+  const app=resolveGarrisonBaseUrl();
+  if(app) {
+    try {
+      const r=await fetch(`${app}/api/improver`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"maintain"}),signal:AbortSignal.timeout(30_000)});
+      if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    } catch(error) {console.error(`Improver maintenance: ${error.message}`);}
+  }
+  for(const card of await loadAllCards(root)) {
+    if(card.autonomyHeld || card.waitingOn || !(card.list==="running" || card.list==="todo" && card.scheduleAction==="run")) continue;
+    if (["nightly-sync", "mesh-convergence"].includes(card.scheduleSystemKey ?? card.systemKey)) {
+      const app = resolveGarrisonBaseUrl()?.replace(/\/+$/, "");
+      if (!app) { console.error("Nightly Sync needs this node's shell URL"); continue; }
+      try {
+        const day = new Date(Date.parse(card.occurrenceAt ?? new Date().toISOString()) - 86400_000).toISOString().slice(0,10);
+        const response = await fetch(`${app}/api/improver`, { method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({action:"nightly",day,cardId:card.id,retry:true}),signal:AbortSignal.timeout(20_000) });
+        if(!response.ok) throw new Error(`HTTP ${response.status}`);
+        const result=await response.json();
+        if(result.run?.status==="running") await updateCardCAS(root,card.id,(current)=>current.list!=="todo"?null:{...current,list:"running",status:"running",scheduleAction:null,nightlySyncRun:result.run.id});
+        else if(result.run) {
+          const {finishNightlyCard}=await import("@garrison/improver/nightly");
+          const {ImprovementStore}=await import("@garrison/improver/store");
+          await finishNightlyCard(new ImprovementStore(),{...result.run,cardId:card.id},result.run);
+        }
+      } catch(error) { console.error(`Nightly Sync could not start: ${error.message}`); }
+      continue;
+    }
+  }
   if (!gatewayUrl) {
     // Distinct from "the gateway is down": this instance never told the tick WHICH
     // gateway is its own, so kicking would be a guess. Silently logging
@@ -618,6 +645,7 @@ async function tick() {
   let kicked = 0;
   for (const card of cards) {
     if (card.autonomyHeld === true || card.waitingOn) continue;
+    if (card.origin?.type === "workSession") continue;
     // A live dispatch claim means a worker on another machine is driving this
     // card — kicking the LOCAL gateway would double-drive it. Claim expiry is
     // swept above (sweepExpiredDispatchClaims), so a dead worker's card
@@ -626,6 +654,7 @@ async function tick() {
     const dueRun = card.list === "todo" && card.scheduleAction === "run";
     const recovery = card.list === "running";
     if (!dueRun && !recovery) continue;
+    if (["nightly-sync", "mesh-convergence"].includes(card.scheduleSystemKey ?? card.systemKey)) continue;
     const res = await kick({
       conversationId: card.conversationId ?? card.id,
       cardId: card.id,

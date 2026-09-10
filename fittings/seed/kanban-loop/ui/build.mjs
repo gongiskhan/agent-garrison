@@ -29,7 +29,9 @@ await build({
 copyFileSync(path.join(HERE, "index.html"), path.join(DIST, "index.html"));
 // SessionStream is the same shared component Web Channel renders. Ship its base
 // stylesheet first, then the Kanban skin so local palette/chrome overrides win.
-const skinCss = readFileSync(path.join(HERE, "styles.css"), "utf8");
+const skinCss = readFileSync(path.join(HERE, "styles.css"), "utf8").replace(
+  /^@import "([^"]+)";\n/gm, (_line, relative) => readFileSync(path.resolve(HERE, relative), "utf8")
+);
 const chatCssPath = path.resolve(HERE, "..", "..", "..", "..", "packages", "claude-chat", "src", "claude-chat.css");
 let chatCss = "";
 if (existsSync(chatCssPath)) {

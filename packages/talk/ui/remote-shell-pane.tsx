@@ -12,6 +12,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { attachTerminalScrolling } from "./terminal-scroll";
+import { shellFetch } from "./shell-origin";
 
 export interface RemoteShellMeta {
   agentState: "running" | "idle" | null;
@@ -24,6 +25,7 @@ export function RemoteShellPane({
   reconnectNonce = 0,
   onMetaChange,
   ioUrl,
+  httpBase,
 }: {
   sessionId: string;
   hideBar?: boolean;
@@ -33,6 +35,9 @@ export function RemoteShellPane({
    *  origin (the direct-origin client, shell-origin.ts) rather than the
    *  same-origin /remote-shell/io relay. Must already be a full ws(s):// URL. */
   ioUrl?: string;
+  /** Same-origin control path also keeps the terminal usable when a phone
+   * cannot open a direct WebSocket to the owner. */
+  httpBase?: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
@@ -106,9 +111,40 @@ export function RemoteShellPane({
     const socket = new WebSocket(ioUrl ?? `${proto}//${window.location.host}/remote-shell/io`);
     socket.binaryType = "arraybuffer";
     socketRef.current = socket;
+    let socketReady = false;
+    let fallback = false;
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastScreen = "";
+    const control = (action: string, body: object) => shellFetch(httpBase!, `/sessions/${encodeURIComponent(sessionId)}/${action}`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body)
+    });
+    const pollScreen = async () => {
+      if (cancelled || !fallback || !httpBase) return;
+      try {
+        const screen = await shellFetch<{text: string; state: string}>(httpBase, `/sessions/${encodeURIComponent(sessionId)}/screen?terminal=1`, {}, { timeoutMs: 8000 });
+        if (cancelled || !fallback) return;
+        if (typeof screen.text !== "string") throw new Error("The terminal did not return its screen.");
+        if (screen.text !== lastScreen) {
+          term.write("\x1b[H\x1b[2J" + screen.text.replace(/\r?\n$/, "").replace(/\r?\n/g, "\r\n"));
+          lastScreen = screen.text;
+        }
+        setAgentState(screen.state === "running" ? "running" : "idle");
+        setStatus(null);
+      } catch (err) { if (!cancelled) setStatus(err instanceof Error ? err.message : "Terminal unavailable"); }
+      if (!cancelled && fallback) pollTimer = setTimeout(() => { void pollScreen(); }, 1000);
+    };
+    const beginFallback = () => {
+      if (cancelled || fallback || socketReady || !httpBase) return;
+      fallback = true;
+      tmuxModeRef.current = false;
+      void control("resize", { cols: term.cols, rows: term.rows }).catch(() => {});
+      void pollScreen();
+    };
+    const fallbackTimer = setTimeout(beginFallback, 3000);
     const handshakeTimer = setTimeout(() => {
       if (cancelled) return;
-      setStatus("Shell connection timed out. Reattach to retry.");
+      if (!fallback) setStatus("Shell connection timed out. Reattach to retry.");
+      beginFallback();
       socket.close();
     }, 8000);
 
@@ -125,6 +161,11 @@ export function RemoteShellPane({
             const msg = JSON.parse(ev.data);
             if (msg && typeof msg.type === "string") {
               if (msg.type === "init_ack") {
+                socketReady = true;
+                fallback = false;
+                if (pollTimer) clearTimeout(pollTimer);
+                clearTimeout(fallbackTimer);
+                setStatus(null);
                 clearTimeout(handshakeTimer);
                 tmuxModeRef.current = msg.tmux === true;
                 if (msg.state === "running" || msg.state === "idle") setAgentState(msg.state);
@@ -146,11 +187,21 @@ export function RemoteShellPane({
       const buf = ev.data instanceof ArrayBuffer ? new Uint8Array(ev.data) : (ev.data as Uint8Array);
       term.write(buf);
     });
-    socket.addEventListener("close", () => { clearTimeout(handshakeTimer); if (!cancelled) setStatus((s) => s ?? "connection closed"); });
-    socket.addEventListener("error", () => { clearTimeout(handshakeTimer); if (!cancelled) setStatus((s) => s ?? "connection error"); });
+    const disconnected = () => {
+      clearTimeout(handshakeTimer);
+      socketReady = false;
+      if (httpBase) beginFallback();
+      else if (!cancelled) setStatus(s => s ?? "connection closed");
+    };
+    socket.addEventListener("close", disconnected);
+    socket.addEventListener("error", disconnected);
 
+    let inputQueue = Promise.resolve();
     term.onData((d) => {
-      if (socket.readyState === WebSocket.OPEN) socket.send(new TextEncoder().encode(d));
+      if (socketReady && socket.readyState === WebSocket.OPEN) socket.send(new TextEncoder().encode(d));
+      else if (httpBase) inputQueue = inputQueue.then(async () => {
+        if (!cancelled) await control("bytes", { data: d });
+      }).catch(err => { if (!cancelled) setStatus(err instanceof Error ? err.message : "Input was not accepted"); });
     });
 
     // Trailing-debounced refit: a seam drag emits a handful of resize frames,
@@ -167,7 +218,7 @@ export function RemoteShellPane({
           fit.fit();
           if (socket.readyState === WebSocket.OPEN) {
             socket.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
-          }
+          } else if (httpBase) void control("resize", { cols: term.cols, rows: term.rows }).catch(() => {});
         } catch {}
       }, 200);
     };
@@ -178,6 +229,8 @@ export function RemoteShellPane({
     return () => {
       cancelled = true;
       clearTimeout(handshakeTimer);
+      clearTimeout(fallbackTimer);
+      if (pollTimer) clearTimeout(pollTimer);
       if (refitTimer) clearTimeout(refitTimer);
       detachScrolling();
       window.removeEventListener("resize", refit);
@@ -186,7 +239,7 @@ export function RemoteShellPane({
       try { term.dispose(); } catch {}
       socketRef.current = null;
     };
-  }, [sessionId, generation, reconnectNonce, ioUrl]);
+  }, [sessionId, generation, reconnectNonce, ioUrl, httpBase]);
 
   return (
     <div className="wc-rsh">

@@ -22,12 +22,19 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
+DEPLOY_HEAD="$(git rev-parse HEAD)"
+if [ -n "${GARRISON_CONVERSATION_ID:-}" ]; then
+  echo "Deployment deferred: this Conversation is working on this node. Deploy another mesh node first." >&2
+  exit 75
+fi
 # shellcheck source=lib/app-server.sh
 . "$SCRIPT_DIR/lib/app-server.sh"
 
 PROD_PORT="$(bash scripts/garrison-instance.sh prod env | sed -n 's/^GARRISON_APP_PORT=//p')"
 PROD_HOME="$(bash scripts/garrison-instance.sh prod env | sed -n 's/^GARRISON_HOME=//p')"
 BASE="http://127.0.0.1:${PROD_PORT}"
+node "$SCRIPT_DIR/garrison-deployment-guard.mjs" check "$BASE" "$PROD_HOME" "$$"
+
 # The app server is OS-supervised - that is what makes it always-on across
 # reboots and logouts, so the supervisor stays with the OS: a systemd user
 # unit on Linux, a launchd agent on macOS (both installed by
@@ -56,8 +63,28 @@ fi
 say() { printf "\n[redeploy] %s\n" "$*"; }
 
 # --- 1. build ---------------------------------------------------------------
-say "building prod bundle (.next-prod)"
-bash scripts/garrison-instance.sh prod build
+say "installing dependencies from the committed manifest and lockfile"
+npm install --ignore-scripts --no-audit --no-fund
+BUILD_RECEIPT="$REPO_ROOT/.next-prod/garrison-build-head"
+if [ -f "$REPO_ROOT/.next-prod/BUILD_ID" ] && [ "$(cat "$BUILD_RECEIPT" 2>/dev/null || true)" = "$DEPLOY_HEAD" ]; then
+  say "reusing the verified build for this main revision"
+else
+  rm -f "$BUILD_RECEIPT"
+  say "building prod bundle (.next-prod)"
+  bash scripts/garrison-instance.sh prod build
+fi
+
+# Do not publish a build assembled while another task changed its source.
+if [ "$(git rev-parse HEAD)" != "$DEPLOY_HEAD" ] || [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+  echo "Deployment deferred: source changed during the build; rebuild the committed main revision." >&2
+  exit 75
+fi
+
+printf '%s\n' "$DEPLOY_HEAD" > "$BUILD_RECEIPT"
+
+# Serialize mesh restarts and close new admissions before the final live check.
+node "$SCRIPT_DIR/garrison-deployment-guard.mjs" acquire "$BASE" "$PROD_HOME" "$$"
+trap 'node "$SCRIPT_DIR/garrison-deployment-guard.mjs" release "$BASE" "$PROD_HOME" "$$"' EXIT
 
 # --- 2. stop the operative on the old code ----------------------------------
 # Best-effort: a prod server that is down (or a composition that was never up)
@@ -153,6 +180,11 @@ start_tether_shells "$PROD_HOME" "$BASE"
 say "starting operative + fittings ($composition)"
 curl -sf -X POST --max-time 600 "$BASE/api/runner/$composition/up" >/dev/null
 
+# Core improvement feedback survives removal of the legacy own-port fitting.
+GARRISON_HOME="$PROD_HOME" node "$REPO_ROOT/packages/improver/probes/install-probe-hooks.mjs"
+curl -sf -X POST --max-time 60 -H 'content-type: application/json' \
+  -d '{"action":"maintain"}' "$BASE/api/improver" >/dev/null
+
 # --- 5. publish any newly-started own-port view to the tailnet --------------
 # Idempotent (existing mappings are kept). Without this a fitting that gains an
 # own port, or one started for the first time, has no `tailscale serve` mapping
@@ -182,3 +214,6 @@ TAILNET_HOST="$(node -e '
   catch { /* unenrolled box: no tailnet address to name */ }
 ' "$PROD_HOME")"
 say "done — prod serving $BASE${TAILNET_HOST:+ (tailnet: https://$TAILNET_HOST)}"
+
+# Record only after the composition and every view are actually healthy.
+node "$REPO_ROOT/scripts/garrison-main-sync.mjs" record "$DEPLOY_HEAD" "$BASE" "$PROD_HOME"

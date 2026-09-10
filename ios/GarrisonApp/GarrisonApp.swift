@@ -95,7 +95,13 @@ struct GarrisonApp: App {
             // identity changes with the origin, so a task there would re-run on
             // every switch and could walk the node list in one launch.
             .task {
+                try? await store.refreshMesh()
                 await store.failoverIfNeeded(prober: prober)
+            }
+            .onChange(of: store.current) { _, _ in
+                // This also covers editing a node's capture URL or token
+                // without changing its shell origin (no bridge remount).
+                PendantController.shared.reconnectIfNeeded()
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -109,7 +115,8 @@ struct GarrisonApp: App {
             // A node can die while the app is in someone's pocket, and on a
             // flapping tunnel it does. Same rules as the launch probe: a
             // reachable node is never switched away from.
-            Task { await store.failoverIfNeeded(prober: prober) }
+            Task { try? await store.refreshMesh()
+                await store.failoverIfNeeded(prober: prober) }
         }
     }
 }

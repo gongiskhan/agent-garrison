@@ -986,15 +986,11 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
    hover wash instead of borders, and the open body indented under a colored
    rail. Family colors are fixed hues mixed against the theme's fg so they
    survive both schemes without a second palette. */
-.cc-session-toolwrap { display: flex; flex-direction: column; }
-.cc-session-tool { border: 0; border-radius: 6px; background: transparent; }
+.cc-session-toolwrap { display: flex; flex-direction: column; min-width: 0; }
+.cc-session-tool { min-width: 0; border: 0; border-radius: 6px; background: transparent; }
 .cc-session-tool > summary {
   cursor: pointer; display: flex; align-items: center; gap: 8px; min-width: 0;
-  /* The hover/open background bleeds 6px past the row on each side for a
-     comfortable hit target, but MARGIN cancels that same 6px so the icon
-     still starts flush with the assistant text column above it - without
-     the negative margin the row read as indented relative to its own text. */
-  margin: 0 -6px; padding: 3px 6px; font-size: 12.5px; list-style: none; border-radius: 6px;
+  margin: 0; padding: 3px 8px; font-size: 12.5px; list-style: none; border-radius: 6px;
 }
 .cc-session-tool > summary::-webkit-details-marker { display: none; }
 .cc-session-tool > summary:hover { background: var(--cc-bg-sunk); }
@@ -1025,7 +1021,7 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-session-state.error { color: var(--cc-danger-border); font-weight: 700; }
 .cc-session-tool.is-failed > summary { background: color-mix(in srgb, var(--cc-danger-border) 8%, transparent); }
 .cc-session-toolbody {
-  display: flex; flex-direction: column; gap: 8px; margin: 0 0 2px 7px;
+  display: flex; flex-direction: column; gap: 8px; min-width: 0; margin: 0 0 2px;
   padding: 6px 8px 8px; border-left: 2px solid var(--cc-border-strong);
   background: var(--cc-bg-sunk); border-radius: 0 0 6px 6px;
 }
@@ -1051,6 +1047,11 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-stretch-started { border-top-color: color-mix(in srgb, var(--cc-accent) 45%, transparent); }
 .cc-stretch-ended { border-top-style: dashed; }
 .cc-stretch-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; }
+.cc-stretch-duty { font-size: 14px; color: var(--cc-fg); }
+.cc-stretch-details { color: var(--cc-fg-faint); font-size: 11px; line-height: 1.5; }
+.cc-stretch-details > summary { cursor: pointer; width: fit-content; padding: 3px 0; }
+.cc-stretch-details .cc-stretch-id { max-width: 100%; overflow-wrap: anywhere; white-space: normal; }
+.cc-stretch-details p { margin: 4px 0; }
 .cc-stretch-kicker {
   flex: 0 0 auto; color: var(--cc-fg-dim); font-size: 10px; font-weight: 700;
   letter-spacing: .07em; text-transform: uppercase;
@@ -1101,6 +1102,20 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   list-style: none; cursor: pointer;
 }
 .cc-ledger > summary::-webkit-details-marker { display: none; }
+.cc-ledger > summary::before { content: "›"; flex: 0 0 10px; color: var(--cc-fg-dim); }
+.cc-ledger[open] > summary::before { content: "⌄"; }
+.cc-ledger-readable {
+  margin: 9px 0; padding: 10px 12px;
+  border-left-color: var(--cc-accent);
+  background: color-mix(in srgb, var(--cc-accent) 6%, transparent);
+}
+.cc-ledger-readable .cc-ledger-label { color: var(--cc-accent); font-size: 10px; font-weight: 600; }
+.cc-ledger-readable .cc-ledger-body { padding: 7px 0 0; gap: 8px; }
+.cc-ledger-readable .cc-session-md { font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.cc-ledger-readable .cc-session-md > :first-child { margin-top: 0; }
+.cc-ledger-readable .cc-session-md > :last-child { margin-bottom: 0; }
+.cc-ledger-context > summary { cursor: pointer; color: var(--cc-fg-dim); padding: 5px 0; font-size: 12px; }
+.cc-ledger-context .cc-session-md { padding-top: 6px; }
 .cc-ledger-label {
   flex: 0 0 auto; color: var(--cc-fg-faint); font-size: 9px; letter-spacing: .08em; text-transform: uppercase;
 }
@@ -2215,8 +2230,8 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 
 /* ── Conversation activity: working strip, terminal banners, jump pill ──────
    The stream derives what the conversation is doing (journal.ts
-   conversationActivity) and says it at the tail, where the next content will
-   appear. The banners are deliberately the loudest thing in the transcript:
+   conversationActivity). Current work stays above the scroller; terminal
+   banners stay at the tail. The banners stand out in the transcript:
    a parked conversation asking for input is the one state the reader must
    never scroll past. */
 
@@ -2227,8 +2242,10 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   background: color-mix(in srgb, var(--cc-accent) 8%, transparent);
 }
 .cc-conv-working .cc-working-dots i { background: var(--cc-accent); }
+.cc-session > .cc-conv-working { flex-shrink: 0; flex-wrap: wrap; margin: 0 12px 6px; padding: 6px 10px; }
 .cc-conv-working-label { font-size: 12.5px; font-weight: 600; color: var(--cc-fg); }
 .cc-conv-working-model {
+  max-width: 100%; overflow-wrap: anywhere;
   padding: 1px 7px; border: 1px solid var(--cc-border-strong); border-radius: 999px;
   color: var(--cc-fg); font: 10.5px/1.5 var(--cc-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 }
@@ -2383,7 +2400,114 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   .cc-conv-costpanel { left: auto; right: 0; }
 }
 
+/* One question, compact on a card and expanded beside the conversation composer. */
+.cc-conversation-question { min-width: 0; width: 100%; }
+.cc-conversation-question .cc-question { margin: 0 0 8px; max-height: 38vh; overflow: auto; }
+.cc-conversation-question .cc-question-otherinput { min-width: 0; flex: 1; }
+.cc-conversation-question .cc-question-opts { gap: 6px; }
+.cc-conversation-question .cc-question-opt { min-height: 44px; overflow-wrap: anywhere; }
+.cc-conversation-question .cc-question-otherrow { flex-wrap: wrap; }
+.cc-conversation-question.is-compact { --cc-fg: var(--ink); --cc-fg-dim: var(--ink-2); --cc-accent: var(--sage); --cc-border: var(--rule); --cc-border-strong: var(--rule-2); --cc-bg: var(--paper); --cc-bg-elev: var(--paper-2); --cc-accent-fg: var(--paper); }
+.cc-conversation-question.is-compact .cc-question { padding: 10px; max-height: none; background: var(--paper); }
+.cc-conversation-question.is-compact .cc-question-title { font-size: 13px; }
+.cc-conversation-question.is-compact .cc-question-opt-label { font-size: 12px; }
+.cc-conversation-question.is-compact .cc-question-opt-desc { font-size: 11px; }
+
 /* === kanban skin (override layer) === */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(24, 33, 28, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 18px;
+}
+.sheet {
+  background: white;
+  border: 1px solid var(--rule);
+  width: 100%;
+  max-width: 580px;
+  max-height: 88vh;
+  overflow-y: auto;
+  box-shadow: 0 18px 48px rgba(24, 33, 28, 0.28);
+}
+.sheet .sh-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--rule);
+  position: sticky;
+  top: 0;
+  background: white;
+  z-index: 1;
+}
+.sheet .sh-head h3 {
+  margin: 0;
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+  flex: 1 1 auto;
+  line-height: 1.25;
+}
+.sheet .sh-body { padding: 16px 18px 20px; }
+.dtp { position: relative; display: inline-block; }
+.dtp-trigger {
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-2);
+  background: var(--paper);
+  border: 1px solid var(--rule-2);
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dtp-trigger:hover { border-color: var(--sage-2); }
+.dtp-pop {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 232px;
+  padding: 8px;
+  background: var(--paper);
+  border: 1px solid var(--rule-2);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(24,33,28,0.18);
+}
+.dtp-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px; }
+.dtp-month { font-size: 12px; font-weight: 650; color: var(--ink); }
+.dtp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
+.dtp-dow {
+  font-size: 10px;
+  text-align: center;
+  color: var(--mute);
+  padding-bottom: 2px;
+}
+.dtp-day {
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  padding: 5px 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.dtp-day:hover { background: var(--paper-2); }
+/* The padding days from the neighbouring months stay legible but clearly
+   subordinate - they are reachable, just not the month you are looking at. */
+.dtp-day.out { color: var(--mute-2); opacity: 0.55; }
+.dtp-day.today { border-color: var(--brass); font-weight: 650; }
+.dtp-day.on { background: var(--sage); color: var(--paper); border-color: var(--sage); font-weight: 650; }
+.dtp-foot { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
+.dtp-foot input[type="time"] { font-family: var(--mono); font-size: 12px; flex: 1; min-width: 0; }
 /* Kanban Loop board — restyled into Garrison's "field manual" aesthetic so the
    board reads as a native part of Garrison, not a generic Trello clone. The
    tokens, type stacks and component idioms are lifted verbatim from Garrison's
@@ -3075,46 +3199,6 @@ body {
 }
 
 /* ── modal sheets — Garrison .scrim backdrop + white sharp-cornered panel ── */
-.sheet-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(24, 33, 28, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 50;
-  padding: 18px;
-}
-.sheet {
-  background: white;
-  border: 1px solid var(--rule);
-  width: 100%;
-  max-width: 580px;
-  max-height: 88vh;
-  overflow-y: auto;
-  box-shadow: 0 18px 48px rgba(24, 33, 28, 0.28);
-}
-.sheet .sh-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 15px 18px;
-  border-bottom: 1px solid var(--rule);
-  position: sticky;
-  top: 0;
-  background: white;
-  z-index: 1;
-}
-.sheet .sh-head h3 {
-  margin: 0;
-  font-family: var(--serif);
-  font-weight: 600;
-  font-size: 18px;
-  letter-spacing: -0.01em;
-  flex: 1 1 auto;
-  line-height: 1.25;
-}
-.sheet .sh-body { padding: 16px 18px 20px; }
 /* In-place editable sheet title: pencil beside the heading; in edit mode the
    heading text itself becomes the input (same serif, same size). */
 .sheet .sh-head h3 .sheet-title {
@@ -5009,61 +5093,6 @@ label.row { display: flex; align-items: center; gap: 8px; }
    and for repeats "similar to google calendar instead of a cron expression",
    so both are now real controls. Palette and chrome follow the surrounding
    chips rather than the browser's native widgets. */
-.dtp { position: relative; display: inline-block; }
-.dtp-trigger {
-  font: inherit;
-  font-family: var(--mono);
-  font-size: 12px;
-  color: var(--ink-2);
-  background: var(--paper);
-  border: 1px solid var(--rule-2);
-  border-radius: 4px;
-  padding: 4px 8px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.dtp-trigger:hover { border-color: var(--sage-2); }
-.dtp-pop {
-  position: absolute;
-  z-index: 40;
-  top: calc(100% + 4px);
-  left: 0;
-  width: 232px;
-  padding: 8px;
-  background: var(--paper);
-  border: 1px solid var(--rule-2);
-  border-radius: 6px;
-  box-shadow: 0 6px 20px rgba(24,33,28,0.18);
-}
-.dtp-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 6px; }
-.dtp-month { font-size: 12px; font-weight: 650; color: var(--ink); }
-.dtp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
-.dtp-dow {
-  font-size: 10px;
-  text-align: center;
-  color: var(--mute);
-  padding-bottom: 2px;
-}
-.dtp-day {
-  font: inherit;
-  font-size: 12px;
-  line-height: 1;
-  padding: 5px 0;
-  border: 1px solid transparent;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--ink-2);
-  cursor: pointer;
-}
-.dtp-day:hover { background: var(--paper-2); }
-/* The padding days from the neighbouring months stay legible but clearly
-   subordinate — they are reachable, just not the month you are looking at. */
-.dtp-day.out { color: var(--mute-2); opacity: 0.55; }
-.dtp-day.today { border-color: var(--brass); font-weight: 650; }
-.dtp-day.on { background: var(--sage); color: var(--paper); border-color: var(--sage); font-weight: 650; }
-.dtp-foot { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
-.dtp-foot input[type="time"] { font-family: var(--mono); font-size: 12px; flex: 1; min-width: 0; }
-
 .rec-builder {
   display: grid;
   gap: 8px;
@@ -5458,6 +5487,12 @@ label.row { display: flex; align-items: center; gap: 8px; }
   .sheet-tab.is-active { color: var(--ink); border-bottom-color: var(--ink); }
   /* Conversation page: the conversation IS the body. The other sections stay
      mounted (a half-typed checklist item survives a tab switch) but hidden. */
+  /* Long task titles stay fully readable on the Card tab; while following the
+     conversation, reserve the screen for its transcript. */
+  .sheet.phone-conv .sh-head .sheet-title-text {
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
   .sheet.phone-conv .sh-body { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
   .sheet.phone-conv .sh-body > :not(.conv-block) { display: none; }
   .sheet.phone-conv .conv-block { flex: 1 1 auto; min-height: 0; margin: 0; display: flex; flex-direction: column; }

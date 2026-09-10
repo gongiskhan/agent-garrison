@@ -20,6 +20,7 @@ import { randomUUID } from "node:crypto";
 import { runLog } from "@garrison/claude-pty";
 import { buildHarness } from "./harness.mjs";
 import { buildSdkEnv, resolveProviderBaseUrl, capabilityRecord, isAnthropicProvider } from "./providers.mjs";
+import { hostedCommandRejection } from "./hosted-process-guard.mjs";
 import {
   SESSION_TEXT_BLOCK_CAP,
   clampSessionText,
@@ -190,6 +191,8 @@ export function resolveRoutedAgentSdkAssembly(config = {}) {
   const harness = buildHarness(promptMode, {
     leanPrompt: config.leanPrompt,
     append: config.appendSystemPrompt,
+    tools: config.tools,
+    disallowedTools: config.disallowedTools,
   });
   const configuredDisallowed = config.disallowedTools !== undefined
     ? config.disallowedTools
@@ -680,7 +683,9 @@ export class AgentSdkAdapter {
         })
       : assemblySnapshot(buildHarness(promptMode, {
           leanPrompt: config.leanPrompt,
-          append: config.appendSystemPrompt
+          append: config.appendSystemPrompt,
+          tools: config.tools,
+          disallowedTools: config.disallowedTools,
         }));
 
     // Resolve the endpoint base URL (null for the Anthropic subscription path) and
@@ -713,6 +718,8 @@ export class AgentSdkAdapter {
     // Dispatch inference accepts only the explicit disabled-thinking form.
     const thinking = fixedAssembly?.thinking ?? config.thinking;
     if (thinking?.type === "disabled") queryAssembly.thinking = { type: "disabled" };
+    if (config.persistSession === false) queryAssembly.persistSession = false;
+    if (config.outputFormat) queryAssembly.outputFormat = config.outputFormat;
     // `tools` is the base inventory; allowed/disallowed tools are policy layered
     // over it. Preserve an explicitly empty base inventory.
     const tools = fixedAssembly ? fixedAssembly.tools : config.tools;
@@ -801,6 +808,14 @@ export class AgentSdkAdapter {
       opts.effort = session.effort;
     }
     if (session.sessionId) opts.resume = session.sessionId;
+    if (session.config?.env?.GARRISON_STRETCH_ID) {
+      opts.hooks = { ...opts.hooks, PreToolUse: [...(opts.hooks?.PreToolUse ?? []), {
+        matcher: "Bash", hooks: [async (event) => {
+          const reason = hostedCommandRejection(event.tool_name, event.tool_input, session.config.env);
+          return reason ? { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: reason } } : {};
+        }],
+      }] };
+    }
     return opts;
   }
 
@@ -1611,6 +1626,12 @@ export class AgentSdkAdapter {
                 }
               }
             } else if (block.type === "tool_use") {
+              // The SDK's JSON schema mode returns its value in this envelope.
+              // A one-turn caller can consume it without a second model call
+              // merely to acknowledge the structured-output tool result.
+              if (options.outputFormat?.type === "json_schema" && block.name === "StructuredOutput" && block.input && typeof block.input === "object") {
+                resultText = JSON.stringify(block.input);
+              }
               toolUses.push({ name: block.name, id: block.id });
               if (onTool) {
                 try {
@@ -1643,7 +1664,8 @@ export class AgentSdkAdapter {
           // the settled chat must show only the final response. Older SDK/error
           // shapes can omit result, in which case the last textual assistant
           // envelope is the best final answer (or partial answer after Stop).
-          if (typeof msg.result === "string" && msg.result.trim()) resultText = msg.result;
+          if (options.outputFormat && msg.structured_output !== undefined) resultText = JSON.stringify(msg.structured_output);
+          else if (typeof msg.result === "string" && msg.result.trim()) resultText = msg.result;
         }
         // Hard budget ceiling.
         if (session.budgetTokens != null && session.usedTokens >= session.budgetTokens) {

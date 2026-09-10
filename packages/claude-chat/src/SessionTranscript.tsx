@@ -87,9 +87,13 @@ function useFocusedEvent(
     if (!focusEventId || !pendingRef.current) return;
     const root = containerRef.current;
     if (!root) return;
+    const coordinate = /#(\d+)$/.exec(focusEventId);
+    const eventAtCoordinate = coordinate && Array.isArray(renderedEvents)
+      ? renderedEvents.find((event) => event.order === Number(coordinate[1])) : null;
+    const resolvedFocusId = eventAtCoordinate?.id || focusEventId;
     let target: HTMLElement | null = null;
     for (const node of Array.from(root.querySelectorAll<HTMLElement>("[data-session-event-id]"))) {
-      if (node.getAttribute("data-session-event-id") === focusEventId) {
+      if (node.getAttribute("data-session-event-id") === resolvedFocusId) {
         target = node;
         break;
       }
@@ -107,6 +111,8 @@ function useFocusedEvent(
 
 export interface SessionStreamProps {
   url: string;
+  /** Native owner streams can reconnect even while the agent is idle. */
+  reconnect?: boolean;
   /** A conversation host can provide a useful first-message invitation. */
   emptyMessage?: React.ReactNode;
   live?: boolean;
@@ -213,6 +219,8 @@ function TextBlock({
 function ActivityDetails({
   active,
   forceOpen = false,
+  defaultOpen = false,
+  autoExpand = true,
   className,
   id,
   summary,
@@ -222,20 +230,22 @@ function ActivityDetails({
   /** Open regardless of live state and keep it open when live ends — a failed
    *  row's error IS its content; a collapsed failure reads as success. */
   forceOpen?: boolean;
+  defaultOpen?: boolean;
+  autoExpand?: boolean;
   className: string;
   id?: string;
   summary: React.ReactNode;
   children: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(active || forceOpen);
+  const [open, setOpen] = useState(defaultOpen || (autoExpand && active) || forceOpen);
   const wasActive = useRef(active);
   const wasForced = useRef(forceOpen);
   useEffect(() => {
-    if (active !== wasActive.current) {
+    if (autoExpand && active !== wasActive.current) {
       setOpen(active || forceOpen);
       wasActive.current = active;
     }
-  }, [active, forceOpen]);
+  }, [active, forceOpen, autoExpand]);
   useEffect(() => {
     if (forceOpen && !wasForced.current) {
       setOpen(true);
@@ -391,7 +401,7 @@ function ToolBlock({
     <div className="cc-session-toolwrap">
       <ActivityDetails
         active={active}
-        forceOpen={failed}
+        autoExpand={false}
         className={`cc-session-tool fam-${family}${isCommand ? " cc-session-command" : ""}${failed ? " is-failed" : ""}`}
         id={toolAnchorId(block.toolUseId)}
         summary={
@@ -453,7 +463,8 @@ function ThinkingBlock({ block, active }: { block: SessionBlock; active: boolean
   // A thinking block opens empty and fills from deltas. Before any text lands
   // there is nothing to read, and an empty panel is pure noise - a turn that
   // never produced reasoning text must not leave a "Thought" box behind.
-  if (!String(block.text ?? "").trim()) return null;
+  const hasText = Boolean(String(block.text ?? "").trim());
+  if (!hasText && !active) return null;
   // Never a <details>: the reasoning is part of the conversation's record, and a
   // block that collapses the moment the next tool call starts can never be read.
   // Every thinking block stays fully visible for the life of the transcript.
@@ -463,7 +474,7 @@ function ThinkingBlock({ block, active }: { block: SessionBlock; active: boolean
         <span>{active ? "Thinking" : "Thought"}</span>
         {active && <span className="cc-session-live-dot" aria-hidden="true" />}
       </div>
-      <div className="cc-session-thinking-text">{block.text}</div>
+      {hasText && <div className="cc-session-thinking-text">{block.text}</div>}
     </div>
   );
 }
@@ -920,7 +931,16 @@ export function formatUsd(usd: number): string {
   return `$${Math.round(usd).toLocaleString("en-US")}`;
 }
 
-function StretchRule({ block }: { block: SessionBlock }) {
+function dutyLabel(value: string): string {
+  const labels: Record<string, string> = {
+    triage: "Triage", implement: "Implementation", test: "Verification", review: "Review",
+    ops: "Operations", respond: "Response", discuss: "Discussion", plan: "Planning",
+    research: "Research", done: "Done", "needs-input": "Your input",
+  };
+  return labels[value] ?? value;
+}
+
+function StretchRule({ block, thinkingUnavailable = false }: { block: SessionBlock; thinkingUnavailable?: boolean }) {
   const ended = block.phase === "ended";
   // railBadges is defensive about every field it reads; the two attribution
   // shapes are the same bag described by two modules (journal owns the durable
@@ -946,28 +966,14 @@ function StretchRule({ block }: { block: SessionBlock }) {
   return (
     <div className={`cc-stretch cc-stretch-${ended ? "ended" : "started"}`}>
       <div className="cc-stretch-head">
+        {duty && <strong className="cc-stretch-duty">{dutyLabel(duty)}</strong>}
         <span className="cc-stretch-kicker">{ended ? "Stretch ended" : "Stretch started"}</span>
-        {stretchId && (
-          <span className="cc-stretch-id" title={`stretch ${stretchId}`}>{stretchId}</span>
-        )}
-        {duty && <span className="cc-stretch-chip" title={`duty ${duty}`}>duty {duty}</span>}
-        {chosenBy && (
-          <span className="cc-stretch-chip" title={`the rung was chosen by ${chosenBy}`}>via {chosenBy}</span>
-        )}
         {ended && outcome && (
           <span className="cc-stretch-chip cc-stretch-outcome" title={`outcome ${outcome}`}>{outcome}</span>
         )}
         {ended && compactNoticeText(block.next) && (
           <span className="cc-stretch-chip cc-stretch-next" title="where the handoff pointed next">
-            next: {compactNoticeText(block.next)}
-          </span>
-        )}
-        {ended && tokens !== null && (
-          <span className="cc-stretch-chip" title="tokens this stretch used">{tokens.toLocaleString("en-US")} tok</span>
-        )}
-        {ended && apiCalls !== null && (
-          <span className="cc-stretch-chip" title="API calls this stretch made">
-            {apiCalls} {apiCalls === 1 ? "call" : "calls"}
+            next: {dutyLabel(compactNoticeText(block.next))}
           </span>
         )}
         {/* An unpriced stretch shows NO cost chip. A zero would read as free. */}
@@ -994,6 +1000,16 @@ function StretchRule({ block }: { block: SessionBlock }) {
           ))}
         </div>
       )}
+      <details className="cc-stretch-details">
+        <summary>Run details</summary>
+        <div className="cc-stretch-head">
+          {stretchId && <span className="cc-stretch-id" title={`stretch ${stretchId}`}>{stretchId}</span>}
+          {chosenBy && <span title={`via ${chosenBy}`}>Chosen by {chosenBy}</span>}
+          {tokens !== null && <span>{tokens.toLocaleString("en-US")} tokens</span>}
+          {apiCalls !== null && <span>{apiCalls} API calls</span>}
+        </div>
+        {thinkingUnavailable && <p>This provider did not include a readable thinking summary for this stretch.</p>}
+      </details>
     </div>
   );
 }
@@ -1001,7 +1017,8 @@ function StretchRule({ block }: { block: SessionBlock }) {
 /** Human labels for the ledger vocabulary. An unknown kind still renders (the
  * store keeps unknown kinds verbatim) - it just reads as a plain ledger row. */
 const LEDGER_LABELS: Record<string, string> = {
-  handoff: "Handoff",
+  handoff: "Summary saved",
+  finding: "Ledger update",
   "delegation-dispatched": "Delegation sent",
   "delegation-returned": "Delegation returned",
   "delegation-failed": "Delegation failed",
@@ -1025,6 +1042,9 @@ function LedgerRow({ block }: { block: SessionBlock }) {
   const label = LEDGER_LABELS[kind] ?? "Ledger";
   const title = compactNoticeText(block.title);
   const detail = typeof block.detail === "string" ? block.detail : "";
+  const summary = typeof block.summary === "string" ? block.summary : "";
+  const readable = block.detailFormat === "markdown";
+  const important = kind === "handoff" || kind === "finding" || LEDGER_WARN_KINDS.has(kind);
   const payloadRef = compactNoticeText(block.payloadRef);
   const seq =
     typeof block.seq === "number" && Number.isInteger(block.seq) && block.seq >= 0 ? block.seq : null;
@@ -1032,17 +1052,24 @@ function LedgerRow({ block }: { block: SessionBlock }) {
   return (
     <ActivityDetails
       active={false}
-      className={`cc-ledger${tone}`}
+      defaultOpen={important}
+      className={`cc-ledger${important ? " cc-ledger-readable" : ""}${tone}`}
       summary={
         <>
           <span className="cc-ledger-label">{label}</span>
-          {title && <span className="cc-ledger-title">{title}</span>}
+          {title && <span className="cc-ledger-title" title={title}>{kind === "handoff" && block.next ? `Next: ${dutyLabel(block.next)}` : title}</span>}
           {seq !== null && <span className="cc-ledger-seq">#{seq}</span>}
         </>
       }
     >
       <div className="cc-ledger-body">
-        {detail.trim() ? <pre className="cc-session-pre">{detail}</pre> : null}
+        {summary.trim() && <TextBlock text={summary} role="assistant" />}
+        {detail.trim() ? (readable && summary.trim() ? (
+          <details className="cc-ledger-context">
+            <summary>{kind === "handoff" ? "Next steps and evidence" : "Sources and details"}</summary>
+            <TextBlock text={detail} role="assistant" />
+          </details>
+        ) : readable ? <TextBlock text={detail} role="assistant" /> : <pre className="cc-session-pre">{detail}</pre>) : null}
         {payloadRef ? (
           openPayload ? (
             <button
@@ -1057,7 +1084,7 @@ function LedgerRow({ block }: { block: SessionBlock }) {
             <span className="cc-ledger-ref" title={`payload ${payloadRef}`}>payload {payloadRef}</span>
           )
         ) : null}
-        {!detail.trim() && !payloadRef ? (
+        {!summary.trim() && !detail.trim() && !payloadRef ? (
           <div className="cc-ledger-empty">No further detail was recorded.</div>
         ) : null}
       </div>
@@ -1118,6 +1145,9 @@ function ActivityTimeline({
   omitThinking?: boolean;
 }) {
   const beats = sessionActivityBeats(events);
+  const thoughts = beats.filter((beat) => beat.type === "thinking");
+  const thinkingUnavailable = thoughts.length > 0 && thoughts.every((beat) =>
+    "block" in beat && !String(beat.block.text ?? "").trim());
   return (
     <div className={`cc-session-activity${live ? " is-live" : ""}`}>
       {beats.map((beat) => {
@@ -1205,7 +1235,7 @@ function ActivityTimeline({
               data-session-event-id={sourceEvent?.id ?? undefined}
               data-session-block-index={beat.blockIndex}
             >
-              {beat.type === "stretch" ? <StretchRule block={block} /> : <LedgerRow block={block} />}
+              {beat.type === "stretch" ? <StretchRule block={block} thinkingUnavailable={thinkingUnavailable} /> : <LedgerRow block={block} />}
             </div>
           );
         }
@@ -1469,13 +1499,13 @@ function useNowTick(active: boolean): number {
 }
 
 /** The conversation's live pulse: what is running (or being decided) right now,
- * with the model and a running clock. Renders at the tail of the stream, where
- * the next content will appear - the reader's eye is already there. */
+ * with the model and a running clock. Kept above the scroller so reading an
+ * earlier finding does not hide what the current stretch is doing. */
 function ConversationWorkingStrip({ activity, announce }: { activity: ConversationActivity; announce: boolean }) {
   const now = useNowTick(true);
   const elapsed = activity.since ? elapsedLabel(Math.max(0, now - activity.since)) : null;
   const label = activity.mode === "working"
-    ? `Working${activity.duty ? ` — ${activity.duty}` : ""}`
+    ? `Working${activity.duty ? ` · ${dutyLabel(activity.duty)}` : ""}`
     : activity.mode === "handoff"
       ? "Handing off — choosing what runs next"
       : "Starting — message queued";
@@ -1559,6 +1589,7 @@ const CONVERSATION_STATE_CHIPS: Partial<Record<ConversationActivity["mode"], { l
 
 export function SessionStream({
   url,
+  reconnect = false,
   live = false,
   title: titleProp,
   announceLiveUpdates = true,
@@ -1571,6 +1602,8 @@ export function SessionStream({
   const [title, setTitle] = useState<string | null>(titleProp ?? null);
   const [status, setStatus] = useState<StreamStatus>("connecting");
   const [retryToken, setRetryToken] = useState(0);
+  const reconnectAttempts = useRef(0);
+  const connectedUrl = useRef<string | null>(null);
   const [, setHostMapReady] = useState(false);
   const [modalImage, setModalImage] = useState<{ image: SessionImage; label: string } | null>(null);
   const [relatedView, setRelatedView] = useState<RelatedTask | null>(null);
@@ -1637,7 +1670,10 @@ export function SessionStream({
   }, []);
 
   useEffect(() => {
-    setEvents([]);
+    const changedUrl = connectedUrl.current !== url;
+    if (!reconnect || changedUrl) setEvents([]);
+    if (changedUrl) reconnectAttempts.current = 0;
+    connectedUrl.current = url;
     setTitle(titleProp ?? null);
     setStatus("connecting");
     setRelatedView(null);
@@ -1648,11 +1684,13 @@ export function SessionStream({
     hadContentRef.current = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const retryWhileLive = () => {
-      if (!liveRef.current || retryTimer) return;
+      if (retryTimer) return;
+      if (reconnect ? reconnectAttempts.current >= 5 : !liveRef.current) return;
+      const delay = reconnect ? Math.min(1000 * 2 ** reconnectAttempts.current++, 10_000) : 900;
       retryTimer = setTimeout(() => {
         retryTimer = null;
-        if (liveRef.current) setRetryToken((value) => value + 1);
-      }, 900);
+        if (reconnect || liveRef.current) setRetryToken((value) => value + 1);
+      }, delay);
     };
     const source = new EventSource(url);
     source.onmessage = (message) => {
@@ -1663,6 +1701,7 @@ export function SessionStream({
         return;
       }
       if (payload.type === "init") {
+        if (payload.available !== false) reconnectAttempts.current = 0;
         setEvents(Array.isArray(payload.events) ? mergeSessionEvents([], payload.events.filter(isSessionEvent)) : []);
         if (payload.title) setTitle(String(payload.title));
         const nextStatus = payload.available === false ? "unavailable" : payload.live ? "streaming" : "ended";
@@ -1684,11 +1723,15 @@ export function SessionStream({
       } else if (payload.type === "end") {
         setStatus((current) => (current === "unavailable" ? current : "ended"));
         source.close();
-        retryWhileLive();
+        if (!reconnect) retryWhileLive();
       }
     };
     source.onerror = () => {
-      setStatus((current) => (current === "unavailable" ? current : "ended"));
+      if (reconnect && source.readyState === EventSource.CONNECTING) {
+        setStatus("connecting");
+        return;
+      }
+      setStatus((current) => (reconnect || current === "unavailable" ? "unavailable" : "ended"));
       source.close();
       retryWhileLive();
     };
@@ -1696,7 +1739,7 @@ export function SessionStream({
       source.close();
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [url, titleProp, retryToken]);
+  }, [url, titleProp, retryToken, reconnect]);
 
   // ── Smooth stream-follow ────────────────────────────────────────────────────
   // This component does not own the scroll container: the host does (ClaudeChat's
@@ -1954,6 +1997,9 @@ export function SessionStream({
         {!conversationMode && (status === "ended" || (!streamLive && status === "streaming")) && <span>complete</span>}
         {status === "unavailable" && <span>transcript unavailable</span>}
       </div>
+      {derivedBusy && status !== "connecting" && (
+        <ConversationWorkingStrip activity={activity} announce={announceLiveUpdates} />
+      )}
       <RelatedTasks tasks={relatedTasks} onOpen={(task) => setRelatedView(task)} />
       <div className="cc-session-scroll" ref={scrollRef}>
         {visibleEvents.length === 0 && (
@@ -1994,7 +2040,7 @@ export function SessionStream({
           // The turn's reasoning, in order. On a settled turn these render
           // hoisted above the reply - never inside the interim fold, where a
           // collapsed disclosure would hide them the moment the turn ends.
-          const settledThinking = turnLive
+          const settledThinking = turnLive || turnIsStretch
             ? []
             : turn.assistantEvents.flatMap((event, eventIndex) =>
                 event.blocks
@@ -2032,14 +2078,14 @@ export function SessionStream({
                   {settledThinking.map(({ block, key }) => (
                     <ThinkingBlock key={key} block={block} active={false} />
                   ))}
-                  {!turnLive && Boolean(primaryText?.trim()) && <TextBlock text={primaryText!} role="assistant" />}
-                  {turnLive && (
+                  {!turnLive && !turnIsStretch && Boolean(primaryText?.trim()) && <TextBlock text={primaryText!} role="assistant" />}
+                  {(turnLive || turnIsStretch) && (
                     <>
                       <ActivityTimeline
                         events={turn.assistantEvents}
                         includeText
                         omittedTextEventIndex={null}
-                        live
+                        live={turnLive}
                         activeThinkingBlock={activeThinkingBlock}
                         resultsByToolUse={resultsByToolUse}
                         progressByToolUse={progressByToolUse}
@@ -2052,7 +2098,7 @@ export function SessionStream({
                   {turnLive && !conversationMode && !presentation.primaryText && interimCount === 0 && (
                     <div className="cc-session-awaiting" role={announceLiveUpdates ? "status" : undefined}>Working…</div>
                   )}
-                  {!turnLive && interimCount > 0 && (
+                  {!turnLive && !turnIsStretch && interimCount > 0 && (
                     <InterimDetails
                       count={interimCount}
                       openByDefault={
@@ -2082,9 +2128,6 @@ export function SessionStream({
             </React.Fragment>
           );
         })}
-        {derivedBusy && status !== "connecting" && (
-          <ConversationWorkingStrip activity={activity} announce={announceLiveUpdates} />
-        )}
         {conversationMode && !derivedBusy && <ConversationStateBanner activity={activity} />}
         {!stuck && (
           <div className="cc-session-jumpwrap">

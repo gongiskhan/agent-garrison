@@ -1,3 +1,4 @@
+import { validConversationQuestion } from "./conversation-question.mjs";
 // The conversation store — Garrison Conversations' single source of truth
 // (Conversations plan, 2026-08-26). One directory per conversation under
 // $GARRISON_HOME/conversations/<id>/:
@@ -723,6 +724,10 @@ export function validateHandoff(obj, { selectedDuties = [], resolveEvidence = nu
         errors.push(`failedApproaches[${i}] must be {approach, why}`);
       }
     }
+  }
+
+  if (obj.question != null && (!validConversationQuestion(obj.question) || obj.nextSteps?.next !== "needs-input")) {
+    errors.push("question requires next needs-input and {question: non-empty text <=1000 chars, options: up to 4 unique {label <=160 chars, description? <=400 chars}}");
   }
 
   // Cross-rules: the empty-is-a-failure discipline applied to prose.
