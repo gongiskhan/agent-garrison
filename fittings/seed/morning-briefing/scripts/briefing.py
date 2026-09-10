@@ -36,13 +36,40 @@ POST_RETRY_BASE_SECONDS = 0.25
 # both-empty inputs ("post a one-line acknowledgement instead of staying
 # silent — briefings have a fixed cadence and the principal expects
 # proof-of-life").
+# Where the composed briefing goes. Split out of PROMPT_TEMPLATE because the
+# destination is the ONE part of the instruction that varies per composition:
+# everything else (sources, format, length, tone) is the same briefing whoever
+# reads it. The slack clause is verbatim what the template always said, and it
+# stays the default, so a composition that sets nothing keeps its old behaviour.
+DESTINATION_CLAUSES = {
+    "slack": (
+        "Post via mcp__claude_ai_Slack__slack_send_message to the "
+        "orchestrator report_channel - if report_channel is empty, log to "
+        "stdout and stop, do not search Slack. "
+    ),
+    "whatsapp": (
+        "Deliver it over WhatsApp. From the composition dir run: node "
+        "apm_modules/_local/whatsapp-web/scripts/connector.mjs call send_text "
+        "with a JSON arg whose to field is exactly {whatsapp_jid} and whose "
+        "body field is the briefing text. Use that JID verbatim - do NOT call "
+        "resolve_contact, do not guess, and do not substitute another "
+        "recipient. The call returns queued:true with an executeAt: the "
+        "message is parked for a 60-second cancel window and then goes out on "
+        "its own. That is the expected result - do not call send_text a second "
+        "time and do not report it as a failure. "
+    ),
+    "stdout": (
+        "Do not send this anywhere. Print the composed briefing to stdout and "
+        "stop - this is a dry run. "
+    ),
+}
+
+
 PROMPT_TEMPLATE = (
     "Morning briefing trigger. Today is {date} ({day_of_week}).\n\n"
     "Compose my morning briefing. Combine my open Trello tasks "
     "(A Fazer list) with today calendar events. "
-    "Post via mcp__claude_ai_Slack__slack_send_message to the "
-    "orchestrator report_channel — if report_channel is empty, log to "
-    "stdout and stop, don't search Slack. "
+    "{destination}"
     "Format: events in chronological order, two task suggestions with "
     "one-sentence reasons, anything blocking (only if you genuinely "
     "identify a blocker; skip the section otherwise — don't fabricate). "
@@ -62,12 +89,59 @@ PROMPT_TEMPLATE = (
 )
 
 
+def delivery_config() -> tuple[str, str]:
+    """(delivery, whatsapp_jid) from env.
+
+    Two names per knob, same precedence rule setup.sh uses: the explicit
+    GARRISON_* runtime override wins, then the composition config the runner
+    projects as <FITTING_ID>_<KEY> (setupConfigEnv in src/lib/runner.ts), then
+    the schema default. Reading only one of the two names is exactly the bug
+    that made briefing_time silently ignore the composition.
+    """
+    delivery = (
+        os.environ.get("GARRISON_BRIEFING_DELIVERY")
+        or os.environ.get("MORNING_BRIEFING_DELIVERY")
+        or "slack"
+    ).strip().lower()
+    jid = (
+        os.environ.get("GARRISON_BRIEFING_WHATSAPP_JID")
+        or os.environ.get("MORNING_BRIEFING_WHATSAPP_JID")
+        or ""
+    ).strip()
+    return delivery, jid
+
+
+def destination_clause(delivery: str, whatsapp_jid: str) -> str:
+    """Resolve the delivery clause, or raise if the config cannot deliver.
+
+    A misconfigured destination fails HERE, before the gateway is asked to spend
+    a model turn composing a briefing that has nowhere to go. Silently falling
+    back to stdout would look like success in the scheduler log and produce
+    nothing the principal ever sees - the exact failure this Fitting already had
+    with an empty report_channel.
+    """
+    if delivery not in DESTINATION_CLAUSES:
+        raise ValueError(
+            f"unknown delivery '{delivery}'; expected one of "
+            + ", ".join(sorted(DESTINATION_CLAUSES))
+        )
+    if delivery == "whatsapp" and not whatsapp_jid:
+        raise ValueError(
+            "delivery=whatsapp needs whatsapp_jid (an exact JID like "
+            "351900000000@s.whatsapp.net); set it in the composition config or "
+            "via GARRISON_BRIEFING_WHATSAPP_JID"
+        )
+    return DESTINATION_CLAUSES[delivery].format(whatsapp_jid=whatsapp_jid)
+
+
 def render_prompt(today: Optional[date] = None) -> str:
     if today is None:
         today = date.today()
+    delivery, jid = delivery_config()
     return PROMPT_TEMPLATE.format(
         date=today.isoformat(),
         day_of_week=today.strftime("%A"),
+        destination=destination_clause(delivery, jid),
     )
 
 
@@ -88,10 +162,15 @@ def gateway_url() -> str:
 
 def cmd_fire() -> int:
     today = date.today()
+    delivery, _jid = delivery_config()
     body = {
         "kind": "morning-briefing",
         "date": today.isoformat(),
         "day_of_week": today.strftime("%A"),
+        # Echoed so the gateway log says where a given fire was meant to land;
+        # without it a briefing that vanished is indistinguishable from one that
+        # was delivered somewhere nobody was looking.
+        "delivery": delivery,
         "instructions": render_prompt(today),
     }
     url = f"{gateway_url()}/jobs"

@@ -8,8 +8,11 @@ the orchestrator's `report_channel`. It's opt-in.
 
 - The `scheduler` Fitting must be in your composition (required —
   this Fitting is just a job registration).
-- The `slack-channel` Fitting must be in your composition (required
-  — that's where the briefing posts).
+- A destination Fitting for whichever `delivery` you choose:
+  `slack-channel` for `delivery: slack`, or `whatsapp-web` for
+  `delivery: whatsapp`. Neither is required by the manifest any
+  more — `delivery: stdout` needs no channel at all — so nothing
+  stops you composing one without the other.
 - Optionally: `trello-data-source` and/or `google-calendar`. If
   both are absent, the briefing posts a one-line "quiet day"
   acknowledgement; if only one is absent, the briefing skips that
@@ -30,7 +33,23 @@ selections:
       config:
         briefing_time: "08:00"
         weekdays_only: true
+        delivery: slack
 ```
+
+To receive it on WhatsApp instead, point `delivery` at the
+whatsapp-web connector and give it an exact JID (your own number
+delivers the briefing into "Message yourself"):
+
+```yaml
+        delivery: whatsapp
+        whatsapp_jid: "351900000000@s.whatsapp.net"
+```
+
+The JID is never guessed: `send_text` rejects anything that is not
+already an exact JID, and setup refuses to register the job when
+`delivery: whatsapp` has no `whatsapp_jid`. Note that a briefing is
+an agent-triggered send, so it is parked in the daemon's outbox for
+a 60-second cancel window before it actually goes out.
 
 ## 3. Override time / weekdays at runtime (optional)
 

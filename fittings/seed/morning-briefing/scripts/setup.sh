@@ -46,13 +46,27 @@ fi
 #    explicit runtime override > composition config > schema default.
 TIME="${GARRISON_BRIEFING_TIME:-${MORNING_BRIEFING_BRIEFING_TIME:-08:00}}"
 WEEKDAYS="${GARRISON_BRIEFING_WEEKDAYS_ONLY:-${MORNING_BRIEFING_WEEKDAYS_ONLY:-true}}"
+DELIVERY="${GARRISON_BRIEFING_DELIVERY:-${MORNING_BRIEFING_DELIVERY:-slack}}"
+WA_JID="${GARRISON_BRIEFING_WHATSAPP_JID:-${MORNING_BRIEFING_WHATSAPP_JID:-}}"
+
+# Fail at `up`, not at 07:00. A whatsapp delivery with no JID cannot send, and
+# discovering that from a silent morning is how this Fitting already burned a
+# fortnight with an empty report_channel.
+if [ "$DELIVERY" = "whatsapp" ] && [ -z "$WA_JID" ]; then
+  echo "delivery=whatsapp but whatsapp_jid is empty; set it in the composition config" >&2
+  exit 1
+fi
+case "$DELIVERY" in
+  slack|whatsapp|stdout) ;;
+  *) echo "unknown delivery '$DELIVERY' (expected slack, whatsapp or stdout)" >&2; exit 1 ;;
+esac
 
 # 4. Compute cron string.
 if ! CRON="$(python3 "$FITTING_DIR/scripts/briefing.py" --cron "$TIME" "$WEEKDAYS")"; then
   echo "failed to compute cron from time=$TIME weekdays=$WEEKDAYS" >&2
   exit 1
 fi
-log "cron = $CRON  (time=$TIME, weekdays_only=$WEEKDAYS)"
+log "cron = $CRON  (time=$TIME, weekdays_only=$WEEKDAYS, delivery=$DELIVERY)"
 
 # 5. Register the job.
 #    `register`, not `add`: this hook re-runs on EVERY `up`, and `add` hardcodes
@@ -61,7 +75,14 @@ log "cron = $CRON  (time=$TIME, weekdays_only=$WEEKDAYS)"
 #    The command carries its own instance identity: the scheduler daemon runs
 #    jobs through `sh -c` with the DAEMON's env, which has no gateway address, so
 #    briefing.py would otherwise have to guess which instance to POST to.
+#    The delivery config is baked into the command for the same reason the
+#    gateway URL is: the daemon's env has neither, and briefing.py must not be
+#    left to guess where the briefing goes.
 WRAPPER="bash $FITTING_DIR/scripts/briefing.sh"
+WRAPPER="GARRISON_BRIEFING_DELIVERY='${DELIVERY}' $WRAPPER"
+if [ -n "$WA_JID" ]; then
+  WRAPPER="GARRISON_BRIEFING_WHATSAPP_JID='${WA_JID}' $WRAPPER"
+fi
 if [ -n "${GARRISON_GATEWAY_URL:-}" ]; then
   WRAPPER="GARRISON_GATEWAY_URL='${GARRISON_GATEWAY_URL}' $WRAPPER"
 fi

@@ -27,9 +27,19 @@ to the session the same way `/jobs` heartbeat ticks are routed.
    to two task suggestions with one-sentence reasons each. Skip
    any section whose data source is empty. Skip a "blocking"
    section unless a real blocker exists (no fabrication).
-5. Post via `mcp__claude_ai_Slack__slack_send_message` to the
-   orchestrator's `report_channel`. **If `report_channel` is empty,
-   log to stdout and stop — don't search Slack for a channel.**
+5. Deliver it to wherever the `delivery` config points. The prompt
+   carries the destination, so follow what it says rather than
+   assuming Slack:
+   - `slack` — post via `mcp__claude_ai_Slack__slack_send_message`
+     to the orchestrator's `report_channel`. **If `report_channel`
+     is empty, log to stdout and stop — don't search Slack for a
+     channel.**
+   - `whatsapp` — call the whatsapp-web connector's `send_text`
+     with the exact JID the prompt names. It returns
+     `{queued:true, executeAt}`: the message is parked for a
+     60-second cancel window and then goes out by itself. That is
+     success, not a failure — don't call it twice.
+   - `stdout` — print the briefing and stop (dry run).
 6. If both calendar and tasks are empty, post a one-line
    acknowledgement ("Quiet day.") rather than staying silent —
    briefings have a fixed cadence and the principal expects
@@ -41,12 +51,17 @@ to the session the same way `/jobs` heartbeat ticks are routed.
 - Informational only. Do not offer to do work autonomously here. If
   the principal wants to act, they reply in Slack and the existing
   heartbeat approval flow (Phase 2 T4) takes it from there.
-- Don't post anywhere except the configured Slack target.
+- Don't deliver anywhere except the target the prompt names.
 
 ## Configuration knobs
 
 - `GARRISON_BRIEFING_TIME` (default `08:00`) — local fire time.
 - `GARRISON_BRIEFING_WEEKDAYS_ONLY` (default `true`) — Mon–Fri.
+- `GARRISON_BRIEFING_DELIVERY` (default `slack`) — `slack`,
+  `whatsapp` or `stdout`.
+- `GARRISON_BRIEFING_WHATSAPP_JID` — exact JID for `whatsapp`
+  delivery. Required in that mode; setup refuses to register the job
+  without it rather than letting a silent morning reveal it.
 - Re-running setup with new env values replaces the cron entry by
   id (`morning-briefing`). No need to remove the old job manually.
 

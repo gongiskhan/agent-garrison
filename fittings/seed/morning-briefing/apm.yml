@@ -17,7 +17,7 @@ x-garrison:
         route: /
   platforms:
     - claude-code
-  summary: Schedules a daily synthetic prompt that asks the session to compose a morning briefing (Trello + Calendar) and post it to Slack via the orchestrator's report_channel.
+  summary: Schedules a daily synthetic prompt that asks the session to compose a morning briefing (Trello + Calendar) and deliver it to the destination `delivery` names — Slack via the orchestrator's report_channel, WhatsApp via the whatsapp-web connector, or stdout for a dry run.
   config_schema:
     - key: briefing_time
       type: string
@@ -27,14 +27,40 @@ x-garrison:
       type: boolean
       default: true
       description: If true, fires Mon–Fri only. Override at runtime via GARRISON_BRIEFING_WEEKDAYS_ONLY (true|false).
+    - key: delivery
+      type: string
+      default: slack
+      description: >-
+        Where the composed briefing is delivered. `slack` posts to the
+        orchestrator's report_channel (the historical behaviour, and still the
+        default so an existing composition does not change under anyone).
+        `whatsapp` sends it through the whatsapp-web connector to `whatsapp_jid`.
+        `stdout` composes and logs only — useful for a dry run. Override at
+        runtime via GARRISON_BRIEFING_DELIVERY.
+    - key: whatsapp_jid
+      type: string
+      default: ""
+      description: >-
+        Exact WhatsApp JID the briefing is sent to when delivery=whatsapp
+        (e.g. 351900000000@s.whatsapp.net). Required for that mode and never
+        guessed: send_text rejects anything that is not already an exact JID.
+        Point it at your own number to receive the briefing in "Message
+        yourself". Override at runtime via GARRISON_BRIEFING_WHATSAPP_JID.
   provides: []
   consumes:
     - kind: automation-runner
       name: scheduler
       cardinality: one
+    # optional-one, not one: slack stopped being the only destination when
+    # `delivery` was added. A composition that delivers over WhatsApp (or does a
+    # stdout dry run) must still resolve, and requiring slack here made the
+    # Fitting unselectable for it.
     - kind: channel
       name: slack
-      cardinality: one
+      cardinality: optional-one
+    - kind: connector
+      name: whatsapp-web
+      cardinality: optional-one
     - kind: connector
       name: trello
       cardinality: optional-one
