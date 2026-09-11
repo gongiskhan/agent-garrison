@@ -43,6 +43,19 @@ x-garrison:
     sessions connect over HTTP MCP instead. Delegation is owned by the active
     runtime/orchestration layer, not by persona-named Soul sessions.
 
+    Assistant reads available in every working session:
+      - garrison_list_cards(query?, list?, project?, include_closed?, offset?, limit?):
+        read the live board, paging through next_offset; open cards by default.
+      - garrison_get_card(card): read description, checklist and progress by id,
+        suffix or title; ambiguous references return candidates.
+      - garrison_list_connectors(connector?): equipped services, connection state
+        and action catalog. Credentials never appear in the result.
+      - garrison_connector_read(connector, action, args?): call an action explicitly
+        declared mutates=false, using the existing scoped credential invoker.
+        For today's agenda read both Kanban and Google calendar.list_events with
+        time_min/time_max for the user's local day. Report actual connection
+        failures; do not claim tools are missing without trying them.
+
     Kanban run-engine tools (WS2, present when the kanban-loop board is live at
     ~/.garrison/ui-fittings/kanban-loop.json):
       - fetch_evidence(card_id, artifact_ref): pull one card artifact (raw text,

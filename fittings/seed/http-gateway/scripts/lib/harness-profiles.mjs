@@ -23,6 +23,7 @@
 // duty of a tool it needs is a worse failure than paying for a schema.
 
 import { TOOL_PROFILES, toolsForProfile } from "../../../agent-sdk-runtime/lib/harness.mjs";
+export { DEFAULT_MAX_TURNS } from "../../../agent-sdk-runtime/lib/harness.mjs";
 
 // duty -> profile name. Anything absent gets DEFAULT_PROFILE.
 //
@@ -82,10 +83,8 @@ export const SHARED_PROFILE = "shared";
 
 export const DEFAULT_PROFILE = SHARED_PROFILE;
 
-// Which MCP tools a duty carries. Measured: across 33 recorded conversations NO
-// stretch of any duty ever called one of the nine legacy garrison tools, and
-// their schemas cost 2,268 tokens on haiku / 2,744 on sonnet in EVERY stretch's
-// boot prefix. So the default is none, and a duty names what it actually needs.
+// All working duties share system reads as well as their continuity tools.
+// Historical tool usage from coding tasks does not define assistant capability.
 //
 // `garrison_capability_doc` is what makes the trimmed capability catalogue
 // honest: the prompt carries a one-line index and this fetches the provider's
@@ -101,8 +100,7 @@ const FINDINGS = ["garrison_finding_add"];
 
 // One MCP set for every duty, for exactly the reason the tool profile is
 // shared: these schemas live in the tools block, and a block that varies per
-// duty forks the cache prefix. Three schemas, ~1,700 tokens, against a ~43k
-// prefix that six stretches would otherwise each rewrite.
+// duty forks the cache prefix. Keep system access stable across handoffs.
 // Provider-two step 3 revert flag: with this off, a stretch routed to a codex
 // target runs the pre-2026-08-31 secondary lane (no MCP mount, no conversation
 // identity) and a crashed stretch propagates instead of parking the card.
@@ -112,7 +110,12 @@ export function runtimeCodexEnabled(env = process.env) {
   return true;
 }
 
-export const SHARED_MCP_TOOLS = [CAPABILITY_DOC, ...LAYER3, ...FINDINGS];
+// Every working session can inspect the actual system. Past coding-only usage
+// was not evidence that board and connector tools were unnecessary.
+export const READ_MCP_TOOLS = [CAPABILITY_DOC, ...LAYER3, ...FINDINGS,
+  "garrison_list_cards", "garrison_get_card", "list_scheduled_cards",
+  "garrison_list_connectors", "garrison_connector_read", "list_automations"];
+export const SHARED_MCP_TOOLS = [...READ_MCP_TOOLS];
 
 // The one duty that needs a tool the others must not have (D62): `dialogue` is
 // the spoken conversation, and its whole contract is that real work leaves the
@@ -148,8 +151,7 @@ export function applyDutyHarnessProfile(route, duty, opts = {}) {
   // stretch once edited the app and killed its own gateway with Bash.
   if (duty === "triage") {
     route.target = { ...route.target, tools: toolsForProfile("triage"),
-      toolProfile: "triage", mcpTools: [...SHARED_MCP_TOOLS],
-      maxTurns: Math.min(Number(route.target.maxTurns) || 8, 8) };
+      toolProfile: "triage", mcpTools: [...READ_MCP_TOOLS] };
     return route;
   }
   if (route.target.tools !== undefined) return route;

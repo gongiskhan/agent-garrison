@@ -39,9 +39,11 @@ import {
   callListScheduledCards
 } from "./lib/tools.mjs";
 
+import { ASSISTANT_TOOL_DEFINITIONS, callListCards, callGetCard, callListConnectors, callConnectorRead } from "./lib/assistant-tools.mjs";
+
 // ─────────────────────────────────────────── dynamic tool discovery
 async function discoverTools() {
-  const tools = [];
+  const tools = [...ASSISTANT_TOOL_DEFINITIONS];
   const [tierOk, testingOk] = await Promise.all([
     checkProbe("tier-classifier", "classify_tier.mjs"),
     checkProbe("testing", "run_tests.mjs"),
@@ -394,6 +396,10 @@ async function callFindingAdd(input) {
 }
 
 async function dispatchTool(name, input) {
+  if (name === "garrison_list_cards") return callListCards(input);
+  if (name === "garrison_get_card") return callGetCard(input);
+  if (name === "garrison_list_connectors") return callListConnectors(input);
+  if (name === "garrison_connector_read") return callConnectorRead(input);
   if (name === "garrison_capability_doc") return callCapabilityDoc(input);
   if (name === "garrison_finding_add") return callFindingAdd(input);
   if (name === "garrison_conversation_search") return callLayer3("search", input);
@@ -427,6 +433,7 @@ async function buildServer(tools) {
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const { name, arguments: args } = req.params;
     try {
+      if (!tools.some((tool) => tool.name === name)) throw new Error(`tool unavailable in this session: ${name}`);
       const result = await dispatchTool(name, args ?? {});
       return {
         content: [{ type: "text", text: JSON.stringify(result) }]

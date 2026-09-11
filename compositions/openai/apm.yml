@@ -102,7 +102,7 @@ x-garrison:
             provider: chatgpt-subscription
             model: gpt-5.6-terra
             promptMode: coding
-            maxTurns: 500
+            maxTurns: 800
             account: codex-gmail
         - id: claude-code-runtime
           config:
@@ -125,7 +125,7 @@ x-garrison:
             provider: anthropic
             model: ''
             promptMode: coding
-            maxTurns: 500
+            maxTurns: 800
             account: auto
         - id: openrouter-runtime
           config:
@@ -625,7 +625,7 @@ x-garrison:
         params:
           type: runtime-target
           promptMode: coding
-          maxTurns: 500
+          maxTurns: 800
       - id: terra
         runtime: openai-agents
         model: gpt-5.6-terra
@@ -633,7 +633,7 @@ x-garrison:
         params:
           type: runtime-target
           promptMode: coding
-          maxTurns: 500
+          maxTurns: 800
       - id: sol
         runtime: openai-agents
         model: gpt-5.6-sol
@@ -641,7 +641,7 @@ x-garrison:
         params:
           type: runtime-target
           promptMode: coding
-          maxTurns: 500
+          maxTurns: 800
       - id: sec-gemini
         runtime: gemini
         model: gemini-2.5-flash

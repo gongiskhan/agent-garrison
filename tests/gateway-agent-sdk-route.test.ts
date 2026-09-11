@@ -248,7 +248,7 @@ describe("Orchestrator routes a channel turn to the agent-sdk runtime (sdk-route
         // implement phase spent it mid-task and parked itself with "no valid
         // next step chosen", so the card read as broken work rather than an
         // unset budget.
-        maxTurns: 200,
+        maxTurns: 800,
       });
     } finally {
       gw.shutdown();

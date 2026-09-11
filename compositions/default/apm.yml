@@ -161,7 +161,7 @@ x-garrison:
             provider: anthropic
             model: ''
             promptMode: coding
-            maxTurns: 500
+            maxTurns: 800
             account: auto
         - id: openrouter-runtime
           config:
@@ -775,7 +775,7 @@ x-garrison:
         params:
           type: runtime-target
           promptMode: coding
-          maxTurns: 500
+          maxTurns: 800
       - id: cc-sonnet
         runtime: agent-sdk
         model: claude-sonnet-5
@@ -783,7 +783,7 @@ x-garrison:
         params:
           type: runtime-target
           promptMode: coding
-          maxTurns: 500
+          maxTurns: 800
       - id: sdk-haiku
         runtime: agent-sdk
         model: claude-haiku-4-5
@@ -806,7 +806,7 @@ x-garrison:
           type: runtime-target
           authMode: subscription
           promptMode: coding
-          maxTurns: 500
+          maxTurns: 800
       - id: opus
         runtime: agent-sdk
         model: claude-opus-4-8
@@ -815,7 +815,7 @@ x-garrison:
           type: runtime-target
           authMode: subscription
           promptMode: coding
-          maxTurns: 500
+          maxTurns: 800
       - id: cursor-local
         runtime: cursor
         model: auto

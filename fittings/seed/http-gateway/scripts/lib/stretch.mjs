@@ -568,7 +568,7 @@ Missing facts you can inspect are not blockers. Ask for user input only when an
 essential decision cannot be inferred or checked. Do not re-ask for authorized work.
 Return a concise handoff with concrete remaining steps and constraints, using
 the fenced handoff form. Findings belong in the findings tool, not just prose.
-Finish intake within eight tool turns; the working duty can investigate further.`,
+Hand off once the route is clear; do not investigate unrelated details.`,
   // The one duty a person SPEAKS to (D62). Everything here is read aloud into an
   // earpiece, so the register is the voice lane's, not the loop's: the word cap
   // and the markdown ban are the same ones buildVoiceDiscussPrompt has carried
@@ -596,6 +596,14 @@ How to speak here, which is different from writing:
   They answer by voice and the conversation carries on right here.
 
 What to DO, not just say. Finish it in this pass whenever you can:
+
+For tasks, priorities or what is due today, read the real board with
+garrison_list_cards and garrison_get_card. For calendar and other connected
+services, use garrison_list_connectors to discover actions, then
+garrison_connector_read for lookups. For today's agenda, check both the board and Google calendar.list_events
+with time_min/time_max for the user's local day. Keep due work, overdue work and
+calendar events distinct. Report a service's actual failure or connection state;
+never infer missing access without attempting the available tools.
 
 - A question you can answer, from what you know or with the tools you have:
   answer it.
@@ -2101,7 +2109,7 @@ export async function runConversation(gateway, {
           },
           onUsage,
           signal: stretchAbort.signal,
-          timeoutMs: duty === "triage" ? Math.min(STRETCH_TIMEOUT_MS, 120_000) : STRETCH_TIMEOUT_MS,
+          timeoutMs: STRETCH_TIMEOUT_MS,
           env,
         });
       } finally {

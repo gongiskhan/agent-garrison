@@ -4,7 +4,7 @@
 // carried as an index instead of every provider's full guidance.
 import { describe, it, expect } from "vitest";
 // @ts-ignore - pure .mjs module (single-line: TS reports TS7016 on the CLOSING line of a multi-line import, which the ignore above would not cover)
-import { applyDutyHarnessProfile, toolProfileForDuty, narrowToolProfileForDuty, NARROW_DUTY_TOOL_PROFILES, SHARED_MCP_TOOLS, TOOL_PROFILES } from "../fittings/seed/http-gateway/scripts/lib/harness-profiles.mjs";
+import { applyDutyHarnessProfile, toolProfileForDuty, narrowToolProfileForDuty, NARROW_DUTY_TOOL_PROFILES, SHARED_MCP_TOOLS, READ_MCP_TOOLS, TOOL_PROFILES } from "../fittings/seed/http-gateway/scripts/lib/harness-profiles.mjs";
 import { renderCapabilitiesBlock } from "../src/lib/runner";
 import type { LibraryEntry } from "../src/lib/types";
 
@@ -39,11 +39,11 @@ describe("duty harness profiles", () => {
     expect(new Set(blocks).size).toBe(1);
   });
 
-  it("bounds triage to read-only intake even when the coding target carries full tools", () => {
-    const route = applyDutyHarnessProfile(agentSdkRoute({ tools: ["Bash", "Agent", "Write"], maxTurns: 50 }), "triage");
+  it("keeps intake read-only without overriding the configured working turn budget", () => {
+    const route = applyDutyHarnessProfile(agentSdkRoute({ tools: ["Bash", "Agent", "Write"], maxTurns: 800 }), "triage");
     expect(route.target.tools).toEqual(["Read", "Glob", "Grep"]);
-    expect(route.target.maxTurns).toBe(8);
-    expect(route.target.mcpTools).toEqual(SHARED_MCP_TOOLS);
+    expect(route.target.maxTurns).toBe(800);
+    expect(route.target.mcpTools).toEqual(READ_MCP_TOOLS);
   });
 
   it.each(["responder", "dialogue", "discuss", "research"])("lets %s look up changing facts without a connector", (duty) => {

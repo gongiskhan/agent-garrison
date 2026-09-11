@@ -34,7 +34,7 @@ import {
   PERSONAL_SCOPE_TOKEN,
   resolveRunScope
 } from "./project-source.mjs";
-import { SHARED_MCP_TOOLS, runtimeCodexEnabled } from "./harness-profiles.mjs";
+import { SHARED_MCP_TOOLS, DEFAULT_MAX_TURNS, runtimeCodexEnabled } from "./harness-profiles.mjs";
 import { stretchProcessEnv } from "./stretch-process-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -1442,7 +1442,7 @@ export class RoutedGateway {
       // implement phase parks itself mid-task ("no valid next step chosen") and
       // the card lands in needs-attention having done half the job - the failure
       // reads like a bug in the work rather than a budget the caller never set.
-      maxTurns: target.maxTurns ?? 200,
+      maxTurns: target.maxTurns ?? DEFAULT_MAX_TURNS,
       budgetTokens: target.budgetTokens ?? null,
       permissionMode: opts.permissionMode === "default" ? "default" : "bypassPermissions",
       thinking: target.thinking?.type === "disabled" ? { type: "disabled" } : undefined,
@@ -1451,7 +1451,7 @@ export class RoutedGateway {
       ...(target.disallowedTools !== undefined ? { disallowedTools: disallowedTools ?? [] } : {}),
       // A duty harness profile sets `mcpServers: null` to mean "this stretch
       // carries no MCP server", which is different from leaving it unspecified.
-      // Nine unused schemas are ~2.3k tokens of boot prefix on every stretch.
+      // Working profiles carry the shared board, connector and continuity tools.
       mcpServers: target.mcpServers === null || target.promptMode === "lean"
         ? {}
         : narrowMcpTools(cloneAssemblyValue(this._agentSdkMcpServers), target.mcpTools, opts.conversationId, opts.cwd),

@@ -125,7 +125,7 @@ export class OpenAiAgentsAdapter {
       effortApplied: Boolean(config.effort) && capabilities.effort === "supported",
       // The agentic loop has no natural bound: cap turns + an optional token budget
       // so a runaway loop stops and reports instead of burning paid credits.
-      maxTurns: config.maxTurns ?? 12,
+      maxTurns: config.maxTurns ?? 800,
       budgetTokens: config.budgetTokens ?? null,
       usedTokens: 0,
       turns: 0,

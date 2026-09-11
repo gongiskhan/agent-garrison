@@ -18,7 +18,7 @@
 // so the unit-test path never loads the SDK.
 import { randomUUID } from "node:crypto";
 import { runLog } from "@garrison/claude-pty";
-import { buildHarness } from "./harness.mjs";
+import { buildHarness, DEFAULT_MAX_TURNS } from "./harness.mjs";
 import { buildSdkEnv, resolveProviderBaseUrl, capabilityRecord, isAnthropicProvider } from "./providers.mjs";
 import { hostedCommandRejection } from "./hosted-process-guard.mjs";
 import {
@@ -205,7 +205,7 @@ export function resolveRoutedAgentSdkAssembly(config = {}) {
     systemPrompt: harness.systemPrompt,
     settingSources: [],
     compositionDir: config.compositionDir,
-    maxTurns: config.maxTurns ?? 12,
+    maxTurns: config.maxTurns ?? DEFAULT_MAX_TURNS,
     budgetTokens: config.budgetTokens ?? null,
     permissionMode: config.permissionMode ?? "bypassPermissions",
     includePartialMessages: true,
@@ -702,7 +702,7 @@ export class AgentSdkAdapter {
     const baseUrl = resolveProviderBaseUrl(effectiveConfig);
     const { env, vaultKey } = buildSdkEnv(effectiveConfig, { secrets: config.secrets ?? null, baseEnv: config.env ?? {} });
     const capabilities = capabilityRecord(effectiveConfig);
-    const maxTurns = fixedAssembly?.maxTurns ?? config.maxTurns ?? 12;
+    const maxTurns = fixedAssembly?.maxTurns ?? config.maxTurns ?? DEFAULT_MAX_TURNS;
     const queryAssembly = {
       systemPrompt: fixedAssembly?.systemPrompt ?? harness.systemPrompt,
       settingSources: fixedAssembly?.settingSources ?? harness.settingSources,

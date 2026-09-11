@@ -57,7 +57,7 @@ export async function callRunAutomation(input) {
 // fetch_evidence pulls a card's artifact (raw bytes) and create_continuation
 // registers a chained successor card. This is CARD CHAINING — distinct from the
 // Orchestrator policy's post-task "continuations" (store|ask|route|notify).
-function kanbanBaseUrl() {
+export function kanbanBaseUrl() {
   try {
     const home = process.env.GARRISON_HOME ?? path.join(os.homedir(), ".garrison");
     const status = JSON.parse(readFileSync(path.join(home, "ui-fittings", "kanban-loop.json"), "utf8"));
@@ -254,7 +254,7 @@ function shortCardRef(id) {
 // GET <board>/cards/resolve?ref=... -> { card } | { ambiguous, candidates, result }.
 // The ambiguous shape is a tool RESULT (not a thrown error) so the model relays
 // the candidates instead of retrying blind.
-async function resolveCardRef(base, ref, toolName) {
+export async function resolveCardRef(base, ref, toolName) {
   if (typeof ref !== "string" || !ref.trim()) {
     throw new Error(`${toolName} requires card (a card id, id suffix, or title fragment)`);
   }

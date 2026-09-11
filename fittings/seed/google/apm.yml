@@ -60,7 +60,9 @@ x-garrison:
         args:
           - calendar_id
           - time_min
+          - time_max
           - max
+          - page_token
         mutates: false
         description: List upcoming calendar events.
     oauth:
