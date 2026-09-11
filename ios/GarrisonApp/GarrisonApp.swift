@@ -43,6 +43,7 @@ struct GarrisonApp: App {
         // Before the first body: seeding in onAppear would first build a
         // no-node bridge (bootstrap page) and tear it down a frame later.
         NodeStore.shared.seedFromEnvironmentIfRequested()
+        FixtureStreamer.configureListeningJourneyIfRequested()
         // GARRISON_OPEN_PATH=/capture takes the cold-start route lane: the
         // path waits in PushRouter until the first load settles, exactly as a
         // push tap on a closed app does. Simulator iteration only.
@@ -85,6 +86,9 @@ struct GarrisonApp: App {
                         }
                     }
                     .onOpenURL { url in
+                        #if DEBUG
+                        if FixtureStreamer.handleListeningTestURL(url) { return }
+                        #endif
                         PushRouter.shared.open(url)
                     }
                 if let notice = store.lastFailover {

@@ -53,14 +53,12 @@ jobs:
         run: |
           xcodegen generate
           DEVICE=$(node ../scripts/ios-simulator.mjs)
-          echo "$DEVICE" > /tmp/listening-simulator-id
           xcodebuild build-for-testing -project Garrison.xcodeproj -scheme GarrisonApp -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath /tmp/listening-build CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES > ../evidence/phone-listening/build.log 2>&1
           xcrun simctl boot "$DEVICE" || true
           xcrun simctl bootstatus "$DEVICE" -b
           open -a Simulator --args -CurrentDeviceUDID "$DEVICE"
           xcrun simctl install "$DEVICE" /tmp/listening-build/Build/Products/Debug-iphonesimulator/GarrisonApp.app
           xcrun simctl privacy "$DEVICE" grant microphone com.gomes.garrison
-          node --input-type=module -e 'import {execFileSync} from "node:child_process"; import {readFileSync} from "node:fs"; const id=readFileSync("/tmp/listening-simulator-id","utf8").trim(); execFileSync("xcrun",["simctl","launch",id,"com.apple.Preferences"],{stdio:"inherit",timeout:30000}); console.log("Simulator application control ready");'
           xcodebuild test-without-building -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 300 -project Garrison.xcodeproj -scheme GarrisonApp -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath /tmp/listening-build -resultBundlePath ../evidence/phone-listening/native.xcresult CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES > ../evidence/phone-listening/xctest.log 2>&1
       - name: Export simulator screenshots
         if: always()
