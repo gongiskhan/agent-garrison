@@ -3,11 +3,12 @@ import { execFileSync } from "node:child_process";
 
 // Hosted runners do not always contain a pre-created iPhone simulator.
 const list = kind => JSON.parse(execFileSync("xcrun", ["simctl", "list", kind, "-j"], { encoding: "utf8" }));
-const runtime = () => list("runtimes").runtimes.filter(r => r.isAvailable && r.identifier.includes(".iOS-")).at(-1);
+const preferred = process.env.GARRISON_SIMULATOR_VERSION;
+const runtime = () => list("runtimes").runtimes.filter(r => r.isAvailable && r.identifier.includes(".iOS-") && (!preferred || r.version === preferred)).at(-1);
 let selected = runtime();
 if (!selected) {
   console.error("Installing the iOS simulator runtime for the selected Xcode");
-  execFileSync("xcodebuild", ["-downloadPlatform", "iOS"], { stdio: ["ignore", "inherit", "inherit"] });
+  execFileSync("xcodebuild", ["-downloadPlatform", "iOS", ...(preferred ? ["-buildVersion", preferred] : [])], { stdio: ["ignore", "inherit", "inherit"] });
   selected = runtime();
 }
 if (!selected) throw new Error("No available iOS simulator runtime");

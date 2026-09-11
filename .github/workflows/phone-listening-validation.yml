@@ -10,13 +10,15 @@ jobs:
   simulator:
     runs-on: macos-26
     timeout-minutes: 35
+    env:
+      GARRISON_SIMULATOR_VERSION: "26.2"
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: latest-stable
+          xcode-version: "26.2"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
