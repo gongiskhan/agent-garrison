@@ -1,5 +1,5 @@
 // Isolated real Capture service used only by command-line simulator validation.
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createServer } from "node:http";
@@ -49,16 +49,18 @@ const control = createServer((req, res) => {
     // Return the app's request before backgrounding it, and keep Capture's
     // event loop available while simctl waits for the application switch.
     setTimeout(async () => {
+      const simulator = readFileSync("/tmp/listening-simulator-id", "utf8").trim();
+      hostEvent("background-requested", simulator);
       try {
-        await run("xcrun", ["simctl", "launch", "booted", "com.apple.Preferences"], { timeout: 15000 });
+        await run("xcrun", ["simctl", "launch", simulator, "com.apple.Preferences"], { timeout: 30000 });
         hostEvent("background-launched");
-      } catch (error) { hostEvent("background-error", error.message); }
+      } catch (error) { hostEvent("background-error", { message: error.message, signal: error.signal, killed: error.killed, stderr: error.stderr }); }
       await new Promise(resolve => setTimeout(resolve, 3000));
       blocked = false;
       try {
-        await run("xcrun", ["simctl", "openurl", "booted", "garrison://open?path=%2Fcapture%3Fsource%3Dphone"], { timeout: 15000 });
+        await run("xcrun", ["simctl", "openurl", simulator, "garrison://open?path=%2Fcapture%3Fsource%3Dphone"], { timeout: 30000 });
         hostEvent("capture-deep-link-opened");
-      } catch (error) { hostEvent("deep-link-error", error.message); }
+      } catch (error) { hostEvent("deep-link-error", { message: error.message, signal: error.signal, killed: error.killed, stderr: error.stderr }); }
     }, 250);
   }
   res.setHeader("content-type", "application/json");
