@@ -17,6 +17,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts --prefix fittings/seed/agent-sdk-runtime
       - run: brew install xcodegen
       - name: Start isolated Capture node
         run: |
