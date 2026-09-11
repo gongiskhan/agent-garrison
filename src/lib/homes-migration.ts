@@ -1,7 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { assertGarrisonHome, claudeHome, garrisonDir, globalCompositionDir, userClaudeHome } from "./claude-home";
-import { ensureGarrisonHome } from "./garrison-home";
+import { prepareRuntimeApm, completeRuntimeApm } from "./runtime-apm";
+import { compareHomesInventory, type HomesInventory } from "./homes-inventory";
+import { ensureGarrisonHome, runtimeHomeAccountPinned } from "./garrison-home";
 import { snapshotClaudeConfig } from "./config-backup";
 import { apmInstall, ensureClaudeSymlink, readApmLock } from "./global-composition";
 import { HomeQuarantine, readJsonObject, statOrNull } from "./home-quarantine";
@@ -28,7 +30,7 @@ export interface HomesState {
     mcpRemoved: number;
     shared: SharedSet;
     leaks: number;
-    inventory?: { at: string | null; compared: boolean; unresolved: string[] };
+    inventory?: Awaited<ReturnType<typeof compareHomesInventory>>;
   };
 }
 export function homesStatePath(): string { return path.join(garrisonDir(), "homes.json"); }
@@ -63,9 +65,9 @@ async function reconcileHomesLocked(composition: Composition, options: SharedRec
     return { ...existing, report: { ...existing.report, moved: 0, hooksStripped: 0, mcpRemoved: 0 } };
   }
   const log = options.log ?? (() => undefined);
-  for (const runtime of ["claude", "codex", "gemini"] as const) await ensureGarrisonHome({ runtime, log });
+  for (const runtime of ["claude", "codex", "gemini"] as const) await ensureGarrisonHome({ runtime, accountPinned: runtimeHomeAccountPinned(composition, runtime), log });
   const inventoryFile = path.join(garrisonDir(), "homes-inventory.json");
-  const inventory = await readJsonObject<{ at?: string }>(inventoryFile);
+  const inventory = await readJsonObject<Partial<HomesInventory>>(inventoryFile);
   const journalFile = path.join(garrisonDir(), "homes-migration.json");
   const journal = await readJsonObject<{ quarantineDir?: string; backupDir?: string }>(journalFile);
   const snapshot = journal.backupDir ? { dir: journal.backupDir } : await snapshotClaudeConfig("pre-two-homes");
@@ -80,9 +82,11 @@ async function reconcileHomesLocked(composition: Composition, options: SharedRec
   const priorLock = await readApmLock(priorLockFile);
   log("Two homes: preserved ownership lock and user config snapshot");
   await ensureClaudeSymlink();
+  const prepared = await prepareRuntimeApm(composition, options.library);
   // This is the destructive-work barrier: no user-home cleanup happens until
   // APM has successfully deployed the prior global project into its new home.
   await apmInstall({ runApm: options.runApm });
+  await completeRuntimeApm(prepared, log);
   log("Two homes: Garrison home installation succeeded");
   const shared = options.shared ?? selectedSharedSet(composition.selections);
   const sharedFiles = new Set(priorLock.deps.filter(dep => shared["claude-code"].includes(dep.name)).flatMap(dep => dep.deployedFiles));
@@ -100,7 +104,7 @@ async function reconcileHomesLocked(composition: Composition, options: SharedRec
     report: { quarantineDir: q.dir, moved: q.moved.length, leftModified: q.leftModified,
       hooksStripped: q.removed.filter(item => item.kind === "hook").length,
       mcpRemoved: q.removed.filter(item => item.kind === "mcp").length, shared, leaks: leaks.leaks.length,
-      inventory: { at: inventory.at ?? null, compared: !!inventory.at, unresolved: leaks.leaks.map(leak => `${leak.runtime}:${leak.kind}:${leak.ref}`) } }
+      inventory: await compareHomesInventory(inventory, shared) }
   };
   await writeJsonAtomic(homesStatePath(), state, { mode: 0o600 });
   await (options.notify ?? notifyMigration)(state);

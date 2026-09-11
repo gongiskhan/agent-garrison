@@ -21,6 +21,7 @@ export async function fittingSharingInfo(entry: LibraryEntry, composition: Compo
     // fitting's shipped script/library source, never user config or artifacts.
     if (entry.metadata.setup?.length) {
       let remaining = 2_000_000;
+      const sources: string[] = [];
       const scan = async (dir: string): Promise<void> => {
         const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
         for (const item of entries) {
@@ -30,13 +31,16 @@ export async function fittingSharingInfo(entry: LibraryEntry, composition: Compo
           else if (item.isFile() && /\.(mjs|cjs|js|ts|sh|py)$/.test(item.name)) {
             const st = await fs.stat(file); if (st.size > remaining) continue;
             remaining -= st.size; const source = await fs.readFile(file, "utf8");
-            if (/GARRISON_CLAUDE_(?:HOME|JSON|SETTINGS_PATH)|claude mcp add/.test(source)) available["claude-code"] = true;
-            if (/CODEX_HOME|codex mcp add/.test(source)) available.codex = true;
-            if (/GEMINI_CLI_HOME|gemini mcp add/.test(source)) available.gemini = true;
+            sources.push(source);
           }
         }
       };
-      await scan(path.join(root, "scripts")); await scan(path.join(root, "lib"));
+      await scan(path.join(root, "scripts"));
+      const source = sources.join("\n");
+      const writes = /writeFile|write_text|mcp[ "]+(?:, *["'])?add|writeGarrison|_garrison/.test(source);
+      if (writes && /GARRISON_CLAUDE_(?:HOME|JSON|SETTINGS_PATH)/.test(source) && /mcpServers|mcp add|_garrison|writeGarrison/.test(source)) available["claude-code"] = true;
+      if (/codex mcp add/.test(source) || writes && /CODEX_HOME/.test(source) && /mcp_servers/.test(source)) available.codex = true;
+      if (/gemini mcp add/.test(source) || writes && /GEMINI_CLI_HOME/.test(source) && /mcpServers/.test(source)) available.gemini = true;
     }
   }
   return { runtimes: compositionSharedRuntimes(composition, library), shared: selected?.shared ?? [], available };

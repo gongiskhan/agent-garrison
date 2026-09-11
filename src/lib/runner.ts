@@ -46,7 +46,14 @@ import {
   writeKanbanResolvedModel,
   type KanbanResolvedModel
 } from "./kanban-model";
-import { garrisonDir } from "./claude-home";
+import { garrisonDir, claudeHome, claudeJsonPath, assertGarrisonHome } from "./claude-home";
+import { ensureGarrisonHome, runtimeHomeAccountPinned } from "./garrison-home";
+import { readHomesState, reconcileHomes, homesStatePath } from "./homes-migration";
+import { prepareRuntimeApm, completeRuntimeApm } from "./runtime-apm";
+import { apmInstall } from "./global-composition";
+import { reconcileShared } from "./shared-fittings";
+import { checkHomeLeaks } from "./home-leaks";
+import { writeJsonAtomic } from "./atomic-write";
 import { stateEnvForProjection } from "./state-client";
 import { appPort, applyPortOffsetToConfig, BASE_GATEWAY_PORT, profilePort } from "./instance-profile";
 import {
@@ -416,6 +423,7 @@ export async function up(
   compositionId: string,
   options: { devMode?: boolean; full?: boolean } = {}
 ): Promise<RunnerState> {
+  assertGarrisonHome();
   return withRunnerOperation(compositionId, () => upUnlocked(compositionId, options));
 }
 
@@ -527,8 +535,16 @@ async function upUnlocked(
     // (apm install, setup hooks, verify hooks) are provably redundant and are
     // skipped. Any change — manifest, overlay, lockfile, any fitting source
     // file — takes the full path. `Run with full verify` forces it.
+    const migratingHomes = !(await readHomesState());
+    for (const runtime of ["claude", "codex", "gemini"] as const) {
+      await ensureGarrisonHome({ runtime, accountPinned: runtimeHomeAccountPinned(composition, runtime), log: line => appendLog(compositionId, "runner", line) });
+    }
+    appendLog(compositionId, "runner", `Garrison home: CLAUDE_CONFIG_DIR=${claudeHome()}`);
+    if (Object.values(composition.selections).flatMap(items => items ?? []).some(item => Object.hasOwn(item.config, "stretch_claude_home"))) {
+      appendLog(compositionId, "runner", "stretch_claude_home is retired: stretches use the Garrison home");
+    }
     const upFingerprint = await compositionFingerprint(composition.directory);
-    const lastUp = options.full || options.devMode ? null : await readLastUp(composition.directory);
+    const lastUp = migratingHomes || options.full || options.devMode ? null : await readLastUp(composition.directory);
     const fastPath = Boolean(lastUp?.ok && lastUp.fingerprint === upFingerprint);
     if (fastPath) {
       appendLog(
@@ -538,6 +554,17 @@ async function upUnlocked(
       );
     } else {
       await runProcess(compositionId, "apm", ["install", "--force"], composition.directory);
+    }
+    // Package code must be present before shared setup runs. Its primitives
+    // have a separate APM project whose link now targets the Garrison home.
+    if (!fastPath) {
+      const runApm = async (args: string[], cwd: string) => { await runProcess(compositionId, "apm", args, cwd); return { ok: true, code: 0, stdout: "", stderr: "" }; };
+      if (migratingHomes) await reconcileHomes(composition, { runApm, log: line => appendLog(compositionId, "runner", line) });
+      else {
+        const prepared = await prepareRuntimeApm(composition);
+        await apmInstall({ runApm });
+        await completeRuntimeApm(prepared, line => appendLog(compositionId, "runner", line));
+      }
     }
     const { envPath, source: envSource } = await materializeEnvViaAuthority(
       composition.directory,
@@ -614,6 +641,7 @@ async function upUnlocked(
         throw new Error(`Verify failed for ${failed.fittingId}`);
       }
     }
+    await reconcileShared(composition, { log: line => appendLog(compositionId, "runner", line) });
     const promptPath = await assembleSystemPrompt(compositionId);
 
     // Resolve the PRIMARY runtime — the Runtime-Faculty fitting that hosts the
@@ -978,6 +1006,12 @@ async function upUnlocked(
       ok: true,
       verifyResults
     });
+    try {
+      const leaks = await checkHomeLeaks();
+      const homes = await readHomesState();
+      if (homes) { homes.report.leaks = leaks.leaks.length; await writeJsonAtomic(homesStatePath(), homes, { mode: 0o600 }); }
+      appendLog(compositionId, "runner", leaks.ok ? "Homes ok" : `Home leaks: ${leaks.leaks.length}; see Mesh`);
+    } catch (error) { appendLog(compositionId, "stderr", `Home leak check failed: ${error instanceof Error ? error.message : String(error)}`); }
     return getRunnerState(compositionId);
   } catch (error) {
     // A failure after a child became ready (for example the dev watcher or an
@@ -1418,7 +1452,7 @@ async function gatewayHookEnv(compositionId: string): Promise<Record<string, str
   // registration) must bake the REGISTERING instance's app, and it cannot
   // derive the port without re-hardcoding the port map a fitting must never
   // hold. Same value own-port fittings already receive at runtime.
-  const base: Record<string, string> = { GARRISON_APP_URL: garrisonSelfBaseUrl() };
+  const base: Record<string, string> = { GARRISON_APP_URL: garrisonSelfBaseUrl(), GARRISON_SHARE_TARGET: "garrison", GARRISON_CLAUDE_HOME: claudeHome(), CLAUDE_CONFIG_DIR: claudeHome(), GARRISON_CLAUDE_JSON: claudeJsonPath(), GARRISON_CLAUDE_SETTINGS_PATH: path.join(claudeHome(), "settings.json") };
   try {
     const gateway = await resolveGatewayFitting(compositionId);
     if (!gateway) return base;
@@ -2133,9 +2167,6 @@ function sessionLogProxyEnv(config: Record<string, unknown>): Record<string, str
   }
   // Request shaping rides the same proxy: the cache TTL that decides whether
   // stretches share one boot prefix, and deferred tool loading.
-  if (config.stretch_claude_home !== undefined && config.stretch_claude_home !== null) {
-    env.GARRISON_HTTPGATEWAY_STRETCH_CLAUDE_HOME = String(config.stretch_claude_home);
-  }
   // Strict project resolution: a card naming an unresolvable project fails hard
   // rather than running its stretches in the composition dir.
   if (config.strict_project_resolution !== undefined && config.strict_project_resolution !== null) {
