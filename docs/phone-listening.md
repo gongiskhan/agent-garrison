@@ -1,6 +1,6 @@
 # Phone listening
 
-Server, native Phase 2 and UI Phase 3 acceptance passed on 11 September 2026. UI screenshots and the mock control journey are recorded in [run 34636326744](https://github.com/gongiskhan/agent-garrison/actions/runs/34636326744). Combined Phase 4 acceptance and TestFlight delivery are pending.
+Server, native Phase 2 and UI Phase 3 acceptance passed on 11 September 2026. UI screenshots and the mock control journey are recorded in [run 34636326744](https://github.com/gongiskhan/agent-garrison/actions/runs/34636326744). All 135 native tests, including Stop reconnect and foreground notification regressions, passed in [run 34656307376](https://github.com/gongiskhan/agent-garrison/actions/runs/34656307376). Combined Phase 4 acceptance and TestFlight delivery are pending.
 
 ## Intent and actual
 
@@ -37,7 +37,7 @@ WAKE_ACK_MAX_LATENCY_MS = 1000
 
 Heartbeats are independent of audio frames and travel on the media connection. Missing both creates a stall; fresh activity clears it with `watchdog_recovered`. Push delivery is deduplicated by episode plus ordinal, permitting one reminder. Intent `off` clears the episode and suppresses pushes. Both sources use this mechanism.
 
-Retries repeat the final 60-second delay. Interruptions, route changes and media-service resets recover an existing user-started session. Foreground entry restores server intent and reopens a stalled upload, even if the engine remains alive. A killed process requires foreground entry, such as tapping the existing capture deep link.
+Retries repeat the final 60-second delay. Interruptions, route changes and media-service resets recover an existing user-started session. Foreground entry restores server intent and reopens a stalled upload, even if the engine remains alive. A killed process requires foreground entry, such as tapping the existing capture deep link. Source-specific capture links also request recovery when the app is already active; inactive delivery waits for foreground entry.
 
 Closed reasons: `user_start`, `user_stop`, `source_switch`, `interruption_began`, `interruption_ended_resumed`, `interruption_ended_no_resume`, `route_change`, `media_services_reset`, `engine_error`, `permission_denied`, `resume_retry`, `resume_gave_up`, `resume_on_foreground`, `app_terminated`, `watchdog_stalled`, `watchdog_recovered`.
 
