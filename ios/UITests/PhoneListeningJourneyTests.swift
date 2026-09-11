@@ -54,7 +54,7 @@ final class PhoneListeningJourneyTests: XCTestCase {
         app.launchEnvironment = [
             "GARRISON_NODE_ORIGIN": shell, "GARRISON_NODE_NAME": "listening-proof",
             "GARRISON_CAPTURE_URL": base, "GARRISON_CAPTURE_TOKEN": token,
-            "GARRISON_OPEN_PATH": "/", "GARRISON_LISTENING_UI_TEST": "1",
+            "GARRISON_LISTENING_UI_TEST": "1",
             "GARRISON_LISTENING_PROOF_CONTROL": control
         ]
         _ = try await probe("unblock"); _ = try await probe("reset-pushes")
@@ -65,6 +65,14 @@ final class PhoneListeningJourneyTests: XCTestCase {
         XCTAssertNotNil(device)
         let setupEvents = (try await probe("state"))["hostEvents"] as? [[String: Any]] ?? []
         XCTAssertTrue(setupEvents.contains { $0["type"] as? String == "journey:fixture-ready" })
+        let initialBackground = try await eventCount("app-backgrounded")
+        let initialForeground = try await eventCount("app-foregrounded")
+        XCUIApplication(bundleIdentifier: "com.apple.Preferences").activate()
+        try await waitForEvent("app-backgrounded", after: initialBackground)
+        app.activate()
+        try await waitForEvent("app-foregrounded", after: initialForeground)
+        XCTAssertTrue(start.waitForExistence(timeout: 15))
+        _ = try await probe("event/app-switch-before-capture")
         _ = try await probe("event/start-home")
         start.tap()
         try await waitFor(actual: "listening")
@@ -88,12 +96,13 @@ final class PhoneListeningJourneyTests: XCTestCase {
 
         let backgroundCount = try await eventCount("app-backgrounded")
         let foregroundCount = try await eventCount("app-foregrounded")
-        _ = try await probe("sample")
+        let pingCount = try await eventCount("native-ping")
+        signal("native-ping")
+        try await waitForEvent("native-ping", after: pingCount)
         XCUIApplication(bundleIdentifier: "com.apple.Preferences").activate()
         try await waitForEvent("app-backgrounded", after: backgroundCount)
         try await Task.sleep(nanoseconds: 3_000_000_000)
         _ = try await probe("unblock")
-        app.launchEnvironment.removeValue(forKey: "GARRISON_OPEN_PATH")
         app.open(URL(string: "garrison://open?path=%2Fcapture%3Fsource%3Dphone")!)
         try await waitForEvent("app-foregrounded", after: foregroundCount)
         XCTAssertTrue(app.staticTexts["Capture"].firstMatch.waitForExistence(timeout: 15))

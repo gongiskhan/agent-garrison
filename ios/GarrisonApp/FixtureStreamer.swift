@@ -23,7 +23,7 @@ enum FixtureStreamer {
         guard listeningUITest else { return }
         AppGroup.consentSuppressed = true
         AppGroup.pendantIdentifier = nil
-        for event in ["interruption-began", "interruption-ended", "pair-pendant"] {
+        for event in ["interruption-began", "interruption-ended", "pair-pendant", "native-ping"] {
             CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, name, _, _ in
                 guard let name else { return }
                 let event = name.rawValue as String
@@ -53,6 +53,8 @@ enum FixtureStreamer {
     private static func handleListeningTestEvent(_ event: String) {
         guard listeningUITest else { return }
         switch event {
+        case "com.gomes.garrison.listening-test.native-ping":
+            reportListeningEvent("native-ping")
         case "com.gomes.garrison.listening-test.interruption-began":
             NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: nil, userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue])
         case "com.gomes.garrison.listening-test.interruption-ended":
