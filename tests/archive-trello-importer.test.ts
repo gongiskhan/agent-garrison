@@ -1,4 +1,4 @@
-import { it,expect,vi } from 'vitest';import fs from 'node:fs/promises';import path from 'node:path';import { execFileSync } from 'node:child_process';import { scratch,fixture } from './archive-test-helpers';
+import { it,expect,vi } from 'vitest';import fs from 'node:fs/promises';import path from 'node:path';import { execFileSync,fork } from 'node:child_process';import { scratch,fixture } from './archive-test-helpers';
 // @ts-ignore
 import { importBoard } from '../packages/archive/src/trello/importer.mjs';
 // @ts-ignore
@@ -13,4 +13,45 @@ it('authenticates Trello downloads only, bounds bytes, and respects Retry-After'
  const fetchImpl=vi.fn().mockResolvedValueOnce(new Response(null,{status:302,headers:{location:'https://cdn.example.org/fixture'}})).mockResolvedValueOnce(new Response('fixture'));const client=new TrelloClient({key:'fixture-key',token:'fixture-token',fetchImpl});expect((await client.download('https://trello.com/attachment',{maxBytes:100})).toString()).toBe('fixture');expect(fetchImpl.mock.calls[0][1].headers.Authorization).toBe('OAuth oauth_consumer_key="fixture-key", oauth_token="fixture-token"');expect(fetchImpl.mock.calls[1][1].headers).toEqual({});await expect(client.download('https://example.org/file')).rejects.toThrow('Only Trello');
  const sleep=vi.fn(),log=vi.fn(),limited=new TrelloClient({key:'fixture-key',token:'fixture-token',sleep,log,fetchImpl:vi.fn().mockResolvedValueOnce(new Response(null,{status:429,headers:{'retry-after':'2'}})).mockResolvedValueOnce(Response.json([]))});await limited.boards();expect(sleep).toHaveBeenCalledWith(2000);expect(JSON.stringify(log.mock.calls)).not.toContain('fixture-token');
  const huge=new TrelloClient({key:'x',token:'y',fetchImpl:async()=>new Response('large',{headers:{'content-length':'300'}})});await expect(huge.download('https://trello.com/file',{maxBytes:20})).rejects.toMatchObject({oversize:true});
+});
+
+async function runImportWorker(vault:string,home:string,mode:string){
+ return new Promise<any>((resolve,reject)=>{
+  const child=fork(path.join(fixture,'import-worker.mjs'),[vault,home,mode],{silent:true});let message:any,stderr='';
+  const timer=setTimeout(()=>{child.kill('SIGKILL');reject(new Error('Import worker timed out'));},15000);
+  child.stderr?.on('data',chunk=>{stderr+=chunk;});
+  child.on('message',(value:any)=>{message=value;if(value.committed===4)child.kill('SIGKILL');});
+  child.once('error',error=>{clearTimeout(timer);reject(error);});
+  child.once('exit',(code,signal)=>{clearTimeout(timer);if(message&&(code===0||signal==='SIGKILL'))resolve({...message,signal});else reject(new Error(`Import worker failed (${code}): ${stderr}`));});
+ });
+}
+async function importTree(vault:string){const rows=['Archive/'];async function walk(dir:string){for(const item of await fs.readdir(path.join(vault,dir),{withFileTypes:true})){const name=dir+'/'+item.name;rows.push(name+(item.isDirectory()?'/':''));if(item.isDirectory())await walk(name);}}await walk('Archive');return rows.sort().join('\n')+'\n';}
+it('survives an actual SIGKILL after four committed cards and produces the exact golden tree',async()=>{
+ const s=await scratch({seed:false});try{
+  await s.service.close();init(s.vaultDir);
+  expect(await runImportWorker(s.vaultDir,s.home,'interrupt')).toMatchObject({committed:4,signal:'SIGKILL'});
+  const partial=(await fs.readdir(path.join(s.vaultDir,'Archive'),{recursive:true})).filter(n=>String(n).endsWith('/index.md'));
+  expect(partial).toHaveLength(4);for(const file of partial)expect(await s.read('Archive/'+file)).toMatch(/^---\ngarrison: card\n/);
+  const resumed=await runImportWorker(s.vaultDir,s.home,'resume');expect(resumed.summary).toMatchObject({imported:5,skipped:4});
+  expect(await importTree(s.vaultDir)).toBe(await fs.readFile(path.join(fixture,'trello-expected.txt'),'utf8'));
+  const repeated=await runImportWorker(s.vaultDir,s.home,'resume');expect(repeated.summary).toMatchObject({imported:0,skipped:9});
+  expect(await importTree(s.vaultDir)).toBe(await fs.readFile(path.join(fixture,'trello-expected.txt'),'utf8'));
+ }finally{await s.close();}
+},30000);
+it('retries attachment throttling and server failures without forwarding OAuth to the CDN',async()=>{
+ const fetchImpl=vi.fn().mockResolvedValueOnce(new Response(null,{status:429,headers:{'retry-after':'0'}})).mockResolvedValueOnce(new Response(null,{status:503})).mockResolvedValueOnce(new Response(null,{status:302,headers:{location:'https://cdn.example.org/document'}})).mockResolvedValueOnce(new Response(null,{status:429,headers:{'retry-after':'1'}})).mockResolvedValueOnce(new Response('fixture'));
+ const sleep=vi.fn(async()=>{}),log=vi.fn(),client=new TrelloClient({key:'fixture-key',token:'fixture-token',fetchImpl,sleep,log});
+ expect((await client.download('https://trello.com/document',{maxBytes:20})).toString()).toBe('fixture');
+ expect(sleep.mock.calls).toEqual([[0],[1000],[1000]]);for(const call of fetchImpl.mock.calls.slice(0,3))expect(call[1].headers.Authorization).toContain('fixture-token');for(const call of fetchImpl.mock.calls.slice(3))expect(call[1].headers).toEqual({});expect(JSON.stringify(log.mock.calls)).not.toContain('fixture-token');
+ const delayed=new TrelloClient({key:'x',token:'y',sleep,fetchImpl:vi.fn().mockResolvedValueOnce(new Response(null,{status:429,headers:{'retry-after':'180'}})).mockResolvedValueOnce(Response.json([]))});await delayed.boards();expect(sleep).toHaveBeenLastCalledWith(180000);
+});
+it('cancels an attachment while waiting for Retry-After',async()=>{
+ const controller=new AbortController();let started!:()=>void;const waiting=new Promise<void>(resolve=>{started=resolve;});
+ const client=new TrelloClient({key:'x',token:'y',fetchImpl:async()=>{started();return new Response(null,{status:429,headers:{'retry-after':'120'}});}});
+ const pending=client.download('https://trello.com/document',{signal:controller.signal,maxBytes:20});await waiting;controller.abort();await expect(pending).rejects.toThrow();
+});
+
+it('limits simultaneous board requests to four across nested callers',async()=>{
+ let active=0,peak=0;const client=new TrelloClient({key:'x',token:'y',fetchImpl:async()=>{active++;peak=Math.max(peak,active);await new Promise(r=>setTimeout(r,5));active--;return Response.json([]);}});
+ await Promise.all(Array.from({length:20},(_,i)=>client.request('/fixture/'+i)));expect(peak).toBe(4);expect(active).toBe(0);
 });

@@ -1,0 +1,36 @@
+Archive/
+Archive/.trash/
+Archive/Finance/
+Archive/Finance/Fixture card 7/
+Archive/Finance/Fixture card 7/index.md
+Archive/Finance/Fixture card 7/sample-document.jpg
+Archive/Finance/Fixture card 8/
+Archive/Finance/Fixture card 8/index.md
+Archive/Finance/Fixture card 8/sample-document.jpg
+Archive/Finance/Fixture card 9/
+Archive/Finance/Fixture card 9/index.md
+Archive/Finance/Fixture card 9/sample-document.jpg
+Archive/Finance/_list.md
+Archive/House/
+Archive/House/Fixture card 4/
+Archive/House/Fixture card 4/index.md
+Archive/House/Fixture card 4/sample-document.jpg
+Archive/House/Fixture card 6/
+Archive/House/Fixture card 6/index.md
+Archive/House/Fixture card 6/sample-document.jpg
+Archive/House/Kitchen - repairs/
+Archive/House/Kitchen - repairs/index.md
+Archive/House/Kitchen - repairs/sample-document.jpg
+Archive/House/_list.md
+Archive/Inbox/
+Archive/Personal documents/
+Archive/Personal documents/Cartão de Cidadão/
+Archive/Personal documents/Cartão de Cidadão/index.md
+Archive/Personal documents/Cartão de Cidadão/sample-document.jpg
+Archive/Personal documents/Fixture card 2/
+Archive/Personal documents/Fixture card 2/index.md
+Archive/Personal documents/Fixture card 2/sample-document.jpg
+Archive/Personal documents/Fixture card 3/
+Archive/Personal documents/Fixture card 3/index.md
+Archive/Personal documents/Fixture card 3/sample-document.jpg
+Archive/Personal documents/_list.md
