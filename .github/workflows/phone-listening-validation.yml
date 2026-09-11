@@ -72,6 +72,7 @@ jobs:
         working-directory: ios
         run: xcodebuild test-without-building -only-testing:GarrisonTests -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 300 -project Garrison.xcodeproj -scheme GarrisonApp -destination "platform=iOS Simulator,id=$LISTENING_SIMULATOR_ID" -derivedDataPath /tmp/listening-build -resultBundlePath ../evidence/phone-listening/native.xcresult CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES > ../evidence/phone-listening/xctest.log 2>&1
       - name: End-to-end UI journey
+        timeout-minutes: 10
         if: ${{ !cancelled() && steps.simulator-build.outcome == 'success' }}
         working-directory: ios
         run: xcodebuild test-without-building -only-testing:GarrisonUITests -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 300 -project Garrison.xcodeproj -scheme GarrisonApp -destination "platform=iOS Simulator,id=$LISTENING_SIMULATOR_ID" -derivedDataPath /tmp/listening-build -resultBundlePath ../evidence/phone-listening/ui.xcresult CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES > ../evidence/phone-listening/uitest.log 2>&1

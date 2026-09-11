@@ -27,6 +27,18 @@ final class PhoneListeningJourneyTests: XCTestCase {
             let state = try await probe("state")
             return (state["records"] as? [[String: Any]])?.first { $0["source"] as? String == source }
         }
+        func eventCount(_ event: String) async throws -> Int {
+            let events = (try await probe("state"))["hostEvents"] as? [[String: Any]] ?? []
+            return events.filter { $0["type"] as? String == "journey:" + event }.count
+        }
+        func waitForEvent(_ event: String, after count: Int) async throws {
+            let deadline = Date().addingTimeInterval(15)
+            while Date() < deadline {
+                if try await eventCount(event) > count { return }
+                try await Task.sleep(nanoseconds: 100_000_000)
+            }
+            throw NSError(domain: "ListeningLifecycle-" + event, code: 1)
+        }
         func waitFor(_ source: String = "phone", actual: String, timeout: TimeInterval = 30) async throws {
             let end = Date().addingTimeInterval(timeout)
             while Date() < end {
@@ -74,13 +86,14 @@ final class PhoneListeningJourneyTests: XCTestCase {
         XCTAssertEqual(pushes.first?["path"] as? String, "/capture?source=phone")
         XCTAssertTrue(app.staticTexts["Stopped listening"].firstMatch.waitForExistence(timeout: 5))
 
+        let backgroundCount = try await eventCount("app-backgrounded")
+        let foregroundCount = try await eventCount("app-foregrounded")
         XCUIDevice.shared.press(.home)
-        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 10) || app.state == .runningBackgroundSuspended)
-        _ = try await probe("event/app-backgrounded")
+        try await waitForEvent("app-backgrounded", after: backgroundCount)
         try await Task.sleep(nanoseconds: 3_000_000_000)
         _ = try await probe("unblock")
         _ = try await probe("open-capture")
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15))
+        try await waitForEvent("app-foregrounded", after: foregroundCount)
         XCTAssertTrue(app.staticTexts["Capture"].firstMatch.waitForExistence(timeout: 15))
         try await waitFor(actual: "listening")
         _ = try await probe("event/deep-link-resumed")
