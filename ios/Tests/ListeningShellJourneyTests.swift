@@ -117,7 +117,8 @@ final class ListeningShellJourneyTests: XCTestCase {
         try await dom("!document.querySelector('[data-testid=\"listening-badge\"]')")
         let before = (try await probe("state"))["pushes"] as? [[String: Any]]
         try await Task.sleep(nanoseconds: 25_000_000_000)
-        XCTAssertEqual(((try await probe("state"))["pushes"] as? [[String: Any]])?.count, before?.count)
+        let after = (try await probe("state"))["pushes"] as? [[String: Any]]
+        XCTAssertEqual(after?.count, before?.count)
     }
     private func wait(timeout: TimeInterval = 15, until condition: () -> Bool) async throws {
         let end = Date().addingTimeInterval(timeout)

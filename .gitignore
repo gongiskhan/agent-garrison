@@ -142,3 +142,6 @@ evidence/shells/**/*.wav
 bench/prefix-2026-08-29/live-capture/
 bench/prefix-2026-08-29/shape-capture/
 bench/prefix-2026-08-29/capture/req-*.json
+
+# Isolated listening UI validation build
+.next-listening/
