@@ -6,7 +6,7 @@ const sandbox = process.env.TWO_HOMES_SANDBOX || fs.mkdtempSync(path.join(os.tmp
 process.env.TWO_HOMES_SANDBOX = sandbox;
 const port = Number(process.env.GARRISON_E2E_PORT || 3491);
 export default defineConfig({
-  testDir: './tests/e2e', testMatch: 'snapshots-restore-drill.spec.ts', workers: 1, retries: 0, timeout: 90000,
+  testDir: './tests/e2e', testMatch: ['snapshots-restore-drill.spec.ts', 'fitting-sharing.spec.ts', 'quarters-two-homes.spec.ts'], workers: 1, retries: 0, timeout: 90000,
   outputDir: 'test-results/two-homes', reporter: [['list']],
   use: { baseURL: `http://127.0.0.1:${port}`, timezoneId: 'UTC', serviceWorkers: 'block', video: 'off', trace: 'retain-on-failure' },
   projects: [{ name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 900 } } }, { name: 'phone', use: { ...devices['Desktop Chrome'], viewport: { width: 390, height: 844 } } }],
