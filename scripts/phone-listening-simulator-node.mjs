@@ -31,12 +31,12 @@ const receive = app.listening.message.bind(app.listening);
 app.listening.message = (owner, message) => { if (message.type === "listening.heartbeat") heartbeats++; return receive(owner, message); };
 async function captureAppStack(label) {
   try {
-    const { stdout } = await promisify(execFile)("ps", ["-axo", "pid=,comm="], { timeout: 5000 });
+    const { stdout } = await promisify(execFile)("ps", ["-axo", "pid=,comm="], { timeout: 15000 });
     const processes = stdout.split("\n").filter(line => /\/GarrisonApp\.app\/GarrisonApp$/.test(line));
     hostEvent("journey:app-processes", { label, processes });
     for (const process of processes) {
       const pid = process.trim().split(/\s+/)[0];
-      await promisify(execFile)("sample", [pid, "1", "-file", path.resolve(`evidence/phone-listening/${label}-${pid}.sample.txt`)], { timeout: 5000 });
+      await promisify(execFile)("sample", [pid, "1", "-file", path.resolve(`evidence/phone-listening/${label}-${pid}.sample.txt`)], { timeout: 60000 });
     }
   } catch (error) { hostEvent("journey:sample-failed", { label, message: error.message }); }
 }
@@ -45,6 +45,7 @@ async function captureAppStack(label) {
 const control = createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
   const device = url.searchParams.get("device");
+  if (url.pathname === "/sample") void captureAppStack("before-background");
   if (["/open-capture", "/background-app"].includes(url.pathname)) {
     const openingCapture = url.pathname === "/open-capture";
     try {
