@@ -64,9 +64,27 @@ rsync -a "${DRY[@]}" --prune-empty-dirs \
 # Conversation ledgers have no rolling prune. A failed pull must fail the job:
 # a silently stale conversation backup cannot satisfy the restore drill.
 mkdir -p "$CONVERSATIONS_SINK"
-rsync -a "${DRY[@]}" --exclude='**/work/**' --exclude='*.part' \
+if rsync -a "${DRY[@]}" --exclude='**/work/**' --exclude='*.part' \
   -e "ssh -o BatchMode=yes" \
-  "${SOURCE}.garrison/conversations/" "$CONVERSATIONS_SINK/"
+  "${SOURCE}.garrison/conversations/" "$CONVERSATIONS_SINK/"; then
+  :
+else
+  rc=$?
+  # A node that has never run a Conversation has no source directory. Prove
+  # that absence separately; connection/permission/partial-copy failures must
+  # still fail the scheduled job rather than disguising a stale backup.
+  absent=1
+  if [ -n "${RSYNC_TARGET_OVERRIDE:-}" ]; then
+    [ -d "${SOURCE}.garrison" ] && [ ! -e "${SOURCE}.garrison/conversations" ] && absent=0
+  elif ssh -o BatchMode=yes "$TARGET" 'test -r "$HOME/.garrison" && test -d "$HOME/.garrison" && test ! -e "$HOME/.garrison/conversations"'; then
+    absent=0
+  fi
+  if [ "$absent" = "0" ]; then
+    echo "[evidence-backup] $NODE: no conversations directory; previous backup retained"
+  else
+    exit "$rc"
+  fi
+fi
 
 # Sink-side rolling prune applies ONLY to evidence; dry-run never prunes.
 if [ "${#DRY[@]}" -eq 0 ]; then

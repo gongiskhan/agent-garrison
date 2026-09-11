@@ -43,3 +43,14 @@ it("previews without copying or pruning, then keeps old conversations after evid
 it("rejects a node name that could escape the sink", () => {
   expect(spawnSync("bash", [script, "unused", "../elsewhere"], { env }).status).toBe(2);
 });
+it('accepts a verified never-used conversation home but fails an actual copy error', () => {
+  fs.rmSync(`${source}/.garrison/conversations`, { recursive: true });
+  const absent = spawnSync('bash', [script, 'unused', 'test-peer'], { env, encoding: 'utf8' });
+  expect(absent.status, absent.stderr).toBe(0);
+  expect(absent.stdout).toContain('no conversations directory; previous backup retained');
+  put(`${source}/.garrison/conversations/chat-one/log.jsonl`);
+  fs.mkdirSync(`${home}/bin`);
+  fs.writeFileSync(`${home}/bin/rsync`, '#!/bin/sh\nexit 12\n', { mode: 0o755 });
+  const failed = spawnSync('bash', [script, 'unused', 'test-peer'], { env: { ...env, PATH: `${home}/bin:${env.PATH}` } });
+  expect(failed.status).toBe(12);
+});
