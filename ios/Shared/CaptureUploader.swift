@@ -65,6 +65,18 @@ final class CaptureUploader: NSObject {
     var codec: String?
     /// The conversation the recording reports back into, when started from one.
     var conversationId: String?
+    var deviceId: String?
+    var listeningSource: String?
+    var controlOnly = false
+    var onListeningState: ((DeviceListeningState) -> Void)?
+    var onWakeDetected: ((String, String, String) -> Void)?
+
+    func sendListening(_ message: ListeningMessage) {
+        queue.async { [weak self] in
+            guard let self, self.serverConfirmedStart else { return }
+            self.sendControl(message)
+        }
+    }
 
     init(baseURL: URL, token: String, sessionId: String, mode: SessionMode, deviceName: String, consent: ConsentState, spoolDirectory: URL, connectionTimeout: TimeInterval = 10) {
         self.baseURL = baseURL
@@ -107,6 +119,7 @@ final class CaptureUploader: NSObject {
         serverConfirmedStart = false
         var request = URLRequest(url: socketURL)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let deviceId { request.setValue(deviceId, forHTTPHeaderField: "x-garrison-device-id") }
         let task = session.webSocketTask(with: request)
         self.task = task
         // waitsForConnectivity and an open WebSocket without session_started
@@ -224,6 +237,11 @@ final class CaptureUploader: NSObject {
 
     private func handleServerMessage(_ message: ServerMessage) {
         switch message {
+        case .listeningState(let record):
+            if controlOnly && !serverConfirmedStart { confirmStart() }
+            onListeningState?(record)
+        case .wakeDetected(let device, let source, let at):
+            onWakeDetected?(device, source, at)
         case .sessionStarted:
             confirmStart()
             drainSpool(afterAudio: 0, video: 0)
@@ -316,6 +334,10 @@ extension CaptureUploader: URLSessionWebSocketDelegate {
             guard let self, self.task === webSocketTask, !self.finished, self.shouldReconnect else { return }
             // (Re)announce the session; the server answers session_started or
             // session_resumed with its high-water marks.
+            if let deviceId = self.deviceId {
+                self.sendControl(ListeningMessage(type: "listening.subscribe", device_id: deviceId, device_name: self.deviceName, app_version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String))
+            }
+            if self.controlOnly { return }
             self.sendControl(SessionStartMessage(
                 sessionId: self.sessionId,
                 mode: self.mode.rawValue,
@@ -323,7 +345,10 @@ extension CaptureUploader: URLSessionWebSocketDelegate {
                 consent: self.consent.rawValue,
                 startedAt: ISO8601DateFormatter().string(from: Date()),
                 codec: self.codec,
-                conversationId: self.conversationId
+                conversationId: self.conversationId,
+                deviceId: self.deviceId,
+                source: self.listeningSource,
+                appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
             ))
         }
     }

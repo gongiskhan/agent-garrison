@@ -2,20 +2,19 @@ import AVFoundation
 import Foundation
 import SwiftUI
 
-/// Audio-only capture sessions (dictation, meetings, car): AVAudioEngine mic
-/// tap -> OpusEncoder -> CaptureUploader, with the speech sink riding the
-/// same socket.
-///
-/// The audio session uses .playAndRecord + .voiceChat + .defaultToSpeaker:
-/// the voice-processing I/O unit applies hardware echo cancellation, which is
-/// what makes speaking while the mic is hot survivable (ADR §6) - the echo
-/// guard server-side mops up the residue. VPIO also attenuates the input;
-/// that cost is paid back by the encoder's guarded normalization, not by
-/// giving up AEC. Interruptions (calls, Siri) pause the tap and resume when
-/// the system hands the session back; route changes (headset, CarPlay)
-/// rebuild the tap for the new hardware format instead of dying silently.
+/// App-lifetime native microphone capture using the existing Opus ingress.
+/// Listening intent is restored from the server; engine state is reported back.
 @MainActor
 final class CaptureController: ObservableObject {
+    static let shared = CaptureController()
+    let recovery: ListeningRecovery
+    private var observers: [NSObjectProtocol] = []
+    private var heartbeat: Task<Void, Never>?
+    private var tapInstalled = false
+    private var alwaysOn = false
+    private var requestGeneration = 0
+    private let wakeTone = WakeAcknowledgement()
+    var engineRunning: Bool { engine.isRunning }
     enum Phase: Equatable {
         case idle
         case connecting
@@ -29,45 +28,62 @@ final class CaptureController: ObservableObject {
     @Published private(set) var startedAt: Date?
     @Published private(set) var ackedFrames: Int = 0
 
-    private let engine = AVAudioEngine()
+    private var engine = AVAudioEngine()
     private var encoder: OpusEncoder?
     private var uploader: CaptureUploader?
     private let speechSink: SpeechSink
     private var sessionStartTime: Date?
 
-    init(speechSink: SpeechSink = SpeechSink()) {
+    init(speechSink: SpeechSink = SpeechSink(), recovery: ListeningRecovery? = nil) {
         self.speechSink = speechSink
-        NotificationCenter.default.addObserver(
-            forName: AVAudioSession.interruptionNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            Task { @MainActor in self?.handleInterruption(notification) }
+        self.recovery = recovery ?? ListeningRecovery()
+        self.recovery.startEngine = { [weak self] in try self?.startEngine() }
+        self.recovery.pauseEngine = { [weak self] in self?.pauseEngine() }
+        self.recovery.rebuildEngine = { [weak self] in self?.engine = AVAudioEngine() }
+        self.recovery.report = { [weak self] actual, reason in
+            guard let self else { return }
+            switch actual {
+            case "listening": self.phase = .live
+            case "starting": self.phase = .connecting
+            case "interrupted": self.phase = .interrupted
+            case "failed": self.phase = .failed(reason)
+            default: self.phase = .idle
+            }
+            if self.alwaysOn {
+                ListeningChannel.shared.report(source: "phone", actual: actual, reason: reason)
+                if reason == "resume_on_foreground" && actual == "listening" { ListeningChannel.shared.toast("Resumed listening") }
+            }
         }
-        // A route change mid-session (Bluetooth/CarPlay/headset - routine for
-        // the car use case) changes the input hardware format and stops the
-        // engine; without this observer capture dies silently under a UI that
-        // still says live.
-        NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange,
-            object: engine,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.rebuildTapAfterConfigChange() }
-        }
-        NotificationCenter.default.addObserver(
-            forName: AVAudioSession.mediaServicesWereResetNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in self?.rebuildTapAfterConfigChange() }
-        }
+        observers.append(NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
+            Task { @MainActor in self?.recovery.interruption(note) }
+        })
+        observers.append(NotificationCenter.default.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] note in
+            Task { @MainActor in self?.recovery.routeChange(note) }
+        })
+        observers.append(NotificationCenter.default.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in self?.recovery.mediaReset() }
+        })
+    }
+
+    func beginListening(reason: String = "user_start") {
+        alwaysOn = true
+        guard !isRunning else { recovery.start(reason: reason); return }
+        start(consent: AppGroup.consentSuppressed ? .suppressed : .shown)
+        if reason == "resume_on_foreground" && recovery.actual == "listening" { ListeningChannel.shared.toast("Resumed listening") }
+    }
+
+    private func pauseEngine() {
+        if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
+        engine.stop()
+        flushEncoderTail()
     }
 
     var isRunning: Bool { phase == .live || phase == .connecting || phase == .interrupted }
 
     func start(consent: ConsentState, conversationId: String? = nil) {
         guard !isRunning else { return }
+        requestGeneration += 1
+        let expected = requestGeneration
         guard let baseURL = AppGroup.baseURL, let token = AppGroup.token else {
             phase = .failed("Set the base URL and token in Settings first.")
             return
@@ -77,17 +93,20 @@ final class CaptureController: ObservableObject {
         // failure the capture path can produce.
         switch AVAudioApplication.shared.recordPermission {
         case .denied:
-            phase = .failed("Microphone access is denied. Enable it in Settings > Privacy > Microphone.")
+            phase = .failed("permission_denied")
+            if alwaysOn { ListeningChannel.shared.report(source: "phone", actual: "failed", reason: "permission_denied") }
             return
         case .undetermined:
             phase = .connecting
             Task { @MainActor in
                 let granted = await AVAudioApplication.requestRecordPermission()
+                guard self.requestGeneration == expected else { return }
                 if granted {
                     self.phase = .idle
                     self.beginSession(baseURL: baseURL, token: token, consent: consent, conversationId: conversationId)
                 } else {
-                    self.phase = .failed("Microphone access is denied. Enable it in Settings > Privacy > Microphone.")
+                    self.phase = .failed("permission_denied")
+                    if self.alwaysOn { ListeningChannel.shared.report(source: "phone", actual: "failed", reason: "permission_denied") }
                 }
             }
             return
@@ -116,14 +135,24 @@ final class CaptureController: ObservableObject {
             spoolDirectory: AppGroup.spoolDirectory(sessionId: id)
         )
         uploader.conversationId = conversationId
+        if alwaysOn {
+            uploader.deviceId = ListeningChannel.shared.deviceId
+            uploader.listeningSource = "phone"
+            uploader.onWakeDetected = { [weak self] device, source, at in
+                Task { @MainActor in
+                    guard device == ListeningChannel.shared.deviceId, source == "phone", self?.engineRunning == true else { return }
+                    self?.wakeTone.play(at: at)
+                }
+            }
+        }
         self.uploader = uploader
         uploader.onStateChange = { [weak self] state in
             Task { @MainActor in
                 guard let self else { return }
                 switch state {
-                case .streaming: if self.phase == .connecting { self.phase = .live }
+                case .streaming: if self.engineRunning { self.phase = .live; if self.alwaysOn { ListeningChannel.shared.report(source: "phone", actual: "listening", reason: "resume_retry") } }
                 case .failed(let message): if self.phase != .interrupted { self.phase = .failed(message) }
-                case .ended: self.finishLocally()
+                case .ended: if self.recovery.intent { self.phase = .failed("engine_error") } else { self.finishLocally() }
                 default: break
                 }
             }
@@ -145,21 +174,27 @@ final class CaptureController: ObservableObject {
         }
         uploader.connect()
 
-        do {
-            try startEngine()
-        } catch {
-            phase = .failed("Microphone start failed: \(error.localizedDescription)")
-            uploader.abandon()
-            return
+        recovery.start()
+        heartbeat?.cancel()
+        heartbeat = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(ListeningConstants.HEARTBEAT_SECONDS * 1_000_000_000))
+                guard !Task.isCancelled, let self else { return }
+                if self.alwaysOn && self.engine.isRunning && self.recovery.actual == "listening", let device = ListeningChannel.shared.deviceId {
+                    self.uploader?.sendListening(ListeningMessage(type: "listening.heartbeat", device_id: device, source: "phone"))
+                } else if self.recovery.intent && self.recovery.actual == "listening" && !self.engine.isRunning {
+                    self.recovery.attempt("engine_error")
+                }
+            }
         }
     }
 
     private func startEngine() throws {
+        pauseEngine()
         let audioSession = AVAudioSession.sharedInstance()
-        // .voiceChat routes through the voice-processing unit: hardware AEC,
-        // so the sink can speak while the mic is hot (ADR §6).
-        try audioSession.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
+        try audioSession.setCategory(ListeningRecovery.category, mode: ListeningRecovery.mode, options: ListeningRecovery.options)
         try audioSession.setActive(true)
+        if let input = audioSession.availableInputs?.first(where: { $0.portType == .builtInMic }) { try audioSession.setPreferredInput(input) }
         try installTap()
         engine.prepare()
         try engine.start()
@@ -183,36 +218,26 @@ final class CaptureController: ObservableObject {
                 uploader.sendAudioPacket(packet, ts: Date().timeIntervalSince(start) * 1000)
             }
         }
-    }
-
-    /// Route change / media-services reset: the input format may have changed
-    /// under the engine. Rebuild the tap and encoder for whatever the
-    /// hardware is now, sending the old encoder's tail first.
-    private func rebuildTapAfterConfigChange() {
-        guard isRunning, phase != .interrupted else { return }
-        engine.inputNode.removeTap(onBus: 0)
-        flushEncoderTail()
-        do {
-            try installTap()
-            engine.prepare()
-            try engine.start()
-        } catch {
-            phase = .failed("Audio route changed and capture could not resume: \(error.localizedDescription)")
-        }
+        tapInstalled = true
     }
 
     func stop() {
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        flushEncoderTail()
+        if alwaysOn { ListeningChannel.shared.intent("phone", "off") }
+        stopForServer(reason: "user_stop")
+    }
+
+    func stopForServer(reason: String) {
+        requestGeneration += 1
+        recovery.stop(reason: reason)
+        heartbeat?.cancel()
+        heartbeat = nil
         speechSink.stopAll()
         uploader?.end(reason: "user")
-        // finishLocally runs when the server confirms session_ended; if the
-        // link is down, fall back after a short grace so the UI never wedges.
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            if self.phase != .idle { self.finishLocally() }
-        }
+        finishLocally()
+    }
+
+    func terminating() {
+        if alwaysOn && recovery.intent { ListeningChannel.shared.report(source: "phone", actual: "interrupted", reason: "app_terminated") }
     }
 
     /// Drain the converter's buffered tail (the end of the last spoken word -
@@ -227,47 +252,12 @@ final class CaptureController: ObservableObject {
     }
 
     private func finishLocally() {
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
+        pauseEngine()
         uploader?.abandon()
         uploader = nil
         encoder = nil
         phase = .idle
         sessionId = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-    }
-
-    private func handleInterruption(_ notification: Notification) {
-        guard isRunning,
-              let info = notification.userInfo,
-              let typeValue = info[AVAudioSessionInterruptionTypeKey] as? UInt,
-              let type = AVAudioSession.InterruptionType(rawValue: typeValue)
-        else { return }
-        switch type {
-        case .began:
-            phase = .interrupted
-            engine.pause()
-            // Ship the tail now: if the interruption never ends (call runs
-            // long, session times out server-side) the last word is not lost.
-            engine.inputNode.removeTap(onBus: 0)
-            flushEncoderTail()
-        case .ended:
-            let optionsValue = info[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
-            let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
-            if options.contains(.shouldResume) {
-                do {
-                    try AVAudioSession.sharedInstance().setActive(true)
-                    // The encoder was flushed at .began; build a fresh one.
-                    try installTap()
-                    engine.prepare()
-                    try engine.start()
-                    phase = .live
-                } catch {
-                    phase = .failed("Could not resume after interruption: \(error.localizedDescription)")
-                }
-            }
-        @unknown default:
-            break
-        }
     }
 }

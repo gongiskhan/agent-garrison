@@ -82,6 +82,9 @@ struct SessionStartMessage: Codable {
     /// started from one; the node posts the digest back into it. Omitted for
     /// recordings begun on the capture page or from Control Center.
     var conversationId: String?
+    var deviceId: String?
+    var source: String?
+    var appVersion: String?
 
     enum CodingKeys: String, CodingKey {
         case type
@@ -92,6 +95,9 @@ struct SessionStartMessage: Codable {
         case startedAt = "started_at"
         case codec
         case conversationId = "conversation_id"
+        case deviceId = "device_id"
+        case source
+        case appVersion = "app_version"
     }
 }
 
@@ -200,6 +206,8 @@ enum ServerMessage {
     case sessionEnded(reason: String)
     case speak(AckPayload)
     case feedback(FeedbackEvent)
+    case listeningState(DeviceListeningState)
+    case wakeDetected(deviceId: String, source: String, at: String)
     case serverError(String)
 
     static func parse(_ text: String) -> ServerMessage? {
@@ -208,6 +216,12 @@ enum ServerMessage {
               let type = object["type"] as? String
         else { return nil }
         switch type {
+        case "listening.state":
+            guard let state = try? JSONDecoder().decode(DeviceListeningState.self, from: data) else { return nil }
+            return .listeningState(state)
+        case "wake.detected":
+            guard let device = object["device_id"] as? String, let source = object["source"] as? String, let at = object["at"] as? String else { return nil }
+            return .wakeDetected(deviceId: device, source: source, at: at)
         case "session_started":
             return .sessionStarted(sessionId: object["session_id"] as? String ?? "")
         case "session_resumed":

@@ -15,6 +15,10 @@ final class GarrisonCapturePlugin: CAPPlugin, CAPBridgedPlugin {
     let identifier = "GarrisonCapture"
     let jsName = "GarrisonCapture"
     let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "listeningState", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "listeningIntent", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "openSettings", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "haptic", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "status", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "start", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stop", returnType: CAPPluginReturnPromise),
@@ -57,6 +61,13 @@ final class GarrisonCapturePlugin: CAPPlugin, CAPBridgedPlugin {
     /// because notifyListeners needs the bridge, which is attached after init.
     override func load() {
         Task { @MainActor in
+            ListeningChannel.shared.$records.sink { [weak self] _ in
+                Task { @MainActor in self?.notifyListeners("listeningState", data: self?.listeningPayload() ?? [:]) }
+            }.store(in: &self.cancellables)
+            ListeningChannel.shared.$notice.sink { [weak self] value in
+                if let value { self?.notifyListeners("listeningNotice", data: ["message": value]) }
+            }.store(in: &self.cancellables)
+            ListeningChannel.shared.connect()
             self.controller.$phase
                 .sink { [weak self] _ in Task { @MainActor in self?.scheduleEmit() } }
                 .store(in: &self.cancellables)
@@ -77,6 +88,45 @@ final class GarrisonCapturePlugin: CAPPlugin, CAPBridgedPlugin {
                 }
             }
         }
+    }
+
+    @MainActor private func listeningPayload() -> [String: Any] {
+        ["device_id": ListeningChannel.shared.deviceId ?? "", "records": ListeningChannel.shared.records.values.map { $0.payload }, "paired": AppGroup.pendantIdentifier != nil]
+    }
+
+    @objc func listeningState(_ call: CAPPluginCall) {
+        Task { @MainActor in ListeningChannel.shared.connect(); call.resolve(self.listeningPayload()) }
+    }
+
+    @objc func listeningIntent(_ call: CAPPluginCall) {
+        guard let source = call.getString("source"), ["phone", "pendant"].contains(source),
+              let intent = call.getString("intent"), ["off", "listening"].contains(intent) else { call.reject("Invalid listening request"); return }
+        Task { @MainActor in
+            let proceed: (ConsentState) -> Void = { _ in
+                ListeningChannel.shared.intent(source, intent)
+                if intent == "off" {
+                    if source == "phone" { self.controller.stopForServer(reason: "user_stop") }
+                    else { PendantController.shared.disconnect() }
+                }
+                call.resolve(self.listeningPayload())
+            }
+            if intent == "off" || AppGroup.consentSuppressed { proceed(.suppressed); return }
+            guard let presenter = self.bridge?.viewController, !self.consentPresenter.isPresenting else { call.reject("Consent notice unavailable"); return }
+            self.consentPresenter.present(over: presenter) { consent in
+                guard let consent else { call.reject("consent declined", "CONSENT_DECLINED"); return }
+                proceed(consent)
+            }
+        }
+    }
+
+    @objc func openSettings(_ call: CAPPluginCall) {
+        Task { @MainActor in
+            if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+            call.resolve()
+        }
+    }
+    @objc func haptic(_ call: CAPPluginCall) {
+        Task { @MainActor in UIImpactFeedbackGenerator(style: .light).impactOccurred(); call.resolve() }
     }
 
     // MARK: - Methods

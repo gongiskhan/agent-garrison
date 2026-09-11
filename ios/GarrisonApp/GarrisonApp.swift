@@ -14,6 +14,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
+    func applicationWillTerminate(_ application: UIApplication) { CaptureController.shared.terminating() }
+
     func application(_ application: UIApplication,
                      didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         Task { @MainActor in
@@ -71,9 +73,7 @@ struct GarrisonApp: App {
                         // one screen. Only when we already know the peripheral
                         // - a first pairing is still a deliberate act, from the
                         // page.
-                        if AppGroup.pendantIdentifier != nil {
-                            PendantController.shared.reconnectIfNeeded()
-                        }
+                        ListeningChannel.shared.foreground()
                         // Silent re-registration only: never a permission
                         // prompt at launch. The first prompt is
                         // GarrisonPush.register() from the page, in context.
@@ -101,7 +101,7 @@ struct GarrisonApp: App {
             .onChange(of: store.current) { _, _ in
                 // This also covers editing a node's capture URL or token
                 // without changing its shell origin (no bridge remount).
-                PendantController.shared.reconnectIfNeeded()
+                ListeningChannel.shared.foreground()
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -109,9 +109,7 @@ struct GarrisonApp: App {
             // Coming back from the background: CoreBluetooth may have dropped
             // the link while suspended, and the wearable is worn all day. A
             // connect on an already-connected transport is a no-op.
-            if AppGroup.pendantIdentifier != nil {
-                PendantController.shared.reconnectIfNeeded()
-            }
+            ListeningChannel.shared.foreground()
             // A node can die while the app is in someone's pocket, and on a
             // flapping tunnel it does. Same rules as the launch probe: a
             // reachable node is never switched away from.

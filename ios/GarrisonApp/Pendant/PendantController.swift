@@ -35,6 +35,7 @@ final class PendantController: ObservableObject {
 
     private var transport: DeviceTransport
     private var uploader: CaptureUploader?
+    private var listeningHeartbeat: Task<Void, Never>?
     private var uploadBaseURL: URL?
     private var uploadToken: String?
     private let phoneSink: PhoneFeedbackSink?
@@ -141,6 +142,9 @@ final class PendantController: ObservableObject {
 
     private func handleConnectionState(_ state: PendantConnectionState) {
         connectionState = state
+        if ListeningChannel.shared.records["pendant"]?.intent == "listening" {
+            ListeningChannel.shared.report(source: "pendant", actual: state == .connected ? "listening" : "interrupted", reason: state == .connected ? "resume_retry" : "engine_error")
+        }
         switch state {
         case .connected:
             transport.readBattery { [weak self] level in
@@ -200,6 +204,18 @@ final class PendantController: ObservableObject {
             spoolDirectory: AppGroup.spoolDirectory(sessionId: id)
         )
         uploader.codec = codec == .opus ? "opus" : "opus_fs320"
+        uploader.deviceId = ListeningChannel.shared.deviceId
+        uploader.listeningSource = "pendant"
+        listeningHeartbeat?.cancel()
+        listeningHeartbeat = Task { @MainActor [weak self, weak uploader] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(ListeningConstants.HEARTBEAT_SECONDS * 1_000_000_000))
+                guard !Task.isCancelled, let self else { return }
+                if self.connectionState == .connected, ListeningChannel.shared.records["pendant"]?.intent == "listening", let device = ListeningChannel.shared.deviceId {
+                    uploader?.sendListening(ListeningMessage(type: "listening.heartbeat", device_id: device, source: "pendant"))
+                }
+            }
+        }
         uploader.onStateChange = { [weak self] state in
             Task { @MainActor in
                 guard let self, self.sessionId == id else { return }
@@ -235,6 +251,8 @@ final class PendantController: ObservableObject {
     }
 
     private func endSession(reason: String) {
+        listeningHeartbeat?.cancel()
+        listeningHeartbeat = nil
         uploader?.end(reason: reason)
         uploader = nil
         sessionId = nil

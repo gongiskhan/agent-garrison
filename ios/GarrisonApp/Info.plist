@@ -27,7 +27,7 @@
 	<key>CFBundleDisplayName</key>
 	<string>Garrison</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Garrison records the microphone only during a capture session you start, to transcribe it and act on your spoken commands.</string>
+	<string>Garrison listens for your wake word and captures what you say so Zeca can turn it into tasks and memories. Nothing is captured unless you turn listening on.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Garrison connects to your Omi pendant over Bluetooth to stream its audio to your own Garrison server for transcription and wake-word commands.</string>
 	<!-- audio keeps a microphone capture session alive when the phone locks or
