@@ -17,12 +17,11 @@ function cursorHome(env) {
 }
 
 function codexHome(env) {
-  // See install-hooks.mjs's header comment: deliberately not env.CODEX_HOME.
-  return env.GARRISON_SHELLS_CODEX_HOME?.trim() || path.join(homeDir(env), ".codex");
+  return env.CODEX_HOME?.trim() || env.GARRISON_SHELLS_CODEX_HOME?.trim() || path.join(homeDir(env), ".codex");
 }
 
 function geminiHome(env) {
-  return env.GARRISON_SHELLS_GEMINI_HOME?.trim() || path.join(homeDir(env), ".gemini");
+  return env.GEMINI_CLI_HOME?.trim() || env.GARRISON_SHELLS_GEMINI_HOME?.trim() || path.join(homeDir(env), ".gemini");
 }
 
 function readJson(file) {
@@ -65,11 +64,14 @@ export function uninstallHooks(env = process.env, log = console.log) {
   const marker = "agent-event-hook.sh";
   let removed = 0;
   for (const [name, home, key] of [
-    ["claude", env.GARRISON_SHELLS_CLAUDE_HOME?.trim() || path.join(homeDir(env), ".claude"), "settings.json"],
+    ["claude", env.GARRISON_CLAUDE_HOME?.trim() || env.CLAUDE_CONFIG_DIR?.trim() || env.GARRISON_SHELLS_CLAUDE_HOME?.trim() || path.join(homeDir(env), ".claude"), "settings.json"],
     ["cursor", cursorHome(env), "hooks.json"],
     ["codex", codexHome(env), "hooks.json"],
     ["gemini", geminiHome(env), "settings.json"]
   ]) {
+    const selected = new Set(String(env.GARRISON_SHARE_RUNTIMES || "").split(","));
+    if (env.GARRISON_SHARE_TARGET && name === "cursor") continue;
+    if (env.GARRISON_SHARE_TARGET === "user" && !selected.has(name === "claude" ? "claude-code" : name)) continue;
     const file = path.join(home, key);
     const cfg = readJson(file);
     if (!cfg) continue;

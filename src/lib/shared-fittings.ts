@@ -8,7 +8,7 @@ import type { ApmRunner } from "./apm-exec";
 import type { ApmLockView } from "./global-composition";
 import { installSharedApm } from "./shared-apm";
 import { HomeQuarantine, confinedHomePath, fileHash, hashMatches, ownerId, readJsonObject, statOrNull } from "./home-quarantine";
-import { canonicalValue, readMcpServers, readSharedState, readUserProvenance, selectedSharedSet, quarantineMcp, userRuntimeHome, valueHash, type HomeProvenance, type SharedSet } from "./home-ownership";
+import { canonicalValue, readMcpServers, readSharedState, readUserProvenance, selectedSharedSet, quarantineMcp, userRuntimeHome, userHookFile, valueHash, type HomeProvenance, type SharedSet } from "./home-ownership";
 import { sharedRuntimes, type Composition, type LibraryEntry, type SelectedFitting, type SharedRuntime } from "./types";
 
 export interface SharedSetupResult { ok: boolean; stdout: string; stderr: string; exitCode: number | null; }
@@ -55,7 +55,7 @@ async function removeSharedOwner(runtime: SharedRuntime, fittingId: string, ledg
     // later edit must never remain eligible for a future uninstall sweep.
     delete ledger[key];
   }
-  const file = path.join(userRuntimeHome(runtime), "settings.json");
+  const file = userHookFile(runtime);
   const config = await readJsonObject<{ hooks?: Record<string, Array<{ _garrison?: unknown }>> }>(file);
   const entries = Object.entries(config.hooks ?? {}).flatMap(([event, groups]) => Array.isArray(groups) ? groups.flatMap((value, index) => ownerId(value?._garrison) === fittingId ? [{ event, index, value }] : []) : []);
   if (entries.length) await q.editJson(file, entries.map(item => ({ runtime, kind: "hook", ref: `${item.event}#${item.index}`, source: file, value: item.value })), draft => {

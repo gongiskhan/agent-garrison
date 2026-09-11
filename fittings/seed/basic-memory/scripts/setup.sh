@@ -97,6 +97,9 @@ KANBAN_CAPTURE_STATE_FILE="$COMPOSITION_DIR/.garrison/basic-memory-kanban-captur
 SKILL_LOCAL_SRC="$SCRIPT_DIR_PARENT/.apm/skills/garrison-memory/SKILL.md"
 SKILL_CORTEX_SRC="$SCRIPT_DIR_PARENT/skill-variants/cortex/SKILL.md"
 SKILL_DEST="$COMPOSITION_DIR/.claude/skills/garrison-memory/SKILL.md"
+if [ "${GARRISON_SHARE_TARGET:-}" = "garrison" ]; then
+  SKILL_DEST="$GARRISON_CLAUDE_HOME/skills/garrison-memory/SKILL.md"
+fi
 # The record of which variant WE last installed, kept in the composition's own
 # Garrison state dir - a SIDECAR, deliberately not a marker inside the payload.
 # Two reasons, both learned the hard way:
@@ -327,7 +330,7 @@ fi
 # A partial bridge is a configuration error, never permission to restore raw
 # transcript capture. Only our historical capture entries are retired here.
 SHARED_CONTINUITY="$(python3 - "$SETTINGS_FILE" <<'PY_SHARED'
-import json, sys
+import json, sys, os
 from pathlib import Path
 sp = Path(sys.argv[1])
 if not sp.exists():
@@ -342,6 +345,7 @@ if shared:
     for event in ("SessionStart", "UserPromptSubmit", "PostToolUse", "PreCompact", "Stop", "SessionEnd"):
         if not any("agent-continuity.py" in command for command in commands(event)):
             raise SystemExit("Incomplete shared continuity hooks; rerun install-agent-continuity.py")
+if shared or os.environ.get("GARRISON_SHARE_TARGET") == "garrison":
     changed = False
     for event, groups in list(hooks.items()):
         kept = []
@@ -359,7 +363,7 @@ PY_SHARED
 )"
 # Install the legacy capture only on standalone installations without the
 # shared bridge; their shipped local/cortex behavior remains unchanged.
-if [ "$CAPTURE_ENABLED" = "true" ] && [ "$SHARED_CONTINUITY" != "true" ]; then
+if [ "$CAPTURE_ENABLED" = "true" ] && [ "$SHARED_CONTINUITY" != "true" ] && [ "${GARRISON_SHARE_TARGET:-}" != "garrison" ]; then
   mkdir -p "$HOOK_HOME"
   cp "$SCRIPT_DIR/capture-session.py" "$HOOK_PATH"
   chmod +x "$HOOK_PATH"
@@ -417,6 +421,8 @@ for event in ("SessionEnd", "PreCompact"):
 sp.write_text(json.dumps(data, indent=2) + "\n")
 print("[basic-memory-setup] capture hook wired: " + (", ".join(added) if added else "already wired"))
 PY
+elif [ "${GARRISON_SHARE_TARGET:-}" = "garrison" ]; then
+  log "Garrison owns metadata-only session continuity; raw transcript capture is not installed"
 elif [ "$SHARED_CONTINUITY" = "true" ]; then
   log "shared agent continuity owns session capture; legacy transcript hooks retired"
 else
