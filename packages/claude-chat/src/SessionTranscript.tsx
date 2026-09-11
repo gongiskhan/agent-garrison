@@ -146,6 +146,7 @@ export interface SessionStreamProps {
    * `awaiting-approval`, without duplicating the derivation.
    */
   onActivityChange?: (activity: ConversationActivity) => void;
+  onApprove?: () => Promise<void>;
 }
 
 export interface SessionEventTimelineProps {
@@ -1524,7 +1525,24 @@ function ConversationWorkingStrip({ activity, announce }: { activity: Conversati
 /** The conversation's terminal state, said out loud. A needs-input park was a
  * one-line collapsed ledger row before this - the single most consequential
  * state a conversation reaches, rendered quieter than a tool call. */
-function ConversationStateBanner({ activity }: { activity: ConversationActivity }) {
+function ConversationStateBanner({ activity, onApprove }: { activity: ConversationActivity; onApprove?: () => Promise<void> }) {
+  const sending = useRef(false);
+  const [approvalState, setApprovalState] = useState<"idle" | "sending" | "accepted">("idle");
+  const [error, setError] = useState<string | null>(null);
+  async function approve() {
+    if (!onApprove || sending.current) return;
+    sending.current = true;
+    setApprovalState("sending");
+    setError(null);
+    try {
+      await onApprove();
+      setApprovalState("accepted");
+    } catch (cause) {
+      sending.current = false;
+      setApprovalState("idle");
+      setError(cause instanceof Error ? cause.message : "The approval could not be sent. Try again.");
+    }
+  }
   if (activity.mode === "needs-input") {
     return (
       <div className="cc-conv-state cc-conv-state-attn" role="status">
@@ -1546,7 +1564,7 @@ function ConversationStateBanner({ activity }: { activity: ConversationActivity 
     // the plan behind a collapsed ledger row is asking for a blind signature.
     const plan = activity.approvalPlan ?? activity.summary;
     return (
-      <div className="cc-conv-state cc-conv-state-attn" role="status">
+      <div className="cc-conv-state cc-conv-state-approval" role="status">
         <div className="cc-conv-state-title">
           Waiting for your go-ahead
           {activity.approvalNext ? ` - next step: ${activity.approvalNext}` : ""}
@@ -1556,7 +1574,10 @@ function ConversationStateBanner({ activity }: { activity: ConversationActivity 
         ) : (
           <p className="cc-conv-state-line">The work is paused before its next step.</p>
         )}
-        <p className="cc-conv-state-hint">Reply below to approve or redirect.</p>
+        {onApprove && <button type="button" className="cc-approval-button" disabled={approvalState !== "idle"}
+          onClick={() => void approve()}>{approvalState === "sending" ? "Sending approval…" : approvalState === "accepted" ? "Approved — continuing…" : "Approve & continue"}</button>}
+        {error && <p className="cc-conv-state-line" role="alert">{error}</p>}
+        <p className="cc-conv-state-hint">{onApprove ? "Or reply below to discuss or redirect the plan." : "Reply below to approve or redirect."}</p>
       </div>
     );
   }
@@ -1597,6 +1618,7 @@ export function SessionStream({
   conversationLive,
   onActivityChange,
   emptyMessage,
+  onApprove,
 }: SessionStreamProps) {
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const [title, setTitle] = useState<string | null>(titleProp ?? null);
@@ -2128,7 +2150,7 @@ export function SessionStream({
             </React.Fragment>
           );
         })}
-        {conversationMode && !derivedBusy && <ConversationStateBanner activity={activity} />}
+        {conversationMode && !derivedBusy && <ConversationStateBanner key={`${url}:${activity.mode}:${activity.since}`} activity={activity} onApprove={onApprove} />}
         {!stuck && (
           <div className="cc-session-jumpwrap">
             <button type="button" className="cc-session-jump" onClick={jumpToLatest}>

@@ -107,8 +107,8 @@ describe.sequential("live local cards from conversations", () => {
     await renameThread(workId, "Another conversation title");
     expect((await loadCard(harness.boardRoot, workId)).title).toBe("My reminder check");
   });
-  it("keeps a real approval pause in To do and resumes through Approve & continue", async () => {
-    const id = "approval-card-journey";
+  it.each(["card", "conversation"])("keeps approval in To do and resumes from the %s", async (surface) => {
+    const id = `approval-${surface}-journey`;
     await ensureThread({ id, source: "chat" });
     const callsBefore = harness.runtimeCalls().length;
     await json(`/api/conversation/${id}/message`, { message: "Plan an implementation that needs approval", clientRequestId: "journey-approval", routing: { target: "codex-astra", duty: "triage", project: "garrison" } });
@@ -119,13 +119,27 @@ describe.sequential("live local cards from conversations", () => {
     await expect.poll(async () => (await (await fetch(`${harness.gatewayUrl}/conversation/${id}`)).json()).advancing).toBe(false);
     const waiting = await loadCard(harness.boardRoot, id);
     expect(waiting.list).toBe("todo");
-    await page.goto(`${harness.base}/embed/kanban-loop?card=${id}`);
-    const sheet = page.getByRole("dialog");
-    await sheet.getByText("Waiting for your approval", { exact: true }).waitFor();
-    await sheet.getByRole("button", { name: "Approve & continue" }).click();
+    await page.goto(surface === "card" ? `${harness.base}/embed/kanban-loop?card=${id}` : `${harness.base}/talk?thread=${id}`);
+    const approval = surface === "card" ? page.getByRole("dialog").locator(".approval-ask") : page.locator(".cc-conv-state-approval");
+    if (surface === "conversation") {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.getByPlaceholder("Write a message…").fill("Keep my draft");
+      await page.route(`**/api/conversation/${id}/message`, (route) => route.fulfill({ status: 503, contentType: "application/json", body: '{"error":"Approval temporarily unavailable"}' }), { times: 1 });
+      await approval.getByRole("button", { name: "Approve & continue" }).click();
+      await approval.getByRole("alert").waitFor();
+      expect(harness.runtimeCalls().length).toBe(callsBefore + 1);
+      expect((await loadCard(harness.boardRoot, id)).list).toBe("todo");
+      await shot("approval-conversation-390");
+    }
+    await approval.getByRole("button", { name: "Approve & continue" }).click();
     await expect.poll(() => harness.runtimeCalls().length).toBe(callsBefore + 2);
     expect(await loadCard(harness.boardRoot, id)).toMatchObject({ list: "running", awaitingApproval: null });
     expect(harness.runtimeCalls().at(-1).brief).toContain("## Your duty: implement");
+    if (surface === "conversation") {
+      expect(await page.getByPlaceholder("Write a message…").inputValue()).toBe("Keep my draft");
+      await expect.poll(() => page.locator(".cc-approval-button").count()).toBe(0);
+      await page.setViewportSize({ width: 1280, height: 900 });
+    }
     await json(`/api/conversation/${id}/cancel`, {});
     await expect.poll(() => openConversation(id, { role: "test" }).currentStretch()).toBeNull();
   }, 30_000);

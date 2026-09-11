@@ -822,6 +822,9 @@ standalone unit on the same jobs file double-fires every scheduled job.
 
 ## Working conventions
 
+- **Routine approval belongs in To do.** Keep cards waiting for a plan approval
+  in To do and expose Approve & continue in both the card and its conversation.
+  Needs attention is for problems and blockers, not a catch-all for human action.
 - **HARD RULE — work on `main` on every mesh node.** Never create task/node
   branches or branch-based worktrees. Fetch and integrate `origin/main`, preserve
   concurrent work, commit and push to `main` without force. Historical node refs

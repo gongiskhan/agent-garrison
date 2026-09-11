@@ -1001,6 +1001,11 @@
       "id": "n-c7.2",
       "title": "Omi cloud retired; native pendant retained — 2026-09-10",
       "body": "Shipped 02aacbb6: cloud fitting, webhook/Funnels, MCP, notification transport and Omi authority credentials retired. Native ios/ unchanged. Phone/pendant triage moved into capture-service; all four live owner jobs completed with exit 0. Madrid, Mini, Pro and Air each passed 15/15 live views plus native Capture bootstrap; CSG passed 10/10 and intentionally has no Capture. All five nodes audited with no public Funnels. Focused 459 tests passed; broad-suite limitations and remaining physical-phone/RustDesk checks are in docs/decisions/2026-09-10-omi-retirement.md. This supersedes plans to restore or keep an Omi cloud channel. Hardware remains supported and used daily."
+    },
+    {
+      "id": "n-approval-surfaces-20260911",
+      "title": "Routine approvals in To do, with conversation controls",
+      "body": "11 September 2026 operator decision: Needs attention is for problems and blockers, not every item needing human action. Routine approval cards remain in To do. Add Approve & continue beside the visible plan in the shared conversation banner, retain free-form replies and drafts, and use the existing owner-routed message transport. Validation and rollout: docs/validation/2026-09-11-conversation-approval.md."
     }
   ]
 }

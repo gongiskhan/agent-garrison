@@ -1250,6 +1250,7 @@ export interface ClaudeChatProps {
    */
   transcriptOnActivityChange?: (activity: ConversationActivity) => void;
   transcriptEmptyMessage?: React.ReactNode;
+  transcriptOnApprove?: () => Promise<void>;
   /**
    * Stable key for persisting the UNSENT composer draft (typed text + settled
    * attachments) across a re-mount. A multi-thread host re-mounts the component
@@ -1291,7 +1292,7 @@ export interface ClaudeChatProps {
   musterUrl?: string;
 }
 
-export function ClaudeChat({ transport, composerAdornment, composerHeader, title, placeholder, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, autoShowTranscript = false, transcriptOnly = false, transcriptFocusEventId, transcriptLive, transcriptOnActivityChange, transcriptEmptyMessage, draftKey, routing, routeOptions, onPinChange, onOpenTranscript, musterUrl }: ClaudeChatProps) {
+export function ClaudeChat({ transport, composerAdornment, composerHeader, title, placeholder, features, context, mode, initialMessage, initialMessageHidden, initialHistory, onTurnComplete, transcriptUrl, autoShowTranscript = false, transcriptOnly = false, transcriptFocusEventId, transcriptLive, transcriptOnActivityChange, transcriptEmptyMessage, transcriptOnApprove, draftKey, routing, routeOptions, onPinChange, onOpenTranscript, musterUrl }: ClaudeChatProps) {
   const feat = features ?? {};
   const railOn = Boolean(feat.routing);
   // Seed from a persisted thread's transcript when the host provides one. Computed
@@ -2993,6 +2994,7 @@ export function ClaudeChat({ transport, composerAdornment, composerHeader, title
             conversationLive={transcriptLive}
             onActivityChange={transcriptOnActivityChange}
             emptyMessage={transcriptEmptyMessage}
+            onApprove={transcriptOnApprove}
           />
         ) : showTranscript && transcriptUrl ? (
           <SessionStream url={transcriptUrl} live={busy} announceLiveUpdates={false} />
