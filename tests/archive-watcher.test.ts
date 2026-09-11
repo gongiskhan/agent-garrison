@@ -29,3 +29,15 @@ it('waits for a slow paired move before removing orphan sidecars',async()=>{
   expect(await s.read(result.data.path+'.md')).toContain('garrison: derived');await expect(fs.stat(path.join(s.vaultDir,source))).rejects.toMatchObject({code:'ENOENT'});
  }finally{await s.close();}
 });
+
+it('keeps indexing external notes while an import waits for its remote board',async()=>{
+ let release!:(value:any)=>void;const board=new Promise(resolve=>{release=resolve;});
+ const s=await scratch({watch:true,credentials:async()=>({TRELLO_KEY:'fixture',TRELLO_TOKEN:'fixture'}),clientFactory:()=>({board:()=>board})});
+ try{
+  const {execFileSync}=await import('node:child_process');for(const args of [['init','-q'],['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','--allow-empty','-qm','Fixture']])execFileSync('git',['-C',s.vaultDir,...args],{stdio:'pipe'});
+  const job=(await s.request('import/trello/run','POST',{boardId:'fixture'})).data.jobId;
+  await until(()=>s.service.jobs.get(job).state==='running');await s.write('Memory/During import.md','# Importdoesnotblockindex');
+  await until(()=>s.service.index.query('Importdoesnotblockindex').total===1);
+  release({id:'fixture',shortLink:'fixture',name:'Fixture',lists:[],cards:[]});await until(()=>s.service.jobs.get(job).state==='done',3000);
+ }finally{release({id:'fixture',shortLink:'fixture',name:'Fixture',lists:[],cards:[]});await s.close();}
+},8000);

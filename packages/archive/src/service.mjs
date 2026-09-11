@@ -38,7 +38,8 @@ export function createArchiveService({vaultDir,home,config={},node='local',rende
   const jobs=new JobLedger(ctx),index=new ArchiveIndex(ctx),queue=new IngestQueue(ctx,jobs,queueOptions);Object.assign(ctx,{jobs,index,queue,onFile:p=>index.update(p)});
   let watcher,closed=false,mutation=Promise.resolve();
   const serial=fn=>{const task=mutation.then(fn,fn);mutation=task.catch(()=>{});return task;};
-  ctx.serialize=serial;
+  let filesMutation=Promise.resolve();
+  ctx.serializeFiles=fn=>{const task=filesMutation.then(fn,fn);filesMutation=task.catch(()=>{});return task;};
   ctx.convertHeic=async(relative)=>{
     const source=confine(vaultDir,relative);const sips=binary('sips'),heif=binary('heif-convert');if(!sips&&!heif)return relative;
     const parent=path.posix.dirname(relative),stem=path.posix.basename(relative,path.posix.extname(relative));let target=path.posix.join(parent,stem+'.jpg'),n=2;
@@ -63,7 +64,7 @@ export function createArchiveService({vaultDir,home,config={},node='local',rende
   async function rebuild(){const row=await jobs.create('index-rebuild',{}, {done:0,total:1,label:'Indexing…'});await jobs.update(row,{state:'running',startedAt:now()});try{const count=await index.build();await jobs.update(row,{state:'done',endedAt:now(),progress:{done:count,total:count,label:'Index ready'}});}catch(error){await jobs.update(row,{state:'failed',endedAt:now(),error:error.message});throw error;}}
   async function trello(log){const env=await credentials?.();if(!env?.TRELLO_KEY||!env?.TRELLO_TOKEN)throw fail('trello_not_connected',409);const client=clientFactory?clientFactory(env):new TrelloClient({key:env.TRELLO_KEY,token:env.TRELLO_TOKEN});if(log)client.log=log;return client;}
   async function runImport(row){let client;try{client=await trello(message=>jobs.log(row,message));}catch(e){if(!row.input.board)throw e;}return serial(()=>importBoard(ctx,jobs,row,{client}));}
-  async function mutate(fn){return serial(async()=>{await service.indexReady;const result=await fn();await index.build();return result;});}
+  async function mutate(fn){return serial(async()=>{await service.indexReady;const result=await ctx.serializeFiles(fn);await index.build();return result;});}
   const json=(value,status=200)=>Response.json(value,{status,headers:{'cache-control':'no-store'}});
   async function handle(request,route){
     try{
