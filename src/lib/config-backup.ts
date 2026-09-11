@@ -1,8 +1,7 @@
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
 import path from "node:path";
-import { homedir } from "node:os";
-import { claudeHome, claudeJsonPath, garrisonDir } from "./claude-home";
+import { userClaudeHome, userClaudeJsonPath, userCodexHome, userGeminiHome, garrisonDir } from "./claude-home";
 
 // Pre-install / pre-teardown snapshot of the user's engine config surfaces.
 //
@@ -65,8 +64,7 @@ export async function snapshotClaudeConfig(
   reason: string,
   opts: SnapshotOpts = {}
 ): Promise<SnapshotResult> {
-  const home = claudeHome();
-  const nativeHome = opts.nativeHome ?? homedir();
+  const home = userClaudeHome();
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const dir = path.join(backupsRootDir(), `${reason}-${stamp}`);
   await fs.mkdir(dir, { recursive: true });
@@ -111,7 +109,7 @@ export async function snapshotClaudeConfig(
   await grabDir(path.join(home, "rules"), "claude/rules");
 
   // ~/.claude.json — extract ONLY the mcpServers slice (never the auth/history bulk).
-  const claudeJson = claudeJsonPath(home);
+  const claudeJson = userClaudeJsonPath();
   try {
     const raw = await fs.readFile(claudeJson, "utf8");
     const parsed = JSON.parse(raw);
@@ -132,8 +130,8 @@ export async function snapshotClaudeConfig(
   }
 
   // Native engine homes (codex / gemini) — the REAL user config Uninstall restores.
-  await grabFile(path.join(nativeHome, ".codex", "config.toml"), "codex/config.toml");
-  await grabFile(path.join(nativeHome, ".gemini", "settings.json"), "gemini/settings.json");
+  await grabFile(path.join(opts.nativeHome ? path.join(opts.nativeHome, ".codex") : userCodexHome(), "config.toml"), "codex/config.toml");
+  await grabFile(path.join(opts.nativeHome ? path.join(opts.nativeHome, ".gemini") : userGeminiHome(), "settings.json"), "gemini/settings.json");
 
   const manifest: BackupManifest = {
     version: 1,
