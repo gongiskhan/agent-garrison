@@ -83,6 +83,24 @@ async function proxy(
 
   const outHeaders = new Headers(upstream.headers);
   for (const h of HOP_BY_HOP) outHeaders.delete(h);
+
+  // The fitting's own HTML/CSS addresses its assets root-absolute
+  // (e.g. src="/kanban.bundle.js"), which the browser resolves against the
+  // SHELL origin, not the proxy prefix it was actually served from — a 404.
+  // Rewrite root-absolute references to carry the fitting's proxy prefix so
+  // the follow-up asset requests land back on this same route.
+  const contentType = outHeaders.get("content-type") ?? "";
+  const isRewritable = contentType.includes("text/html") || contentType.includes("text/css");
+  if (isRewritable) {
+    const prefix = `/api/fittings/proxy/${fittingId}`;
+    let body = await upstream.text();
+    body = body
+      .replace(/((?:src|href|action)=["'])\/(?!\/|api\/fittings\/proxy\/)/g, `$1${prefix}/`)
+      .replace(/(url\(\s*["']?)\/(?!\/|api\/fittings\/proxy\/)/g, `$1${prefix}/`);
+    outHeaders.delete("content-length");
+    return new Response(body, { status: upstream.status, headers: outHeaders });
+  }
+
   return new Response(upstream.body, { status: upstream.status, headers: outHeaders });
 }
 

@@ -45,4 +45,42 @@ describe("tethered-node own-port view proxy", () => {
     expect(await res.text()).toBe("ok");
     vi.unstubAllGlobals();
   });
+
+  it("rewrites root-absolute asset references in proxied HTML to carry the proxy prefix", async () => {
+    mocks.readFile.mockResolvedValue(JSON.stringify({ port: 8089 }));
+    const html =
+      '<html><head><link href="/kanban.css" rel="stylesheet"></head>' +
+      '<body><script src="/kanban.bundle.js"></script>' +
+      '<a href="//other-host/x">external</a>' +
+      '<a href="/api/fittings/proxy/kanban-loop/already">already</a>' +
+      "</body></html>";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(html, { status: 200, headers: { "content-type": "text/html" } }))
+    );
+    const res = await GET(new Request("http://x/api/fittings/proxy/kanban-loop"), {
+      params: { fittingId: "kanban-loop" }
+    });
+    const body = await res.text();
+    expect(body).toContain('href="/api/fittings/proxy/kanban-loop/kanban.css"');
+    expect(body).toContain('src="/api/fittings/proxy/kanban-loop/kanban.bundle.js"');
+    expect(body).toContain('href="//other-host/x"');
+    expect(body).toContain('href="/api/fittings/proxy/kanban-loop/already"');
+    vi.unstubAllGlobals();
+  });
+
+  it("rewrites root-absolute url() references in proxied CSS", async () => {
+    mocks.readFile.mockResolvedValue(JSON.stringify({ port: 8089 }));
+    const css = 'body { background: url("/icon.svg"); }';
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(css, { status: 200, headers: { "content-type": "text/css" } }))
+    );
+    const res = await GET(new Request("http://x/api/fittings/proxy/kanban-loop/kanban.css"), {
+      params: { fittingId: "kanban-loop", path: ["kanban.css"] }
+    });
+    const body = await res.text();
+    expect(body).toContain('url("/api/fittings/proxy/kanban-loop/icon.svg")');
+    vi.unstubAllGlobals();
+  });
 });
