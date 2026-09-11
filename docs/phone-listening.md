@@ -1,6 +1,6 @@
 # Phone listening
 
-Server and native Phase 2 acceptance passed on 11 September 2026. Combined simulator acceptance and TestFlight delivery are pending.
+Server, native Phase 2 and UI Phase 3 acceptance passed on 11 September 2026. UI screenshots and the mock control journey are recorded in [run 34636326744](https://github.com/gongiskhan/agent-garrison/actions/runs/34636326744). Combined Phase 4 acceptance and TestFlight delivery are pending.
 
 ## Intent and actual
 
