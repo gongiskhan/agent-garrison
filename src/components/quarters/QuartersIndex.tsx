@@ -7,6 +7,8 @@ import type { LucideIcon } from "lucide-react";
 import type { StateModel, PrimitiveSurface } from "@/lib/primitive-state";
 import type { RuntimeQuartersEntry } from "@/lib/quarters-runtimes";
 import { QUARTERS_CATEGORIES, WRITER_LABEL, type QuartersCategory } from "./quartersTypes";
+import { UserHomePanel } from "./UserHomePanel";
+import type { SharedRuntime } from "@/lib/types";
 import { InstallBanner } from "./InstallBanner";
 
 function icon(name: string): LucideIcon {
@@ -59,6 +61,7 @@ const GENERIC_CATEGORY_META: Record<string, { label: string; blurb: string; icon
 };
 
 export function QuartersIndex() {
+  const [homeTab, setHomeTab] = useState<"garrison" | SharedRuntime>("garrison");
   const [model, setModel] = useState<StateModel | null>(null);
   const [runtimes, setRuntimes] = useState<RuntimeQuartersEntry[] | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -118,17 +121,20 @@ export function QuartersIndex() {
         <div className="head">
           <h1>Quarters</h1>
           <p className="ld">
-            Native config for every runtime in the composition — Claude Code over the real{" "}
-            <code>~/.claude</code>, other engines a generic tier.
+            The Garrison home holds the composition’s skills, hooks and MCP servers. Your own runtime config has a separate read-only view.
           </p>
         </div>
 
+        <div role="tablist" aria-label="Runtime homes" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
+          {([{ id: "garrison", title: "Garrison home" }, { id: "claude-code", title: "Your Claude Code" }, ...sections.filter(entry => ["codex", "gemini"].includes(entry.descriptor.id)).map(entry => ({ id: entry.descriptor.id, title: entry.descriptor.id === "codex" ? "Your Codex" : "Your Gemini" }))] as Array<{ id: "garrison" | SharedRuntime; title: string }>).map(tab => <button key={tab.id} role="tab" aria-selected={homeTab === tab.id} className="btn" onClick={() => setHomeTab(tab.id)}>{tab.title}</button>)}
+        </div>
+        {homeTab !== "garrison" ? <UserHomePanel runtime={homeTab} /> : <>
         <InstallBanner />
 
         {error ? (
           <div className="banner alarm" data-testid="quarters-error">
             <span className="glyph">!</span>
-            <div><h5>Could not read ~/.claude</h5><p>{error}</p></div>
+            <div><h5>Could not read the Garrison home</h5><p>{error}</p></div>
           </div>
         ) : null}
 
@@ -253,6 +259,7 @@ export function QuartersIndex() {
             );
           })
         )}
+        </>}
       </div>
     </main>
   );

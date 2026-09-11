@@ -95,6 +95,7 @@ export async function quarantineMcp(q: HomeQuarantine, runtime: SharedRuntime, n
   }
   const entry = { runtime, kind: "mcp" as const, ref: name, source: file, value: servers[name] };
   if (runtime === "codex") {
+    if ((await fs.lstat(file)).isSymbolicLink()) throw new Error("Refusing to strip registrations through a linked user config file");
     const before = await fs.readFile(file, "utf8");
     const next = withoutTomlMcp(before, name);
     await q.record({ ...entry, value: { registration: servers[name], toml: next.removed } });

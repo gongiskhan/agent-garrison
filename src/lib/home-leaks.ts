@@ -83,12 +83,12 @@ export async function checkHomeLeaks(options: { shared?: SharedSet } = {}): Prom
 }
 
 /** The server computes the list afresh; a client never supplies removable paths. */
-export async function quarantineHomeLeaks(options: { shared?: SharedSet; quarantine?: HomeQuarantine; onlyKinds?: HomeLeak["kind"][] } = {}) {
+export async function quarantineHomeLeaks(options: { shared?: SharedSet; quarantine?: HomeQuarantine; onlyKinds?: HomeLeak["kind"][]; only?: Pick<HomeLeak, "runtime" | "kind" | "ref"> } = {}) {
   const q = options.quarantine ?? new HomeQuarantine();
   const before = await checkHomeLeaks(options);
   const ledger = { ...await readJsonObject<HomeProvenance>(provenanceLedgerPath()), ...await readJsonObject<HomeProvenance>(userProvenanceLedgerPath()) };
   for (const runtime of sharedRuntimes) {
-    const selected = before.leaks.filter(leak => leak.runtime === runtime && (!options.onlyKinds || options.onlyKinds.includes(leak.kind)));
+    const selected = before.leaks.filter(leak => leak.runtime === runtime && (!options.onlyKinds || options.onlyKinds.includes(leak.kind)) && (!options.only || (leak.runtime === options.only.runtime && leak.kind === options.only.kind && leak.ref === options.only.ref)));
     const hooks = selected.filter(leak => leak.kind === "hook");
     if (hooks.length) {
       const source = hookFile(runtime);
