@@ -1158,6 +1158,7 @@ fi`
     // The installed fitting resolves the shell's shared Archive predicate.
     await fsp.mkdir(path.join(tmp, "packages/archive/src"), { recursive: true });
     await fsp.copyFile(path.join(REPO_ROOT, "packages/archive/src/paths.mjs"), path.join(tmp, "packages/archive/src/paths.mjs"));
+    await fsp.copyFile(path.join(REPO_ROOT, "packages/archive/label.mjs"), path.join(tmp, "packages/archive/label.mjs"));
       const schedulerDir = path.join(comp, "apm_modules", "_local", "scheduler", "scripts");
       await fsp.mkdir(schedulerDir, { recursive: true });
       await fsp.cp(SCHEDULER_SRC, schedulerDir, { recursive: true });
@@ -1326,6 +1327,7 @@ fi`
     });
 
     it("writes BOTH sides, with the local write byte-identical to the no-shadow one", async () => {
+      await fsp.mkdir(path.join(tmp, "proj"), { recursive: true });
       const payload = JSON.stringify({
         session_id: SESSION_ID,
         cwd: path.join(tmp, "proj"),

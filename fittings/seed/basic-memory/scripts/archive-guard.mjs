@@ -22,7 +22,7 @@ export function install(settings,vault,home,script){
     real.toString(),write.toString(),guardVault.toString(),blocked.toString(),
     `try{const payload=JSON.parse(fs.readFileSync(0,'utf8'));if(blocked(payload,guardVault(${JSON.stringify(settings)},${JSON.stringify(home)}))){process.stderr.write(MESSAGE+'\\n');process.exitCode=2;}}catch{process.stderr.write(MESSAGE+'\\n');process.exitCode=2;}`].join('\n');
   const cmd=`exec node --no-experimental-fetch -e ${quote(code)}`;
-  hooks.PreToolUse.push({matcher:MATCHER,hooks:[{type:'command',command:cmd,timeout:5}]});
+  hooks.PreToolUse.push({_garrison:'fitting:basic-memory',matcher:MATCHER,hooks:[{type:'command',command:cmd,timeout:5}]});
   write(path.join(home,'basic-memory/guard-config.json'),{vaultDir:expand(vault)});write(settings,data);
   fs.rmSync(path.join(home,'basic-memory/guard-cache.json'),{force:true});
 }

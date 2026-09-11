@@ -39,7 +39,7 @@ PROJECT_NAME="${BASIC_MEMORY_PROJECT_NAME:-main}"
 CAPTURE_ENABLED="${BASIC_MEMORY_CAPTURE_ENABLED:-true}"
 REGISTER_CG="${BASIC_MEMORY_REGISTER_CODEX_GEMINI:-true}"
 CLAUDE_HOME="${GARRISON_CLAUDE_HOME:-$HOME/.claude}"
-SETTINGS_FILE="${CLAUDE_SETTINGS_FILE:-$CLAUDE_HOME/settings.json}"
+SETTINGS_FILE="${GARRISON_CLAUDE_SETTINGS_PATH:-${CLAUDE_SETTINGS_FILE:-$CLAUDE_HOME/settings.json}}"
 HOOK_HOME="$CLAUDE_HOME/basic-memory"
 HOOK_PATH="$HOOK_HOME/capture-session.py"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -190,6 +190,14 @@ else
   uv tool install basic-memory
 fi
 BM="$(command -v basic-memory)"
+
+# Shared setup is runtime-scoped. The primary pass already enrolled the vault
+# and owns scheduler jobs; explicit sharing also overrides the old all-or-none
+# register_codex_gemini setting.
+if [ "${GARRISON_SHARE_TARGET:-garrison}" = "user" ]; then
+  export BASIC_MEMORY_BIN="$BM"
+  exec node "$SCRIPT_DIR/share-setup.mjs"
+fi
 
 # 3. Register the vault as the Basic Memory project (idempotent).
 mkdir -p "$VAULT_DIR/$MEMORY_DIR"
@@ -404,7 +412,7 @@ for event in ("SessionEnd", "PreCompact"):
                     added.append(event + " (updated)")
     if found:
         continue
-    bucket.append({"matcher": "", "hooks": [{"type": "command", "command": cmd, "timeout": 10}]})
+    bucket.append({"_garrison": "fitting:basic-memory", "matcher": "", "hooks": [{"type": "command", "command": cmd, "timeout": 10}]})
     added.append(event)
 sp.write_text(json.dumps(data, indent=2) + "\n")
 print("[basic-memory-setup] capture hook wired: " + (", ".join(added) if added else "already wired"))
@@ -427,8 +435,9 @@ for parent in Path(sys.argv[1]).resolve().parents:
 PY_ARCHIVE_PATH
 )"
 if [ -n "$ARCHIVE_PATHS" ]; then
-  mkdir -p "$HOOK_HOME"
-  cp "$ARCHIVE_PATHS" "$HOOK_HOME/archive-paths.mjs"
+  mkdir -p "$HOOK_HOME/archive/src"
+  cp "$ARCHIVE_PATHS" "$HOOK_HOME/archive/src/paths.mjs"
+  cp "$(dirname "$ARCHIVE_PATHS")/../label.mjs" "$HOOK_HOME/archive/label.mjs"
 fi
 
 # Archive ownership applies to every stationed Basic Memory composition, including

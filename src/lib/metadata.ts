@@ -486,6 +486,7 @@ export const garrisonMetadataSchema = z.object({
     .union([setupStepSchema, z.array(setupStepSchema).min(1, "setup must contain at least one step")])
     .transform((value) => (Array.isArray(value) ? value : [value]))
     .optional(),
+  uninstall: z.union([setupStepSchema, z.array(setupStepSchema).min(1)]).transform(value => Array.isArray(value) ? value : [value]).optional(),
   verify: z.object({
     command: z.string().min(1),
     expect: z.string().min(1),

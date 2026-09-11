@@ -173,7 +173,7 @@ def archive_safe(vault, transcript, cwd, memory_dir):
     """Use the shared Archive path predicate before any automatic input read."""
     import subprocess
     from pathlib import Path
-    module = Path(__file__).resolve().parent / "archive-paths.mjs"
+    module = Path(__file__).resolve().parent / "archive" / "src" / "paths.mjs"
     if not module.exists():
         for parent in Path(__file__).resolve().parents:
             candidate = parent / "packages/archive/src/paths.mjs"

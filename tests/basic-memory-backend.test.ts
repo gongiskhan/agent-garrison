@@ -139,6 +139,7 @@ describe("basic-memory backend switch", () => {
     // The installed fitting resolves the shell's shared Archive predicate.
     await fsp.mkdir(path.join(tmp, "packages/archive/src"), { recursive: true });
     await fsp.copyFile(path.join(REPO_ROOT, "packages/archive/src/paths.mjs"), path.join(tmp, "packages/archive/src/paths.mjs"));
+    await fsp.copyFile(path.join(REPO_ROOT, "packages/archive/label.mjs"), path.join(tmp, "packages/archive/label.mjs"));
     const schedulerDir = path.join(comp, "apm_modules", "_local", "scheduler", "scripts");
     await fsp.mkdir(schedulerDir, { recursive: true });
     await fsp.cp(SCHEDULER_SRC, schedulerDir, { recursive: true });
@@ -258,17 +259,20 @@ describe("basic-memory backend switch", () => {
       expect(settings()).toEqual({
         hooks: {
           PreToolUse: [{
+            _garrison: "fitting:basic-memory",
             matcher: "Write|Edit|MultiEdit|NotebookEdit|mcp__basic-memory__write_note|mcp__basic-memory__edit_note|mcp__basic-memory__move_note|mcp__basic-memory__delete_note",
             hooks: [{type: "command", command: expect.stringContaining("archive-guard.mjs"), timeout: 5}]
           }],
           SessionEnd: [
             {
+              _garrison: "fitting:basic-memory",
               matcher: "",
               hooks: [{ type: "command", command: stockHookCommand(), timeout: 10 }]
             }
           ],
           PreCompact: [
             {
+              _garrison: "fitting:basic-memory",
               matcher: "",
               hooks: [{ type: "command", command: stockHookCommand(), timeout: 10 }]
             }

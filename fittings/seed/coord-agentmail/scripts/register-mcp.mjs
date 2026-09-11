@@ -54,6 +54,8 @@ function snapshotOnce(srcPath) {
 }
 
 async function main() {
+  const sharing = process.env.GARRISON_SHARE_TARGET === "user";
+  if (sharing && !(process.env.GARRISON_SHARE_RUNTIMES || "").split(",").includes("claude-code")) return;
   const mode = process.argv[2];
   const port = Number(process.argv[3] || process.env.COORD_AGENTMAIL_PORT || 28765);
   const p = claudeJsonPath();
@@ -72,6 +74,10 @@ async function main() {
   }
 
   if (mode === "add") {
+    if (sharing && Object.hasOwn(root.mcpServers, NAME)) {
+      console.log(`[coord-agentmail] preserving existing user MCP ${NAME}`);
+      return;
+    }
     snapshotOnce(p);
     root.mcpServers[NAME] = { type: "http", url: `http://127.0.0.1:${port}/mcp` };
     await fsp.mkdir(path.dirname(p), { recursive: true });

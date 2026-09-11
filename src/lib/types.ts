@@ -421,6 +421,7 @@ export interface GarrisonMetadata {
   // runner and the Setup Instructions editor) always sees a list. `undefined`
   // when the fitting declares no setup.
   setup?: SetupStep[];
+  uninstall?: SetupStep[];
   // Duty specs for each kind:duty provision this Fitting declares (one per
   // provision; provision name === duty id). Empty for non-duty Fittings.
   duties?: DutySpec[];
