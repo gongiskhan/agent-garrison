@@ -48,21 +48,30 @@ jobs:
             if (!ready) throw new Error(`Shell unavailable: ${route}`);
           }
           JS
-      - name: Generate and test iOS app
+      - name: Build and prepare simulator
         working-directory: ios
         run: |
           xcodegen generate
           DEVICE=$(node ../scripts/ios-simulator.mjs)
+          echo "LISTENING_SIMULATOR_ID=$DEVICE" >> "$GITHUB_ENV"
           xcodebuild build-for-testing -project Garrison.xcodeproj -scheme GarrisonApp -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath /tmp/listening-build CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES > ../evidence/phone-listening/build.log 2>&1
           xcrun simctl boot "$DEVICE" || true
           xcrun simctl bootstatus "$DEVICE" -b
           open -a Simulator --args -CurrentDeviceUDID "$DEVICE"
           xcrun simctl install "$DEVICE" /tmp/listening-build/Build/Products/Debug-iphonesimulator/GarrisonApp.app
           xcrun simctl privacy "$DEVICE" grant microphone com.gomes.garrison
-          xcodebuild test-without-building -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 300 -project Garrison.xcodeproj -scheme GarrisonApp -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath /tmp/listening-build -resultBundlePath ../evidence/phone-listening/native.xcresult CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES > ../evidence/phone-listening/xctest.log 2>&1
+      - name: Native and shell tests
+        working-directory: ios
+        run: xcodebuild test-without-building -only-testing:GarrisonTests -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 300 -project Garrison.xcodeproj -scheme GarrisonApp -destination "platform=iOS Simulator,id=$LISTENING_SIMULATOR_ID" -derivedDataPath /tmp/listening-build -resultBundlePath ../evidence/phone-listening/native.xcresult CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES > ../evidence/phone-listening/xctest.log 2>&1
+      - name: End-to-end UI journey
+        working-directory: ios
+        run: xcodebuild test-without-building -only-testing:GarrisonUITests -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 300 -project Garrison.xcodeproj -scheme GarrisonApp -destination "platform=iOS Simulator,id=$LISTENING_SIMULATOR_ID" -derivedDataPath /tmp/listening-build -resultBundlePath ../evidence/phone-listening/ui.xcresult CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES > ../evidence/phone-listening/uitest.log 2>&1
       - name: Export simulator screenshots
         if: always()
-        run: xcrun xcresulttool export attachments --path evidence/phone-listening/native.xcresult --output-path evidence/phone-listening/screenshots || true
+        run: |
+          for proof in native ui; do
+            xcrun xcresulttool export attachments --path "evidence/phone-listening/$proof.xcresult" --output-path "evidence/phone-listening/screenshots/$proof" || true
+          done
       - name: Compile device target
         working-directory: ios
         run: xcodebuild build -project Garrison.xcodeproj -scheme GarrisonApp -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO > ../evidence/phone-listening/device-build.log 2>&1
