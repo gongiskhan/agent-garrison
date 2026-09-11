@@ -16,6 +16,10 @@
 // The real SDK is reached ONLY via the default client factory, which lazy-imports
 // the sole SDK-importing module (lib/sdk-client.mjs). Tests inject `createClient`,
 // so the unit-test path never loads the SDK.
+import fs from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
+import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import { runLog } from "@garrison/claude-pty";
 import { buildHarness, DEFAULT_MAX_TURNS } from "./harness.mjs";
@@ -738,10 +742,22 @@ export class AgentSdkAdapter {
     if (typeof strictMcpConfig === "boolean") {
       queryAssembly.strictMcpConfig = strictMcpConfig;
     }
+    // Full/lean harnesses intentionally omit user settings. Carry the one
+    // stationed Basic Memory ownership hook into every SDK query explicitly.
+    const guardHome=config.env?.GARRISON_HOME ?? process.env.GARRISON_HOME ?? path.join(os.homedir(),".garrison");
+    const guardClaudeHome=config.env?.GARRISON_CLAUDE_HOME ?? process.env.GARRISON_CLAUDE_HOME ?? path.join(os.homedir(),".claude");
+    const guardConfig=path.join(guardHome,"basic-memory/guard-config.json");
+    let archiveGuard=null;
+    if(await fs.stat(guardConfig).catch(()=>null)) {
+      const mod=await import(pathToFileURL(path.join(guardClaudeHome,"basic-memory/archive-guard.mjs")).href);
+      archiveGuard={matcher:mod.MATCHER,hooks:[async(event)=>mod.blocked(event,mod.guardVault(path.join(guardClaudeHome,"settings.json"),guardHome))
+        ? {hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:mod.MESSAGE}} : {}]};
+    }
     const frozenQueryAssembly = assemblySnapshot(queryAssembly);
 
     return {
       config,
+      archiveGuard,
       alive: true,
       harness,
       // The retained assembly is immutable. buildQueryOptions clones it for the
@@ -808,6 +824,7 @@ export class AgentSdkAdapter {
       opts.effort = session.effort;
     }
     if (session.sessionId) opts.resume = session.sessionId;
+    if(session.archiveGuard)opts.hooks={...opts.hooks,PreToolUse:[...(opts.hooks?.PreToolUse??[]),session.archiveGuard]};
     if (session.config?.env?.GARRISON_STRETCH_ID) {
       opts.hooks = { ...opts.hooks, PreToolUse: [...(opts.hooks?.PreToolUse ?? []), {
         matcher: "Bash", hooks: [async (event) => {

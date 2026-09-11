@@ -13,6 +13,7 @@
 // down, talk engine down) leaves the conversation in place for retry. Core
 // Nightly Sync owns this phase and its durable receipt.
 
+import { hasArchiveReference, automationVaultRoot } from "../../archive/src/paths.mjs";
 import { mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -46,7 +47,8 @@ function clip(text, cap = ZECA_REVIEW_TRANSCRIPT_CAP) {
   return `${head}\n\n[... ${text.length - head.length - tail.length} characters omitted ...]\n\n${tail}`;
 }
 
-export function transcriptOf(thread) {
+export function transcriptOf(thread, vaultDir=automationVaultRoot()) {
+  if(hasArchiveReference(vaultDir,thread))return "[Archive conversation excluded from automatic review]";
   return clip(
     conversationTurns(thread)
       .map((m) => `${m.role === "user" ? "You" : "Zeca"}${m.ts ? ` (${m.ts})` : ""}: ${m.text.trim()}`)
@@ -105,6 +107,7 @@ export async function runZecaNightly({ env = process.env, fetchImpl = fetch, run
   if (!conversationId) return { ok: false, skipped: "talk engine named no Zeca conversation" };
   const { thread } = await getJson(fetchImpl, `${app}/api/threads/${encodeURIComponent(conversationId)}`);
   if(thread?.runningSince || thread?.pendingInputs?.length) return {ok:false,conversationId,reviewed:false,rotated:null,reason:"Zeca has active or pending work; review is deferred"};
+  if(hasArchiveReference(automationVaultRoot(env),thread))return {ok:true,conversationId,reviewed:false,rotated:null,reason:"Archive conversation excluded from automatic review"};
   const turns = conversationTurns(thread);
   if (turns.length === 0) {
     log.log(`[zeca-nightly] ${conversationId} has no turns; nothing to review, nothing to rotate`);

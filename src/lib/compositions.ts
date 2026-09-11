@@ -1,3 +1,4 @@
+import { migrateArchiveManifest, ARCHIVE_DEFAULTS } from "./composition-migrate";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { COMPOSITIONS_DIR, ROOT_DIR } from "./paths";
@@ -430,6 +431,7 @@ function parseCompositionTargets(raw: unknown): CompositionTarget[] {
 
 export function defaultGlobalConfig(): GlobalConfig {
   return {
+    archive: { ...ARCHIVE_DEFAULTS },
     projects_root: "~/dev",
     vault: "default",
     platform: "claude-code",
@@ -510,7 +512,7 @@ export async function readComposition(id = DEFAULT_COMPOSITION_ID): Promise<Comp
     ? await resolvePrimaryFromPolicy(getCompositionDirectory(id))
     : null;
   const legacy = migrateLegacyRoutingOnPrimaryManifest(manifest, { primaryRuntimeId: policyPrimary });
-  if (legacy.changed) await writeYamlFile(manifestPath, manifest);
+  if (migrateArchiveManifest(manifest) || legacy.changed) await writeYamlFile(manifestPath, manifest);
   if (legacy.warning) console.warn(`[garrison] ${id}: ${legacy.warning}`);
   const overlay = await readLocalOverlay(id);
   return manifestToComposition(id, applyLocalOverlay(manifest, overlay));
@@ -832,7 +834,7 @@ export async function readCompositionWithDerivedTasks(id = DEFAULT_COMPOSITION_I
     ? await resolvePrimaryFromPolicy(getCompositionDirectory(id))
     : null;
   const legacy = migrateLegacyRoutingOnPrimaryManifest(manifest, { primaryRuntimeId: policyPrimary });
-  if (legacy.changed) await writeYamlFile(getCompositionManifestPath(id), manifest);
+  if (migrateArchiveManifest(manifest) || legacy.changed) await writeYamlFile(getCompositionManifestPath(id), manifest);
   if (legacy.warning) console.warn(`[garrison] ${id}: ${legacy.warning}`);
   const overlay = await readLocalOverlay(id);
   const composition = manifestToComposition(id, applyLocalOverlay(manifest, overlay));

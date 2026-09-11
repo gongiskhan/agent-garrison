@@ -1,3 +1,4 @@
+import { isArchivePath, hasArchiveReference, automationVaultRoot } from "../../archive/src/paths.mjs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -174,10 +175,12 @@ export async function runReview({ store = new ImprovementStore(), context, run, 
     await updateRun(store, run, { stage: "collecting" });
     const settings = await store.settings();
     const evidence = await collect({ ...context, day: run.day, client: store.client, shared: context.node === settings.memoryNode });
-    if (zeca?.file) {
+    const archiveVault=context.vaultDir||automationVaultRoot({...process.env,GARRISON_HOME:context.home});
+    if (zeca?.file && !isArchivePath(archiveVault,zeca.file)) {
       const excerpt = (await fs.readFile(zeca.file,"utf8")).slice(0,5000);
       evidence.sources.push({id:hash(zeca.file).slice(0,20),node:context.node,kind:"zeca",title:"Zeca review and captured memories",ref:zeca.file,at:run.day,excerpt});
     }
+    evidence.sources=evidence.sources.filter(source=>!isArchivePath(archiveVault,source.ref)&&!hasArchiveReference(archiveVault,source.excerpt));
     const dir = path.join(context.home, "improver", "reviews", run.id);
     await fs.mkdir(dir, { recursive: true });
     // Raw excerpts stay private on the owner; shared records contain citations.

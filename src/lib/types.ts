@@ -607,6 +607,7 @@ export interface GuardrailsConfig {
 }
 
 export interface GlobalConfig {
+  archive?: { extract_target: string; max_file_mb: number; pdf_max_pages: number; author: string };
   projects_root: string;
   vault: string;
   platform: "claude-code";

@@ -1,0 +1,21 @@
+import { it,expect,vi } from 'vitest';import fs from 'node:fs/promises';import path from 'node:path';import { scratch,fixture } from './archive-test-helpers';
+// @ts-ignore
+import { extract,kindOf } from '../packages/archive/src/ingest/extract.mjs';
+// @ts-ignore
+import { readSidecar,validSidecar } from '../packages/archive/src/ingest/sidecar.mjs';
+// @ts-ignore
+import { createLook,documentSchema } from '../packages/archive/src/ingest/look.mjs';
+const document={what_it_is:'Synthetic certificate',text:'TEST-48392017',fields:[{label:'Reference',value:'TEST-48392017'}],language:'en',confidence:0.9};
+it('writes image extraction, low-confidence fields, failure and unsupported sidecars honestly',async()=>{const look=vi.fn(async()=>({json:{...document,confidence:0.3}}));const s=await scratch({seed:false,look});try{
+ const source='Archive/Inbox/sample.jpg';await s.write(source,await fs.readFile(path.join(fixture,'sample-document.jpg')));expect((await extract(s.ctx,source)).status).toBe('ok');const side=await readSidecar(s.ctx,source);expect(side.sections.text).toBe('TEST-48392017');expect(side.sections.fields[0]).toEqual({label:'Confidence',value:'low'});expect(side).toMatchObject({garrison:'derived',source:'sample.jpg',kind:'image',pages:1,status:'ok',target:'cc-sonnet'});expect(await validSidecar(s.ctx,source)).toBe(true);await s.write(source,await fs.readFile(path.join(fixture,'sample-house.jpg')));expect(await validSidecar(s.ctx,source)).toBe(false);
+ look.mockRejectedValueOnce(new Error('Target missing'));expect((await extract(s.ctx,source)).status).toBe('failed');expect((await readSidecar(s.ctx,source)).error).toBe('Target missing');expect(await s.read(source+'.md')).not.toContain('## Text');
+ for(const name of ['audio.mp3','sheet.xlsx','slides.pptx','unknown.bin']){await s.write('Archive/Inbox/'+name,'fixture');expect((await extract(s.ctx,'Archive/Inbox/'+name)).status).toBe('unsupported');}expect(kindOf('audio.mp3')).toBe('audio');expect(kindOf('picture.heic')).toBe('image');
+}finally{await s.close();}});
+it('copies text verbatim up to 200 KB without a model and preserves an authored colliding note',async()=>{const look=vi.fn();const s=await scratch({seed:false,look});try{
+ const raw='Literal <tag> & text\n'.repeat(15000);await s.write('Archive/Inbox/data.txt',raw);const result=await extract(s.ctx,'Archive/Inbox/data.txt');expect(result.text).toBe(Buffer.from(raw).subarray(0,200*1024).toString('utf8'));expect(result.what_it_is).toMatch(/^Text file, \d+ lines$/);expect(look).not.toHaveBeenCalled();await s.write('Archive/Inbox/custom.txt','source');await s.write('Archive/Inbox/custom.txt.md','# My authored note');await expect(extract(s.ctx,'Archive/Inbox/custom.txt')).rejects.toThrow('authored note');expect(await s.read('Archive/Inbox/custom.txt.md')).toBe('# My authored note');
+}finally{await s.close();}});
+it('uses the PDF text layer or scanned pages and keeps page attribution',async()=>{const look=vi.fn(async()=>({json:document}));const s=await scratch({seed:false,look});try{
+ for(const name of ['sample-text.pdf','sample-scanned.pdf'])await s.write('Archive/Inbox/'+name,await fs.readFile(path.join(fixture,name)));
+ const text=await extract(s.ctx,'Archive/Inbox/sample-text.pdf');expect(text.status).toBe('ok');expect(text.text).toContain('TEST-48392017');expect(look).not.toHaveBeenCalled();const scanned=await extract(s.ctx,'Archive/Inbox/sample-scanned.pdf');expect(scanned).toMatchObject({status:'ok',pages:3});expect(scanned.text.match(/^### Page \d/gm)).toEqual(['### Page 1','### Page 2','### Page 3']);expect(look).toHaveBeenCalledTimes(3);
+}finally{await s.close();}},15000);
+it('validates JSON, retries once with the error and returns usage',async()=>{const invoke=vi.fn().mockResolvedValueOnce({text:'{"wrong":true}'}).mockResolvedValueOnce({text:JSON.stringify(document),usage:{inputTokens:2,outputTokens:3},model:'fixture'});const look=createLook({invoke});const result=await look({imagePaths:['fixture'],prompt:'Extract',schema:documentSchema});expect(result.json).toEqual(document);expect(result.usage.outputTokens).toBe(3);expect(invoke.mock.calls[1][0].prompt).toContain('failed validation');await expect(createLook({invoke:async()=>({text:'not json'})})({imagePaths:['fixture'],prompt:'Extract'})).rejects.toThrow('invalid JSON');});

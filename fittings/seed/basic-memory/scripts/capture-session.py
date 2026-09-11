@@ -169,6 +169,27 @@ def _spawn_detached_flush():
     except Exception:
         pass  # the hook must stay fast and always exit 0
 
+def archive_safe(vault, transcript, cwd, memory_dir):
+    """Use the shared Archive path predicate before any automatic input read."""
+    import subprocess
+    from pathlib import Path
+    module = Path(__file__).resolve().parent / "archive-paths.mjs"
+    if not module.exists():
+        for parent in Path(__file__).resolve().parents:
+            candidate = parent / "packages/archive/src/paths.mjs"
+            if candidate.exists():
+                module = candidate
+                break
+    if not module.exists():
+        return False
+    try:
+        check = subprocess.run(["node", str(module), "--check-paths", vault, cwd, os.path.join(vault, memory_dir), transcript], capture_output=True, timeout=3)
+        if check.returncode != 0:
+            return False
+        return not transcript or subprocess.run(["node", str(module), "--check-inputs", vault, transcript], capture_output=True, timeout=3).returncode == 0
+    except Exception:
+        return False
+
 def main():
     vault = os.path.expanduser(os.environ.get("BASIC_MEMORY_VAULT_DIR", "~/ObsidianVault"))
     mem_dir = os.environ.get("BASIC_MEMORY_MEMORY_DIR", "Memory")
@@ -182,6 +203,8 @@ def main():
     cwd = payload.get("cwd") or os.getcwd()
     event = payload.get("hook_event_name") or "SessionEnd"
     transcript = payload.get("transcript_path") or ""
+    if not archive_safe(vault, transcript, cwd, mem_dir):
+        return
     now = datetime.datetime.now()
     iso = now.strftime("%Y-%m-%dT%H:%M:%S")
     proj = os.path.basename(cwd.rstrip("/")) or "root"

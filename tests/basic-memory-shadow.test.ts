@@ -1155,6 +1155,9 @@ fi`
       }
       await fsp.mkdir(path.dirname(fitting), { recursive: true });
       await fsp.cp(FITTING_SRC, fitting, { recursive: true });
+    // The installed fitting resolves the shell's shared Archive predicate.
+    await fsp.mkdir(path.join(tmp, "packages/archive/src"), { recursive: true });
+    await fsp.copyFile(path.join(REPO_ROOT, "packages/archive/src/paths.mjs"), path.join(tmp, "packages/archive/src/paths.mjs"));
       const schedulerDir = path.join(comp, "apm_modules", "_local", "scheduler", "scripts");
       await fsp.mkdir(schedulerDir, { recursive: true });
       await fsp.cp(SCHEDULER_SRC, schedulerDir, { recursive: true });

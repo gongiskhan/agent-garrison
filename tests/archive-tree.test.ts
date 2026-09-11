@@ -1,0 +1,5 @@
+import { it,expect } from 'vitest';import { scratch } from './archive-test-helpers';
+it('classifies the fixture tree and hides private directories and trash',async()=>{const s=await scratch();try{
+ await s.write('.obsidian/config.json','{}');await s.write('Archive/.trash/hidden.md','hidden');const yours=(await s.request('tree?path=Archive&depth=4')).data;expect(yours.children[0].name).toBe('Inbox');expect(yours.children.filter((c:any)=>c.kind==='list')).toHaveLength(4);const personal=yours.children.find((c:any)=>c.name==='Personal documents');expect(personal.children.filter((c:any)=>c.kind==='card')).toHaveLength(3);expect(JSON.stringify(yours)).not.toContain('.trash');expect(JSON.stringify((await s.request('tree?depth=5')).data)).not.toContain('.obsidian');
+ const card=personal.children[0];expect(card.counts.attachments).toBeGreaterThan(0);const contents=(await s.request('tree?path='+encodeURIComponent(card.path))).data.children;expect(contents.some((c:any)=>c.kind==='sidecar')).toBe(true);expect(contents.some((c:any)=>c.kind==='file')).toBe(true);
+}finally{await s.close();}});

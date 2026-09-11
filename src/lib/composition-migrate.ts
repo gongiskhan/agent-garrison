@@ -324,3 +324,14 @@ function diffLines(a: string[], b: string[]): DiffOp[] {
   }
   return ops;
 }
+
+// Additive schema-4 defaults. Existing Archive choices are never rewritten.
+export const ARCHIVE_DEFAULTS = Object.freeze({ extract_target: "cc-sonnet", max_file_mb: 25, pdf_max_pages: 30, author: "Gonçalo" });
+export function migrateArchiveManifest(manifest: { "x-garrison"?: { composition?: Record<string, unknown> } }): boolean {
+  const composition = manifest["x-garrison"]?.composition;
+  if (!composition || composition.schema !== 4) return false;
+  const config = (composition.global_config ??= {}) as Record<string, unknown>;
+  if (Object.prototype.hasOwnProperty.call(config, "archive")) return false;
+  config.archive = { ...ARCHIVE_DEFAULTS };
+  return true;
+}

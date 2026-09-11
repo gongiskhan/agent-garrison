@@ -415,6 +415,28 @@ else
   log "capture hook disabled (capture_enabled=false)"
 fi
 
+# Install the core predicate beside the legacy capture hook for standalone use.
+ARCHIVE_PATHS="$(python3 - "$SCRIPT_DIR" <<'PY_ARCHIVE_PATH'
+from pathlib import Path
+import sys
+for parent in Path(sys.argv[1]).resolve().parents:
+    candidate = parent / "packages/archive/src/paths.mjs"
+    if candidate.exists():
+        print(candidate)
+        break
+PY_ARCHIVE_PATH
+)"
+if [ -n "$ARCHIVE_PATHS" ]; then
+  mkdir -p "$HOOK_HOME"
+  cp "$ARCHIVE_PATHS" "$HOOK_HOME/archive-paths.mjs"
+fi
+
+# Archive ownership applies to every stationed Basic Memory composition, including
+# installations where the shared bridge owns capture.
+mkdir -p "$HOOK_HOME" "$STATE_DIR"
+cp "$SCRIPT_DIR/archive-guard.mjs" "$HOOK_HOME/archive-guard.mjs"
+node "$HOOK_HOME/archive-guard.mjs" --install "$SETTINGS_FILE" "$VAULT_DIR" "$GARRISON_ROOT" "$HOOK_HOME/archive-guard.mjs"
+
 # 7. Spool drain job. Registered exactly when spooling resolved to on above
 # (never on the default local+auto path), retired when it resolved to off.
 # Mirrors the improver-nightly scheduler idiom: state is machine-global

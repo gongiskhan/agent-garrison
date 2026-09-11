@@ -136,6 +136,9 @@ describe("basic-memory backend switch", () => {
     // scheduler beside it, and APM's skill install already done.
     await fsp.mkdir(path.dirname(fitting), { recursive: true });
     await fsp.cp(FITTING_SRC, fitting, { recursive: true });
+    // The installed fitting resolves the shell's shared Archive predicate.
+    await fsp.mkdir(path.join(tmp, "packages/archive/src"), { recursive: true });
+    await fsp.copyFile(path.join(REPO_ROOT, "packages/archive/src/paths.mjs"), path.join(tmp, "packages/archive/src/paths.mjs"));
     const schedulerDir = path.join(comp, "apm_modules", "_local", "scheduler", "scripts");
     await fsp.mkdir(schedulerDir, { recursive: true });
     await fsp.cp(SCHEDULER_SRC, schedulerDir, { recursive: true });
@@ -242,7 +245,7 @@ describe("basic-memory backend switch", () => {
   ];
 
   describe("default backend (hard rule 6)", () => {
-    it("with the key ABSENT, installs exactly the pre-switch artifacts and nothing else", () => {
+    it("with the key ABSENT, preserves local artifacts and adds the Archive ownership guard", () => {
       const result = runSetup();
       expect(result.stderr).toBe("");
       expect(result.status).toBe(0);
@@ -254,6 +257,10 @@ describe("basic-memory backend switch", () => {
       // no spool env prefix.
       expect(settings()).toEqual({
         hooks: {
+          PreToolUse: [{
+            matcher: "Write|Edit|MultiEdit|NotebookEdit|mcp__basic-memory__write_note|mcp__basic-memory__edit_note|mcp__basic-memory__move_note|mcp__basic-memory__delete_note",
+            hooks: [{type: "command", command: expect.stringContaining("archive-guard.mjs"), timeout: 5}]
+          }],
           SessionEnd: [
             {
               matcher: "",
@@ -710,14 +717,16 @@ describe("basic-memory backend switch", () => {
         'Consolidation ("dream")',
         "Using memory (MCP tools)",
         "Writing durable memories",
-        "Operating principles"
+        "Operating principles",
+        "The Archive (user-owned)"
       ]);
       expect(headings(cortex)).toEqual([
         "How it works",
         'Consolidation ("dream")',
         "Using memory (the `cortex memory` CLI)",
         "Writing durable memories",
-        "Operating principles"
+        "Operating principles",
+        "The Archive (user-owned)"
       ]);
       // Exactly one section title differs: the one naming the ops surface.
       const differing = headings(local).filter((h, i) => h !== headings(cortex)[i]);

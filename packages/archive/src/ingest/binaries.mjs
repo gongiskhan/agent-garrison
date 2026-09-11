@@ -1,0 +1,11 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+export const run = promisify(execFile);
+export function binary(name){for(const dir of [...(process.env.PATH??'').split(path.delimiter),'/opt/homebrew/bin','/usr/local/bin']){const p=path.join(dir,name);try{fs.accessSync(p,fs.constants.X_OK);return p;}catch{}}return null;}
+export function pdfHint(){return process.platform==='darwin'?'Install with: brew install poppler':'Install with: sudo apt-get install poppler-utils';}
+export async function thumbnail(ctx,relative,hash){const source=ctx.confine(relative),dir=path.join(ctx.dataDir,'thumbs');fs.mkdirSync(dir,{recursive:true});const file=path.join(dir,hash+'.jpg');if(fs.existsSync(file))return file;const sips=binary('sips'),convert=binary('convert');if(sips)await run(sips,['-s','format','jpeg','-Z','512',source,'--out',file]);else if(convert)await run(convert,[source+'[0]','-thumbnail','512x512>','-quality','82',file]);else return source;return file;}
+export async function imageForModel(source,temp){const convert=binary('convert'),sips=binary('sips');if(convert){const out=path.join(temp,'scaled.jpg');const identify=binary('identify');if(identify){const {stdout}=await run(identify,['-format','%w %h',source+'[0]']);if(Math.max(...stdout.trim().split(' ').map(Number))<=4000)return source;}await run(convert,[source+'[0]','-resize','2000x2000>','-quality','90',out]);return out;}if(sips){const {stdout}=await run(sips,['-g','pixelWidth','-g','pixelHeight',source]);const sizes=[...stdout.matchAll(/pixel(?:Width|Height): (\d+)/g)].map(m=>+m[1]);if(Math.max(...sizes)>4000){const out=path.join(temp,'scaled.jpg');await run(sips,['-Z','2000',source,'--out',out]);return out;}}return source;}
+export const tempDir=()=>fs.mkdtempSync(path.join(os.tmpdir(),'archive-extract-'));

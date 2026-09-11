@@ -1,0 +1,14 @@
+import { it,expect } from 'vitest';import { scratch } from './archive-test-helpers';
+// @ts-ignore
+import { ArchiveIndex,snippet } from '../packages/archive/src/index.mjs';
+it('J1.4 builds cold, folds accents, indexes numbers and hides sensitive snippets below 300 ms',async()=>{const s=await scratch();try{
+ const hits=s.service.index.query('cartao');expect(hits.hits.some((h:any)=>h.title==='Cartão de Cidadão')).toBe(true);expect(hits.tookMs).toBeLessThan(300);expect(hits.hits.find((h:any)=>h.title==='Cartão de Cidadão').snippet).toBe('Sensitive card, open to view');
+ expect(s.service.index.query('TEST-48392017').hits.length).toBeGreaterThan(0);await s.write('Memory/Numbers.md','---\ntitle: Number tokens\n---\n12345678 9 ZZ0\nPT50 0002 0123 1234 5678 9015 4\n');await s.service.index.update('Memory/Numbers.md');expect(s.service.index.query('123456789ZZ0').hits[0].path).toBe('Memory/Numbers.md');expect(s.service.index.query('PT50000201231234567890154').hits[0].path).toBe('Memory/Numbers.md');expect(s.service.index.query('cartao',{area:'garrison'}).hits).toHaveLength(0);
+}finally{await s.close();}});
+it('boosts title and tags, escapes snippets and persists an equivalent index',async()=>{const s=await scratch({seed:false});try{
+ await s.write('Memory/A.md','---\ntitle: Telescópio\n---\nA title match.');await s.write('Memory/B.md','---\ntitle: Body only\n---\nTelescópio');await s.service.index.build();expect(s.service.index.query('telescopio').hits[0].path).toBe('Memory/A.md');const copy=new ArchiveIndex(s.ctx);expect(await copy.load()).toBe(true);expect(copy.query('telescopio')).toMatchObject({total:2,hits:s.service.index.query('telescopio').hits});
+ const body='x'.repeat(200)+' <script> Cartão '+ 'y'.repeat(200),out=snippet(body,'cartao');expect(out).toContain('<mark>Cartão</mark>');expect(out).toContain('&lt;script&gt;');expect(out).not.toContain('<script>');expect(out.length).toBeLessThan(220);
+ await s.write('Memory/A.md','# Changed topic');await s.service.index.update('Memory/A.md');expect(s.service.index.query('telescopio').hits).toHaveLength(1);await (await import('node:fs/promises')).unlink(s.vaultDir+'/Memory/B.md');await s.service.index.update('Memory/B.md');expect(s.service.index.query('telescopio').total).toBe(0);
+}finally{await s.close();}});
+
+it('treats every Garrison markdown file as a note, including index.md',async()=>{const s=await scratch({seed:false});try{await s.write('Projects/Guide/index.md','# Garrison index note');await s.service.index.build();expect(s.service.index.query('Garrison index').hits[0]).toMatchObject({kind:'note',path:'Projects/Guide/index.md'});const folder=(await s.request('tree?path=Projects')).data.children[0];expect(folder.kind).toBe('folder');const note=(await s.request('note?path=Projects/Guide/index.md')).data;expect((await s.request('note','PUT',{path:note.path,markdown:'# Edited index note',baseSha:note.sha})).status).toBe(200);}finally{await s.close();}});

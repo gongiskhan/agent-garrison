@@ -161,3 +161,14 @@ tags: [<project>, <topic>]
 - A write that exits non-zero did NOT land. Do not report a memory as saved on the
   strength of having run the command; check the exit code, and if the vault is
   unreachable say the memory was not persisted.
+
+## The Archive (user-owned)
+
+The vault folder `Archive/` belongs to the user. It holds their personal
+documents, cards and notes, including sensitive papers. Read it only when
+the user asks for something that is in there (search it, read the card,
+answer). Never write, move, rename or delete anything under `Archive/`;
+a hook blocks it and the block is correct. Never summarise, copy or
+paraphrase Archive content into memory notes, session captures, briefs,
+decisions or any other file. If something the user says belongs in the
+Archive, say so and let them file it from the Archive page.

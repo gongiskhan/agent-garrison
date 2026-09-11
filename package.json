@@ -43,6 +43,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@garrison/claude-chat": "file:packages/claude-chat",
     "@garrison/claude-pty": "file:packages/claude-pty",
+    "@garrison/improver": "file:packages/improver",
     "@garrison/state-client": "file:packages/garrison-state-client",
     "@garrison/talk": "file:packages/talk",
     "@monaco-editor/react": "^4.7.0",
@@ -59,6 +60,7 @@
     "js-yaml": "^4.1.0",
     "lucide-react": "^0.468.0",
     "marked": "^14.0.0",
+    "minisearch": "^7.2.0",
     "next": "^14.2.35",
     "node-pty": "^1.1.0",
     "onnxruntime-web": "1.26.0",
@@ -70,7 +72,7 @@
     "ws": "^8.18.0",
     "yaml": "^2.9.0",
     "zod": "^3.23.8",
-    "@garrison/improver": "file:packages/improver"
+    "@garrison/archive": "file:packages/archive"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",

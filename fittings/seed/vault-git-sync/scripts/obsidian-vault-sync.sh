@@ -102,7 +102,25 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
 #    not in the portable subset) still syncs; only dev-madrid mirrors.
 MEMORY_MIRROR="${CLAUDE_MEMORY_MIRROR:-$HOME/.claude/tools/claude-memory-to-obsidian.py}"
 if [ "$MODE" != "pull" ] && [ -x "$MEMORY_MIRROR" ]; then
-  if ! "$MEMORY_MIRROR" >>"$LOG" 2>&1; then
+  # The mirror receives an explicit native source. No vault glob can turn the
+  # user-owned Archive into an automatic memory input.
+  ARCHIVE_PATHS="${GARRISON_ARCHIVE_PATHS:-$(python3 - "${BASH_SOURCE[0]}" <<'PY_ARCHIVE_PATH'
+from pathlib import Path
+import sys
+for parent in Path(sys.argv[1]).resolve().parents:
+    candidate = parent / "packages/archive/src/paths.mjs"
+    if candidate.exists():
+        print(candidate)
+        break
+PY_ARCHIVE_PATH
+)}"
+  MIRROR_SOURCE="${CLAUDE_MEMORY_SOURCE:-$HOME/.claude/projects/-home-ggomes-dev-garrison/memory}"
+  if [ -z "$ARCHIVE_PATHS" ] || ! node "$ARCHIVE_PATHS" --check-paths "$VAULT" "$MIRROR_SOURCE"; then
+    log "Archive excluded from native mirror inputs; vault sync deferred"
+    write_status error "Archive excluded from native mirror inputs"
+    exit 1
+  fi
+  if ! "$MEMORY_MIRROR" --source "$MIRROR_SOURCE" --destination "$VAULT/Projects/Garrison/Memory/Claude Native" >>"$LOG" 2>&1; then
     log "Claude memory mirror failed; vault sync deferred"
     write_status error "Claude memory mirror failed; vault sync deferred"
     exit 1
