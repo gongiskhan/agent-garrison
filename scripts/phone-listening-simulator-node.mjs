@@ -34,14 +34,18 @@ app.listening.message = (owner, message) => { if (message.type === "listening.he
 const control = createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
   const device = url.searchParams.get("device");
-  if (url.pathname === "/open-capture") {
+  if (["/open-capture", "/background-app"].includes(url.pathname)) {
+    const openingCapture = url.pathname === "/open-capture";
     try {
       const simulator = readFileSync("/tmp/listening-simulator-id", "utf8").trim();
       if (!/^[0-9A-F-]{36}$/i.test(simulator)) throw new Error("Invalid isolated simulator identity");
-      await promisify(execFile)("xcrun", ["simctl", "openurl", simulator, "garrison://open?path=%2Fcapture%3Fsource%3Dphone"], { timeout: 15000 });
-      hostEvent("journey:capture-url-opened");
+      const command = openingCapture
+        ? ["simctl", "openurl", simulator, "garrison://open?path=%2Fcapture%3Fsource%3Dphone"]
+        : ["simctl", "launch", simulator, "com.apple.Preferences"];
+      await promisify(execFile)("xcrun", command, { timeout: 15000 });
+      hostEvent(openingCapture ? "journey:capture-url-opened" : "journey:settings-opened");
     } catch (error) {
-      hostEvent("journey:capture-url-failed", error.message);
+      hostEvent(openingCapture ? "journey:capture-url-failed" : "journey:settings-open-failed", error.message);
       res.writeHead(500, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: error.message })); return;
     }

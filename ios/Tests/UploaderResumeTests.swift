@@ -19,6 +19,8 @@ final class MockCaptureServer {
     var resumeHighWater: (audio: UInt32, video: UInt32) = (0, 0)
     private var seenSession = false
     private var startRepliesEnabled = true
+    private var listeningReply: [String: Any]?
+    private var listeningMessages: [[String: Any]] = []
 
     init() throws {
         let parameters = NWParameters.tcp
@@ -62,6 +64,15 @@ final class MockCaptureServer {
         if isText {
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
             switch object["type"] as? String {
+            case "listening.subscribe":
+                listeningMessages.append(object)
+                if var reply = listeningReply {
+                    reply["type"] = "listening.state"
+                    reply["device_id"] = object["device_id"]
+                    send(reply, on: connection)
+                }
+            case "listening.intent", "listening.transition":
+                listeningMessages.append(object)
             case "session_start":
                 sessionStarts.append(object)
                 guard startRepliesEnabled else { return }
@@ -119,6 +130,14 @@ final class MockCaptureServer {
 
     func setStartRepliesEnabled(_ enabled: Bool) {
         queue.sync { startRepliesEnabled = enabled }
+    }
+
+    func setListeningReply(_ record: [String: Any]?) {
+        queue.sync { listeningReply = record }
+    }
+
+    func snapshotListeningMessages() -> [[String: Any]] {
+        queue.sync { listeningMessages }
     }
 
     func snapshotReceipts() -> [[String: Any]] {
