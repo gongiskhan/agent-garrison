@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { mkdtempSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -390,4 +390,15 @@ describe("probeRuntimeBridge timeout loudness (S4 ratchet)", () => {
       /gemini runtime probe FAILED \(exit 3\).*cli not authenticated.*install\/authenticate/s
     );
   });
+});
+
+it("SDK stretches inherit the gateway config directory", async () => {
+  const home = mkdtempSync(join(tmpdir(), "gateway-managed-home-"));
+  vi.stubEnv("CLAUDE_CONFIG_DIR", home);
+  const source = readFileSync(join(process.cwd(), "fittings/seed/http-gateway/scripts/lib/gateway-routing.mjs"), "utf8");
+  expect(source).toContain("env: stretchProcessEnv(process.env,");
+  // @ts-ignore native module
+  const { stretchProcessEnv } = await import("../fittings/seed/http-gateway/scripts/lib/stretch-process-env.mjs");
+  expect(stretchProcessEnv(process.env, { conversationId: "fixture-conversation", stretchId: "fixture-stretch" }).CLAUDE_CONFIG_DIR).toBe(home);
+  vi.unstubAllEnvs();
 });

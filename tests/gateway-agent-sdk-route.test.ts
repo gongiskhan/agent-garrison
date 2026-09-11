@@ -195,7 +195,14 @@ describe("Orchestrator routes a channel turn to the agent-sdk runtime (sdk-route
       expect(decisions[0]).toMatchObject({ targetId: "sdk-ollama-chat", runtime: "agent-sdk", provider: "ollama-local", model: "qwen3:0.6b" });
 
       // the turn executes on the agent-sdk adapter and returns the model's reply
-      const r = await gw.runAgentSdkTurn(pre.route, msg);
+      const previousHome = process.env.CLAUDE_CONFIG_DIR;
+      const managedHome = mkdtempSync(join(tmpdir(), "gateway-sdk-home-"));
+      process.env.CLAUDE_CONFIG_DIR = managedHome;
+      let r;
+      try { r = await gw.runAgentSdkTurn(pre.route, msg); }
+      finally { if (previousHome === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = previousHome; }
+      expect(agentSdk.spawned[0].env.CLAUDE_CONFIG_DIR).toBe(managedHome);
+      rmSync(managedHome, { recursive: true, force: true });
       expect(r.runtime).toBe("agent-sdk");
       expect(r.provider).toBe("ollama-local");
       expect(r.model).toBe("qwen3:0.6b");

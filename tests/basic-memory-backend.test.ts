@@ -187,6 +187,15 @@ describe("basic-memory backend switch", () => {
   const runVerify = (overrides: Record<string, string | undefined> = {}) =>
     runHook(verifyPath, overrides);
 
+  it("does not install raw transcript capture in the managed home", () => {
+    const result = runSetup({ GARRISON_SHARE_TARGET: "garrison" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.stringify(settings())).not.toContain("capture-session.py");
+    expect(fs.existsSync(path.join(claudeHome, "basic-memory/capture-session.py"))).toBe(false);
+    const verified = runVerify({ GARRISON_SHARE_TARGET: "garrison" });
+    expect(verified.status, verified.stderr).toBe(0);
+  });
+
   function calls(): string[] {
     if (!fs.existsSync(stubLog)) return [];
     return fs.readFileSync(stubLog, "utf8").trim().split("\n").filter(Boolean);
