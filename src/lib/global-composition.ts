@@ -3,7 +3,9 @@ import path from "node:path";
 import {
   claudeHome,
   globalCompositionDir,
-  globalCompositionClaudeLink
+  userCompositionDir,
+  userClaudeHome,
+  garrisonDir
 } from "./claude-home";
 import { readYamlFile, writeYamlFile } from "./yaml";
 import { pathExists } from "./fs-utils";
@@ -11,14 +13,9 @@ import { authorApmDependencies, type ApmDependencyInput } from "./apm-manifest";
 import { defaultApmRunner, type ApmRunner } from "./apm-exec";
 import { assertClaudeWritable } from "./install-state";
 
-// The APM engine that drives the REAL ~/.claude install.
-//
-// `~/.garrison/global-composition/` holds `apm.yml` + `apm_modules/` + a `.claude`
-// symlink -> claudeHome(). Running `apm install` here deploys THROUGH the link
-// into the real ~/.claude (verified) while keeping APM's project files confined.
-// This is the single writer for the package-file surface (skills/rules/commands/
-// plugins). Hooks and scalar settings are NOT APM's (verified) — they stay on the
-// Garrison-direct writers.
+// APM deploys package files through an explicit project-to-home link. The
+// global project owns the Garrison home; the user project owns only shared
+// primitives. Hooks and MCP registrations retain separate provenance.
 
 export interface GcOpts {
   runApm?: ApmRunner;
@@ -32,97 +29,74 @@ interface GlobalApmManifest {
   [key: string]: unknown;
 }
 
-function manifestPath(): string {
-  return path.join(globalCompositionDir(), "apm.yml");
-}
-
-function lockPath(): string {
-  return path.join(globalCompositionDir(), "apm.lock.yaml");
-}
+export interface ApmProjectOptions { dir: string; home: string; name: string; }
 
 async function lstatOrNull(p: string): Promise<import("node:fs").Stats | null> {
-  try {
-    return await fs.lstat(p);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
-  }
+  try { return await fs.lstat(p); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
 }
 
-// Ensure `<global-composition>/.claude` is a symlink pointing at claudeHome().
-// Repoint-safe: if the link is missing it creates it; if it points elsewhere
-// (e.g. a test swapped GARRISON_CLAUDE_HOME) it repoints. NEVER touches the
-// target (the real ~/.claude) — only the occupant under the Garrison-owned
-// global-composition dir.
-export async function ensureClaudeSymlink(): Promise<{ created: boolean; repointed: boolean }> {
-  const link = globalCompositionClaudeLink();
-  const target = path.resolve(claudeHome());
-  await fs.mkdir(globalCompositionDir(), { recursive: true });
-  await fs.mkdir(target, { recursive: true });
-
-  const st = await lstatOrNull(link);
-  if (st === null) {
-    await fs.symlink(target, link, "dir");
-    return { created: true, repointed: false };
-  }
-  if (st.isSymbolicLink()) {
-    const current = path.resolve(path.dirname(link), await fs.readlink(link));
-    if (current === target) return { created: false, repointed: false };
-    await fs.unlink(link);
+/** One APM project and its explicit deployment home. */
+export function apmProject({ dir, home, name }: ApmProjectOptions) {
+  const manifest = path.join(dir, "apm.yml");
+  const lock = path.join(dir, "apm.lock.yaml");
+  const link = path.join(dir, ".claude");
+  const target = path.resolve(home);
+  const ensureLink = async (): Promise<{ created: boolean; repointed: boolean }> => {
+    await fs.mkdir(dir, { recursive: true });
+    await fs.mkdir(target, { recursive: true });
+    const st = await lstatOrNull(link);
+    if (!st) {
+      await fs.symlink(target, link, "dir");
+      return { created: true, repointed: false };
+    }
+    if (st.isSymbolicLink()) {
+      if (path.resolve(path.dirname(link), await fs.readlink(link)) === target) return { created: false, repointed: false };
+      await fs.unlink(link);
+    } else {
+      // Preserve an unexpected occupant of the project-owned link slot.
+      const saved = path.join(garrisonDir(), "quarantine", new Date().toISOString().replace(/[:.]/g, "-"), path.basename(dir), ".claude");
+      await fs.mkdir(path.dirname(saved), { recursive: true });
+      await fs.rename(link, saved);
+    }
     await fs.symlink(target, link, "dir");
     return { created: false, repointed: true };
-  }
-  // A real dir/file occupies the link path (unexpected — this dir is
-  // Garrison-owned). Replace it. Only ever touches ~/.garrison/global-composition.
-  await fs.rm(link, { recursive: true, force: true });
-  await fs.symlink(target, link, "dir");
-  return { created: false, repointed: true };
-}
-
-// Idempotent: mkdir the tree, ensure-and-repoint the symlink, author a minimal
-// apm.yml if absent. Safe to call before every op.
-export async function ensureGlobalComposition(): Promise<void> {
-  await fs.mkdir(globalCompositionDir(), { recursive: true });
-  await ensureClaudeSymlink();
-  if (!(await pathExists(manifestPath()))) {
-    await writeYamlFile(manifestPath(), {
-      name: "garrison-global",
-      version: "0.1.0",
-      target: "claude",
-      dependencies: { apm: [] }
-    } satisfies GlobalApmManifest);
-  }
-}
-
-// Author the global apm.yml dependency set (local fittings + remote repos),
-// preserving any non-dependency keys already in the manifest.
-export async function writeGlobalApmManifest(deps: ApmDependencyInput[]): Promise<void> {
-  await ensureGlobalComposition();
-  const existing =
-    (await readYamlFile<GlobalApmManifest>(manifestPath())) ?? ({} as GlobalApmManifest);
-  existing.name = existing.name ?? "garrison-global";
-  existing.version = existing.version ?? "0.1.0";
-  existing.target = "claude";
-  existing.dependencies = {
-    ...(existing.dependencies ?? {}),
-    apm: authorApmDependencies(deps, globalCompositionDir(), { absolute: true })
   };
-  await writeYamlFile(manifestPath(), existing);
+  const ensure = async () => {
+    await ensureLink();
+    if (!await pathExists(manifest)) await writeYamlFile(manifest, { name, version: "0.1.0", target: "claude", dependencies: { apm: [] } } satisfies GlobalApmManifest);
+  };
+  const writeManifest = async (deps: ApmDependencyInput[]) => {
+    await ensure();
+    const existing = await readYamlFile<GlobalApmManifest>(manifest) ?? {};
+    existing.name ??= name;
+    existing.version ??= "0.1.0";
+    existing.target = "claude";
+    existing.dependencies = { ...(existing.dependencies ?? {}), apm: authorApmDependencies(deps, dir, { absolute: true }) };
+    await writeYamlFile(manifest, existing);
+  };
+  const readLock = () => readApmLock(lock);
+  const install = async (opts: GcOpts = {}): Promise<ApmLockView> => {
+    await assertClaudeWritable(`install fitting primitives in ${name}`);
+    await ensure();
+    const result = await (opts.runApm ?? defaultApmRunner)(["install", "--force"], dir, { env: process.env });
+    if (!result.ok) throw new Error(`apm install failed (code ${result.code}): ${result.stderr || result.stdout}`.trim());
+    return readLock();
+  };
+  return { dir, home: target, manifestPath: manifest, lockPath: lock, link, ensureLink, ensure, writeManifest, install, readLock };
 }
 
-// Run `apm install --force` in the global composition, deploying THROUGH the
-// symlink into the real ~/.claude. The ONLY function that mutates the package
-// surface. Returns the parsed post-install lock.
-export async function apmInstall(opts: GcOpts = {}): Promise<ApmLockView> {
-  await assertClaudeWritable("run `apm install` against ~/.claude");
-  await ensureGlobalComposition();
-  const runApm = opts.runApm ?? defaultApmRunner;
-  const result = await runApm(["install", "--force"], globalCompositionDir(), { env: process.env });
-  if (!result.ok) {
-    throw new Error(`apm install failed (code ${result.code}): ${result.stderr || result.stdout}`.trim());
-  }
-  return readGlobalLock();
+export function globalComposition() {
+  return apmProject({ dir: globalCompositionDir(), home: claudeHome(), name: "garrison-global" });
 }
+export function userComposition() {
+  return apmProject({ dir: userCompositionDir(), home: userClaudeHome(), name: "garrison-user" });
+}
+// Preserve the existing API for Quarters and Orchestrator writers.
+export function ensureClaudeSymlink() { return globalComposition().ensureLink(); }
+export function ensureGlobalComposition(): Promise<void> { return globalComposition().ensure(); }
+export function writeGlobalApmManifest(deps: ApmDependencyInput[]): Promise<void> { return globalComposition().writeManifest(deps); }
+export function apmInstall(opts: GcOpts = {}): Promise<ApmLockView> { return globalComposition().install(opts); }
 
 // ---- lock reading ----
 
@@ -161,8 +135,8 @@ function depName(dep: RawApmLockDep): string {
   return dep.repo_url ?? "";
 }
 
-export async function readGlobalLock(): Promise<ApmLockView> {
-  const raw = (await readYamlFile<RawApmLock>(lockPath())) ?? {};
+export async function readApmLock(file: string): Promise<ApmLockView> {
+  const raw = (await readYamlFile<RawApmLock>(file)) ?? {};
   const deps: ApmLockDepView[] = [];
   const allDeployedFiles = new Set<string>();
   for (const dep of raw.dependencies ?? []) {
@@ -183,3 +157,5 @@ export async function readGlobalLock(): Promise<ApmLockView> {
   }
   return { deps, allDeployedFiles };
 }
+
+export function readGlobalLock(): Promise<ApmLockView> { return globalComposition().readLock(); }
