@@ -88,7 +88,7 @@ final class PhoneListeningJourneyTests: XCTestCase {
 
         let backgroundCount = try await eventCount("app-backgrounded")
         let foregroundCount = try await eventCount("app-foregrounded")
-        XCUIDevice.shared.press(.home)
+        _ = try await probe("background-app")
         try await waitForEvent("app-backgrounded", after: backgroundCount)
         try await Task.sleep(nanoseconds: 3_000_000_000)
         _ = try await probe("unblock")
