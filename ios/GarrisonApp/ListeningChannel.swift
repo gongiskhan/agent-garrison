@@ -54,12 +54,12 @@ final class ListeningChannel: ObservableObject {
             let controller = CaptureController.shared
             if record.intent == "off" {
                 if controller.isRunning || controller.recovery.intent { controller.stopForServer(reason: record.reason ?? "user_stop") }
-            } else if !controller.recovery.intent && UIApplication.shared.applicationState == .active && (previous == nil || (record.actual == "starting" && record.reason == "user_start")) {
+            } else if !controller.recovery.intent && UIApplication.shared.applicationState == .active && (previous == nil || (record.intent_changed_at != previous?.intent_changed_at && record.reason == "user_start")) {
                 controller.beginListening(reason: record.reason == "user_start" ? "user_start" : "resume_on_foreground")
             }
         } else if record.intent == "off" {
             PendantController.shared.disconnect()
-        } else if record.intent == "listening" && (previous == nil || (record.actual == "starting" && record.reason == "user_start")) {
+        } else if record.intent == "listening" && (previous == nil || (record.intent_changed_at != previous?.intent_changed_at && record.reason == "user_start")) {
             PendantController.shared.connect()
         }
     }
@@ -81,7 +81,7 @@ final class ListeningChannel: ObservableObject {
         connect()
         if records["pendant"]?.intent == "listening" { PendantController.shared.reconnectIfNeeded() }
         if records["phone"]?.intent == "listening" {
-            if !CaptureController.shared.recovery.intent { CaptureController.shared.beginListening(reason: "resume_on_foreground") }
+            if !CaptureController.shared.recovery.intent || records["phone"]?.actual == "stalled" { CaptureController.shared.beginListening(reason: "resume_on_foreground") }
             else { CaptureController.shared.recovery.foreground() }
         }
     }

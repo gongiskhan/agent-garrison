@@ -12,6 +12,7 @@ final class CaptureController: ObservableObject {
     private var heartbeat: Task<Void, Never>?
     private var tapInstalled = false
     private var alwaysOn = false
+    private var listeningStartReason = "user_start"
     private var requestGeneration = 0
     private let wakeTone = WakeAcknowledgement()
     var engineRunning: Bool { engine.isRunning }
@@ -68,6 +69,10 @@ final class CaptureController: ObservableObject {
 
     func beginListening(reason: String = "user_start") {
         alwaysOn = true
+        listeningStartReason = reason
+        if ListeningChannel.shared.records["phone"]?.actual == "stalled" {
+            pauseEngine(); uploader?.abandon(); phase = .idle
+        }
         guard !isRunning else { recovery.start(reason: reason); return }
         start(consent: AppGroup.consentSuppressed ? .suppressed : .shown)
         if reason == "resume_on_foreground" && recovery.actual == "listening" { ListeningChannel.shared.toast("Resumed listening") }
@@ -176,7 +181,7 @@ final class CaptureController: ObservableObject {
         }
         uploader.connect()
 
-        recovery.start()
+        recovery.start(reason: alwaysOn ? listeningStartReason : "user_start")
         heartbeat?.cancel()
         heartbeat = Task { @MainActor [weak self] in
             while !Task.isCancelled {
@@ -240,6 +245,7 @@ final class CaptureController: ObservableObject {
         sessionId = nil
         phase = .idle
         ending?.end(reason: "user")
+        alwaysOn = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 

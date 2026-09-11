@@ -78,7 +78,7 @@ export class DeviceListening {
         for (const other of Object.values(this.doc.records)) {
           if (other.device_id === owner && other.source !== r.source && (other.intent !== "off" || other.actual !== "off")) {
             const old = { ...other };
-            Object.assign(other, { intent: "off", actual: "off", reason: "source_switch", intent_changed_at: at, actual_changed_at: at });
+            Object.assign(other, { intent: "off", reason: "source_switch", intent_changed_at: at });
             this.clearEpisode(other);
             changes.push([other, old]);
           }
@@ -86,8 +86,6 @@ export class DeviceListening {
       }
       r.intent = msg.intent;
       r.intent_changed_at = at;
-      r.actual = msg.intent === "off" ? "off" : "starting";
-      r.actual_changed_at = at;
       r.reason = msg.intent === "off" ? "user_stop" : "user_start";
       if (msg.intent === "off") this.clearEpisode(r);
       changes.push([r, current]);
@@ -97,7 +95,7 @@ export class DeviceListening {
     }
     if (msg.type === "listening.heartbeat") return this.activity(owner, msg.source);
     if (msg.type !== "listening.transition" || !ACTUAL.has(msg.actual) || !LISTENING_REASONS.has(msg.reason) || msg.reason.startsWith("watchdog_")) fail(400, "Invalid listening transition");
-    if (r.intent === "off") return current;
+    if (r.intent === "off" && msg.actual !== "off") return current;
     r.actual = msg.actual;
     r.reason = msg.reason;
     r.actual_changed_at = at;

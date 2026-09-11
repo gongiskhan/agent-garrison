@@ -43,16 +43,25 @@ describe("device listening watchdog", () => {
     const f = fixture(); f.start();
     for (let i = 0; i < 150; i++) { f.advance(5000); f.message("heartbeat"); await f.state.tick(); }
     expect(f.row().actual).toBe("listening"); expect(f.pushes).toHaveLength(0);
-    f.message("intent", { intent: "off" }); f.advance(1200000); f.message("heartbeat"); await f.state.tick();
+    f.message("intent", { intent: "off" }); f.message("transition", { actual: "off", reason: "user_stop" }); f.advance(1200000); f.message("heartbeat"); await f.state.tick();
     expect(f.row().actual).toBe("off"); expect(f.pushes).toHaveLength(0);
   });
   it("switches sources atomically and rejects foreign intent", () => {
     const f = fixture(); f.start();
     f.message("intent", { intent: "listening" }, "pendant");
-    expect(f.row()).toMatchObject({ intent: "off", actual: "off", reason: "source_switch" });
+    expect(f.row()).toMatchObject({ intent: "off", actual: "listening", reason: "source_switch" });
     expect(f.row("pendant").intent).toBe("listening");
     expect(() => f.state.message("another-device", { type: "listening.intent", device_id: f.device, source: "phone", intent: "listening" })).toThrow("does not own");
     expect(f.row().intent).toBe("off");
+  });
+  it("changes intent without claiming a device transition", () => {
+    const f = fixture(); f.message("intent", { intent: "listening" });
+    expect(f.row()).toMatchObject({ intent: "listening", actual: "off" });
+    f.message("transition", { actual: "listening", reason: "user_start" });
+    f.message("intent", { intent: "off" });
+    expect(f.row()).toMatchObject({ intent: "off", actual: "listening" });
+    f.message("transition", { actual: "off", reason: "user_stop" });
+    expect(f.row().actual).toBe("off");
   });
   it("uses identical watchdog logic and correct copy for pendant", async () => {
     const f = fixture(); f.message("intent", { intent: "listening" }, "pendant"); f.advance(20000); await f.state.tick();
