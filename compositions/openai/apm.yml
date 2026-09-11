@@ -59,6 +59,11 @@ x-garrison:
       permissions_mode: auto
       observability_config:
         log_sink: runner
+      archive:
+        extract_target: cc-sonnet
+        max_file_mb: 25
+        pdf_max_pages: 30
+        author: Gonçalo
     selections:
       orchestrator:
         - id: orchestrator
