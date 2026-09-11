@@ -60,6 +60,11 @@ x-garrison:
       capabilities_detail: names
       observability_config:
         log_sink: runner
+      archive:
+        extract_target: cc-sonnet
+        max_file_mb: 25
+        pdf_max_pages: 30
+        author: Gonçalo
     selections:
       orchestrator:
         - id: orchestrator
@@ -93,21 +98,11 @@ x-garrison:
             discuss_enabled: true
             automate_enabled: true
             screen_context_enabled: true
-            # Record uses the phone mic when the pendant and Listen are not
-            # supplying audio. Enable Microphone in the iOS broadcast picker;
-            # saying "Zeca" includes the live screen frames in the request.
             screen_audio_transcribe: true
-            # whatsapp-web is stationed, so the spoken-send lane goes live:
-            # resolve the contact, park the send in the 60s outbox, speak it
-            # back with recipient AND text, cancel by saying "cancela" - no
-            # wake word. Unpaired, every send falls through to the operative.
             send_enabled: true
             confirm_enabled: true
         - id: whatsapp-web
           config:
-            # 8080 on dev-madrid is held by an unrelated java service, and the
-            # daemon rightly refuses to start on a shifted port. 8087 is free
-            # across the mesh port family.
             port: 8087
             bind_host: 127.0.0.1
             session_dir: ~/.config/garrison/whatsapp-web
@@ -310,19 +305,17 @@ x-garrison:
         title: Implement
         description: 'Write or change code: features, fixes, refactors, carried end to end.'
         levels:
-          - description: 'trivial: a rename, a typo, a one-line fix, a mechanical edit
-              confined to one spot'
+          - description: 'trivial: a rename, a typo, a one-line fix, a mechanical edit confined to one spot'
             cell:
               target: opus
               effort: medium
-          - description: 'standard: a bounded feature, a localized bug fix, a focused
-              refactor in one area'
+          - description: 'standard: a bounded feature, a localized bug fix, a focused refactor in one area'
             cell:
               target: opus
               effort: high
           - description: >-
-              deep: architecture, cross-cutting refactors, tricky bugs with
-              unclear cause, security-sensitive or multi-subsystem work
+              deep: architecture, cross-cutting refactors, tricky bugs with unclear cause,
+              security-sensitive or multi-subsystem work
             cell:
               target: opus
               effort: xhigh
@@ -341,8 +334,7 @@ x-garrison:
             cell:
               target: sol
               effort: medium
-          - description: 'deep: adversarial cases, failure modes, and the paths nobody
-              exercises'
+          - description: 'deep: adversarial cases, failure modes, and the paths nobody exercises'
             cell:
               target: cc-opus
               effort: high
@@ -380,8 +372,7 @@ x-garrison:
             cell:
               target: cc-opus
               effort: medium
-          - description: 'deep-dive: a thorough multi-source investigation with synthesis
-              and citations'
+          - description: 'deep-dive: a thorough multi-source investigation with synthesis and citations'
             cell:
               target: cc-opus
               effort: high
@@ -393,13 +384,11 @@ x-garrison:
             cell:
               target: fable
               effort: low
-          - description: 'level 2: research it mid-conversation and write the brief when it
-              settles'
+          - description: 'level 2: research it mid-conversation and write the brief when it settles'
             cell:
               target: fable
               effort: medium
-          - description: 'level 3: argue both sides properly before converging, then write
-              it up'
+          - description: 'level 3: argue both sides properly before converging, then write it up'
             cell:
               target: fable
               effort: high
@@ -521,16 +510,14 @@ x-garrison:
       - id: adversarial-review
         title: Adversarial Review
         description: >-
-          A decorrelated second read whose job is to find what the first one
-          missed. START with the request's own explicit constraints and
-          prohibitions - a stated "do not add X", a named dependency or scope
-          limit, a required output shape - and check the change against each one
-          by name. A violated constraint is a finding even when the code is
-          correct, and it is the class of finding a correctness-only read
-          reliably misses. Then cite behavioural violations that materially
-          change correctness or safety; when your PREVIOUS findings have been
-          addressed and nothing substantive remains, hand off complete with
-          next=done - endless re-refutation is a failure mode, not rigor.
+          A decorrelated second read whose job is to find what the first one missed. START with the
+          request's own explicit constraints and prohibitions - a stated "do not add X", a named
+          dependency or scope limit, a required output shape - and check the change against each one
+          by name. A violated constraint is a finding even when the code is correct, and it is the
+          class of finding a correctness-only read reliably misses. Then cite behavioural violations
+          that materially change correctness or safety; when your PREVIOUS findings have been
+          addressed and nothing substantive remains, hand off complete with next=done - endless
+          re-refutation is a failure mode, not rigor.
         levels:
           - description: 'quick: the diff against its stated invariants'
             cell:
@@ -566,8 +553,8 @@ x-garrison:
       - id: security-review
         title: Security Review
         description: >-
-          The security-boundary rubric: authorization, injection, secrets,
-          tenancy, input validation.
+          The security-boundary rubric: authorization, injection, secrets, tenancy, input
+          validation.
         levels:
           - description: 'quick: the boundary checklist on the diff'
             cell:
@@ -635,13 +622,11 @@ x-garrison:
         title: Other
         description: Anything that fits no other duty.
         levels:
-          - description: 'quick: a direct answer, a lookup, a small ask that needs no real
-              work'
+          - description: 'quick: a direct answer, a lookup, a small ask that needs no real work'
             cell:
               target: cc-haiku
               effort: low
-          - description: 'involved: unclassified work that still needs real thought or
-              multiple steps'
+          - description: 'involved: unclassified work that still needs real thought or multiple steps'
             cell:
               target: cc-opus
               effort: low
@@ -664,14 +649,13 @@ x-garrison:
       - id: triage
         title: Triage
         description: >-
-          Read the request, write the conversation's opening summary, and name
-          the duty the work starts on. NEVER do the work in this stretch - even
-          a small task goes to a working duty (plan or implement); your
-          handoff's nextSteps.next names it.
+          Read the request, write the conversation's opening summary, and name the duty the work
+          starts on. NEVER do the work in this stretch - even a small task goes to a working duty
+          (plan or implement); your handoff's nextSteps.next names it.
         levels:
           - description: >-
-              standard: read the request and what is already known, write the
-              opening summary, name the first working duty
+              standard: read the request and what is already known, write the opening summary, name
+              the first working duty
             cell:
               target: cc-sonnet
               effort: low
@@ -680,15 +664,14 @@ x-garrison:
       - id: dialogue
         title: Dialogue
         description: >-
-          Talk with the person and finish it in this one pass: answer the
-          question, keep the note, remember the fact, put the reminder on the
-          board, do the small thing now. Never opens the delivery loop and never
-          hands off - real project or automation work becomes its own card,
+          Talk with the person and finish it in this one pass: answer the question, keep the note,
+          remember the fact, put the reminder on the board, do the small thing now. Never opens the
+          delivery loop and never hands off - real project or automation work becomes its own card,
           which runs on triage there while this reply just says so.
         levels:
           - description: >-
-              standard: answer from what is already known, act on what is small,
-              card what is work, then stop
+              standard: answer from what is already known, act on what is small, card what is work,
+              then stop
             cell:
               target: cc-sonnet
               effort: medium
@@ -697,8 +680,8 @@ x-garrison:
         description: Answer a user message in a conversation when no work is running.
         levels:
           - description: >-
-              standard: answer from the conversation summary, and record
-              anything promised back into it
+              standard: answer from the conversation summary, and record anything promised back into
+              it
             cell:
               target: sdk-haiku
               effort: medium
