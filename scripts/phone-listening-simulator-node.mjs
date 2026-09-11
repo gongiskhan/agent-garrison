@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createServer } from "node:http";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { loadConfig } from "../fittings/seed/capture-service/lib/config.mjs";
 import { startServer } from "../fittings/seed/capture-service/scripts/server.mjs";
 const root = mkdtempSync(path.join(os.tmpdir(), "listening-simulator-"));
@@ -11,7 +11,7 @@ const token = "isolated-simulator-listening-token";
 const cfg = { ...loadConfig({ GARRISON_HOME: root, CAPTURE_TOKEN: token, GARRISON_CAPTURESERVICE_ENABLED: "true", GARRISON_CAPTURESERVICE_PENDANT_ENABLED: "true" }), home: root,
   stateDir: path.join(root, "capture"), statusFile: path.join(root, "status.json"), port: 0, bindHost: "127.0.0.1", listeningPushDryRun: true };
 const app = await startServer(cfg);
-let heartbeats = 0, blocked = false;
+let heartbeats = 0, blocked = false, mock = null;
 const pushes = [];
 const sendPush = app.notifier.sendListeningPush.bind(app.notifier);
 app.notifier.sendListeningPush = async payload => { pushes.push(payload); return sendPush(payload); };
@@ -27,6 +27,12 @@ app.listening.message = (owner, message) => { if (message.type === "listening.he
 const control = createServer((req, res) => {
   const url = new URL(req.url, "http://localhost");
   const device = url.searchParams.get("device");
+  if (url.pathname === "/mock-start") {
+    mock?.kill();
+    mock = spawn(process.execPath, ["scripts/mock-phone-source.mjs", "--url", `http://127.0.0.1:${app.cfg.port}`, "--device", device, "--wait-for-intent", "--duration", "240"], { env: { ...process.env, CAPTURE_TOKEN: token }, stdio: ["ignore", "inherit", "inherit"] });
+  }
+  if (url.pathname === "/mock-stop") { mock?.kill(); mock = null; }
+  if (url.pathname === "/reset-pushes") pushes.length = 0;
   if (url.pathname === "/wake") app.listening.wake(device, "phone");
   const sessions = [...app.ingress.sessions.values()];
   if (url.pathname === "/cut") { blocked = true; for (const session of sessions) session.socket?.terminate(); }

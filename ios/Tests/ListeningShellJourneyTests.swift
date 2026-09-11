@@ -82,6 +82,32 @@ final class ListeningShellJourneyTests: XCTestCase {
             }
         }
         channel.receive(original)
+        // Phase 3 uses the Phase 1 mock as its stream. Only the engine start
+        // and its reports are replaced; native intent and UI events stay real.
+        let controller = CaptureController.shared
+        let nativeStart = controller.recovery.startEngine
+        let nativeReport = controller.recovery.report
+        defer { controller.recovery.startEngine = nativeStart; controller.recovery.report = nativeReport }
+        controller.recovery.startEngine = {}
+        controller.recovery.report = { _, _ in }
+        _ = try await probe("mock-start")
+        try await route("/"); try await actual("off"); try await click(); try await actual("listening")
+        try await route("/capture"); try await actual("listening")
+        host?.open(path: "/quarters")
+        try await dom("location.pathname === '/quarters' && document.querySelector('[data-testid=\"listening-badge\"]')?.textContent === 'Listening'")
+        _ = try await probe("mock-stop")
+        try await dom("document.querySelector('[data-testid=\"listening-badge\"]')?.textContent === 'Stopped'")
+        try await route("/"); try await actual("stalled")
+        try await route("/capture"); try await actual("stalled")
+        try await click(); _ = try await probe("mock-start"); try await actual("listening")
+        try await hold(1000); XCTAssertEqual(channel.records["phone"]?.intent, "listening")
+        try await hold(1700); try await actual("off")
+        try await dom("!document.querySelector('[data-testid=\"listening-badge\"]')")
+        _ = try await probe("mock-stop")
+        controller.stopForServer(reason: "user_stop")
+        controller.recovery.startEngine = nativeStart; controller.recovery.report = nativeReport
+        _ = try await probe("reset-pushes")
+        // Phase 4 restores the real microphone, and runs the combined journey.
         try await route("/"); try await actual("off"); try await click()
         try await actual("listening"); try await wait { CaptureController.shared.engineRunning }
         try await route("/capture"); try await actual("listening")

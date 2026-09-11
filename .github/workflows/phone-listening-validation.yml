@@ -28,6 +28,23 @@ jobs:
         run: |
           GARRISON_HOME_OVERRIDE=/tmp/listening-shell GARRISON_CLAUDE_HOME_OVERRIDE=/tmp/listening-claude NEXT_DIST_DIR=.next-listening bash scripts/garrison-instance.sh codex next > evidence/phone-listening/shell.log 2>&1 &
           node -e 'const fs=require("fs"),cp=require("child_process");const env=cp.execFileSync("bash",["scripts/garrison-instance.sh","codex","env"],{encoding:"utf8"});const port=env.match(/^GARRISON_APP_PORT=(.*)$/m)[1];fs.appendFileSync(process.env.GITHUB_ENV,`GARRISON_LISTENING_PROOF_SHELL=http://127.0.0.1:${port}\n`)'
+      - name: Verify shell navigation before simulator launch
+        run: |
+          node --input-type=module <<'JS'
+          for (const route of ['/talk', '/', '/capture', '/quarters']) {
+            let ready = false;
+            for (let attempt = 0; attempt < 5 && !ready; attempt++) {
+              try {
+                const response = await fetch(process.env.GARRISON_LISTENING_PROOF_SHELL + route, { signal: AbortSignal.timeout(90000) });
+                const body = await response.text();
+                if (!response.ok || !body.includes('<html')) throw new Error(`HTTP ${response.status}`);
+                ready = true;
+                console.log(`Shell ready: ${route}`);
+              } catch (error) { console.log(`Shell retry: ${route}: ${error.message}`); await new Promise(resolve => setTimeout(resolve, 1000)); }
+            }
+            if (!ready) throw new Error(`Shell unavailable: ${route}`);
+          }
+          JS
       - name: Generate and test iOS app
         working-directory: ios
         run: |

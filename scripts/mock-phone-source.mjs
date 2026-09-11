@@ -8,29 +8,35 @@ import { HEARTBEAT_SECONDS } from "../fittings/seed/capture-service/lib/listenin
 
 const { values } = parseArgs({ options: {
   url: { type: "string" }, device: { type: "string", default: "mock-phone-device-0001" },
+  "wait-for-intent": { type: "boolean", default: false },
   "stall-after": { type: "string" }, "resume-after": { type: "string" }, duration: { type: "string", default: "65" }
 } });
 if (!values.url || !process.env.CAPTURE_TOKEN) throw new Error("Pass --url and CAPTURE_TOKEN for an isolated node");
 const ws = new WebSocket(new URL("/capture/stream", values.url), { headers: {
   authorization: `Bearer ${process.env.CAPTURE_TOKEN}`, "x-garrison-device-id": values.device
 } });
-let seq = 0, started = 0, ready = false;
+let seq = 0, started = 0, ready = false, wanted = !values["wait-for-intent"];
 const send = message => ws.send(JSON.stringify({ device_id: values.device, source: "phone", at: new Date().toISOString(), ...message }));
 const active = () => {
   const seconds = (Date.now() - started) / 1000;
-  return !values["stall-after"] || seconds < Number(values["stall-after"]) || (values["resume-after"] && seconds >= Number(values["resume-after"]));
+  return wanted && (!values["stall-after"] || seconds < Number(values["stall-after"]) || (values["resume-after"] && seconds >= Number(values["resume-after"])));
 };
 ws.on("open", () => {
-  send({ type: "listening.subscribe", device_name: "Mock iPhone", app_version: "test" });
+  send({ type: "listening.subscribe", device_name: values["wait-for-intent"] ? undefined : "Mock iPhone", app_version: values["wait-for-intent"] ? undefined : "test" });
   send({ type: "session_start", session_id: randomUUID(), mode: "audio", consent: "suppressed", device_name: "Mock iPhone" });
 });
 ws.on("message", data => {
   const msg = JSON.parse(String(data));
   if (msg.type !== "ack") console.log(JSON.stringify(msg));
+  if (values["wait-for-intent"] && msg.type === "listening.state" && msg.source === "phone") {
+    const next = msg.intent === "listening";
+    if (next !== wanted && ready) send({ type: "listening.transition", actual: next ? "listening" : "off", reason: next ? "user_start" : "user_stop" });
+    wanted = next;
+  }
   if (msg.type === "session_started") {
     started = Date.now(); ready = true;
-    send({ type: "listening.intent", intent: "listening" });
-    send({ type: "listening.transition", actual: "listening", reason: "user_start" });
+    if (!values["wait-for-intent"]) send({ type: "listening.intent", intent: "listening" });
+    if (wanted) send({ type: "listening.transition", actual: "listening", reason: "user_start" });
   }
 });
 // Valid Opus silence packet; the media framing is the real ingress encoder.
