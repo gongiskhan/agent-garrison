@@ -1,6 +1,6 @@
 # Two homes — phase 1
 
-11 September 2026. Evidence owner: dev-madrid. Phase 1 is in progress; its live restore/deploy gate is not yet green. No phase 2 changes have begun.
+11 September 2026. Evidence owner: dev-madrid. Phase 1 acceptance gate is green as of 19:20 UTC. Later phases have not started at this checkpoint.
 
 ## Ground truth before implementation
 
@@ -38,3 +38,17 @@ The existing core Improver shell view is the durable notices UI. State notificat
 Snapshots E2E: 6/6 desktop/phone cases pass for never-run, ok and failed reports plus streaming button state. A separate mkdtemp-home launcher instance uses `.next-two-homes`, avoiding Archive's active `.next-e2e`. Service workers are blocked in fixtures (otherwise they bypass Playwright route handlers). Phone success and desktop failure screenshots were visually inspected; text and controls fit, with readable counts/errors. This is fixture proof, not the pending live acceptance.
 
 Final pre-deploy checks: 34 existing state-service tests and 4 restore-drill tests pass (38/38); typecheck passes after the route/view/spec work. The restore notification's body is asserted byte-identical to `restore-drill.md`. Final scheduler registration suite passes 4/4. Fixture screenshots committed here are named `fixture-*` and do not claim live acceptance. No shell/state deployment has yet occurred.
+
+## Live acceptance — 11 September 2026, 19:20 UTC
+
+State-only release tag state-two-homes-phase1-20260911 deployed under the mesh lease with a fresh Conversation/peer check. The coordinated shell deployment of main 3b5c9a9f then completed through node:redeploy; default is running and every fitting verify result is ok. CSG stayed healthy throughout. Before that rollout, Madrid served page HTML but its old static assets failed with 400; the completed build/restart restored hydration. No guards were bypassed and active Archive edits were preserved.
+
+Fresh restic snapshot d9e494b484375e2f18ec5e4b594969a8c8207b337812efaf8a16979b6d500484 processed 57,525,187,464 bytes. The successful drill at 19:03 UTC restored 404 cards against live 405, 299 card docs against live 299, and 89 local conversation ledgers against live 89. Peer restored/live counts are Mini 2, Air 2, Pro 23, CSG 0. State/restic ages were 0.219/0.230 hours. Integrity is ok; the temporary state service booted and stopped successfully. No tolerance changed. See restore-drill.json and restore-drill.md.
+
+The state daily snapshot also shipped independently to the Mac Pro. Receiving-node integrity is ok and its 404/299 counts match; SHA-256 on both nodes is b2a3df3ffed772d1aa87b46d6ddbcd73cf943239f4019b5b0d7993f2e3140467. Default composition authority rev51 and committed f6746318 configure that destination. The restic repository itself is currently local; the separate state shipping path supplies an off-box DB copy.
+
+All five nodes publish their scheduling path: Madrid systemd; Mini/Air/Pro/CSG scheduler. CSG has no user bus, so setup honestly falls back to scheduler. Its absent conversations source is verified as absent rather than treated as a failed transfer; failures on existing sources still fail the pull. Live Mac checks caught Bash 3.2 empty-array nounset and symlinked-entrypoint no-op defects; both were fixed forward, with scheduler/restore regression coverage (9/9). Source moved through git; existing node-local composition formatting was retained in git recovery stashes. No peer restart was needed for schedule registration.
+
+live-snapshots-drill.png and live-notification.png were captured from https://dev-madrid.tail31efa.ts.net and visually inspected. The view reports ok, the expected restored/live counts and all five scheduling receipts. The shell notice carries the report; no browser errors occurred after the successful deploy.
+
+Full-suite baseline: the first outer-home-isolated run passed 679 files/8,197 tests, with missing browser cache/SQLite prerequisites and unrelated failures. Installed SQLite and corrected the browser-cache/test env; focused reruns removed those prerequisite failures. Remaining existing failures include Archive migration determinism/CAS bytes (reported to its owner), stale sidebar expectations (owned by Archive), basic-memory shadow spooling, Cortex shipped defaults and short timing assertions. The full browser-fixture rerun remains in progress. The snapshot-specific unit/integration and six browser fixtures are green. Overall task verification remains open for the later phases; no final review has run.

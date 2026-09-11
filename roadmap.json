@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-09-11T19:12:16.988Z",
+  "updatedAt": "2026-09-11T19:21:08.674Z",
   "categories": [
     {
       "id": "c1",
@@ -872,6 +872,41 @@
         {
           "id": "c13.7",
           "text": "Phase 6: Full tests, real vision, fixture walkthrough, one scoped review and handoff.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        }
+      ]
+    },
+    {
+      "id": "c14",
+      "title": "Two homes, minimal flows and Mesh installation",
+      "noteRef": null,
+      "items": [
+        {
+          "id": "c14.1",
+          "text": "Phase 1: fresh consistent state snapshots, nightly peer ledgers, portable backup schedules and a live restore drill with shell evidence.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c14.2",
+          "text": "Phase 2: Garrison runtime homes, explicitly shared fittings, quarantine migration and leak reporting; isolated tests and sequential node acceptance.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c14.3",
+          "text": "Phase 3: minimal flows, recorded test handoffs, post-done duties and Improver learning; clean and findings journeys.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c14.4",
+          "text": "Phase 4: Mesh install/uninstall and enrollment, sandbox and real-node round trips, scoped Drill sweep and the single final review.",
           "done": false,
           "sentToKanban": null,
           "noteRef": null
