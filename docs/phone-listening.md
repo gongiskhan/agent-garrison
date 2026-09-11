@@ -6,6 +6,8 @@ Server, native Phase 2 and UI Phase 3 acceptance passed on 11 September 2026. UI
 
 `intent` is the user's request (`listening` or `off`). `actual` is a device report or watchdog decision: `off`, `starting`, `listening`, `interrupted`, `stalled`, or `failed`. Only the owning native device can change phone intent. Starting one source sets the other source's intent to `off`, with `source_switch`. Home, Capture and the header share server snapshots; browser controls are read-only. Start reuses the existing consent notice. Stop requires a 1500 ms hold and a light haptic.
 
+A queued or unacknowledged Stop prevents foreground recovery from using stale server intent. This transient guard clears on server acknowledgement or an explicit new Start; it is not persisted.
+
 The receiving node owns the record in CaptureStore's versioned `device_listening.json`. Migration adds version 1 without resetting existing data. This is the Phase 0 D4 correction: the existing capture store is node-local, not the mesh SQLite service.
 
 | Fields | Meaning |

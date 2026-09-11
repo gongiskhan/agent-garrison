@@ -13,10 +13,18 @@ final class ListeningChannel: ObservableObject {
     private var uploader: CaptureUploader?
     private var endpoint: URL?
     private var pending: [(String, String)] = []
+    // A transient user request must win over a stale server snapshot while
+    // Stop is queued or in flight. No intent is persisted on the device.
+    private var pendingStops = Set<String>()
     private var ready = false
+    private let startPhone: @MainActor (String) -> Void
     private(set) var deviceId: String?
     var pendant: PendantController { GarrisonPendantPlugin.controllerOverride ?? PendantController.shared }
     var onRecord: ((DeviceListeningState) -> Void)?
+
+    init(startPhone: @escaping @MainActor (String) -> Void = { CaptureController.shared.beginListening(reason: $0) }) {
+        self.startPhone = startPhone
+    }
 
     func connect() {
         guard let base = AppGroup.baseURL, let token = AppGroup.token else { return }
@@ -46,17 +54,19 @@ final class ListeningChannel: ObservableObject {
         guard record.device_id == deviceId else { return }
         let previous = records[record.source]
         records[record.source] = record
+        if record.intent == "off" { pendingStops.remove(record.source) }
         if record.reason == "watchdog_recovered" && previous?.reason != record.reason { toast("Listening again") }
         if record.reason == "source_switch" && previous?.intent == "listening" {
             toast(record.source == "phone" ? "Switched from phone to pendant" : "Switched from pendant to phone")
         }
         onRecord?(record)
+        if record.intent == "listening" && pendingStops.contains(record.source) { return }
         if record.source == "phone" {
             let controller = CaptureController.shared
             if record.intent == "off" {
                 if controller.isRunning || controller.recovery.intent { controller.stopForServer(reason: record.reason ?? "user_stop") }
             } else if UIApplication.shared.applicationState == .active && (previous == nil || (record.intent_changed_at != previous?.intent_changed_at && record.reason == "user_start")) {
-                controller.beginListening(reason: record.reason == "user_start" ? "user_start" : "resume_on_foreground")
+                startPhone(record.reason == "user_start" ? "user_start" : "resume_on_foreground")
             }
         } else if record.intent == "off" {
             if pendant.connectionState != .disconnected || pendant.sessionId != nil { pendant.disconnect() }
@@ -65,6 +75,7 @@ final class ListeningChannel: ObservableObject {
         }
     }
     func intent(_ source: String, _ intent: String) {
+        if intent == "off" { pendingStops.insert(source) } else { pendingStops.remove(source) }
         connect()
         guard let deviceId else { return }
         guard ready else { pending.append((source, intent)); return }
@@ -79,9 +90,9 @@ final class ListeningChannel: ObservableObject {
     }
     func foreground() {
         connect()
-        if records["pendant"]?.intent == "listening" { pendant.reconnectIfNeeded() }
-        if records["phone"]?.intent == "listening" {
-            if !CaptureController.shared.recovery.intent || records["phone"]?.actual == "stalled" { CaptureController.shared.beginListening(reason: "resume_on_foreground") }
+        if records["pendant"]?.intent == "listening" && !pendingStops.contains("pendant") { pendant.reconnectIfNeeded() }
+        if records["phone"]?.intent == "listening" && !pendingStops.contains("phone") {
+            if !CaptureController.shared.recovery.intent || records["phone"]?.actual == "stalled" { startPhone("resume_on_foreground") }
             else { CaptureController.shared.recovery.foreground() }
         }
     }

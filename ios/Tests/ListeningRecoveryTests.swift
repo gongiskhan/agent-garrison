@@ -90,6 +90,33 @@ final class ListeningRecoveryTests: XCTestCase {
         let state = DeviceListeningState(device_id: "test", device_name: "iPhone", source: "phone", intent: "off", actual: "off", reason: nil, last_seen_at: nil, intent_changed_at: "now", actual_changed_at: "now", stall_episode_id: nil, stall_pushes_sent: 0, app_version: "1")
         for key in ["reason", "last_seen_at", "stall_episode_id"] { XCTAssertTrue(state.payload[key] is NSNull) }
     }
+    func testPendingStopPreventsForegroundResumeUntilAcknowledgedOrRestarted() throws {
+        let savedDefaults = AppGroup.defaults
+        AppGroup.defaults = UserDefaults(suiteName: "listening-stop-\(UUID().uuidString)")
+        AppGroup.defaults?.set("http://127.0.0.1:1", forKey: AppGroup.Key.baseURL)
+        AppGroup.defaults?.set("isolated-test", forKey: AppGroup.Key.token)
+        let phone = CaptureController.shared
+        phone.stopForServer(reason: "user_stop")
+        var starts = 0
+        defer {
+            phone.stopForServer(reason: "user_stop")
+            AppGroup.defaults = savedDefaults
+        }
+        let channel = ListeningChannel(startPhone: { _ in starts += 1 })
+        channel.intent("phone", "off")
+        let device = try XCTUnwrap(channel.deviceId)
+        func record(_ intent: String, at: String) -> DeviceListeningState {
+            DeviceListeningState(device_id: device, device_name: "iPhone", source: "phone", intent: intent, actual: "interrupted", reason: "user_start", last_seen_at: nil, intent_changed_at: at, actual_changed_at: at, stall_episode_id: nil, stall_pushes_sent: 0, app_version: "1")
+        }
+        channel.receive(record("listening", at: "1")); channel.foreground()
+        XCTAssertEqual(starts, 0, "A stale server intent must not undo a queued Stop")
+        channel.intent("phone", "listening"); channel.foreground()
+        XCTAssertEqual(starts, 1, "An explicit new Start supersedes the pending Stop")
+        channel.intent("phone", "off"); phone.stopForServer(reason: "user_stop")
+        channel.receive(record("off", at: "2"))
+        channel.receive(record("listening", at: "3")); channel.foreground()
+        XCTAssertGreaterThan(starts, 1, "After acknowledgement a fresh server intent can resume")
+    }
     func testWakeProtocolAndGeneratedTone() {
         let message = ServerMessage.parse("{\"type\":\"wake.detected\",\"device_id\":\"device\",\"source\":\"phone\",\"at\":\"2026-09-11T12:00:00Z\"}")
         guard case .wakeDetected(_, let source, let at) = message else { return XCTFail("wake message missing") }
