@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import UIKit
 
 #if DEBUG
 /// DEBUG-only harness: streams the bundled Opus fixture through the REAL
@@ -11,6 +12,7 @@ import AVFoundation
 ///
 /// Ships nothing in Release: the whole file is compiled out.
 enum FixtureStreamer {
+    @MainActor private static var lifecycleObservers: [NSObjectProtocol] = []
     @MainActor
     private static var listeningUITest: Bool {
         ProcessInfo.processInfo.environment["GARRISON_LISTENING_UI_TEST"] == "1" && AppGroup.baseURL?.host == "127.0.0.1"
@@ -28,8 +30,18 @@ enum FixtureStreamer {
                 Task { @MainActor in FixtureStreamer.handleListeningTestEvent(event) }
             }, "com.gomes.garrison.listening-test.\(event)" as CFString, nil, .deliverImmediately)
         }
+        for (notification, event) in [(UIApplication.didEnterBackgroundNotification, "app-backgrounded"), (UIApplication.didBecomeActiveNotification, "app-foregrounded")] {
+            lifecycleObservers.append(NotificationCenter.default.addObserver(forName: notification, object: nil, queue: .main) { _ in
+                Task { @MainActor in FixtureStreamer.reportListeningEvent(event) }
+            })
+        }
+        reportListeningEvent("fixture-ready")
+    }
+
+    @MainActor
+    private static func reportListeningEvent(_ event: String) {
         if let control = ProcessInfo.processInfo.environment["GARRISON_LISTENING_PROOF_CONTROL"],
-           let url = URL(string: control + "/event/fixture-ready"), url.host == "127.0.0.1" {
+           let url = URL(string: control + "/event/" + event), url.host == "127.0.0.1" {
             Task { _ = try? await URLSession.shared.data(from: url) }
         }
     }
