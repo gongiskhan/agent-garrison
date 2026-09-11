@@ -128,7 +128,15 @@ final class ListeningShellJourneyTests: XCTestCase {
         XCTAssertEqual((stalled["pushes"] as? [[String: Any]])?.count, 1)
         XCTAssertEqual((stalled["pushes"] as? [[String: Any]])?.first?["title"] as? String, "Zeca stopped listening")
         // Host-side simctl backgrounds this app and opens the real scheme URL.
+        var enteredBackground = false
+        var returnedToForeground = false
+        let backgroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in enteredBackground = true }
+        let foregroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in if enteredBackground { returnedToForeground = true } }
+        defer { NotificationCenter.default.removeObserver(backgroundObserver); NotificationCenter.default.removeObserver(foregroundObserver) }
         _ = try await probe("background-and-open")
+        // WebKit can suspend JavaScript completion in the background. Wait on
+        // native lifecycle notifications before evaluating the returned page.
+        try await wait(timeout: 75) { enteredBackground && returnedToForeground }
         try await dom("location.pathname === '/capture'")
         try await actual("listening")
         XCTAssertTrue(CaptureController.shared.engineRunning)
