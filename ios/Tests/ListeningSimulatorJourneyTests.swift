@@ -20,7 +20,9 @@ final class ListeningSimulatorJourneyTests: XCTestCase {
         XCTAssertNotNil(channel.deviceId, "Keychain identity must be available")
         try await wait { channel.records["phone"] != nil }
         channel.intent("phone", "listening")
-        try await wait { CaptureController.shared.engineRunning && channel.records["phone"]?.actual == "listening" }
+        // Simulator Core Audio can spend over twelve seconds configuring its
+        // first input device. Interruption recovery keeps its two-second bound.
+        try await wait(timeout: 30) { CaptureController.shared.engineRunning && channel.records["phone"]?.actual == "listening" }
         let device = try XCTUnwrap(channel.deviceId)
         func probe(_ route: String = "state") async throws -> [String: Any] {
             let url = try XCTUnwrap(URL(string: "\(control)/\(route)?device=\(device)"))
