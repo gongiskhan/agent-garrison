@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-09-10T09:57:09.773Z",
+  "updatedAt": "2026-09-11T16:37:39.339Z",
   "categories": [
     {
       "id": "c1",
@@ -814,6 +814,62 @@
           "noteRef": null
         }
       ]
+    },
+    {
+      "id": "c13",
+      "title": "Archive",
+      "noteRef": "n-archive",
+      "items": [
+        {
+          "id": "c13.1",
+          "text": "Phase 0: Explore and bind; synthetic fixtures and real image proof.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c13.2",
+          "text": "Phase 1: File model, service, full API, ownership guard and pull-only exclusions.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c13.3",
+          "text": "Phase 2: Phone and desktop UI, deep links, real vision E2E.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c13.4",
+          "text": "Phase 3: Real ingestion, queue recovery, binary extraction and hourly budget.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c13.5",
+          "text": "Phase 4: Trello import, fixture recovery tests, live preview/import and sync.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c13.6",
+          "text": "Phase 5: Documents retirement, migration, instructions and documentation.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c13.7",
+          "text": "Phase 6: Full tests, real vision, fixture walkthrough, one scoped review and handoff.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        }
+      ]
     }
   ],
   "notes": [
@@ -1006,6 +1062,11 @@
       "id": "n-approval-surfaces-20260911",
       "title": "Routine approvals in To do, with conversation controls",
       "body": "11 September 2026 operator decision: Needs attention is for problems and blockers, not every item needing human action. Routine approval cards remain in To do. Add Approve & continue beside the visible plan in the shared conversation banner, retain free-form replies and drafts, and use the existing owner-routed message transport. Validation and rollout: docs/validation/2026-09-11-conversation-approval.md."
+    },
+    {
+      "id": "n-archive",
+      "title": "Archive: accepted ownership and file model (11 September 2026)",
+      "body": "D1. Core, not a fitting. Archive lives in the shell: `packages/archive` + `src/app/api/archive/*` + `src/app/archive/*` + a Command item in the sidebar. Same pattern as Improver.\n\nD2. Files are the only source of truth. The vault (plain markdown and files, Obsidian-compatible, moved by git through `vault-git-sync`) holds everything the user sees. Any index, extracted text cache, job ledger or thumbnail is derived, local to the node, rebuildable from the files, and never synced.\n\nD3. Memory stays a faculty; basic-memory stays the provider (hooks, MCP tools, capture, Basic Memory index for agents). It gains no browsing UI; Archive is the UI. The `knowledge` faculty slot stays as it is for `roadmaps`, `pdf`, `project-viewer` (they are agent capabilities, not vault views). The `documents` fitting is retired (section 11.2). Nothing else in the default composition changes.\n\nD4. Two areas, one rule each. `Archive/` at the vault root is the owner's area: agents read it, never write it. Everything else in the vault is Garrison's area: agents write it, the owner reads and may edit or prune it. Provenance lives in frontmatter.\n\nD5. Pull-only for the owner's area. Nothing automatic (session capture, startup briefs, Claude native mirror, improver evidence collectors, Nightly Sync learnings) reads `Archive/`. Agents reach it only through explicit search or read in a conversation where the owner asked.\n\nD6. Ingestion writes sidecars next to the source file, marked derived, regenerable, never hand-edited. It is the only automatic writer inside `Archive/`.\n\nD7. One inbox folder (`Archive/Inbox/`) is the entry point for anything not yet filed: uploads from the UI, imports, and later any agent-fetched file. Connectors are out of scope for this task; the inbox is the seam they will use.\n\nD8. Trello is a one-shot import, never a live sync. Idempotent on card id so it can be re-run safely, but it does not watch Trello afterwards.\n\nD9. Board lens for the owner's area, notes lens for Garrison's area, by default. Either lens can be opened on any folder; the default is by area.\n\nD10. No Obsidian clone. No graph view, no plugin system, no wikilink resolution beyond rendering `[[name]]` as a search link. Monaco on desktop, a plain textarea with preview on the phone. Obsidian remains the heavy editor.\n\nD11. Phone-first. Designed at 390x844 first, then desktop at 1280x800. Runs inside the Garrison iOS webview unchanged.\n\nD12. The name is Archive. \"Vault\" is the credentials vault; \"Knowledge\" is a faculty. If the owner renames it later, the name is one constant (`ARCHIVE_LABEL`) plus the route.\n\nD13. Scope of this task: board, card page, notes lens, search, inbox, status strip, ingestion, Trello import, agent rules, retirements, docs, tests, walkthrough. Out of scope: connectors pulling files, shared/multi-user access, remote backends, Ekoa.\n\nPlan and bindings: docs/decisions/2026-09-11-archive.md. Each phase closes only after its acceptance tests and main commit."
     }
   ]
 }
