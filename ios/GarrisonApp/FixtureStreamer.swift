@@ -25,7 +25,7 @@ enum FixtureStreamer {
             CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, name, _, _ in
                 guard let name else { return }
                 let event = name.rawValue as String
-                Task { @MainActor in handleListeningTestEvent(event) }
+                Task { @MainActor in FixtureStreamer.handleListeningTestEvent(event) }
             }, "com.gomes.garrison.listening-test.\(event)" as CFString, nil, .deliverImmediately)
         }
         if let control = ProcessInfo.processInfo.environment["GARRISON_LISTENING_PROOF_CONTROL"],
