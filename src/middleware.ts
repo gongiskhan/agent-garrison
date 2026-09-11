@@ -37,6 +37,13 @@ export function middleware(req: NextRequest): NextResponse {
   if (!fittingId || !FITTING_ID_RE.test(fittingId)) return NextResponse.next();
 
   const rewritten = req.nextUrl.clone();
+  // req.nextUrl.protocol trusts x-forwarded-proto (so it reads "https:"
+  // behind tailscale serve) while req.nextUrl.host stays this server's own
+  // plain-HTTP loopback bind. A rewrite target whose scheme doesn't match
+  // that bind makes Next treat it as cross-origin and issue a REAL outbound
+  // fetch to itself over HTTPS, which has no listener there — 500. Force
+  // http: so the rewrite stays same-origin/internal.
+  rewritten.protocol = "http:";
   rewritten.pathname = `${PROXY_PREFIX}${fittingId}${pathname}`;
   return NextResponse.rewrite(rewritten);
 }

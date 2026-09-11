@@ -38,4 +38,16 @@ describe("proxied-fitting runtime-fetch middleware", () => {
     const res = middleware(req("http://x/board", "not-a-url"));
     expect(res.headers.get("x-middleware-rewrite")).toBeNull();
   });
+
+  it("forces http: on the rewrite target even when the request looks https (tailscale serve terminates TLS in front)", () => {
+    const httpsReq = new NextRequest(
+      new Request("https://dev-madrid.tail31efa.ts.net:8977/board", {
+        headers: { referer: "https://dev-madrid.tail31efa.ts.net:8977/api/fittings/proxy/kanban-loop" }
+      })
+    );
+    const res = middleware(httpsReq);
+    const rewrite = res.headers.get("x-middleware-rewrite");
+    expect(rewrite).not.toBeNull();
+    expect(new URL(rewrite as string).protocol).toBe("http:");
+  });
 });
