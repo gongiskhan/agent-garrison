@@ -147,7 +147,7 @@ final class CaptureController: ObservableObject {
             uploader.listeningSource = "phone"
             uploader.onWakeDetected = { [weak self] device, source, at in
                 Task { @MainActor in
-                    guard device == ListeningChannel.shared.deviceId, source == "phone", self?.engineRunning == true else { return }
+                    guard self?.sessionId == id, device == ListeningChannel.shared.deviceId, source == "phone", self?.engineRunning == true else { return }
                     self?.wakeTone.play(at: at)
                 }
             }

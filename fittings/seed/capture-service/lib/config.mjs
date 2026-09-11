@@ -141,6 +141,7 @@ export function loadConfig(env = process.env) {
     home: garrisonDir(env),
     stateDir: captureDir(env),
     statusFile: statusFilePath(env),
+    operativeName: (env.GARRISON_CAPTURESERVICE_OPERATIVE_NAME || "Zeca").trim().replace(/[\r\n]/g, " ").slice(0, 64) || "Zeca",
 
     // Independent kill switches (invariant I9) — every pipe defaults OFF.
     enabled: parseBool(env.GARRISON_CAPTURESERVICE_ENABLED, false), // master: session + device ingress

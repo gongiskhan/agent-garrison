@@ -86,6 +86,10 @@ final class ListeningRecoveryTests: XCTestCase {
         state.transition("failed", "resume_gave_up"); state.foreground()
         XCTAssertEqual(state.actual, "listening"); XCTAssertEqual(reason, "resume_on_foreground")
     }
+    func testSnapshotRetainsExplicitNullFields() throws {
+        let state = DeviceListeningState(device_id: "test", device_name: "iPhone", source: "phone", intent: "off", actual: "off", reason: nil, last_seen_at: nil, intent_changed_at: "now", actual_changed_at: "now", stall_episode_id: nil, stall_pushes_sent: 0, app_version: "1")
+        for key in ["reason", "last_seen_at", "stall_episode_id"] { XCTAssertTrue(state.payload[key] is NSNull) }
+    }
     func testWakeProtocolAndGeneratedTone() {
         let message = ServerMessage.parse("{\"type\":\"wake.detected\",\"device_id\":\"device\",\"source\":\"phone\",\"at\":\"2026-09-11T12:00:00Z\"}")
         guard case .wakeDetected(_, let source, let at) = message else { return XCTFail("wake message missing") }

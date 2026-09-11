@@ -58,6 +58,13 @@ export class DeviceListening {
         app_version: String(metadata.app_version ?? "").slice(0, 64) };
       this.save();
     }
+    const record = this.doc.records[id];
+    const updates = {};
+    if (typeof metadata.device_name === "string") updates.device_name = metadata.device_name.replace(/[\r\n]/g, " ").slice(0, 64);
+    if (typeof metadata.app_version === "string") updates.app_version = metadata.app_version.slice(0, 64);
+    if (Object.entries(updates).some(([field, value]) => record[field] !== value)) {
+      Object.assign(record, updates); this.save(); this.emit(record);
+    }
     return this.get(device, source);
   }
   clearEpisode(r) {
@@ -96,6 +103,9 @@ export class DeviceListening {
     if (msg.type === "listening.heartbeat") return this.activity(owner, msg.source);
     if (msg.type !== "listening.transition" || !ACTUAL.has(msg.actual) || !LISTENING_REASONS.has(msg.reason) || msg.reason.startsWith("watchdog_")) fail(400, "Invalid listening transition");
     if (r.intent === "off" && msg.actual !== "off") return current;
+    if (r.actual === msg.actual && r.reason === msg.reason) {
+      return msg.actual === "listening" ? this.activity(owner, msg.source) : current;
+    }
     r.actual = msg.actual;
     r.reason = msg.reason;
     r.actual_changed_at = at;

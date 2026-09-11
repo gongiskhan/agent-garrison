@@ -28,17 +28,34 @@ jobs:
         run: |
           GARRISON_HOME_OVERRIDE=/tmp/listening-shell GARRISON_CLAUDE_HOME_OVERRIDE=/tmp/listening-claude NEXT_DIST_DIR=.next-listening bash scripts/garrison-instance.sh codex next > evidence/phone-listening/shell.log 2>&1 &
           node -e 'const fs=require("fs"),cp=require("child_process");const env=cp.execFileSync("bash",["scripts/garrison-instance.sh","codex","env"],{encoding:"utf8"});const port=env.match(/^GARRISON_APP_PORT=(.*)$/m)[1];fs.appendFileSync(process.env.GITHUB_ENV,`GARRISON_LISTENING_PROOF_SHELL=http://127.0.0.1:${port}\n`)'
+      - name: Verify shell navigation before simulator launch
+        run: |
+          node --input-type=module <<'JS'
+          for (const route of ['/talk', '/', '/capture', '/quarters']) {
+            let ready = false;
+            for (let attempt = 0; attempt < 5 && !ready; attempt++) {
+              try {
+                const response = await fetch(process.env.GARRISON_LISTENING_PROOF_SHELL + route, { signal: AbortSignal.timeout(90000) });
+                const body = await response.text();
+                if (!response.ok || !body.includes('<html')) throw new Error(`HTTP ${response.status}`);
+                ready = true;
+                console.log(`Shell ready: ${route}`);
+              } catch (error) { console.log(`Shell retry: ${route}: ${error.message}`); await new Promise(resolve => setTimeout(resolve, 1000)); }
+            }
+            if (!ready) throw new Error(`Shell unavailable: ${route}`);
+          }
+          JS
       - name: Generate and test iOS app
         working-directory: ios
         run: |
           xcodegen generate
-          xcodebuild build-for-testing -project Garrison.xcodeproj -scheme GarrisonApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath /tmp/listening-build CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES > ../evidence/phone-listening/build.log 2>&1
-          DEVICE=$(xcrun simctl list devices available -j | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>console.log(Object.values(JSON.parse(s).devices).flat().find(d=>d.name==="iPhone 17 Pro").udid))')
+          DEVICE=$(node ../scripts/ios-simulator.mjs)
+          xcodebuild build-for-testing -project Garrison.xcodeproj -scheme GarrisonApp -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath /tmp/listening-build CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES > ../evidence/phone-listening/build.log 2>&1
           xcrun simctl boot "$DEVICE" || true
           xcrun simctl bootstatus "$DEVICE" -b
           xcrun simctl install "$DEVICE" /tmp/listening-build/Build/Products/Debug-iphonesimulator/GarrisonApp.app
           xcrun simctl privacy "$DEVICE" grant microphone com.gomes.garrison
-          xcodebuild test-without-building -parallel-testing-enabled NO -project Garrison.xcodeproj -scheme GarrisonApp -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath /tmp/listening-build -resultBundlePath ../evidence/phone-listening/native.xcresult CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES > ../evidence/phone-listening/xctest.log 2>&1
+          xcodebuild test-without-building -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 300 -project Garrison.xcodeproj -scheme GarrisonApp -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath /tmp/listening-build -resultBundlePath ../evidence/phone-listening/native.xcresult CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES > ../evidence/phone-listening/xctest.log 2>&1
       - name: Export simulator screenshots
         if: always()
         run: xcrun xcresulttool export attachments --path evidence/phone-listening/native.xcresult --output-path evidence/phone-listening/screenshots || true

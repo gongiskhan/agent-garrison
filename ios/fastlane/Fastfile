@@ -65,11 +65,12 @@ platform :ios do
 
     # Native fixes must pass the same XCTest suite as the mini before signing
     # or uploading. CI supplies Xcode and a simulator even when the mini is off.
+    simulator_id = sh("node ../../scripts/ios-simulator.mjs", log: false).strip.lines.last.strip
     run_tests(
       project: PROJECT,
       scheme: SCHEME,
-      device: "iPhone 17 Pro",
-      xcargs: "CODE_SIGNING_ALLOWED=NO",
+      destination: "platform=iOS Simulator,id=#{simulator_id}",
+      xcargs: "CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES",
       output_directory: "build/tests",
       result_bundle: true
     )

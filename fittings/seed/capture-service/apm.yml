@@ -48,6 +48,10 @@ x-garrison:
     anywhere but the Kanban Loop - it is the
     single home for tasks.
   config_schema:
+    - key: operative_name
+      type: string
+      default: Zeca
+      description: Assistant name used in listening notifications for this composition.
     - key: port
       type: integer
       default: 8097

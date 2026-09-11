@@ -5,6 +5,7 @@ import Link from "next/link";
 import clsx from "clsx";
 import {
   nativeCapture,
+  nativeListening,
   nativeNode,
   nativePendant,
   nativePush,
@@ -183,6 +184,7 @@ const PHASE_LABEL: Record<CaptureStatus["phase"], string> = {
 
 function RecordingSection() {
   const [status, setStatus] = useState<CaptureStatus | null>(null);
+  const { lines, streamState } = useLiveTranscript(status?.sessionId);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -271,6 +273,8 @@ function RecordingSection() {
         </div>
       </dl>
       <div className={styles.actions}>
+        {!nativeListening.supported() && <button type="button" className="btn small primary" disabled={busy || !status}
+          onClick={() => void (live ? stop("microphone") : start("microphone"))}>{live ? "Stop microphone" : "Record microphone"}</button>}
         <button type="button" className="btn small" disabled={busy || !status}
           onClick={() => void (status?.broadcasting ? stop("screen_audio") : start("screen_audio"))}>
           {status?.broadcasting ? "Stop screen audio" : "Record screen audio"}
@@ -285,6 +289,7 @@ function RecordingSection() {
           Broadcasting. Say &quot;Zeca&quot; and then your request - the words after it plus the latest screen frames are sent into the conversation the broadcast was started from.
         </p>
       ) : null}
+      {status?.sessionId ? <CaptureTranscript lines={lines} streamState={streamState} testId="capture-phone-transcript" /> : null}
       {status?.error ? <p className={styles.error}>{status.error}</p> : null}
       {status?.broadcastError ? <p className={styles.error}>{status.broadcastError}</p> : null}
       {error ? <p className={styles.error}>{error}</p> : null}
@@ -542,15 +547,23 @@ function PendantSection() {
         ) : null}
       </dl>
       <div className={styles.actions}>
-        {!status?.paired && <button type="button" className="btn small primary" disabled={busy || !status} onClick={() => void run(nativePendant.connect)}>Pair</button>}
+        {!status?.paired && <button type="button" className="btn small primary" disabled={busy || !status} onClick={() => void run(async () => { if (!nativeListening.supported()) return nativePendant.connect(); await nativeListening.intent("pendant", "listening"); return nativePendant.status(); })}>Pair</button>}
+        {status?.paired && !nativeListening.supported() && <button type="button" className="btn small" disabled={busy} onClick={() => void run(PENDANT_LIVE_STATES.has(status.connectionState) ? nativePendant.disconnect : nativePendant.connect)}>{PENDANT_LIVE_STATES.has(status.connectionState) ? "Disconnect" : "Connect"}</button>}
         {status?.paired ? (
-          <button type="button" className="btn small ghost" disabled={busy} onClick={() => void run(nativePendant.forget)}>
+          <button type="button" className="btn small ghost" disabled={busy} onClick={() => void run(async () => { if (nativeListening.supported()) await nativeListening.intent("pendant", "off"); return nativePendant.forget(); })}>
             Forget
           </button>
         ) : null}
       </div>
-      {showTranscript ? (
-        <div className={styles.transcript} data-testid="capture-pendant-transcript" aria-live="polite">
+      {showTranscript ? <CaptureTranscript lines={lines} streamState={streamState} testId="capture-pendant-transcript" /> : null}
+      {status?.uploaderError ? <p className={styles.error}>{status.uploaderError}</p> : null}
+      {error ? <p className={styles.error}>{error}</p> : null}
+    </section>
+  );
+}
+
+function CaptureTranscript({ lines, streamState, testId }: { lines: TranscriptLine[]; streamState: string; testId: string }) {
+  return (<div className={styles.transcript} data-testid={testId} aria-live="polite">
           <p className={styles.transcriptHead}>
             <span>Hearing</span>
             <span className={clsx(styles.pill, streamState === "live" && styles.pillLive, streamState === "error" && styles.pillAlarm)}>
@@ -568,12 +581,7 @@ function PendantSection() {
               ))}
             </ol>
           )}
-        </div>
-      ) : null}
-      {status?.uploaderError ? <p className={styles.error}>{status.uploaderError}</p> : null}
-      {error ? <p className={styles.error}>{error}</p> : null}
-    </section>
-  );
+        </div>);
 }
 
 function AppFooter() {

@@ -335,7 +335,7 @@ extension CaptureUploader: URLSessionWebSocketDelegate {
             // (Re)announce the session; the server answers session_started or
             // session_resumed with its high-water marks.
             if let deviceId = self.deviceId {
-                self.sendControl(ListeningMessage(type: "listening.subscribe", device_id: deviceId, device_name: self.deviceName, app_version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String))
+                self.sendControl(ListeningMessage(type: "listening.subscribe", device_id: deviceId, device_name: self.controlOnly ? self.deviceName : nil, app_version: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String))
             }
             if self.controlOnly { return }
             self.sendControl(SessionStartMessage(

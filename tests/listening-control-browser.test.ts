@@ -54,7 +54,10 @@ it("shows optimistic starting, cancels early hold, haptics once on completion an
     const button=page.getByRole("button",{name:"Hold to stop",exact:true});
     await button.click(); expect(await page.getByRole("tooltip").textContent()).toBe("Hold to stop");
     const bounds=(await button.boundingBox())!;
-    await page.mouse.move(bounds.x+bounds.width/2,bounds.y+bounds.height/2); await page.mouse.down(); await page.waitForTimeout(1000); await page.mouse.up();
+    await page.mouse.move(bounds.x+bounds.width/2,bounds.y+bounds.height/2); await page.mouse.down(); await page.waitForTimeout(1000);
+    const progress = await button.locator("circle").evaluate(el => parseFloat(getComputedStyle(el).strokeDashoffset));
+    expect(progress).toBeGreaterThan(0); expect(progress).toBeLessThan(100);
+    await page.mouse.up();
     expect(await page.evaluate(()=>(window as any).intents)).toEqual([{source:"phone",intent:"listening"}]);
     await page.mouse.down(); await expect.poll(()=>page.evaluate(()=>(window as any).haptics), { timeout: 3000 }).toBe(1); await page.mouse.up();
     expect(await page.evaluate(()=>(window as any).intents)).toEqual([{source:"phone",intent:"listening"},{source:"phone",intent:"off"}]);

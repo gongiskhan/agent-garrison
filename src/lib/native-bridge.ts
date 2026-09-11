@@ -147,6 +147,7 @@ export interface DeviceListeningState {
 }
 export interface ListeningSnapshot { device_id: string; records: DeviceListeningState[]; paired: boolean }
 export const nativeListening = {
+  supported: () => typeof capacitor()?.Plugins?.GarrisonCapture?.listeningIntent === "function",
   state: () => call<ListeningSnapshot>("GarrisonCapture", "listeningState"),
   intent: (source: DeviceListeningState["source"], intent: DeviceListeningState["intent"]) => call<ListeningSnapshot>("GarrisonCapture", "listeningIntent", { source, intent }),
   onState: (cb: (state: ListeningSnapshot) => void) => listen("GarrisonCapture", "listeningState", cb as (data: never) => void),

@@ -1,6 +1,6 @@
 # Phone listening
 
-Phase 0 exploration completed on 11 September 2026. Phase 1 server implementation is verified; native and UI phases remain pending.
+Phase 0 exploration and Phases 1 and 2 acceptance completed on 11 September 2026. Combined UI and release acceptance remain pending.
 
 Listening separates user `intent` (`listening` or `off`) from `actual` (`off`, `starting`, `listening`, `interrupted`, `stalled`, `failed`). Only an authenticated native device channel can change phone intent. A source switch turns the other source off. Home and Capture share controls; the mobile header shows an indicator.
 
@@ -42,7 +42,7 @@ Closed reason set: `user_start`, `user_stop`, `source_switch`, `interruption_beg
 
 ## Verification
 
-Vitest and existing Capture harnesses cover server behavior. GarrisonTests and command-line simulator journeys cover native behavior. This Mac has Command Line Tools only; the Mini has Xcode and the existing ios-thing workflow provides TestFlight automation. No device acceptance is inferred from simulator results. The device checklist will be added in Phase 5.
+Vitest and existing Capture harnesses cover server behavior. GarrisonTests and command-line simulator journeys cover native behavior. Hosted macOS runs provide simulator and device compilation; the existing ios-thing workflow provides TestFlight automation. No physical-device acceptance is inferred from simulator results. See [the device checklist](phone-listening-checklist.md).
 
 Audio option references: [Apple A2DP](https://developer.apple.com/documentation/avfaudio/avaudiosession/categoryoptions-swift.struct/allowbluetootha2dp) and [Apple mixing](https://developer.apple.com/documentation/avfaudio/avaudiosession/categoryoptions-swift.struct/mixwithothers).
 
@@ -55,3 +55,5 @@ Phase 1: 10 watchdog tests and 35 existing ingress/source-arbitration tests pass
 `tests/listening-control.test.ts` and `tests/listening-control-browser.test.ts` cover every label and badge state, permission copy, optimistic start, a cancelled hold and a completed hold. A completed hold consumes its release event so the newly displayed Start button cannot restart capture accidentally. The browser capture route exposes the same records read-only through the authenticated voice relay.
 
 The Phone listening validation workflow builds the native app, runs XCTest and the simulator against an isolated Capture node, and compiles the physical device target. Passing native acceptance, simulator screenshots, the combined journey and TestFlight delivery are separate gates. Device checks are in [the checklist](phone-listening-checklist.md).
+
+The composition projects Capture's `operative_name` setting into notification titles, with Zeca as the current default. Before the first server snapshot the phone row shows a disabled connection placeholder, without inventing an actual microphone state.

@@ -11,7 +11,7 @@
 .settings { text-align: left; text-decoration: underline; cursor: pointer; background: none; border: 0; padding: 0; }
 .action { position: relative; flex-shrink: 0; }
 .button { position: relative; min-height: 44px; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; max-width: 120px; white-space: normal; }
-.ring { width: 36px; height: 36px; position: absolute; right: -9px; top: -12px; pointer-events: none; }
+.ring { width: calc(100% + 12px); height: calc(100% + 12px); position: absolute; left: -6px; top: -6px; pointer-events: none; }
 .ring circle { fill: none; stroke: var(--sage); stroke-width: 3; stroke-dasharray: 100; stroke-dashoffset: 100; transform: rotate(-90deg); transform-origin: center; }
 .filling { animation: hold var(--hold-ms) linear forwards; }
 @keyframes hold { to { stroke-dashoffset: 0; } }
