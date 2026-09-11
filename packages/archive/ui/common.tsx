@@ -14,7 +14,21 @@ export const sizeOf=(n:number)=>n<1024*1024?`${Math.round(n/1024)} KB`:`${(n/102
 export async function api(url:string,method='GET',body?:unknown,signal?:AbortSignal){const res=await fetch('/api/archive/'+url,{method,signal,cache:'no-store',...(body!==undefined?{headers:body instanceof FormData?{}:{'content-type':'application/json'},body:body instanceof FormData?body:JSON.stringify(body)}:{})});const out=await res.json();if(!res.ok)throw Object.assign(new Error(out.error),{status:res.status,...out});return out;}
 export function useData(url:string|null,poll=0){const [data,setData]=useState<any>(null),[error,setError]=useState<any>(null),[loadedUrl,setLoadedUrl]=useState<string|null>(null),[version,setVersion]=useState(0);const latest=useRef(url);latest.current=url;
  const refresh=()=>setVersion(v=>v+1);
- useEffect(()=>{if(!url)return;let live=true;const abort=new AbortController();const load=()=>api(url,'GET',undefined,abort.signal).then(out=>{if(live){setData(out);setLoadedUrl(url);setError(null);}}).catch(e=>{if(live)setError(e);});void load();const timer=poll?setInterval(load,poll):null;return()=>{live=false;abort.abort();if(timer)clearInterval(timer);};},[url,poll,version]);
+ useEffect(()=>{
+  if(!url)return;
+  let live=false,abort:AbortController,timer:ReturnType<typeof setInterval>|undefined;
+  const start=()=>{
+   if(live)return;
+   live=true;abort=new AbortController();const signal=abort.signal;
+   const load=()=>api(url,'GET',undefined,signal).then(out=>{if(live&&!signal.aborted){setData(out);setLoadedUrl(url);setError(null);}}).catch(e=>{if(live&&!signal.aborted)setError(e);});
+   void load();if(poll)timer=setInterval(load,poll);
+  };
+  // A full navigation can suspend the document without unmounting React.
+  const stop=()=>{live=false;abort?.abort();if(timer)clearInterval(timer);timer=undefined;};
+  const restore=(event:PageTransitionEvent)=>{if(event.persisted)start();};
+  start();window.addEventListener('pagehide',stop);window.addEventListener('pageshow',restore);
+  return()=>{stop();window.removeEventListener('pagehide',stop);window.removeEventListener('pageshow',restore);};
+ },[url,poll,version]);
  useEffect(()=>{setData(null);setError(null);},[url]);return {data:loadedUrl===url?data:null,error,refresh,setData};
 }
 export function usePhone(){const [phone,setPhone]=useState(true);useEffect(()=>{const media=matchMedia('(max-width: 759px)');const update=()=>setPhone(media.matches);update();media.addEventListener('change',update);return()=>media.removeEventListener('change',update);},[]);return phone;}
