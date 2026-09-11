@@ -1,5 +1,7 @@
 # Architecture conventions
 
+Native capture reliability: [Phone listening](phone-listening.md).
+
 Durable doctrine for adding a `src/lib/*` module or a UI surface to Agent
 Garrison. This is the conventions document a generic implementer is handed —
 it stands alone; you should not need the area skill to follow it. It is

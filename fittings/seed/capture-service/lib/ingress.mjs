@@ -104,7 +104,8 @@ function validateSessionStart(msg) {
 }
 
 export class CaptureIngress {
-  constructor({ cfg, store, counters, log = console, now = () => Date.now(), onSessionEnd = null, transcriber = null }) {
+  constructor({ cfg, store, counters, log = console, now = () => Date.now(), onSessionEnd = null, transcriber = null, listening = null }) {
+    this.listening = listening;
     this.cfg = cfg;
     this.store = store;
     this.counters = counters;
@@ -159,10 +160,13 @@ export class CaptureIngress {
       socket.destroy();
       return;
     }
-    this.wss.handleUpgrade(req, socket, head, (ws) => this.handleConnection(ws));
+    this.wss.handleUpgrade(req, socket, head, (ws) => this.handleConnection(ws, req.headers["x-garrison-device-id"] ?? null));
   }
 
-  handleConnection(ws) {
+  handleConnection(ws, owner = null) {
+    const unsubscribe = this.listening?.subscribe(event => {
+      if (event.device_id === owner && ws.readyState === ws.OPEN) ws.send(JSON.stringify(event));
+    });
     let session = null; // set by session_start
 
     const send = (obj) => {
@@ -193,7 +197,22 @@ export class CaptureIngress {
           ws.close(1008, "invalid JSON");
           return;
         }
+        if (msg?.type === "listening.subscribe") {
+          if (!owner || msg.device_id !== owner) { send({ type: "error", status: 403, error: "Device does not own this channel" }); return; }
+          for (const source of ["phone", "pendant"]) this.listening?.register(owner, source, msg);
+          for (const record of this.listening?.list(owner) ?? []) send({ type: "listening.state", ...record });
+          return;
+        }
+        if (["listening.intent", "listening.transition", "listening.heartbeat"].includes(msg?.type)) {
+          try { this.listening?.message(owner, msg); }
+          catch (error) { send({ type: "error", status: error.status ?? 500, error: error.message }); }
+          return;
+        }
         if (msg?.type === "session_start") {
+          if (msg.device_id && (!owner || owner !== msg.device_id || !["phone", "pendant"].includes(msg.source))) {
+            send({ type: "error", status: 403, error: "Stream device does not own this channel" }); return;
+          }
+          if (msg.device_id) this.listening?.register(owner, msg.source, msg);
           session = this.handleSessionStart(ws, msg, send);
           return;
         }
@@ -242,6 +261,7 @@ export class CaptureIngress {
     });
 
     ws.on("close", () => {
+      unsubscribe?.();
       if (session) {
         const live = this.sessions.get(session.record.id);
         if (live && live.socket === ws) live.socket = null;
@@ -271,6 +291,7 @@ export class CaptureIngress {
 
     const existingLive = this.sessions.get(id);
     if (existingLive) {
+      if (existingLive.record.device_id && existingLive.record.device_id !== msg.device_id) { send({ type: "error", status: 403, error: "Session belongs to another device" }); return null; }
       // Supersede: the reconnecting phone often beats its own dying TCP.
       if (existingLive.socket && existingLive.socket !== ws) {
         try {
@@ -286,6 +307,7 @@ export class CaptureIngress {
     }
 
     const stored = this.readSessionRecord(id);
+    if (stored?.device_id && stored.device_id !== msg.device_id) { send({ type: "error", status: 403, error: "Session belongs to another device" }); return null; }
     if (stored && stored.status === "ended") {
       this.counters.bump("sessions_rejected_ended");
       send({ type: "error", error: "session already ended" });
@@ -297,6 +319,7 @@ export class CaptureIngress {
       id,
       source: msg.mode === "pendant" ? "pendant" : "companion-ios",
       mode: msg.mode,
+      ...(msg.device_id ? { device_id: msg.device_id, listening_source: msg.source } : {}),
       device_name: String(msg.device_name ?? "iPhone").trim().slice(0, 64) || "iPhone",
       // Consent context travels in provenance (invariant I6).
       consent: msg.consent,
@@ -314,7 +337,7 @@ export class CaptureIngress {
     // capture_policy enforcement point 1 of 2 (ADR D6): a wake_only pendant
     // session persists no media - the ordered-stream discipline runs against
     // an in-memory high water instead of the media log.
-    const transient = record.mode === "pendant" && this.cfg.capturePolicy !== "ambient";
+    const transient = (record.mode === "pendant" || record.listening_source === "phone") && this.cfg.capturePolicy !== "ambient";
     if (!stored && !transient) this.writeSessionRecord(record);
     if (!stored && transient) this.counters.bump("pendant_sessions_unpersisted");
 
@@ -361,6 +384,7 @@ export class CaptureIngress {
     if (!bytes.length) return;
     const now = this.now();
     session.lastAudioAt = now;
+    if (session.record.device_id) this.listening?.activity(session.record.device_id, session.record.listening_source);
     if (!session.transcribing) return;
     let selected = null;
     for (const live of this.sessions.values()) {
@@ -474,6 +498,7 @@ export class CaptureIngress {
   // Graceful shutdown: keep live sessions resumable (records stay "live" on
   // disk; media high-water is recovered by scan on the next boot).
   close() {
+    this.listening?.close();
     for (const session of this.sessions.values()) {
       if (session.idleTimer) clearTimeout(session.idleTimer);
       try {

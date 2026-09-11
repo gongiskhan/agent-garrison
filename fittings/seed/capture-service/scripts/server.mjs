@@ -28,6 +28,7 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { FITTING_ID, loadConfig } from "../lib/config.mjs";
 import { CaptureStore, Counters, atomicWriteJSON, mergedCounters, readJSON, ulid } from "../lib/store.mjs";
+import { DeviceListening } from "../lib/device-listening.mjs";
 import { CaptureIngress, bearerToken, tokenMatches } from "../lib/ingress.mjs";
 import { TranscriptionLane } from "../lib/deepgram-live.mjs";
 import { ActiveConversation, WakeBus, wakeRegex } from "../lib/wake.mjs";
@@ -340,6 +341,21 @@ export function makeRequestHandler(ctx) {
     const p = url.pathname;
 
     try {
+      if (req.method === "GET" && (p === "/capture/listening" || p === "/capture/listening/events")) {
+        const auth = authorizeHttp(cfg, req, counters);
+        if (!auth.ok) return json(res, auth.status, { error: auth.reason });
+        const device = url.searchParams.get("device_id");
+        if (p.endsWith("/events")) {
+          res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
+          const send = event => { if (!device || event.device_id === device) res.write(`data: ${JSON.stringify(event)}\n\n`); };
+          for (const record of ctx.listening.list(device)) send({ type: "listening.state", ...record });
+          const off = ctx.listening.subscribe(send);
+          const timer = setInterval(() => res.write(": keepalive\n\n"), 15000);
+          req.on("close", () => { clearInterval(timer); off(); });
+          return;
+        }
+        return json(res, 200, { records: ctx.listening.list(device) });
+      }
       // Spoken clips. Unauthenticated like the other own-port surfaces, and
       // safe to be: the id is a content hash of text the phone was just told to
       // say, it is validated as hex before it touches a path, and guessing one
@@ -697,9 +713,10 @@ export function makeRequestHandler(ctx) {
         const existing = registry.tokens.find((t) => t.token === token);
         if (existing) {
           existing.device_name = deviceName;
+          if (parsed.device_id) existing.device_id = String(parsed.device_id).slice(0, 80);
           counters.bump("devices_deduped");
         } else {
-          registry.tokens.push({ token, device_name: deviceName, registered_at: new Date().toISOString() });
+          registry.tokens.push({ token, ...(parsed.device_id ? { device_id: String(parsed.device_id).slice(0, 80) } : {}), device_name: deviceName, registered_at: new Date().toISOString() });
           counters.bump("devices_registered");
         }
         atomicWriteJSON(store.devicesFile, registry);
@@ -872,6 +889,8 @@ export async function startServer(cfg = loadConfig()) {
   const store = new CaptureStore(live.stateDir);
   const counters = new Counters(store.root, "server");
   const notifier = new CompanionNotifier({ cfg: live, store, counters, env: cfg.env ?? process.env });
+
+  const listening = new DeviceListening({ store, notifier, operative: () => live.operativeName || "Zeca" });
 
   // ONE echo guard per process, consulted in the segment path BEFORE the wake
   // gate (spec §2.5 defence 3): a returning spoken ack is not conversation and
@@ -1050,7 +1069,13 @@ export async function startServer(cfg = loadConfig()) {
     board,
     memoryWriter: new MemoryWriter({ prefix: "companion", label: "Companion", env: cfg.env ?? process.env }),
     notifier: speakingNotifier,
-    source: COMPANION_WAKE_SOURCE
+    source: COMPANION_WAKE_SOURCE,
+    onLifecycle: (name, payload) => {
+      if (name === "wake_detected") {
+        const record = ingress.sessions.get(payload.sessionId)?.record;
+        if (record?.device_id) listening.wake(record.device_id, record.listening_source, payload.at);
+      }
+    }
   });
 
   // Pendant Direct: the feedback bus (ADR D7) plus a second WakeBus instance
@@ -1147,6 +1172,7 @@ export async function startServer(cfg = loadConfig()) {
     }
   });
   const ingress = new CaptureIngress({
+    listening,
     cfg: live,
     store,
     counters,
@@ -1291,7 +1317,8 @@ export async function startServer(cfg = loadConfig()) {
       notifier,
       voice,
       ackSink,
-      zeca
+      zeca,
+      listening
     })
   );
   server.on("upgrade", (req, socket, head) => ingress.handleUpgrade(req, socket, head));
@@ -1309,6 +1336,7 @@ export async function startServer(cfg = loadConfig()) {
 
   await new Promise((resolve) => server.listen(cfg.port, cfg.bindHost, resolve));
   live.port = server.address().port;
+  listening.start();
   await writeStatusFile(live);
   zeca.start();
   console.log(
@@ -1342,6 +1370,7 @@ export async function startServer(cfg = loadConfig()) {
     pendantWakeBus,
     activeConversation,
     feedbackBus,
+    listening,
     echoGuard,
     notifier,
     voice,
