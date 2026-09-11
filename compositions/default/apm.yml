@@ -238,6 +238,7 @@ x-garrison:
         - id: snapshots-default
           config:
             projects_root: ~/dev
+            state_ship_target: ggomes@goncalos-macbook-pro.tail31efa.ts.net
       surfaces:
         - id: screen-share-default
           config:
