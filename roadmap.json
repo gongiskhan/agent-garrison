@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-09-11T21:00:46.388Z",
+  "updatedAt": "2026-09-11T22:57:17.320Z",
   "categories": [
     {
       "id": "c1",
@@ -858,7 +858,7 @@
         {
           "id": "c13.5",
           "text": "Phase 4: Trello import, fixture recovery tests, live preview/import and sync.",
-          "done": false,
+          "done": true,
           "sentToKanban": null,
           "noteRef": null
         },

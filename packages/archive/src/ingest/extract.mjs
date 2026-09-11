@@ -21,7 +21,11 @@ export async function extract(ctx,relative,{beforeModel=async()=>{},look=ctx.loo
       if(text.replace(/\s/g,'').length/pages>=50){result.what_it_is=`PDF document, ${pages} pages`;result.text=text;result.fields=[];}
       else {
         if(!renderTool)throw new Error('pdftoppm not installed. '+pdfHint());temp=tempDir();const cap=Math.min(pages,ctx.config.pdf_max_pages);
-        await run(renderTool,['-r','110','-png','-f','1','-l',String(cap),full,path.join(temp,'page')],{maxBuffer:1024*1024});
+        // Bound oversized source pages before rasterisation; scaling afterwards
+        // would already have allocated hundreds of millions of pixels.
+        let oversized=false;
+        if(info){const {stdout}=await run(info,['-f','1','-l',String(cap),full]);oversized=[...stdout.matchAll(/Page(?:\s+\d+)? size:\s*([\d.]+) x ([\d.]+)/g)].some(m=>Math.max(+m[1],+m[2])*110/72>4000);}
+        await run(renderTool,['-r','110','-png',...(oversized?['-scale-to','2000']:[]),'-f','1','-l',String(cap),full,path.join(temp,'page')],{maxBuffer:1024*1024});
         const images=(await fs.readdir(temp)).filter(n=>n.endsWith('.png')).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true})).map(n=>path.join(temp,n));
         const texts=[],what=[],fields=[];
         // One page per call preserves exact page attribution; it is a permitted

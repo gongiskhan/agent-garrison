@@ -21,3 +21,22 @@ it('uses the PDF text layer or scanned pages and keeps page attribution',async()
 it('validates JSON, retries once with the error and returns usage',async()=>{const invoke=vi.fn().mockResolvedValueOnce({text:'{"wrong":true}',usage:{inputTokens:5,outputTokens:7}}).mockResolvedValueOnce({text:JSON.stringify(document),usage:{inputTokens:2,outputTokens:3},model:'fixture'});const look=createLook({invoke});const result=await look({imagePaths:['fixture'],prompt:'Extract',schema:documentSchema});expect(result.json).toEqual(document);expect(result.usage).toMatchObject({inputTokens:7,outputTokens:10});expect(invoke.mock.calls[1][0].prompt).toContain('failed validation');await expect(createLook({invoke:async()=>({text:'not json'})})({imagePaths:['fixture'],prompt:'Extract'})).rejects.toThrow('invalid JSON');});
 
 it('preserves text-file whitespace and literal section headings in persisted extraction',async()=>{const s=await scratch({seed:false});try{const raw='  Leading spaces\n## Details\nKeep this text\n## Fields\nLiteral heading, not metadata\n\n';await s.write('Archive/Inbox/verbatim.txt',raw);await extract(s.ctx,'Archive/Inbox/verbatim.txt');expect((await readSidecar(s.ctx,'Archive/Inbox/verbatim.txt')).sections.text).toBe(raw);expect(await s.read('Archive/Inbox/verbatim.txt.md')).toContain('## Text\n'+raw+'\n\n## Fields');}finally{await s.close();}});
+
+
+it('bounds unusually large scanned PDF pages before rasterisation and leaves the source intact',async()=>{
+ const dimensions:number[][]=[];const look=vi.fn(async({imagePaths}:{imagePaths:string[]})=>{for(const image of imagePaths){const png=await fs.readFile(image);dimensions.push([png.readUInt32BE(16),png.readUInt32BE(20)]);}return {json:document};});
+ const s=await scratch({seed:false,look});try{
+  // Replace equal-length MediaBox tokens in our synthetic PDF: xref offsets stay valid.
+  const original=await fs.readFile(path.join(fixture,'sample-scanned.pdf'));
+  const huge=Buffer.from(original.toString('latin1').replaceAll(' /MediaBox [0 0 600 800] /Resources','/MediaBox[0 0 6000 8000] /Resources'),'latin1');
+  await s.write('Archive/Inbox/large-pages.pdf',huge);
+  expect(await extract(s.ctx,'Archive/Inbox/large-pages.pdf')).toMatchObject({status:'ok',pages:3});
+  expect(dimensions).toHaveLength(3);expect(dimensions.every(d=>Math.max(...d)===2000)).toBe(true);
+  expect(await fs.readFile(path.join(s.ctx.vaultDir,'Archive/Inbox/large-pages.pdf'))).toEqual(huge);
+ }finally{await s.close();}
+},15000);
+it('terminates a stuck extraction binary with a bounded, readable error',async()=>{
+ // @ts-ignore
+ const {run}=await import('../packages/archive/src/ingest/binaries.mjs');
+ const start=Date.now();await expect(run(process.execPath,['-e','setTimeout(()=>{},10000)'],{timeout:50})).rejects.toThrow('timed out after 50 ms');expect(Date.now()-start).toBeLessThan(3000);
+});
