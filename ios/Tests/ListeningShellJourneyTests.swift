@@ -8,7 +8,7 @@ import WebKit
 // No debug HTTP mutation endpoint or synthetic capture path ships in the app.
 @MainActor
 final class ListeningShellJourneyTests: XCTestCase {
-    func testHomeCaptureScreenshotsAndCombinedJourney() async throws {
+    func testHomeCaptureScreenshotsAndMockJourney() async throws {
         let env = ProcessInfo.processInfo.environment
         guard let shell = env["GARRISON_LISTENING_PROOF_SHELL"], shell.hasPrefix("http://127.0.0.1:"),
               let base = env["GARRISON_LISTENING_PROOF_URL"], let control = env["GARRISON_LISTENING_PROOF_CONTROL"],
@@ -110,63 +110,8 @@ final class ListeningShellJourneyTests: XCTestCase {
         controller.stopForServer(reason: "user_stop")
         controller.recovery.startEngine = nativeStart; controller.recovery.report = nativeReport
         _ = try await probe("reset-pushes")
-        // Phase 4 restores the real microphone, and runs the combined journey.
-        try await route("/"); try await actual("off"); try await click()
-        try await actual("listening"); try await wait { CaptureController.shared.engineRunning }
-        try await route("/capture"); try await actual("listening")
-        host?.open(path: "/quarters")
-        try await dom("location.pathname === '/quarters' && document.querySelector('[data-testid=\"listening-badge\"]')?.textContent === 'Listening'")
-        try await route("/")
-        NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: nil, userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue])
-        try await actual("interrupted")
-        NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: nil, userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue, AVAudioSessionInterruptionOptionKey: AVAudioSession.InterruptionOptions.shouldResume.rawValue])
-        try await actual("listening")
-        // The control server severs and rejects media sockets, without a polite stop.
-        _ = try await probe("cut")
-        try await actual("stalled")
-        let stalled = try await probe("state")
-        XCTAssertEqual((stalled["pushes"] as? [[String: Any]])?.count, 1)
-        XCTAssertEqual((stalled["pushes"] as? [[String: Any]])?.first?["title"] as? String, "Zeca stopped listening")
-        // Host-side simctl backgrounds this app and opens the real scheme URL.
-        var enteredBackground = false
-        var returnedToForeground = false
-        let backgroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in enteredBackground = true }
-        let foregroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in if enteredBackground { returnedToForeground = true } }
-        defer { NotificationCenter.default.removeObserver(backgroundObserver); NotificationCenter.default.removeObserver(foregroundObserver) }
-        _ = try await probe("background-and-open")
-        // WebKit can suspend JavaScript completion in the background. Wait on
-        // native lifecycle notifications before evaluating the returned page.
-        try await wait(timeout: 75) { enteredBackground && returnedToForeground }
-        try await dom("location.pathname === '/capture'")
-        try await actual("listening")
-        XCTAssertTrue(CaptureController.shared.engineRunning)
-        let hostEvents = (try await probe("state"))["hostEvents"] as? [[String: Any]]
-        XCTAssertTrue(hostEvents?.contains { $0["type"] as? String == "background-launched" } == true)
-        XCTAssertFalse(hostEvents?.contains { ($0["type"] as? String)?.hasSuffix("-error") == true } == true)
-        // Resume must replace a stalled upload even while the engine is alive.
-        let stalledSession = CaptureController.shared.sessionId
-        _ = try await probe("cut"); try await actual("stalled")
-        _ = try await probe("unblock"); try await click(); try await actual("listening")
-        XCTAssertNotEqual(CaptureController.shared.sessionId, stalledSession)
-        var script = MockPendantTransport.Script(); script.connectDelayMs = 1
-        let packets = (0..<3000).map { PendantFixturePacket(seq: $0 + 1, ts: Double($0) * 20, bytes: Data([0xf8,0xff,0xfe])) }
-        let transport = MockPendantTransport(packets: packets, script: script)
-        GarrisonPendantPlugin.controllerOverride = PendantController(transport: transport, phoneSink: nil)
-        AppGroup.pendantIdentifier = UUID()
-        channel.intent("pendant", "listening")
-        try await wait { channel.records["pendant"]?.actual == "listening" && channel.records["phone"]?.intent == "off" }
-        XCTAssertFalse(CaptureController.shared.engineRunning)
-        channel.intent("phone", "listening")
-        try await actual("listening")
-        XCTAssertEqual(channel.records["pendant"]?.intent, "off")
-        try await hold(1000); XCTAssertEqual(channel.records["phone"]?.intent, "listening")
-        try await hold(1700); try await actual("off")
-        try await dom("!document.querySelector('[data-testid=\"listening-badge\"]')")
-        let before = (try await probe("state"))["pushes"] as? [[String: Any]]
-        try await Task.sleep(nanoseconds: 25_000_000_000)
-        let after = (try await probe("state"))["pushes"] as? [[String: Any]]
-        XCTAssertEqual(after?.count, before?.count)
     }
+
     private func wait(timeout: TimeInterval = 15, until condition: () -> Bool) async throws {
         let end = Date().addingTimeInterval(timeout)
         while Date() < end { if condition() { return }; try await Task.sleep(nanoseconds: 50_000_000) }

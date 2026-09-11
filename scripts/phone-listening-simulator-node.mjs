@@ -1,10 +1,9 @@
 // Isolated real Capture service used only by command-line simulator validation.
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createServer } from "node:http";
-import { execFile, spawn } from "node:child_process";
-import { promisify } from "node:util";
+import { spawn } from "node:child_process";
 import { loadConfig } from "../fittings/seed/capture-service/lib/config.mjs";
 import { startServer } from "../fittings/seed/capture-service/scripts/server.mjs";
 const root = mkdtempSync(path.join(os.tmpdir(), "listening-simulator-"));
@@ -15,7 +14,6 @@ const app = await startServer(cfg);
 let heartbeats = 0, blocked = false, mock = null;
 const pushes = [];
 const hostEvents = [];
-const run = promisify(execFile);
 function hostEvent(type, detail = null) {
   const event = { type, detail, at: new Date().toISOString() };
   hostEvents.push(event);
@@ -35,6 +33,7 @@ app.listening.message = (owner, message) => { if (message.type === "listening.he
 const control = createServer((req, res) => {
   const url = new URL(req.url, "http://localhost");
   const device = url.searchParams.get("device");
+  if (url.pathname.startsWith("/event/")) hostEvent(`journey:${url.pathname.slice(7)}`);
   if (url.pathname === "/mock-start") {
     mock?.kill();
     mock = spawn(process.execPath, ["scripts/mock-phone-source.mjs", "--url", `http://127.0.0.1:${app.cfg.port}`, "--device", device, "--wait-for-intent", "--duration", "240"], { env: { ...process.env, CAPTURE_TOKEN: token }, stdio: ["ignore", "inherit", "inherit"] });
@@ -45,26 +44,8 @@ const control = createServer((req, res) => {
   const sessions = [...app.ingress.sessions.values()];
   if (url.pathname === "/cut") { blocked = true; for (const session of sessions) session.socket?.terminate(); }
   if (url.pathname === "/unblock") blocked = false;
-  if (url.pathname === "/background-and-open") {
-    // Return the app's request before backgrounding it, and keep Capture's
-    // event loop available while simctl waits for the application switch.
-    setTimeout(async () => {
-      const simulator = readFileSync("/tmp/listening-simulator-id", "utf8").trim();
-      hostEvent("background-requested", simulator);
-      try {
-        await run("xcrun", ["simctl", "launch", simulator, "com.apple.Preferences"], { timeout: 30000 });
-        hostEvent("background-launched");
-      } catch (error) { hostEvent("background-error", { message: error.message, signal: error.signal, killed: error.killed, stderr: error.stderr }); }
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      blocked = false;
-      try {
-        await run("xcrun", ["simctl", "openurl", simulator, "garrison://open?path=%2Fcapture%3Fsource%3Dphone"], { timeout: 30000 });
-        hostEvent("capture-deep-link-opened");
-      } catch (error) { hostEvent("deep-link-error", { message: error.message, signal: error.signal, killed: error.killed, stderr: error.stderr }); }
-    }, 250);
-  }
   res.setHeader("content-type", "application/json");
-  res.end(JSON.stringify({ heartbeats, pushes, hostEvents, records: app.listening.list(device), frames: sessions.reduce((n, s) => n + s.media.highWater().audio, 0) }));
+  res.end(JSON.stringify({ heartbeats, pushes, hostEvents, session_ids: [...app.ingress.sessions.keys()], records: app.listening.list(device), frames: sessions.reduce((n, s) => n + s.media.highWater().audio, 0) }));
 });
 await new Promise(resolve => control.listen(0, "127.0.0.1", resolve));
 const info = { url: `http://127.0.0.1:${app.cfg.port}`, control: `http://127.0.0.1:${control.address().port}`, token };

@@ -1,4 +1,5 @@
 import Foundation
+import AVFoundation
 
 #if DEBUG
 /// DEBUG-only harness: streams the bundled Opus fixture through the REAL
@@ -10,6 +11,39 @@ import Foundation
 ///
 /// Ships nothing in Release: the whole file is compiled out.
 enum FixtureStreamer {
+    @MainActor
+    private static var listeningUITest: Bool {
+        ProcessInfo.processInfo.environment["GARRISON_LISTENING_UI_TEST"] == "1" && AppGroup.baseURL?.host == "127.0.0.1"
+    }
+
+    @MainActor
+    static func configureListeningJourneyIfRequested() {
+        guard listeningUITest else { return }
+        AppGroup.consentSuppressed = true
+        AppGroup.pendantIdentifier = nil
+    }
+
+    // XCTest's separate UI driver injects only these events into an isolated
+    // simulator app. This hook is absent from Release and refuses live nodes.
+    @MainActor
+    static func handleListeningTestURL(_ url: URL) -> Bool {
+        guard listeningUITest, url.scheme == "garrison", url.host == "listening-test" else { return false }
+        switch url.path {
+        case "/interruption-began":
+            NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: nil, userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue])
+        case "/interruption-ended":
+            NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: nil, userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue, AVAudioSessionInterruptionOptionKey: AVAudioSession.InterruptionOptions.shouldResume.rawValue])
+        case "/pair-pendant":
+            var script = MockPendantTransport.Script(); script.connectDelayMs = 1
+            let packets = (0..<6000).map { PendantFixturePacket(seq: $0 + 1, ts: Double($0) * 20, bytes: Data([0xf8, 0xff, 0xfe])) }
+            GarrisonPendantPlugin.controllerOverride = PendantController(transport: MockPendantTransport(packets: packets, script: script), phoneSink: nil)
+            AppGroup.pendantIdentifier = UUID()
+            if let record = ListeningChannel.shared.records["phone"] { ListeningChannel.shared.receive(record) }
+        default: return false
+        }
+        return true
+    }
+
     static func autostartIfRequested() {
         let env = ProcessInfo.processInfo.environment
         guard env["GARRISON_AUTOSTART"] == "fixture" else { return }

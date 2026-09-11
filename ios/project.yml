@@ -124,6 +124,23 @@ targets:
         "CODE_SIGN_IDENTITY[sdk=iphoneos*]": ""
         PROVISIONING_PROFILE_SPECIFIER: ""
 
+  GarrisonUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: GarrisonApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.gomes.garrison.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: GarrisonApp
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: ""
+        "CODE_SIGN_IDENTITY[sdk=iphoneos*]": ""
+        PROVISIONING_PROFILE_SPECIFIER: ""
+
 packages:
   CoreBluetoothMock:
     url: https://github.com/NordicSemiconductor/IOS-CoreBluetooth-Mock.git
@@ -151,6 +168,7 @@ schemes:
         GARRISON_LISTENING_PROOF_TOKEN: "${GARRISON_LISTENING_PROOF_TOKEN}"
       targets:
         - GarrisonTests
+        - GarrisonUITests
     profile:
       config: Release
     analyze:
