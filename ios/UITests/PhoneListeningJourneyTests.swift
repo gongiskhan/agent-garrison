@@ -19,7 +19,8 @@ final class PhoneListeningJourneyTests: XCTestCase {
         func probe(_ route: String) async throws -> [String: Any] {
             var url = URLComponents(string: control + "/" + route)!
             if let device { url.queryItems = [URLQueryItem(name: "device", value: device)] }
-            let (data, _) = try await URLSession.shared.data(from: url.url!)
+            let (data, response) = try await URLSession.shared.data(from: url.url!)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw NSError(domain: "ListeningUIControl", code: (response as? HTTPURLResponse)?.statusCode ?? 0) }
             return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         }
         func record(_ source: String = "phone") async throws -> [String: Any]? {
@@ -78,7 +79,7 @@ final class PhoneListeningJourneyTests: XCTestCase {
         _ = try await probe("event/app-backgrounded")
         try await Task.sleep(nanoseconds: 3_000_000_000)
         _ = try await probe("unblock")
-        app.open(URL(string: "garrison://open?path=%2Fcapture%3Fsource%3Dphone")!)
+        _ = try await probe("open-capture")
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15))
         XCTAssertTrue(app.staticTexts["Capture"].firstMatch.waitForExistence(timeout: 15))
         try await waitFor(actual: "listening")
