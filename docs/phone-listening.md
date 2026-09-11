@@ -47,3 +47,11 @@ Vitest and existing Capture harnesses cover server behavior. GarrisonTests and c
 Audio option references: [Apple A2DP](https://developer.apple.com/documentation/avfaudio/avaudiosession/categoryoptions-swift.struct/allowbluetootha2dp) and [Apple mixing](https://developer.apple.com/documentation/avfaudio/avaudiosession/categoryoptions-swift.struct/mixwithothers).
 
 Phase 1: 10 watchdog tests and 35 existing ingress/source-arbitration tests passed. `node scripts/phone-listening-server-proof.mjs` ran the real mock source with a stall at 10 seconds and recovery at 40 seconds. It verified a stall within 25 seconds of the last activity, exactly one dry-run push with the required copy, and `watchdog_recovered` with a cleared episode. Evidence: `evidence/phone-listening/phase1-events.log`.
+
+## Automated validation
+
+`node scripts/phone-listening-server-proof.mjs` runs the real ingress with provider calls disabled, cuts activity after ten seconds, and resumes at forty seconds. It records exactly one dry-run push and a cleared recovery episode in the owner's evidence directory. Intent updates do not claim an actual engine transition; the device reports that separately.
+
+`tests/listening-control.test.ts` and `tests/listening-control-browser.test.ts` cover every label and badge state, permission copy, optimistic start, a cancelled hold and a completed hold. A completed hold consumes its release event so the newly displayed Start button cannot restart capture accidentally. The browser capture route exposes the same records read-only through the authenticated voice relay.
+
+The Phone listening validation workflow builds the native app, runs XCTest and the simulator against an isolated Capture node, and compiles the physical device target. Passing native acceptance, simulator screenshots, the combined journey and TestFlight delivery are separate gates. Device checks are in [the checklist](phone-listening-checklist.md).

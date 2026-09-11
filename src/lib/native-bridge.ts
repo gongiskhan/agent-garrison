@@ -131,6 +131,30 @@ export const nativeNode = {
   info: () => call<AppInfo>("GarrisonNode", "info")
 };
 
+export interface DeviceListeningState {
+  device_id: string;
+  device_name: string;
+  source: "phone" | "pendant";
+  intent: "listening" | "off";
+  actual: "off" | "starting" | "listening" | "interrupted" | "stalled" | "failed";
+  reason: string | null;
+  last_seen_at: string | null;
+  intent_changed_at: string;
+  actual_changed_at: string;
+  stall_episode_id: string | null;
+  stall_pushes_sent: number;
+  app_version: string;
+}
+export interface ListeningSnapshot { device_id: string; records: DeviceListeningState[]; paired: boolean }
+export const nativeListening = {
+  state: () => call<ListeningSnapshot>("GarrisonCapture", "listeningState"),
+  intent: (source: DeviceListeningState["source"], intent: DeviceListeningState["intent"]) => call<ListeningSnapshot>("GarrisonCapture", "listeningIntent", { source, intent }),
+  onState: (cb: (state: ListeningSnapshot) => void) => listen("GarrisonCapture", "listeningState", cb as (data: never) => void),
+  onNotice: (cb: (notice: { message: string }) => void) => listen("GarrisonCapture", "listeningNotice", cb as (data: never) => void),
+  haptic: () => call<void>("GarrisonCapture", "haptic"),
+  openSettings: () => call<void>("GarrisonCapture", "openSettings")
+};
+
 export const nativeCapture = {
   status: () => call<CaptureStatus>("GarrisonCapture", "status"),
   start: (kind: CaptureKind, extra: Record<string, unknown> = {}) =>

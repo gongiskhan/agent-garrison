@@ -209,6 +209,7 @@ declare module "*/capture-service/lib/notify.mjs" {
     cfg: Record<string, unknown>;
     apns: unknown;
     cardUrl(cardId: string | null): Promise<string | null>;
+    sendListeningPush(payload: Record<string, unknown>): Promise<unknown>;
     // Two budgets since the 2026-08-15 "no feedback" incident: routine ack
     // fan-out can no longer starve the pushes that answer a spoken command.
     sentToday(priority?: "routine" | "interactive"): number;
@@ -629,4 +630,21 @@ declare module "*/capture-service/scripts/zeca-nightly.mjs" {
 declare module "*/capture-service/lib/pronunciation-aliases.mjs" {
   export function aliasRegex(variants: readonly string[] | null | undefined): RegExp | null;
   export function applyAliases(text: string, aliasMap: Record<string, readonly string[]> | null | undefined): string;
+}
+
+declare module "*/capture-service/lib/listening-config.mjs" {
+  export const STOP_HOLD_MS: number;
+}
+declare module "*/capture-service/lib/device-listening.mjs" {
+  export function migrateListeningStore(file: string): any;
+  export class DeviceListening {
+    constructor(deps: Record<string, unknown>);
+    register(device: string, source: string, metadata?: Record<string, unknown>): any;
+    get(device: string, source: string): any;
+    list(device?: string): any[];
+    subscribe(fn: (event: any) => void): () => void;
+    message(owner: string, message: Record<string, unknown>): any;
+    activity(device: string, source: string): any;
+    tick(): Promise<void>;
+  }
 }

@@ -502,7 +502,7 @@ const VOICE_SESSION_ID_RE = /^[A-Za-z0-9_-]{10,40}$/;
 // provider port and no token on the phone. The provider's own SSE route trusts
 // loopback and the tailnet; the token rides only when the host holds one.
 async function handleVoiceSessionEvents(req, res, sessionId, voice) {
-  if (!VOICE_SESSION_ID_RE.test(sessionId)) {
+  if (sessionId !== null && !VOICE_SESSION_ID_RE.test(sessionId)) {
     jsonRes(res, 400, { error: "bad session id" });
     return;
   }
@@ -517,7 +517,7 @@ async function handleVoiceSessionEvents(req, res, sessionId, voice) {
     return;
   }
   const token = await voiceToken(voice);
-  const target = new URL(`/sessions/${sessionId}/events`, info.url);
+  const target = new URL(sessionId === null ? "/capture/listening/events" : `/sessions/${sessionId}/events`, info.url);
   const headers = { Accept: "text/event-stream" };
   if (token) headers.Authorization = `Bearer ${token}`;
   pipeUpstreamSse(req, res, {
@@ -3595,6 +3595,7 @@ export function createTalkRouter(liveOpts, { distDir = null, log = console } = {
       if (pathname.startsWith("/api/remote-shell/")) {
         settle(res, handleRemoteShellProxy(req, res, pathname.slice("/api/remote-shell".length), parsed.search?.slice(1) ?? ""), log); return true;
       }
+      if (pathname === "/api/voice/listening/events" && method === "GET") { settle(res, handleVoiceSessionEvents(req, res, null, liveOpts.voice), log); return true; }
       if (pathname === "/api/voice/health" && method === "GET") { settle(res, handleVoiceHealth(res, liveOpts.voice), log); return true; }
       if (pathname === "/api/voice" && method === "GET") { settle(res, handleVoiceInfo(res, liveOpts.voice), log); return true; }
       if (pathname === "/api/voice/stt" && method === "POST") { settle(res, handleVoiceProxy(req, res, "/stt", liveOpts.voice), log); return true; }

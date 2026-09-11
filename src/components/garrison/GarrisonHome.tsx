@@ -1,5 +1,6 @@
 "use client";
 
+import { ListeningControl } from "@/components/capture/ListeningControl";
 import Link from "next/link";
 import clsx from "clsx";
 import { useEffect, useState } from "react";
@@ -43,6 +44,7 @@ export function GarrisonHome() {
       return (
         <main>
           <div className="page dash">
+            <ListeningControl />
             <section className={styles.bootstrapFailure} role="alert">
               <span className={styles.eyebrow}>Command link unavailable</span>
               <h1>Garrison could not read the active composition.</h1>
@@ -55,7 +57,7 @@ export function GarrisonHome() {
         </main>
       );
     }
-    return <PageSkeleton label="Loading Agent Garrison: reading the composition manifest" />;
+    return <><div className="page dash"><ListeningControl /></div><PageSkeleton label="Loading Agent Garrison: reading the composition manifest" /></>;
   }
 
   const status = runnerState?.status ?? "idle";
@@ -78,6 +80,7 @@ export function GarrisonHome() {
         <b>Garrison</b>
       </div>
       <div className="page dash">
+        <ListeningControl />
         <section className={styles.commandDeck}>
           <div className={styles.commandCopy}>
             <div className={styles.eyebrow}>

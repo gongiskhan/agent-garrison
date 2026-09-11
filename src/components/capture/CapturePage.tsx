@@ -16,6 +16,7 @@ import {
   type PendantStatus,
   type PushStatus
 } from "@/lib/native-bridge";
+import { ListeningControl, ListeningReadOnly } from "./ListeningControl";
 import { BridgeGate } from "./BridgeGate";
 import styles from "./CapturePage.module.css";
 
@@ -53,10 +54,10 @@ export function CapturePage() {
         </header>
         <BridgeGate
           fallback={
-            <p className={styles.fallback} data-testid="capture-fallback">
+            <><ListeningReadOnly /><p className={styles.fallback} data-testid="capture-fallback">
               Open this page in the Garrison app. In a browser there is nothing to capture from; use the
               record button in <Link href="/talk">Conversations</Link> instead.
-            </p>
+            </p></>
           }
         >
           <NativeCapture />
@@ -69,6 +70,7 @@ export function CapturePage() {
 function NativeCapture() {
   return (
     <div className={styles.sections} data-testid="capture-native">
+      <ListeningControl />
       <NodeSection />
       <RecordingSection />
       <PushSection />
@@ -269,23 +271,10 @@ function RecordingSection() {
         </div>
       </dl>
       <div className={styles.actions}>
-        {live ? (
-          <button type="button" className="btn small danger" disabled={busy}
-            onClick={() => void stop(status?.broadcasting ? "screen_audio" : "microphone")}>
-            Stop
-          </button>
-        ) : (
-          <>
-            <button type="button" className="btn small primary" disabled={busy || !status}
-              onClick={() => void start("microphone")}>
-              Record microphone
-            </button>
-            <button type="button" className="btn small" disabled={busy || !status}
-              onClick={() => void start("screen_audio")}>
-              Record screen audio
-            </button>
-          </>
-        )}
+        <button type="button" className="btn small" disabled={busy || !status}
+          onClick={() => void (status?.broadcasting ? stop("screen_audio") : start("screen_audio"))}>
+          {status?.broadcasting ? "Stop screen audio" : "Record screen audio"}
+        </button>
         <button type="button" className="btn small ghost" disabled={busy || !status}
           onClick={() => void run(() => nativeCapture.setConsentSuppressed(!status?.consentSuppressed))}>
           {status?.consentSuppressed ? "Ask for consent again" : "Skip the consent sheet"}
@@ -553,15 +542,7 @@ function PendantSection() {
         ) : null}
       </dl>
       <div className={styles.actions}>
-        {live || inFlight ? (
-          <button type="button" className="btn small" disabled={busy} onClick={() => void run(nativePendant.disconnect)}>
-            Disconnect
-          </button>
-        ) : (
-          <button type="button" className="btn small primary" disabled={busy || !status} onClick={() => void run(nativePendant.connect)}>
-            {status?.paired ? "Connect" : "Pair"}
-          </button>
-        )}
+        {!status?.paired && <button type="button" className="btn small primary" disabled={busy || !status} onClick={() => void run(nativePendant.connect)}>Pair</button>}
         {status?.paired ? (
           <button type="button" className="btn small ghost" disabled={busy} onClick={() => void run(nativePendant.forget)}>
             Forget
