@@ -12,8 +12,9 @@ export class IngestQueue {
   async scan(){let queued=0;for(const f of await walkVault(this.ctx,'Archive'))if(!f.path.endsWith('.md')){if(await validSidecar(this.ctx,f.path)){const valid=await readSidecar(this.ctx,f.path);if(valid.status==='ok')this.successful[f.path]=valid.sha256;continue;}const s=await readSidecar(this.ctx,f.path);if(s?.status==='failed'&&this.jobs.list().some(j=>j.kind==='ingest'&&j.input.path===f.path&&j.state==='failed'))continue;if(await this.enqueue(f.path))queued++;}await this.ctx.write(path.join(this.ctx.dataDir,'ingest.json'),JSON.stringify(this.successful));return queued;}
   async enqueue(relative,{force=false}={}){
     if(!relative.startsWith('Archive/')||relative.includes('/.')||relative.endsWith('.md'))return null;
-    const active=this.jobs.list().find(j=>j.kind==='ingest'&&j.input.path===relative&&['queued','running'].includes(j.state));if(active)return active.id;
+    const active=this.jobs.list().find(j=>j.kind==='ingest'&&j.input.path===relative&&['queued','running'].includes(j.state));if(active){if(force&&active.state==='queued'){await this.jobs.update(active,{attempts:0,retryAt:null,error:null,endedAt:null});this.kick();}return active.id;}
     if(!force&&await validSidecar(this.ctx,relative))return null;
+    if(force){const failed=this.jobs.list('failed').find(j=>j.kind==='ingest'&&j.input.path===relative);if(failed){await this.jobs.update(failed,{state:'queued',attempts:0,retryAt:null,error:null,endedAt:null});this.kick();return failed.id;}}
     const row=await this.jobs.create('ingest',{path:relative},{done:0,total:1,label:relative});this.kick();return row.id;
   }
   async beforeModel(){const time=this.clock();this.calls=this.calls.filter(t=>time-t<3600_000);if(this.calls.length>=100){this.pausedUntil=this.calls[0]+3600_000;throw Object.assign(new Error('Ingestion paused (hourly limit)'),{hourlyLimit:true});}this.calls.push(time);await this.ctx.write(path.join(this.ctx.dataDir,'model-calls.json'),JSON.stringify(this.calls));}

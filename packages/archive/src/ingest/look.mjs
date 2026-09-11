@@ -11,11 +11,13 @@ export const EXTRACT_PROMPT=`You are reading one or more photographed or scanned
 Do not add keys. Do not add commentary. If the image contains no text, text is an empty string and fields is an empty array.`;
 export function parseJson(text){const raw=String(text).trim().replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,'');return JSON.parse(raw);}
 export function createLook({invoke,defaultTarget='cc-sonnet'}) {
-  return async function look({imagePaths,prompt,schema=documentSchema,target=defaultTarget,timeoutMs=120_000}) {
-    const start=performance.now();let error;
+  return async function look({imagePaths,prompt,schema=documentSchema,target=defaultTarget,timeoutMs=120_000,beforeRetry=async()=>{}}) {
+    const start=performance.now();let error;const usage={inputTokens:0,outputTokens:0};
     for(let attempt=0;attempt<2;attempt++){
+      if(attempt)await beforeRetry();
       const result=await invoke({imagePaths,prompt:attempt?`${prompt}\nYour prior JSON failed validation: ${error}. Return corrected JSON only.`:prompt,target,timeoutMs});
-      try{return {json:schema.parse(typeof result.json==='object'?result.json:parseJson(result.text)),target:result.target??target,model:result.model,usage:result.usage,ms:Math.round(performance.now()-start)};}catch(e){error=e.message;if(attempt)throw new Error('Extraction returned invalid JSON: '+error);}
+      for(const [key,value] of Object.entries(result.usage??{}))if(typeof value==='number')usage[key]=(usage[key]??0)+value;
+      try{return {json:schema.parse(typeof result.json==='object'?result.json:parseJson(result.text)),target:result.target??target,model:result.model,usage,ms:Math.round(performance.now()-start)};}catch(e){error=e.message;if(attempt)throw new Error('Extraction returned invalid JSON: '+error);}
     }
   };
 }

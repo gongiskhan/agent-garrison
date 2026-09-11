@@ -8,11 +8,10 @@ import { binary, run, imageForModel, tempDir, pdfHint } from './binaries.mjs';
 export function kindOf(name){const ext=path.extname(name).toLowerCase();return /\.(png|jpe?g|webp|gif|bmp|avif|heic|heif)$/.test(ext)?'image':ext==='.pdf'?'pdf':/\.(txt|csv|json|log|yml|yaml)$/.test(ext)?'text':/\.(docx|xlsx|pptx)$/.test(ext)?'office':/\.(mp3|wav|m4a|ogg|aac|flac)$/.test(ext)?'audio':'other';}
 export async function extract(ctx,relative,{beforeModel=async()=>{},look=ctx.look}={}){
   const full=confine(ctx.vaultDir,relative),kind=kindOf(relative),hash=await sourceHash(ctx,relative);const result={kind,sha256:hash,status:'ok',pages:1,target:ctx.config.extract_target};let temp;
-  const observe=async(images)=>{await beforeModel();return (await look({imagePaths:images,prompt:EXTRACT_PROMPT,schema:documentSchema,target:ctx.config.extract_target})).json;};
+  const observe=async(images)=>{await beforeModel();return (await look({imagePaths:images,prompt:EXTRACT_PROMPT,schema:documentSchema,target:ctx.config.extract_target,beforeRetry:beforeModel})).json;};
   try{
     if(kind==='text'){const file=await fs.open(full,'r');const buffer=Buffer.alloc(200*1024);try{const {bytesRead}=await file.read(buffer,0,buffer.length,0);result.text=buffer.subarray(0,bytesRead).toString('utf8');}finally{await file.close();}result.what_it_is=`Text file, ${result.text.split('\n').length} lines`;result.fields=[];}
     else if(kind==='image'){
-      if(/\.hei[cf]$/i.test(relative))throw new Error('heic conversion unavailable on this node');
       temp=tempDir();Object.assign(result,await observe([await imageForModel(full,temp)]));
     }else if(kind==='pdf'){
       const textTool=binary('pdftotext'),renderTool=binary('pdftoppm');if(!textTool&&!renderTool)throw new Error('pdftotext/pdftoppm not installed. '+pdfHint());

@@ -8,7 +8,12 @@ export async function readSidecar(ctx,relative) {
   const raw=await maybeRead(confine(ctx.vaultDir,relative+'.md'));if(!raw)return null;
   const parsed=parseFrontmatter(raw);if(parsed.frontmatter.garrison!=='derived')return null;
   const section=(name)=>{const m=new RegExp(`^## ${name}\\n([\\s\\S]*?)(?=^## |$(?![\\s\\S]))`,'m').exec(parsed.body);return m?.[1]?.trim()??'';};
-  return {...parsed.frontmatter,sections:{what_it_is:section('What it is'),text:section('Text'),fields:section('Fields').split('\n').map(l=>/^- (.+?): (.*)$/.exec(l)).filter(Boolean).map(m=>({label:m[1],value:m[2]}))},error:section('Error')||null};
+  // Text may itself contain Markdown headings. The writer's final Fields
+  // heading delimits it; remove only our separator, preserving source whitespace.
+  const textAt=parsed.body.indexOf('\n## Text\n'),fieldsAt=parsed.body.lastIndexOf('\n\n## Fields');
+  const verbatim=textAt>=0&&fieldsAt>textAt?parsed.body.slice(textAt+'\n## Text\n'.length,fieldsAt):section('Text');
+  const fields=fieldsAt>=0?parsed.body.slice(fieldsAt+'\n\n## Fields'.length).trim():section('Fields');
+  return {...parsed.frontmatter,sections:{what_it_is:section('What it is'),text:verbatim,fields:fields.split('\n').map(l=>/^- (.+?): (.*)$/.exec(l)).filter(Boolean).map(m=>({label:m[1],value:m[2]}))},error:section('Error')||null};
 }
 export async function sourceHash(ctx,relative) {return sha(await fs.readFile(confine(ctx.vaultDir,relative)));}
 export async function validSidecar(ctx,relative) {const s=await readSidecar(ctx,relative);return !!s && s.sha256===await sourceHash(ctx,relative) && ['ok','unsupported'].includes(s.status);}
