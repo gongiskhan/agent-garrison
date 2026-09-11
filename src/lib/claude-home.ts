@@ -1,14 +1,12 @@
 import path from "node:path";
+import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 
-// Resolves the Claude Code installation dir and Garrison's own state dir.
-//
-// Both honour an env override so the build's exploration / e2e / walkthrough
-// runs can be pointed at a seeded SANDBOX instead of mutating the user's live
-// ~/.claude. Default (no env) is the real path — production behaviour.
-//
-//   GARRISON_CLAUDE_HOME  -> the Claude Code install root  (default ~/.claude)
-//   GARRISON_HOME         -> Garrison's state root          (default ~/.garrison)
+// The managed config and the user's config have separate identities. The
+// launcher selects the Garrison home with GARRISON_CLAUDE_HOME; GARRISON_USER_*
+// identifies the user's own runtime config for explicit sharing and backups.
+// Every path accepts a sandbox override. The runner checks the boundary before
+// materialisation; a symlink must not collapse these two homes into one.
 
 export function claudeHome(): string {
   const override = process.env.GARRISON_CLAUDE_HOME?.trim();
@@ -72,4 +70,44 @@ export function parkedStoreDir(): string {
 // ownership, per-primitive lastWrittenHash for echo suppression).
 export function provenanceLedgerPath(): string {
   return path.join(globalCompositionDir(), "garrison-provenance.json");
+}
+
+export function userClaudeHome(): string {
+  return process.env.GARRISON_USER_CLAUDE_HOME?.trim() || path.join(homedir(), ".claude");
+}
+export function userClaudeJsonPath(): string {
+  return process.env.GARRISON_USER_CLAUDE_JSON?.trim() || path.join(homedir(), ".claude.json");
+}
+export function userCodexHome(): string {
+  return process.env.GARRISON_USER_CODEX_HOME?.trim() || path.join(homedir(), ".codex");
+}
+export function userGeminiHome(): string {
+  return process.env.GARRISON_USER_GEMINI_HOME?.trim() || path.join(homedir(), ".gemini");
+}
+export function garrisonRuntimeHome(runtime: "claude" | "codex" | "gemini"): string {
+  if (runtime === "claude" && process.env.GARRISON_CLAUDE_HOME?.trim()) return claudeHome();
+  return path.join(garrisonDir(), "runtime-homes", runtime);
+}
+export function userCompositionDir(): string { return path.join(garrisonDir(), "user-composition"); }
+export function userCompositionClaudeLink(): string { return path.join(userCompositionDir(), ".claude"); }
+export function userProvenanceLedgerPath(): string { return path.join(userCompositionDir(), "garrison-provenance.json"); }
+
+// Resolve existing ancestors too, so a not-yet-created path under a symlink
+// cannot evade the same-home refusal.
+export function resolvedHome(home: string): string {
+  const absolute = path.resolve(home);
+  try { return realpathSync(absolute); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    const parent = path.dirname(absolute);
+    return parent === absolute ? absolute : path.join(resolvedHome(parent), path.basename(absolute));
+  }
+}
+export function garrisonHomeRefusal(): string {
+  return `refusing to run Garrison against your own Claude Code config; the Garrison home is ${path.join(garrisonDir(), "runtime-homes", "claude")}`;
+}
+export function assertGarrisonHome(): void {
+  if (process.env.GARRISON_ALLOW_USER_HOME !== "1" && resolvedHome(claudeHome()) === resolvedHome(userClaudeHome())) {
+    throw new Error(garrisonHomeRefusal());
+  }
 }
