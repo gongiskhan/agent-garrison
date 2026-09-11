@@ -141,6 +141,12 @@ async function handle(request: NextRequest, { params }: Params): Promise<Respons
     body = raw.toString("utf8");
   }
 
+  if (segments[0] === "install" && request.method === "POST") {
+    let action: unknown;
+    try { action = JSON.parse(body || "{}").action; } catch { return json(400, { error: "invalid JSON" }); }
+    if (action === "install") return json(409, { error: "a machine installs itself the first time; use Add a machine" });
+    if (!["reconcile-homes", "quarantine-leaks"].includes(String(action))) return json(400, { error: "unknown peer install action" });
+  }
   const response = await forwardToPeer({
     node,
     base,

@@ -55,6 +55,8 @@ interface AllowRule {
 // Exactly the endpoints cross-node watch / steer / stop / answer need. Adding a
 // row here widens what every node in the mesh may do to every other node.
 const ALLOW: readonly AllowRule[] = [
+  { shape: ["install"], methods: ["GET", "POST"], upstream: "app" },
+  { shape: ["install", "leaks"], methods: ["GET"], upstream: "app" },
   { shape: ["conversation", ID], methods: ["GET"], upstream: "app" },
   ...["question", "log", "summary", "metrics"].map((action): AllowRule => ({ shape: ["conversation", ID, action], methods: ["GET"], upstream: "app" })),
   { shape: ["conversation", ID, "stream"], methods: ["GET"], upstream: "app", sse: true },
@@ -247,7 +249,7 @@ export interface ForwardInput {
 export async function forwardToPeer(input: ForwardInput): Promise<Response> {
   const doFetch = input.fetchImpl ?? fetch;
   const sse = input.sse === true;
-  const timeoutMs = input.timeoutMs ?? (sse ? SSE_CONNECT_TIMEOUT_MS
+  const timeoutMs = input.timeoutMs ?? (input.method === "POST" && input.path === "/api/install" ? 300_000 : sse ? SSE_CONNECT_TIMEOUT_MS
     : input.method === "POST" && input.path === "/api/remote-shell/sessions" ? 65_000 : PROXY_TIMEOUT_MS);
 
   const timeout = new AbortController();
