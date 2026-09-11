@@ -8,3 +8,5 @@ apm_modules
 # backup.log/state.json are churn, and env holds the repo's own password -
 # circular to restore from the repo it unlocks.
 **/.garrison/snapshots
+**/.garrison/runtime-homes/**/projects/**/*.jsonl
+**/.garrison/stretch-claude/**

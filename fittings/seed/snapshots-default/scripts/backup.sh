@@ -56,9 +56,20 @@ if [ -z "${RESTIC_PASSWORD:-}" ] && [ -z "${RESTIC_PASSWORD_FILE:-}" ]; then
   exit 1
 fi
 
+# Refresh the consistent daily snapshot before restic reads it. Never include
+# the live database or its WAL in the backup set.
+STATE_HOME="${GARRISON_STATE_HOME:-$HOME/.garrison-state}"
+if [ -f "$STATE_HOME/current/scripts/backup.mjs" ]; then
+  if ! (cd "$STATE_HOME/current" && GARRISON_STATE_HOME="$STATE_HOME" GARRISON_STATE_DB="$STATE_HOME/garrison.db" node scripts/backup.mjs --daily) >>"$LOG_FILE" 2>&1; then
+    write_state false "" "state DB daily snapshot failed (see $LOG_FILE)"
+    echo "state DB daily snapshot failed; restic backup aborted" >&2
+    exit 1
+  fi
+fi
+
 # Build the backup set from the paths that actually exist.
 SET=()
-for d in "${GARRISON_HOME:-$HOME/.garrison}" "${GARRISON_CLAUDE_HOME:-$HOME/.claude}" "$SNAPSHOTS_PROJECTS_ROOT"; do
+for d in "${GARRISON_HOME:-$HOME/.garrison}" "${GARRISON_CLAUDE_HOME:-$HOME/.claude}" "$SNAPSHOTS_PROJECTS_ROOT" "$STATE_HOME/backups" "${GARRISON_HOME:-$HOME/.garrison}/mesh-conversations"; do
   [ -e "$d" ] && SET+=("$d")
 done
 if [ "${#SET[@]}" -eq 0 ]; then
