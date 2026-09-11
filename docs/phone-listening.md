@@ -1,6 +1,6 @@
 # Phone listening
 
-Phase 0 exploration completed on 11 September 2026. Phase 1 server implementation is verified; native and UI phases remain pending.
+Phase 0 exploration and Phases 1 and 2 acceptance completed on 11 September 2026. Combined UI and release acceptance remain pending.
 
 Listening separates user `intent` (`listening` or `off`) from `actual` (`off`, `starting`, `listening`, `interrupted`, `stalled`, `failed`). Only an authenticated native device channel can change phone intent. A source switch turns the other source off. Home and Capture share controls; the mobile header shows an indicator.
 
@@ -42,7 +42,7 @@ Closed reason set: `user_start`, `user_stop`, `source_switch`, `interruption_beg
 
 ## Verification
 
-Vitest and existing Capture harnesses cover server behavior. GarrisonTests and command-line simulator journeys cover native behavior. This Mac has Command Line Tools only; the Mini has Xcode and the existing ios-thing workflow provides TestFlight automation. No device acceptance is inferred from simulator results. The device checklist will be added in Phase 5.
+Vitest and existing Capture harnesses cover server behavior. GarrisonTests and command-line simulator journeys cover native behavior. Hosted macOS runs provide simulator and device compilation; the existing ios-thing workflow provides TestFlight automation. No physical-device acceptance is inferred from simulator results. See [the device checklist](phone-listening-checklist.md).
 
 Audio option references: [Apple A2DP](https://developer.apple.com/documentation/avfaudio/avaudiosession/categoryoptions-swift.struct/allowbluetootha2dp) and [Apple mixing](https://developer.apple.com/documentation/avfaudio/avaudiosession/categoryoptions-swift.struct/mixwithothers).
 

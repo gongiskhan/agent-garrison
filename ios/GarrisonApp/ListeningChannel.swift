@@ -55,7 +55,7 @@ final class ListeningChannel: ObservableObject {
             let controller = CaptureController.shared
             if record.intent == "off" {
                 if controller.isRunning || controller.recovery.intent { controller.stopForServer(reason: record.reason ?? "user_stop") }
-            } else if !controller.recovery.intent && UIApplication.shared.applicationState == .active && (previous == nil || (record.intent_changed_at != previous?.intent_changed_at && record.reason == "user_start")) {
+            } else if UIApplication.shared.applicationState == .active && (previous == nil || (record.intent_changed_at != previous?.intent_changed_at && record.reason == "user_start")) {
                 controller.beginListening(reason: record.reason == "user_start" ? "user_start" : "resume_on_foreground")
             }
         } else if record.intent == "off" {
@@ -69,7 +69,6 @@ final class ListeningChannel: ObservableObject {
         guard let deviceId else { return }
         guard ready else { pending.append((source, intent)); return }
         uploader?.sendListening(ListeningMessage(type: "listening.intent", device_id: deviceId, source: source, intent: intent))
-        if source == "phone" && intent == "listening" && CaptureController.shared.recovery.intent && !CaptureController.shared.engineRunning { CaptureController.shared.recovery.start() }
     }
     func report(source: String, actual: String, reason: String) {
         guard let deviceId else { return }

@@ -36,6 +36,7 @@ const control = createServer((req, res) => {
   if (url.pathname === "/wake") app.listening.wake(device, "phone");
   const sessions = [...app.ingress.sessions.values()];
   if (url.pathname === "/cut") { blocked = true; for (const session of sessions) session.socket?.terminate(); }
+  if (url.pathname === "/unblock") blocked = false;
   if (url.pathname === "/background-and-open") {
     execFileSync("xcrun", ["simctl", "launch", "booted", "com.apple.Preferences"]);
     setTimeout(() => {

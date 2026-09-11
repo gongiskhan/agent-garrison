@@ -129,6 +129,11 @@ final class ListeningShellJourneyTests: XCTestCase {
         try await dom("location.pathname === '/capture'")
         try await actual("listening")
         XCTAssertTrue(CaptureController.shared.engineRunning)
+        // Resume must replace a stalled upload even while the engine is alive.
+        let stalledSession = CaptureController.shared.sessionId
+        _ = try await probe("cut"); try await actual("stalled")
+        _ = try await probe("unblock"); try await click(); try await actual("listening")
+        XCTAssertNotEqual(CaptureController.shared.sessionId, stalledSession)
         var script = MockPendantTransport.Script(); script.connectDelayMs = 1
         let packets = (0..<3000).map { PendantFixturePacket(seq: $0 + 1, ts: Double($0) * 20, bytes: Data([0xf8,0xff,0xfe])) }
         let transport = MockPendantTransport(packets: packets, script: script)
