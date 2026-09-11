@@ -39,6 +39,25 @@ final class PushRoutingTests: XCTestCase {
         XCTAssertNil(router.pendingPath)
     }
 
+    @MainActor
+    func testCaptureNotificationResumesAnAlreadyActiveAppOnly() {
+        var active = true
+        var resumes = 0
+        let router = PushRouter(resumeListening: { resumes += 1 }, isActive: { active })
+        router.route(path: "/capture?source=phone")
+        XCTAssertEqual(resumes, 1)
+        router.open(URL(string: "garrison://open?path=%2Fcapture%3Fsource%3Dpendant")!)
+        XCTAssertEqual(resumes, 2)
+        router.route(path: "/capture")
+        router.route(path: "/capture?source=unknown")
+        router.route(path: "/talk")
+        XCTAssertEqual(resumes, 2, "The indicator and unrelated navigation never start capture")
+        active = false
+        router.route(path: "/capture?source=phone")
+        XCTAssertEqual(resumes, 2, "Background delivery must wait for the app lifecycle")
+        XCTAssertEqual(router.takePendingPath(), "/capture?source=phone")
+    }
+
     func testOnlyBareShellPathsPass() {
         XCTAssertNil(PushRouter.path(fromNotification: ["path": "https://evil.example/x"]))
         XCTAssertNil(PushRouter.path(fromNotification: ["path": "//evil.example/x"]))

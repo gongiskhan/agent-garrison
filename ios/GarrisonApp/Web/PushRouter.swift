@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /// Hands a shell path (a push tap, a garrison:// link) to whichever bridge
 /// view controller is live. The VC is recreated on every node switch and does
@@ -13,7 +14,13 @@ final class PushRouter {
     private(set) var pendingPath: String?
 
     /// Internal so a test can hold its own router instead of the shared one.
-    init() {}
+    private let resumeListening: @MainActor () -> Void
+    private let isActive: @MainActor () -> Bool
+    init(resumeListening: @escaping @MainActor () -> Void = { ListeningChannel.shared.foreground() },
+         isActive: @escaping @MainActor () -> Bool = { UIApplication.shared.applicationState == .active }) {
+        self.resumeListening = resumeListening
+        self.isActive = isActive
+    }
 
     /// Weak on purpose: a superseded VC must be free to deinit on node switch.
     func attach(_ host: GarrisonBridgeViewController) {
@@ -21,6 +28,11 @@ final class PushRouter {
     }
 
     func route(path: String) {
+        // A notification can be tapped while already active, without a new
+        // scene-phase event. Background delivery still waits for foreground.
+        if Self.isShellPath(path), let route = URLComponents(string: path), route.path == "/capture",
+           let source = route.queryItems?.first(where: { $0.name == "source" })?.value,
+           ["phone", "pendant"].contains(source), isActive() { resumeListening() }
         if let host {
             host.open(path: path)
         } else {
