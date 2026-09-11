@@ -1,5 +1,7 @@
 # Garrison Roadmap
 
+> Archive supersedes the historical document workspace described below as of 2026-09-11. Current routes, migration and ownership rules: [Archive decision](decisions/2026-09-11-archive.md). Historical verification is retained as evidence.
+
 **Historical.** The plan of record is [`roadmap.json`](../roadmap.json) at the repo root, edited through the Roadmaps view and the roadmap CLI. This document is kept for its decision log and its history; do not update it.
 
 ---

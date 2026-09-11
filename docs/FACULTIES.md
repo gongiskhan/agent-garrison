@@ -149,13 +149,13 @@ are no longer selectable; they fold into the roles via aliases.
 - Cardinality: multi.
 - Shapes: `skill`, `mcp`, `script`, `cli-skill`.
 - Config: index path, refresh cadence, read filters.
-- Example: local docs skill, MCP-backed docs search, or the Documents Fitting layered on the Artifact Store.
+- Example: local docs skill, MCP-backed docs search, or PDF and roadmap agent skills.
 - Failure modes: stale index, inaccessible path, noisy retrieval.
 
 `cli-skill` is allowed here for Fittings that pair a CLI surface (the
 Operative invokes write/read/update commands) with a UI surface (the
-user opens documents in a side panel). The Documents Fitting is the
-canonical example.
+user opens a roadmap in a side panel). Roadmaps is an example; Archive is
+a core shell surface, not a fitting in this faculty.
 
 ## 5. Automations
 

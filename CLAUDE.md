@@ -125,6 +125,16 @@ refs only: merge their remaining work into `main`, then switch the checkout to
 `main` without discarding local changes. Code synchronization and deployment are
 separate: an active Conversation prevents a restart, not work on the other nodes.
 
+## The Archive
+
+Archive is the core knowledge surface at `/archive`. `Archive/` is the owner's:
+agents read it when asked, never write it, and nothing automatic feeds on it.
+The rest of the Basic Memory vault is Garrison's; the owner can edit or prune it.
+Basic Memory's PreToolUse hook blocks writes, edits, moves and deletes in `Archive/`;
+the Agent SDK installs the same guard even when user settings are omitted.
+Never copy or paraphrase Archive content into memory, captures, briefs or evidence.
+Link cards as `garrison://archive/Archive/<list>/<card>` and notes by their `.md` path.
+
 ## Core Improver and Nightly Sync
 
 Improver is a Garrison core capability at `/improver`, implemented by
@@ -666,7 +676,7 @@ the decision log and old references).
 - **Stage 3** — Mobile / orchestrator-driven dev workflow. Scoped; depends
   on Stage 2.
 - **Stage 4** — Replace claude.ai discussions in Garrison. Substrate shipped
-  (Documents + Artifact Store); behavioral discipline missing.
+  (now Archive plus the file artifact surface); behavioral discipline missing.
 - **Stage 5** — Autonomous loop (Tasks Faculty, heartbeat-driven pickup,
   plan-then-approve gating). Depends on Stages 2–4.
 

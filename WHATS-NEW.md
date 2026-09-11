@@ -1,3 +1,11 @@
+# Archive — 2026-09-11
+
+Archive is now at `/archive`: a board for your documents, a notes lens for
+Garrison memory, content search, uploads and extraction, and a one-shot Trello
+import. It replaces the personal Trello document board and the retired Documents
+fitting. `Archive/` is yours: agents read it when asked, never write it, and
+nothing automatic feeds on it. Ingestion writes only derived sidecars.
+
 # What's new — Workbench dissolution
 
 **Date:** 2026-05-18

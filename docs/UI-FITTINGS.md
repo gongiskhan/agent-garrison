@@ -163,7 +163,7 @@ It writes `dist/index.html`, `dist/<name>.bundle.js`, `dist/<name>.css`. No `nod
 ## Reference implementations
 
 - **`monitor-default`** (this milestone). Port 27077. Serves a React card-grid + drill-down + SSE log tail.
-- The pattern generalises to documents-viewer and any other UI-bearing Fitting.
+- The pattern generalises to other UI-bearing Fittings. Archive itself is a core surface at `/archive`, following Conversations and Improver.
 
 ## Anti-patterns
 

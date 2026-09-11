@@ -14,6 +14,7 @@ import { scopedSecrets } from '@/lib/connector-auth';
 import { verifyInternalToken } from '@/lib/internal-token';
 import { renderMarkdown } from '@/lib/markdown';
 import { writeFileAtomic } from '@/lib/atomic-write';
+import { migrateLegacyDocuments } from '@/lib/archive-legacy';
 // @ts-ignore ESM core also runs independently of Next.
 import { createArchiveService } from '../../../../packages/archive/src/service.mjs';
 // @ts-ignore
@@ -64,6 +65,7 @@ export async function archiveService(){
   const vaultDir=vaultRoot(composition),config=composition.globalConfig?.archive??{},key=JSON.stringify({home,vaultDir,config,targets:composition.targets,fixture:!!fixture});
   if(globals.archiveService?.key===key)return globals.archiveService.service;
   await globals.archiveService?.service.close();
+  if(vaultDir&&!fixture)await migrateLegacyDocuments(vaultDir,home);
   const realInvoke=routedLook(composition.targets??[],home);
   const invoke=fixture&&process.env.ARCHIVE_FAKE_LOOK==='1'?async(input:ImageRequest)=>{if(input.prompt.includes('short rubric'))return realInvoke(input);await new Promise(r=>setTimeout(r,300));return {json:{what_it_is:'Synthetic Archive test certificate for Alex Example.',text:'TEST-48392017',fields:[{label:'Document type',value:'Archive test certificate'},{label:'Holder',value:'Alex Example'},{label:'Reference',value:'TEST-48392017'}],language:'en',confidence:1},target:input.target,model:'fixture'};}:realInvoke;
   const credentials=async()=>{

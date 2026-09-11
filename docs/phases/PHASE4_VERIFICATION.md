@@ -1,5 +1,7 @@
 # Phase 4 verification
 
+> Archive supersedes the historical document workspace described below as of 2026-09-11. Current routes, migration and ownership rules: [Archive decision](../decisions/2026-09-11-archive.md). Historical verification is retained as evidence.
+
 **Plan:** `~/.claude/plans/phase-4-execution-wobbly-starfish.md`
 
 Phase 4 added the `coding-subagent` Fitting (plan + execute against

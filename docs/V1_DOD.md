@@ -1,5 +1,7 @@
 # v1 Definition of Done
 
+> Archive supersedes the historical document workspace described below as of 2026-09-11. Current routes, migration and ownership rules: [Archive decision](decisions/2026-09-11-archive.md). Historical verification is retained as evidence.
+
 > **STALE — predates the 2026-06-07 Quarters pivot.** This checklist still
 > counts 14 Faculties, six seed Fittings, a `soul` in the prompt assembly, and
 > Trello as a `data-source` (a kind dropped 2026-06-26). The *shape* of the

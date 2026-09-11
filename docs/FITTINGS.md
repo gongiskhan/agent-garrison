@@ -20,6 +20,17 @@ are inventoried at the end under "Later additions". See
 > prompt. Morning briefing is a Kanban Scheduled template rather than a Fitting
 > or per-template scheduler job.
 
+## Archive retirement — 2026-09-11
+
+The former Documents fitting is retired. Archive is a core route at `/archive`,
+with `packages/archive` and `/api/archive`; it is not a faculty selection.
+Legacy artifacts are copied into `Projects/Garrison/Documents` with provenance,
+originals retained, and old document links redirect for one release. Run
+`npx tsx scripts/archive-retire-documents.ts` to migrate before removing any old
+selection. The normal Archive startup also migrates available artifacts.
+`roadmaps`, `pdf`, `project-viewer`, Basic Memory, Trello, vault-git-sync and
+file-browser remain in place. No other default selection changes.
+
 ## Tier Classifier
 
 - Faculty: `classifier`
@@ -169,8 +180,6 @@ text where applicable.
 - `artifact-store` — filesystem-backed artifact storage with namespaces
   (`documents/`, `automations/`, `voice/`). Provides
   `artifact-store:filesystem`.
-- `documents` — markdown Documents workspace layered on Artifact Store, with
-  sidebar-surface UI (read + edit views, textarea editor for v1).
 - `coding-subagent` — Variant A sub-agent Fitting dispatched by the
   Orchestrator. CLI-shape so it looks like every other Fitting from outside.
 - `knowledge` — static reference material (docs, codebases, notes). Skill

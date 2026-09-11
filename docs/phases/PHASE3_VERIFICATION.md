@@ -1,5 +1,7 @@
 # Phase 3 verification
 
+> Archive supersedes the historical document workspace described below as of 2026-09-11. Current routes, migration and ownership rules: [Archive decision](../decisions/2026-09-11-archive.md). Historical verification is retained as evidence.
+
 **Plan:** `~/.claude/plans/phase-3-execution-zesty-ladybug.md`
 
 Phase 3 added `for_consumers` to Fitting metadata, the UI contract

@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import yaml from "js-yaml";
-import { parseDocument, isMap } from "yaml";
+import { parseDocument, isMap, isSeq } from "yaml";
 import { pathExists } from "./fs-utils";
 
 // Composition v3 -> v4 migrator (MARATHON-V3 S3b1, migration discipline
@@ -354,4 +354,15 @@ export function migrateArchiveYaml(raw: string): string {
   }
   document.setIn(["x-garrison", "composition", "global_config", "archive"], ARCHIVE_DEFAULTS);
   return document.toString({ lineWidth: 0 });
+}
+
+// Run only after artifact migration, so custom storage roots remain available
+// until every document has landed. Unrelated selections are preserved verbatim.
+export function retireDocumentsYaml(raw:string):string {
+  const doc=parseDocument(raw);if(doc.errors.length)throw doc.errors[0];let changed=false;
+  const selections=doc.getIn(['x-garrison','composition','selections']);
+  if(isMap(selections))for(const pair of selections.items){if(!isSeq(pair.value))continue;for(let i=pair.value.items.length-1;i>=0;i--){const item=pair.value.items[i];if(isMap(item)&&item.get('id')==='documents'){pair.value.delete(i);changed=true;}}}
+  const dependencies=doc.getIn(['dependencies','apm']);
+  if(isSeq(dependencies))for(let i=dependencies.items.length-1;i>=0;i--){const item=dependencies.items[i];const value=isMap(item)?item.get('path'):item;if(typeof value==='string'&&/(?:^|\/)fittings\/seed\/documents\/?$/.test(value)){dependencies.delete(i);changed=true;}}
+  return changed?doc.toString({lineWidth:0}):raw;
 }
