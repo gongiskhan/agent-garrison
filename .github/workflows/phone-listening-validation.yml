@@ -73,6 +73,10 @@ jobs:
         if: ${{ !inputs.ui_only }}
         working-directory: ios
         run: xcodebuild test-without-building -only-testing:GarrisonTests -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 300 -project Garrison.xcodeproj -scheme GarrisonApp -destination "platform=iOS Simulator,id=$LISTENING_SIMULATOR_ID" -derivedDataPath /tmp/listening-build -resultBundlePath ../evidence/phone-listening/native.xcresult CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES > ../evidence/phone-listening/xctest.log 2>&1
+      - name: Prepare simulator app switching
+        timeout-minutes: 2
+        if: ${{ !cancelled() && steps.simulator-build.outcome == 'success' }}
+        run: xcrun simctl launch "$LISTENING_SIMULATOR_ID" com.apple.Preferences > evidence/phone-listening/settings-start.log 2>&1
       - name: End-to-end UI journey
         timeout-minutes: 10
         if: ${{ !cancelled() && steps.simulator-build.outcome == 'success' }}
