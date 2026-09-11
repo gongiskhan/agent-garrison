@@ -132,6 +132,9 @@ final class ListeningShellJourneyTests: XCTestCase {
         try await dom("location.pathname === '/capture'")
         try await actual("listening")
         XCTAssertTrue(CaptureController.shared.engineRunning)
+        let hostEvents = (try await probe("state"))["hostEvents"] as? [[String: Any]]
+        XCTAssertTrue(hostEvents?.contains { $0["type"] as? String == "background-launched" } == true)
+        XCTAssertFalse(hostEvents?.contains { ($0["type"] as? String)?.hasSuffix("-error") == true } == true)
         // Resume must replace a stalled upload even while the engine is alive.
         let stalledSession = CaptureController.shared.sessionId
         _ = try await probe("cut"); try await actual("stalled")

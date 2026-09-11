@@ -24,6 +24,10 @@ describe("listening controls", () => {
     expect(listeningCopy({ ...record("starting"), source: "pendant" }).sub).toBe("Connecting to the pendant");
     expect(listeningCopy({ ...record("off"), source: "pendant" }).sub).toBe("Pendant is off");
   });
+  it("shows the requested start time when no audio ever arrived", () => {
+    const state = { ...record("stalled"), last_seen_at: null };
+    expect(listeningCopy(state).sub).toBe(`No audio reaching Garrison since ${new Date(state.intent_changed_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`);
+  });
   it("hides the badge only when every source is off", () => {
     expect(listeningBadge([record("off"), { ...record("off"), source: "pendant" }])).toBeNull();
     for (const actual of ["starting", "interrupted"] as const) expect(listeningBadge([record(actual)])?.label).toBe("Paused");
