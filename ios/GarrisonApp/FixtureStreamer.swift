@@ -30,7 +30,7 @@ enum FixtureStreamer {
                 Task { @MainActor in FixtureStreamer.handleListeningTestEvent(event) }
             }, "com.gomes.garrison.listening-test.\(event)" as CFString, nil, .deliverImmediately)
         }
-        for (notification, event) in [(UIApplication.didEnterBackgroundNotification, "app-backgrounded"), (UIApplication.didBecomeActiveNotification, "app-foregrounded")] {
+        for (notification, event) in [(UIApplication.willResignActiveNotification, "app-resigning"), (UIApplication.didEnterBackgroundNotification, "app-backgrounded"), (UIApplication.didBecomeActiveNotification, "app-foregrounded")] {
             lifecycleObservers.append(NotificationCenter.default.addObserver(forName: notification, object: nil, queue: .main) { _ in
                 Task { @MainActor in FixtureStreamer.reportListeningEvent(event) }
             })
