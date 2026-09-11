@@ -59,7 +59,7 @@ final class ListeningChannel: ObservableObject {
                 controller.beginListening(reason: record.reason == "user_start" ? "user_start" : "resume_on_foreground")
             }
         } else if record.intent == "off" {
-            pendant.disconnect()
+            if pendant.connectionState != .disconnected || pendant.sessionId != nil { pendant.disconnect() }
         } else if record.intent == "listening" && (previous == nil || (record.intent_changed_at != previous?.intent_changed_at && record.reason == "user_start")) {
             pendant.connect()
         }

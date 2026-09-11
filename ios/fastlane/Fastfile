@@ -69,7 +69,7 @@ platform :ios do
       project: PROJECT,
       scheme: SCHEME,
       device: "iPhone 17 Pro",
-      xcargs: "CODE_SIGNING_ALLOWED=NO",
+      xcargs: "CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES",
       output_directory: "build/tests",
       result_bundle: true
     )

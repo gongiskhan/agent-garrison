@@ -48,7 +48,7 @@ export function ListeningRow({ state, onIntent, readOnly = false }: { state: Dev
           setTooltip(true); clearTimeout(tooltipTimer.current); tooltipTimer.current = setTimeout(() => setTooltip(false), 2000);
         }}>
         {copy.disabled ? <span className={styles.spinner} aria-hidden /> : copy.button}
-        {stop && <svg className={styles.ring} viewBox="0 0 40 40" aria-hidden><circle className={holding ? styles.filling : ""} cx="20" cy="20" r="18" pathLength="100" /></svg>}
+        {stop && <svg className={styles.ring} viewBox="0 0 40 40" preserveAspectRatio="none" aria-hidden><circle className={holding ? styles.filling : ""} cx="20" cy="20" r="18" pathLength="100" /></svg>}
       </button>
       {tooltip && <span role="tooltip" className={styles.tooltip}>Hold to stop</span>}
     </div>}
@@ -59,6 +59,7 @@ export function ListeningControl() {
   if (!native) return null;
   const records = snapshot.records.filter(r => r.source === "phone" || snapshot.paired);
   return <section className={styles.controls} aria-label="Listening" data-testid="listening-control">
+    {!records.some(r => r.source === "phone") && <div className={styles.row} aria-busy="true"><span className={styles.spinner} aria-hidden /><div className={styles.copy}><strong>Phone microphone</strong><span>Connecting to Garrison</span></div></div>}
     {records.map(state => <ListeningRow key={state.source} state={state} onIntent={intent => void changeListening(state.source, intent)} />)}
     {error && <p role="alert" className={styles.error}>{error}</p>}
   </section>;

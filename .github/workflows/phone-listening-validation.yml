@@ -38,7 +38,7 @@ jobs:
           xcrun simctl bootstatus "$DEVICE" -b
           xcrun simctl install "$DEVICE" /tmp/listening-build/Build/Products/Debug-iphonesimulator/GarrisonApp.app
           xcrun simctl privacy "$DEVICE" grant microphone com.gomes.garrison
-          xcodebuild test-without-building -parallel-testing-enabled NO -project Garrison.xcodeproj -scheme GarrisonApp -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath /tmp/listening-build -resultBundlePath ../evidence/phone-listening/native.xcresult CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES > ../evidence/phone-listening/xctest.log 2>&1
+          xcodebuild test-without-building -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 300 -project Garrison.xcodeproj -scheme GarrisonApp -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath /tmp/listening-build -resultBundlePath ../evidence/phone-listening/native.xcresult CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES > ../evidence/phone-listening/xctest.log 2>&1
       - name: Export simulator screenshots
         if: always()
         run: xcrun xcresulttool export attachments --path evidence/phone-listening/native.xcresult --output-path evidence/phone-listening/screenshots || true

@@ -30,7 +30,8 @@ struct DeviceListeningState: Codable, Equatable {
 
     var payload: [String: Any] {
         guard let data = try? JSONEncoder().encode(self),
-              let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+              var value = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+        for key in ["reason", "last_seen_at", "stall_episode_id"] where value[key] == nil { value[key] = NSNull() }
         return value
     }
 }

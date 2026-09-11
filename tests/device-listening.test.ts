@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DeviceListening, migrateListeningStore } from "../fittings/seed/capture-service/lib/device-listening.mjs";
+import { loadConfig } from "../fittings/seed/capture-service/lib/config.mjs";
 import { CompanionNotifier } from "../fittings/seed/capture-service/lib/notify.mjs";
 
 const roots: string[] = [];
@@ -22,6 +23,9 @@ function fixture() {
   return { root, device, state, pushes, events, lines, message, start, advance: (ms: number) => { clock += ms; }, row: (source = "phone") => state.get(device, source) };
 }
 describe("device listening watchdog", () => {
+  it("reads the notification name from composition-projected config", () => {
+    expect(loadConfig({ GARRISON_CAPTURESERVICE_OPERATIVE_NAME: "Maria" }).operativeName).toBe("Maria");
+  });
   it("stalls at 20 seconds, reminds at ten minutes, never a third", async () => {
     const f = fixture(); f.start(); f.advance(19999); await f.state.tick(); expect(f.pushes).toHaveLength(0);
     f.advance(1); await f.state.tick(); expect(f.row()).toMatchObject({ actual: "stalled", reason: "watchdog_stalled", stall_pushes_sent: 1 });
@@ -53,6 +57,13 @@ describe("device listening watchdog", () => {
     expect(f.row("pendant").intent).toBe("listening");
     expect(() => f.state.message("another-device", { type: "listening.intent", device_id: f.device, source: "phone", intent: "listening" })).toThrow("does not own");
     expect(f.row().intent).toBe("off");
+  });
+  it("does not rebroadcast duplicate off transitions", () => {
+    const f = fixture(); f.start(); f.message("intent", { intent: "off" });
+    f.message("transition", { actual: "off", reason: "user_stop" });
+    const count = f.events.length;
+    f.message("transition", { actual: "off", reason: "user_stop" });
+    expect(f.events).toHaveLength(count);
   });
   it("changes intent without claiming a device transition", () => {
     const f = fixture(); f.message("intent", { intent: "listening" });

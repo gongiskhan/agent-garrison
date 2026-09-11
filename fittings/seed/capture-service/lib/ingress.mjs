@@ -212,7 +212,7 @@ export class CaptureIngress {
           if (msg.device_id && (!owner || owner !== msg.device_id || !["phone", "pendant"].includes(msg.source))) {
             send({ type: "error", status: 403, error: "Stream device does not own this channel" }); return;
           }
-          if (msg.device_id) this.listening?.register(owner, msg.source, msg);
+          if (msg.device_id) this.listening?.register(owner, msg.source);
           session = this.handleSessionStart(ws, msg, send);
           return;
         }

@@ -55,3 +55,5 @@ Phase 1: 10 watchdog tests and 35 existing ingress/source-arbitration tests pass
 `tests/listening-control.test.ts` and `tests/listening-control-browser.test.ts` cover every label and badge state, permission copy, optimistic start, a cancelled hold and a completed hold. A completed hold consumes its release event so the newly displayed Start button cannot restart capture accidentally. The browser capture route exposes the same records read-only through the authenticated voice relay.
 
 The Phone listening validation workflow builds the native app, runs XCTest and the simulator against an isolated Capture node, and compiles the physical device target. Passing native acceptance, simulator screenshots, the combined journey and TestFlight delivery are separate gates. Device checks are in [the checklist](phone-listening-checklist.md).
+
+The composition projects Capture's `operative_name` setting into notification titles, with Zeca as the current default. Before the first server snapshot the phone row shows a disabled connection placeholder, without inventing an actual microphone state.

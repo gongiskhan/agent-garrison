@@ -17,6 +17,7 @@ declare module "*/capture-service/lib/config.mjs" {
     home: string;
     stateDir: string;
     statusFile: string;
+    operativeName: string;
     enabled: boolean;
     transcribeEnabled: boolean;
     wakeEnabled: boolean;

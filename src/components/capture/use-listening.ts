@@ -22,8 +22,9 @@ function receive(next: ListeningSnapshot) {
   snapshot = next; publish();
 }
 async function connect() {
-  if (connected || !isNativeApp()) return;
+  if (connected || !nativeListening.supported()) return;
   connected = true;
+  publish();
   let received = false;
   try {
     await nativeListening.onState(next => { received = true; receive(next); });

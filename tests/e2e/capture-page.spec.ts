@@ -36,7 +36,7 @@ test("capture page: with the native bridge the controls render and the menu list
           info: resolve({ appVersion: "1.0", build: "0", platform: "ios", bundleId: "test" }),
           ...events()
         },
-        GarrisonCapture: { status: resolve(status), listeningState: resolve({ device_id: "fixture-device", paired: false, records: [{ device_id: "fixture-device", device_name: "iPhone", source: "phone", intent: "off", actual: "off", reason: null, last_seen_at: null, intent_changed_at: "2026-09-11T12:00:00Z", actual_changed_at: "2026-09-11T12:00:00Z", stall_episode_id: null, stall_pushes_sent: 0, app_version: "1" }] }), ...events() },
+        GarrisonCapture: { status: resolve(status), listeningIntent: resolve({}), listeningState: resolve({ device_id: "fixture-device", paired: false, records: [{ device_id: "fixture-device", device_name: "iPhone", source: "phone", intent: "off", actual: "off", reason: null, last_seen_at: null, intent_changed_at: "2026-09-11T12:00:00Z", actual_changed_at: "2026-09-11T12:00:00Z", stall_episode_id: null, stall_pushes_sent: 0, app_version: "1" }] }), ...events() },
         GarrisonPush: {
           status: resolve({ authorization: "notDetermined", registered: false, detail: "" }),
           pendingRoute: resolve({}),
@@ -153,7 +153,7 @@ test("capture page: a connected pendant shows its state and streams the session'
           info: resolve({ appVersion: "1.0", build: "0", platform: "ios", bundleId: "test" }),
           ...events()
         },
-        GarrisonCapture: { status: resolve(status), listeningState: resolve({ device_id: "fixture-device", paired: false, records: [{ device_id: "fixture-device", device_name: "iPhone", source: "phone", intent: "off", actual: "off", reason: null, last_seen_at: null, intent_changed_at: "2026-09-11T12:00:00Z", actual_changed_at: "2026-09-11T12:00:00Z", stall_episode_id: null, stall_pushes_sent: 0, app_version: "1" }] }), ...events() },
+        GarrisonCapture: { status: resolve(status), listeningIntent: resolve({}), listeningState: resolve({ device_id: "fixture-device", paired: false, records: [{ device_id: "fixture-device", device_name: "iPhone", source: "phone", intent: "off", actual: "off", reason: null, last_seen_at: null, intent_changed_at: "2026-09-11T12:00:00Z", actual_changed_at: "2026-09-11T12:00:00Z", stall_episode_id: null, stall_pushes_sent: 0, app_version: "1" }] }), ...events() },
         GarrisonPush: { status: resolve({ authorization: "notDetermined", registered: false, detail: "" }), pendingRoute: resolve({ path: null }), ...events() },
         GarrisonPendant: {
           status: resolve(pendant),

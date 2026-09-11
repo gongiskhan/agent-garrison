@@ -145,7 +145,7 @@ final class PendantController: ObservableObject {
         if ListeningChannel.shared.records["pendant"]?.intent == "listening" {
             ListeningChannel.shared.report(source: "pendant", actual: state == .connected ? "listening" : "interrupted", reason: state == .connected ? "resume_retry" : "engine_error")
         }
-        if state == .disconnected, let record = ListeningChannel.shared.records["pendant"], record.intent == "off" {
+        if state == .disconnected, let record = ListeningChannel.shared.records["pendant"], record.intent == "off", record.actual != "off" {
             ListeningChannel.shared.report(source: "pendant", actual: "off", reason: record.reason ?? "user_stop")
         }
         switch state {
