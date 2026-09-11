@@ -16,6 +16,7 @@ final class ListeningChannel: ObservableObject {
     // A transient user request must win over a stale server snapshot while
     // Stop is queued or in flight. No intent is persisted on the device.
     private var pendingStops = Set<String>()
+    private var pendingReports: [String: ListeningMessage] = [:]
     private var ready = false
     private let startPhone: @MainActor (String) -> Void
     private(set) var deviceId: String?
@@ -43,7 +44,14 @@ final class ListeningChannel: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 self.ready = state == .streaming
-                if self.ready { let queued = self.pending; self.pending = []; for (source, intent) in queued { self.intent(source, intent) } }
+                if self.ready {
+                    let queued = self.pending; self.pending = []
+                    for (source, intent) in queued { self.intent(source, intent) }
+                    for source in Array(self.pendingStops) where !queued.contains(where: { $0.0 == source && $0.1 == "off" }) { self.intent(source, "off") }
+                    let reports = self.pendingReports; self.pendingReports = [:]
+                    for report in reports.values { self.uploader?.sendListening(report) }
+                    for record in Array(self.records.values) where record.intent == "off" && record.actual != "off" { self.receive(record) }
+                }
             }
         }
         socket.onListeningState = { [weak self] record in Task { @MainActor in self?.receive(record) } }
@@ -65,11 +73,13 @@ final class ListeningChannel: ObservableObject {
             let controller = CaptureController.shared
             if record.intent == "off" {
                 if controller.isRunning || controller.recovery.intent { controller.stopForServer(reason: record.reason ?? "user_stop") }
+                else if record.actual != "off" { report(source: "phone", actual: "off", reason: record.reason == "source_switch" ? "source_switch" : "user_stop") }
             } else if UIApplication.shared.applicationState == .active && (previous == nil || (record.intent_changed_at != previous?.intent_changed_at && record.reason == "user_start")) {
                 startPhone(record.reason == "user_start" ? "user_start" : "resume_on_foreground")
             }
         } else if record.intent == "off" {
             if pendant.connectionState != .disconnected || pendant.sessionId != nil { pendant.disconnect() }
+            else if record.actual != "off" { report(source: "pendant", actual: "off", reason: record.reason == "source_switch" ? "source_switch" : "user_stop") }
         } else if record.intent == "listening" && (previous == nil || (record.intent_changed_at != previous?.intent_changed_at && record.reason == "user_start")) {
             pendant.connect()
         }
@@ -83,7 +93,9 @@ final class ListeningChannel: ObservableObject {
     }
     func report(source: String, actual: String, reason: String) {
         guard let deviceId else { return }
-        uploader?.sendListening(ListeningMessage(type: "listening.transition", device_id: deviceId, source: source, actual: actual, reason: reason))
+        let message = ListeningMessage(type: "listening.transition", device_id: deviceId, source: source, actual: actual, reason: reason)
+        guard ready else { pendingReports[source] = message; return }
+        uploader?.sendListening(message)
     }
     func terminating() {
         for record in records.values where record.intent == "listening" { report(source: record.source, actual: "interrupted", reason: "app_terminated") }
