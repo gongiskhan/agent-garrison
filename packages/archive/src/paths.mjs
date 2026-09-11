@@ -92,8 +92,28 @@ export function automationInputAllowed(vaultDir,file){
     return true;
   }catch{return false;}
 }
+// Mirror programs receive a directory and enumerate it themselves. Check its
+// complete input tree without reading document bodies, including symlink targets
+// and ancestors of Archive; rejecting only the root path is insufficient.
+export function mirrorInputsAllowed(vaultDir,source){
+  const seen=new Set();
+  if(isArchivePath(vaultDir,source))return false;
+  try{fs.lstatSync(source);}catch(error){return error.code==='ENOENT';}
+  try{
+    const archive=realAncestor(path.join(vaultDir,'Archive'));
+    function visit(candidate){
+      if(isArchivePath(vaultDir,candidate))return false;
+      const real=realAncestor(candidate);if(within(real,archive))return false;
+      const stat=fs.statSync(real);if(!stat.isDirectory())return true;
+      if(seen.has(real))return true;seen.add(real);
+      return fs.readdirSync(real).every(name=>visit(path.join(real,name)));
+    }
+    return visit(source);
+  }catch{return false;}
+}
 if(process.argv[1]&&path.resolve(process.argv[1])===new URL(import.meta.url).pathname){
   const [mode,vault,...inputs]=process.argv.slice(2);
+  if(mode==='--check-mirror-source')process.exitCode=inputs.every(p=>mirrorInputsAllowed(vault,p))?0:2;
   if(mode==='--check-paths')process.exitCode=inputs.some(p=>isArchivePath(vault,p))?2:0;
   if(mode==='--check-inputs')process.exitCode=inputs.every(p=>automationInputAllowed(vault,p))?0:2;
 }

@@ -27,7 +27,8 @@ export function watchVault(ctx,index,queue){
     if(updates.size)try{await index.updateMany([...updates]);}catch(error){ctx.onError?.(error);}
     for(const relative of files)try{await queue.enqueue(relative);}catch(error){ctx.onError?.(error);}
   }
-  watcher.on('all',(_event,full)=>{const relative=path.relative(ctx.vaultDir,full).split(path.sep).join('/');pending.add(relative);clearTimeout(timer);timer=setTimeout(()=>{chain=chain.then(flush);},500);timer.unref?.();});
+  const safeFlush=()=>ctx.serialize?ctx.serialize(flush):flush();
+  watcher.on('all',(_event,full)=>{const relative=path.relative(ctx.vaultDir,full).split(path.sep).join('/');pending.add(relative);clearTimeout(timer);timer=setTimeout(()=>{chain=chain.then(safeFlush);},500);timer.unref?.();});
   watcher.on('error',error=>ctx.onError?.(error));
-  return {ready:new Promise(r=>watcher.once('ready',r)),async close(){clearTimeout(timer);await watcher.close();await chain;},flush:()=>chain=chain.then(flush)};
+  return {ready:new Promise(r=>watcher.once('ready',r)),async close(){clearTimeout(timer);await watcher.close();await chain;},flush:()=>chain=chain.then(safeFlush)};
 }

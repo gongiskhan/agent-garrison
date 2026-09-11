@@ -32,3 +32,15 @@ it('returns no_vault, validates upload and filters, and refuses a forged interna
  expect((await call('search?area=unknown')).status).toBe(400);expect((await call('card','POST',{list:'Archive/Inbox'})).status).toBe(400);expect((await call('upload','POST',new FormData())).status).toBe(400);expect((await call('import/trello/boards','POST')).status).toBe(409);expect((await call('look','POST',{imagePaths:['Archive/Inbox/x.jpg'],prompt:'x',schemaName:'judge'},{'x-archive-authorized':'true'})).status).toBe(403);
  const missing=createArchiveService({home:s.home});current.service=missing;expect((await call('status'))).toMatchObject({status:409,data:{error:'no_vault'}});await missing.close();
 }finally{await s.close();current.service=null;}});
+
+it('never serves a thumbnail-cache symlink target outside the scratch home',async()=>{
+ const s=await scratch();current.service=s.service;try{
+  const relative='Archive/House/House maintenance/sample-document.jpg',bytes=await fs.readFile(path.join(s.vaultDir,relative));
+  const {createHash}=await import('node:crypto');const hash=createHash('sha256').update(bytes).digest('hex');
+  const dir=path.join(s.home,'archive/thumbs'),outside=path.join(s.root,'outside.txt');await fs.mkdir(dir,{recursive:true});await fs.writeFile(outside,'OUTSIDE-THUMBNAIL-DECOY');await fs.symlink(outside,path.join(dir,hash+'.jpg'));
+  const first=await call('file?path='+encodeURIComponent(relative)+'&thumb=1');expect(first.status).toBe(200);expect(Buffer.from(first.data)).toEqual(bytes);
+  await fs.unlink(path.join(dir,hash+'.jpg'));await fs.symlink(path.join(s.root,'does-not-exist.jpg'),path.join(dir,hash+'.jpg'));const dangling=await call('file?path='+encodeURIComponent(relative)+'&thumb=1');expect(Buffer.from(dangling.data)).toEqual(bytes);await expect(fs.stat(path.join(s.root,'does-not-exist.jpg'))).rejects.toMatchObject({code:'ENOENT'});
+  await fs.rm(dir,{recursive:true});const external=path.join(s.root,'external-cache');await fs.mkdir(external);await fs.writeFile(path.join(external,hash+'.jpg'),'OUTSIDE-THUMBNAIL-DECOY');await fs.symlink(external,dir);
+  const second=await call('file?path='+encodeURIComponent(relative)+'&thumb=1');expect(second.status).toBe(200);expect(Buffer.from(second.data)).toEqual(bytes);
+ }finally{await s.close();current.service=null;}
+});

@@ -1,6 +1,6 @@
 import { it,expect,vi } from 'vitest';import fs from 'node:fs/promises';import path from 'node:path';import { spawnSync } from 'node:child_process';import { scratch } from './archive-test-helpers';
 // @ts-ignore
-import { isArchivePath,automationInputAllowed,hasArchiveReference,automationVaultRoot } from '../packages/archive/src/paths.mjs';
+import { isArchivePath,mirrorInputsAllowed,automationInputAllowed,hasArchiveReference,automationVaultRoot } from '../packages/archive/src/paths.mjs';
 // @ts-ignore
 import { collectDailyEvidence } from '../packages/improver/src/collect.mjs';
 // @ts-ignore
@@ -17,8 +17,8 @@ it('J1.3 excludes Archive files and entire referencing transcripts before captur
  const thread={messages:[{role:'user',text:'Read Archive/decoy.md'},{role:'assistant',text:decoy}]};expect(transcriptOf(thread,s.vaultDir)).not.toContain(decoy);const run=vi.fn();const result=await runZecaNightly({env:{BASIC_MEMORY_VAULT_DIR:s.vaultDir,GARRISON_HOME:s.home,GARRISON_APP_URL:'http://fixture'},fetchImpl:async(url:string)=>Response.json(url.endsWith('/api/zeca')?{conversationId:'fixture'}:{thread}),runFn:run});expect(run).not.toHaveBeenCalled();expect(result.reason).toContain('Archive');
 }finally{await s.close();}});
 it('rejects an Archive native mirror source before reading any note',async()=>{const s=await scratch({seed:false});try{
- await s.write('Archive/decoy.md',decoy);const module=path.join(process.cwd(),'packages/archive/src/paths.mjs');const out=spawnSync(process.execPath,[module,'--check-paths',s.vaultDir,path.join(s.vaultDir,'Archive')],{encoding:'utf8'});expect(out.status).toBe(2);expect(out.stdout).not.toContain(decoy);
- const script=await fs.readFile('fittings/seed/vault-git-sync/scripts/obsidian-vault-sync.sh','utf8');expect(script).toContain('node "$ARCHIVE_PATHS" --check-paths "$VAULT" "$MIRROR_SOURCE"');expect(script.indexOf('--check-paths')).toBeLessThan(script.indexOf('"$MEMORY_MIRROR" --source'));
+ await s.write('Archive/decoy.md',decoy);const module=path.join(process.cwd(),'packages/archive/src/paths.mjs');const out=spawnSync(process.execPath,[module,'--check-mirror-source',s.vaultDir,path.join(s.vaultDir,'Archive')],{encoding:'utf8'});expect(out.status).toBe(2);expect(out.stdout).not.toContain(decoy);
+ const script=await fs.readFile('fittings/seed/vault-git-sync/scripts/obsidian-vault-sync.sh','utf8');expect(script).toContain('node "$ARCHIVE_PATHS" --check-mirror-source "$VAULT" "$MIRROR_SOURCE"');expect(script.indexOf('--check-mirror-source')).toBeLessThan(script.indexOf('"$MEMORY_MIRROR" --source'));
 }finally{await s.close();}});
 it('keeps startup and Quarters context reads explicit, without walking the vault',async()=>{const s=await scratch({seed:false});try{
  await s.write('Archive/decoy.md',decoy);await fs.writeFile(path.join(s.root,'CLAUDE.md'),'Explicit project guidance');const result=await readClaudeMd('project',{projectDir:s.root});expect(result.content).toBe('Explicit project guidance');expect(result.content).not.toContain(decoy);
@@ -26,3 +26,11 @@ it('keeps startup and Quarters context reads explicit, without walking the vault
 }finally{await s.close();}});
 
 it('uses the rendered custom vault for automatic exclusions',async()=>{const s=await scratch({seed:false});try{await fs.mkdir(path.join(s.home,'basic-memory'),{recursive:true});await fs.writeFile(path.join(s.home,'basic-memory/guard-config.json'),JSON.stringify({vaultDir:s.vaultDir}));expect(automationVaultRoot({GARRISON_HOME:s.home})).toBe(s.vaultDir);expect(isArchivePath(automationVaultRoot({GARRISON_HOME:s.home}),path.join(s.vaultDir,'Archive/decoy.md'))).toBe(true);}finally{await s.close();}});
+
+it('rejects mirror roots containing Archive and symlinked inputs before reading document bodies',async()=>{const s=await scratch({seed:false});try{
+ await s.write('Archive/decoy.md',decoy);expect(mirrorInputsAllowed(s.vaultDir,s.vaultDir)).toBe(false);
+ const native=path.join(s.root,'native');await fs.mkdir(native);await fs.writeFile(path.join(native,'safe.md'),'Safe native note');expect(mirrorInputsAllowed(s.vaultDir,native)).toBe(true);
+ await fs.symlink(path.join(s.vaultDir,'Archive/decoy.md'),path.join(native,'linked.md'));expect(mirrorInputsAllowed(s.vaultDir,native)).toBe(false);
+ await fs.unlink(path.join(native,'linked.md'));await fs.symlink(s.vaultDir,path.join(native,'linked-vault'));expect(mirrorInputsAllowed(s.vaultDir,native)).toBe(false);
+ await fs.symlink(path.join(s.root,'missing'),path.join(native,'aaa-broken'));expect(mirrorInputsAllowed(s.vaultDir,native)).toBe(false);
+}finally{await s.close();}});

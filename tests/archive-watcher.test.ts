@@ -17,3 +17,15 @@ it('indexes a folder burst in one persisted snapshot while preserving existing n
   expect(snapshots).toBe(1);expect(s.service.index.query('Existing').total).toBe(1);
  }finally{await s.close();}
 },8000);
+
+it('waits for a slow paired move before removing orphan sidecars',async()=>{
+ const s=await scratch({watch:true});try{
+  const original=s.ctx.write,source='Archive/Inbox/sample-document.jpg';let sourceSurvived=false;
+  s.ctx.write=async(file:string,data:any,options:any)=>{
+   if(file.includes('House maintenance')&&file.endsWith('.jpg.md')){await new Promise(r=>setTimeout(r,850));sourceSurvived=await fs.stat(path.join(s.vaultDir,source+'.md')).then(()=>true,()=>false);}
+   return original(file,data,options);
+  };
+  const result=await s.request('inbox/file','POST',{path:source,toCard:'Archive/House/House maintenance'});expect(result.status).toBe(200);expect(sourceSurvived).toBe(true);
+  expect(await s.read(result.data.path+'.md')).toContain('garrison: derived');await expect(fs.stat(path.join(s.vaultDir,source))).rejects.toMatchObject({code:'ENOENT'});
+ }finally{await s.close();}
+});

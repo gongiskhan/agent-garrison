@@ -115,7 +115,7 @@ for parent in Path(sys.argv[1]).resolve().parents:
 PY_ARCHIVE_PATH
 )}"
   MIRROR_SOURCE="${CLAUDE_MEMORY_SOURCE:-$HOME/.claude/projects/-home-ggomes-dev-garrison/memory}"
-  if [ -z "$ARCHIVE_PATHS" ] || ! node "$ARCHIVE_PATHS" --check-paths "$VAULT" "$MIRROR_SOURCE"; then
+  if [ -z "$ARCHIVE_PATHS" ] || ! node "$ARCHIVE_PATHS" --check-mirror-source "$VAULT" "$MIRROR_SOURCE"; then
     log "Archive excluded from native mirror inputs; vault sync deferred"
     write_status error "Archive excluded from native mirror inputs"
     exit 1

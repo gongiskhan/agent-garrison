@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { parseFrontmatter, stringifyFrontmatter } from './frontmatter.mjs';
 import { confine } from './paths.mjs';
-import { maybeRead } from './io.mjs';
+import { maybeRead, lockedWrite, sha } from './io.mjs';
 import { readCard, writeCard } from './card.mjs';
 
 export const alphabetical = (a,b) => a.localeCompare(b,'pt-PT',{sensitivity:'base'});
@@ -14,11 +14,11 @@ export function byOrder(a,b) {
 export async function readList(ctx, relative) {
   const raw=await maybeRead(confine(ctx.vaultDir,path.posix.join(relative,'_list.md')));
   const parsed=parseFrontmatter(raw??'');
-  return {...parsed,title:parsed.frontmatter.title || path.posix.basename(relative),order:parsed.frontmatter.order,path:relative};
+  return {...parsed,raw,title:parsed.frontmatter.title || path.posix.basename(relative),order:parsed.frontmatter.order,path:relative};
 }
 export async function writeList(ctx,relative,changes) {
   const original=await readList(ctx,relative);
-  await ctx.write(confine(ctx.vaultDir,path.posix.join(relative,'_list.md')),stringifyFrontmatter({...original.frontmatter,garrison:'list',title:original.title,...changes},original.body,original));
+  await lockedWrite(ctx,confine(ctx.vaultDir,path.posix.join(relative,'_list.md')),stringifyFrontmatter({...original.frontmatter,garrison:'list',title:original.title,...changes},original.body,original),original.raw===null?'new':sha(original.raw));
 }
 export async function cardsInList(ctx,relative) {
   const entries=await fs.readdir(confine(ctx.vaultDir,relative),{withFileTypes:true});const cards=[];

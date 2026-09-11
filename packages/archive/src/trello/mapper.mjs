@@ -16,7 +16,7 @@ export function mapBoard(board,{includeArchived=false,maxFileMb=25,targetPrefix=
       for(const att of card.attachments??[]){
         const oversize=att.bytes>maxFileMb*1024*1024;const hosted=trelloHosted(att.url)&&att.isUpload!==false;
         if(!hosted||oversize||!credentials||!visibleName(sanitizeName(att.name))){links.push({title:att.name+(oversize?` (too large: ${Math.round(att.bytes/1024/1024)} MB)`:''),url:att.url});counts.links++;if(oversize)counts.oversize++;}
-        else {const ext=path.extname(att.name),stem=sanitizeName(path.basename(att.name,ext));let name=stem+ext,n=2;while(usedFiles.has(name)||usedFiles.has(name+'.md'))name=`${stem} (${n++})${ext}`;usedFiles.add(name);attachments.push({id:att.id,name,url:att.url,size:att.bytes??0,mime:att.mimeType??null});counts.attachments++;}
+        else {const clean=sanitizeName(att.name),ext=path.extname(clean),stem=path.basename(clean,ext),fold=s=>s.toLocaleLowerCase('pt-PT');let name=stem+ext,n=2;while(usedFiles.has(fold(name))||usedFiles.has(fold(name+'.md')))name=`${stem} (${n++})${ext}`;usedFiles.add(fold(name));if(!name.toLowerCase().endsWith('.md'))usedFiles.add(fold(name+'.md'));attachments.push({id:att.id,name,url:att.url,size:att.bytes??0,mime:att.mimeType??null});counts.attachments++;}
       }
       const cover=attachments.find(a=>a.id===card.cover?.idAttachment&&/^image\//.test(a.mime??''))??(!card.cover?.idAttachment?attachments.find(a=>/^image\//.test(a.mime??'')||/\.(jpe?g|png|webp|gif)$/i.test(a.name)):null);
       const actions=(board.actions??[]).filter(a=>a.type==='commentCard'&&a.data?.card?.id===card.id).concat((card.actions??[]).filter(a=>a.type==='commentCard'));

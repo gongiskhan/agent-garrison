@@ -38,6 +38,7 @@ export function createArchiveService({vaultDir,home,config={},node='local',rende
   const jobs=new JobLedger(ctx),index=new ArchiveIndex(ctx),queue=new IngestQueue(ctx,jobs,queueOptions);Object.assign(ctx,{jobs,index,queue,onFile:p=>index.update(p)});
   let watcher,closed=false,mutation=Promise.resolve();
   const serial=fn=>{const task=mutation.then(fn,fn);mutation=task.catch(()=>{});return task;};
+  ctx.serialize=serial;
   ctx.convertHeic=async(relative)=>{
     const source=confine(vaultDir,relative);const sips=binary('sips'),heif=binary('heif-convert');if(!sips&&!heif)return relative;
     const parent=path.posix.dirname(relative),stem=path.posix.basename(relative,path.posix.extname(relative));let target=path.posix.join(parent,stem+'.jpg'),n=2;
