@@ -5,6 +5,7 @@ import {
   facultyIds,
   fittingCategories,
   fittingShapes,
+  sharedRuntimes,
   uiPlacements,
   type FacultyId,
   type GarrisonMetadata
@@ -462,6 +463,7 @@ export const garrisonMetadataSchema = z.object({
    * opt-in, or every composition breaks on a machine that lacks it.
    */
   default_fit: z.boolean().optional(),
+  shared_default: z.array(z.enum(sharedRuntimes)).optional(),
   component_shape: z.enum(fittingShapes),
   platforms: z.array(z.string()).min(1),
   summary: z.string().optional(),

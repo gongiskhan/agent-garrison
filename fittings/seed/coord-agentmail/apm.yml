@@ -11,6 +11,7 @@ target: claude
 type: hybrid
 includes: auto
 x-garrison:
+  shared_default: [claude-code]
   faculty: memory
   category: Core
   cardinality_hint: single

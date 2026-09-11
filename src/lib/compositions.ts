@@ -7,7 +7,7 @@ import { authorApmDependencies } from "./apm-manifest";
 import { readLibrary } from "./library";
 import { validateSelection } from "./metadata";
 import { resolveCapabilities, serializeCapabilityGraph } from "./capabilities";
-import { facultyIds, dutyEfforts, type CapabilityIssue, type FittingSelectionMap, type Composition, type GlobalConfig, type LibraryEntry, type FacultyId, type SelectedFitting, type SerializedCapabilityGraph, type DutySpec } from "./types";
+import { facultyIds, dutyEfforts, sharedRuntimes, type CapabilityIssue, type FittingSelectionMap, type Composition, type GlobalConfig, type LibraryEntry, type FacultyId, type SelectedFitting, type SerializedCapabilityGraph, type DutySpec } from "./types";
 import { readYamlFile, writeYamlFile } from "./yaml";
 import { writeFileAtomic } from "./atomic-write";
 import { persistManifest } from "./manifest-write";
@@ -15,6 +15,11 @@ import { z } from "zod";
 import { resolvePrimaryFromPolicy } from "./routing-primary";
 
 export const DEFAULT_COMPOSITION_ID = "default";
+export const selectedFittingSchema = z.object({
+  id: z.string().min(1),
+  config: z.record(z.union([z.string(), z.number(), z.boolean()])).default({}),
+  shared: z.array(z.enum(sharedRuntimes)).refine(values => new Set(values).size === values.length, "shared runtimes must be unique").optional()
+});
 
 const DEFAULT_ORCHESTRATOR_PROMPT = [
   "<!--",
@@ -731,7 +736,7 @@ function mergeSelectionConfigs(
     const baseItems = base[facultyKey] ?? [];
     const overItems = over[facultyKey] ?? [];
     const byId = new Map<string, SelectedFitting>(
-      baseItems.map((item) => [item.id, { id: item.id, config: { ...(item.config ?? {}) } }])
+      baseItems.map((item) => [item.id, { ...item, config: { ...(item.config ?? {}) } }])
     );
     for (const item of overItems) {
       const existing = byId.get(item.id);
@@ -908,6 +913,7 @@ export async function validateCompositionSelections(selections: FittingSelection
   for (const facultyId of facultyIds) {
     const selected = selections[facultyId] ?? [];
     const metadata = selected.map((item) => {
+      selectedFittingSchema.parse(item);
       const entry = byId.get(item.id);
       if (!entry) {
         throw new Error(`Unknown fitting ${item.id}`);
@@ -999,10 +1005,7 @@ function normalizeSelections(selections: FittingSelectionMap): FittingSelectionM
     if (!items || items.length === 0) {
       continue;
     }
-    normalized[facultyId] = items.filter((item)=>!["improver","improver-nightly"].includes(item.id)).map((item) => ({
-      id: item.id,
-      config: item.config ?? {}
-    }));
+    normalized[facultyId] = items.filter((item)=>!["improver","improver-nightly"].includes(item.id)).map((item) => selectedFittingSchema.parse(item));
   }
   return normalized;
 }
@@ -1035,6 +1038,7 @@ export function migrateSelectionsByFaculty(
 export function defaultConfigForEntry(entry: LibraryEntry): SelectedFitting {
   return {
     id: entry.id,
+    ...(entry.metadata.shared_default?.length ? { shared: [...entry.metadata.shared_default] } : {}),
     config: Object.fromEntries(
       entry.metadata.config_schema
         .filter((field) => field.default !== undefined)

@@ -981,6 +981,7 @@ function OrchestratorGlobalConfig({
 function defaultSelection(entry: LibraryEntry): SelectedFitting {
   return {
     id: entry.id,
+    ...(entry.metadata.shared_default?.length ? { shared: [...entry.metadata.shared_default] } : {}),
     config: Object.fromEntries(
       entry.metadata.config_schema
         .filter((field) => field.default !== undefined)

@@ -407,6 +407,7 @@ export interface GarrisonMetadata {
    * in metadata.ts for why membership is not free.
    */
   default_fit?: boolean;
+  shared_default?: SharedRuntime[];
   component_shape: FittingShape;
   platforms: PlatformId[];
   summary?: string;
@@ -593,9 +594,13 @@ export interface LibraryEntry {
   cloned_from?: string;
 }
 
+export const sharedRuntimes = ["claude-code", "codex", "gemini"] as const;
+export type SharedRuntime = (typeof sharedRuntimes)[number];
 export interface SelectedFitting {
   id: string;
   config: Record<string, string | number | boolean>;
+  // Also install primitives in the user's own runtime config; absent means Garrison-only.
+  shared?: SharedRuntime[];
 }
 
 export type FittingSelectionMap = Partial<Record<FacultyId, SelectedFitting[]>>;

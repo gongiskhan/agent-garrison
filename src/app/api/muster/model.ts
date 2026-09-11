@@ -1177,7 +1177,7 @@ async function writeStandingSelections(
 function cloneSelections(selections: FittingSelectionMap): FittingSelectionMap {
   const out: FittingSelectionMap = {};
   for (const [key, items] of Object.entries(selections)) {
-    out[key as FacultyId] = (items ?? []).map((s) => ({ id: s.id, config: { ...(s.config ?? {}) } }));
+    out[key as FacultyId] = (items ?? []).map((s) => ({ ...s, config: { ...(s.config ?? {}) }, ...(s.shared ? { shared: [...s.shared] } : {}) }));
   }
   return out;
 }
@@ -1316,7 +1316,7 @@ export async function setStandingConfig(
   }
   const next = cloneSelections(composition.selections);
   next[facultyId] = (next[facultyId] ?? []).map((s) =>
-    s.id === fittingId ? { id: s.id, config: { ...s.config, [key]: value } } : s
+    s.id === fittingId ? { ...s, config: { ...s.config, [key]: value } } : s
   );
   await writeStandingSelections(id, next);
   return assembleStandingModel(id);

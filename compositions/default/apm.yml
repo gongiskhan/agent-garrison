@@ -181,6 +181,7 @@ x-garrison:
             model: auto
       memory:
         - id: basic-memory
+          shared: [claude-code, codex]
           config:
             vault_dir: ~/ObsidianVault
             memory_dir: Memory
