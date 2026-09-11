@@ -26,7 +26,8 @@ jobs:
           node -e 'const f=require("fs");const c=JSON.parse(f.readFileSync("/tmp/listening-proof.json"));f.appendFileSync(process.env.GITHUB_ENV,`GARRISON_LISTENING_PROOF_URL=${c.url}\nGARRISON_LISTENING_PROOF_CONTROL=${c.control}\nGARRISON_LISTENING_PROOF_TOKEN=${c.token}\n`)'
       - name: Start isolated shell
         run: |
-          GARRISON_HOME_OVERRIDE=/tmp/listening-shell GARRISON_CLAUDE_HOME_OVERRIDE=/tmp/listening-claude NEXT_DIST_DIR=.next-listening bash scripts/garrison-instance.sh codex next > evidence/phone-listening/shell.log 2>&1 &
+          GARRISON_HOME_OVERRIDE=/tmp/listening-shell GARRISON_CLAUDE_HOME_OVERRIDE=/tmp/listening-claude NEXT_DIST_DIR=.next-listening bash scripts/garrison-instance.sh codex build > evidence/phone-listening/shell-build.log 2>&1
+          GARRISON_HOME_OVERRIDE=/tmp/listening-shell GARRISON_CLAUDE_HOME_OVERRIDE=/tmp/listening-claude NEXT_DIST_DIR=.next-listening bash scripts/garrison-instance.sh codex serve > evidence/phone-listening/shell.log 2>&1 &
           node -e 'const fs=require("fs"),cp=require("child_process");const env=cp.execFileSync("bash",["scripts/garrison-instance.sh","codex","env"],{encoding:"utf8"});const port=env.match(/^GARRISON_APP_PORT=(.*)$/m)[1];fs.appendFileSync(process.env.GITHUB_ENV,`GARRISON_LISTENING_PROOF_SHELL=http://127.0.0.1:${port}\n`)'
       - name: Verify shell navigation before simulator launch
         run: |

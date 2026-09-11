@@ -39,7 +39,7 @@ fi
 case "$profile" in
   node|dev|codex) ;;
   *)
-    echo "usage: $0 {node|dev|codex} {start|dev|next|mobile|build|env}  (prod = alias for node)" >&2
+    echo "usage: $0 {node|dev|codex} {start|dev|next|serve|mobile|build|env}  (prod = alias for node)" >&2
     exit 2
     ;;
 esac
@@ -260,6 +260,11 @@ case "$mode" in
     ;;
   next)
     exec next dev -H "$GARRISON_BIND_HOST" -p "$GARRISON_APP_PORT"
+    ;;
+  serve)
+    # A built shell under the same isolated profile, without a scheduler.
+    # CI uses this to exercise production navigation in the simulator.
+    exec next start -H "$GARRISON_BIND_HOST" -p "$GARRISON_APP_PORT"
     ;;
   mobile)
     # Explicit wide bind, regardless of profile. This is the ONE mode that is

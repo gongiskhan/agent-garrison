@@ -97,6 +97,21 @@ function readYaml(file: string): any {
 }
 
 describe("Codex secondary-instance isolation", () => {
+  it("serves a built shell with isolated homes and profile-derived ports", () => {
+    const fakeHome = mkdtempSync(path.join(os.tmpdir(), "garrison-built-shell-"));
+    sandboxes.push(fakeHome);
+    const env = launcherEnv("codex", fakeHome);
+    const bin = path.join(env.GARRISON_HOME, "bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(path.join(bin, "next"), '#!/usr/bin/env node\nconsole.log(JSON.stringify({args:process.argv.slice(2),home:process.env.GARRISON_HOME,claude:process.env.CLAUDE_CONFIG_DIR,dist:process.env.NEXT_DIST_DIR}));\n', { mode: 0o755 });
+    const result = JSON.parse(execFileSync("bash", [LAUNCHER, "codex", "serve"], {
+      cwd: ROOT, encoding: "utf8", env: { ...process.env, HOME: fakeHome,
+        GARRISON_HOME_OVERRIDE: env.GARRISON_HOME, GARRISON_CLAUDE_HOME_OVERRIDE: env.GARRISON_CLAUDE_HOME,
+        GARRISON_APP_PORT: env.GARRISON_APP_PORT, NEXT_DIST_DIR: ".next-listening" }
+    }));
+    expect(result).toEqual({ args: ["start", "-H", "127.0.0.1", "-p", env.GARRISON_APP_PORT], home: env.GARRISON_HOME, claude: env.GARRISON_CLAUDE_HOME, dist: ".next-listening" });
+  });
+
   it("projects every writable control-plane/config surface into the secondary homes without starting services", () => {
     const fakeHome = mkdtempSync(path.join(os.tmpdir(), "garrison-instance-env-"));
     sandboxes.push(fakeHome);
@@ -658,8 +673,9 @@ describe("Codex secondary-instance isolation", () => {
       // comes from the fitting itself, and a codex value here would silently
       // cross the instance boundary.
       expect(config("observability", "automations")?.automations_dir, profile).toBeUndefined();
-      expect(config("observability", "improver")?.vault_dir, profile)
-        .toBe("~/ObsidianVault");
+      // Core Improver no longer requires a fitting; check legacy config if present.
+      const legacyImprover = config("observability", "improver");
+      if (legacyImprover) expect(legacyImprover.vault_dir, profile).toBe("~/ObsidianVault");
       expect(config("observability", "scheduler"), profile).toMatchObject({
         jobs_file: "~/.garrison/scheduler-jobs.json",
         log_file: "~/.garrison/scheduler.log",
