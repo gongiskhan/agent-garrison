@@ -28,5 +28,6 @@ else
   rm -f "$tmperr"
 fi
 
-printf '{"repository":"%s","error":"%s","snapshots":%s}\n' \
-  "$(json_str "$repo")" "$(json_str "$err")" "$snaps"
+scheduling="$(node "$SCRIPT_DIR/schedule-status.mjs")" || scheduling='{"nodes":[],"error":"schedule status unavailable"}'
+printf '{"repository":"%s","error":"%s","snapshots":%s,"scheduling":%s}\n' \
+  "$(json_str "$repo")" "$(json_str "$err")" "$snaps" "$scheduling"

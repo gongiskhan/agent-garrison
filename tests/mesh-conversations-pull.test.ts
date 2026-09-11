@@ -12,7 +12,7 @@ function put(p: string, text = "fixture") { fs.mkdirSync(path.dirname(p), { recu
 beforeEach(() => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), "mesh-pull-"));
   source = `${home}/peer`;
-  env = { PATH: process.env.PATH, HOME: home, GARRISON_HOME: `${home}/.garrison`, GARRISON_CLAUDE_HOME: `${home}/.claude`, RSYNC_TARGET_OVERRIDE: source };
+  env = { NODE_ENV: "test", PATH: process.env.PATH, HOME: home, GARRISON_HOME: `${home}/.garrison`, GARRISON_CLAUDE_HOME: `${home}/.claude`, RSYNC_TARGET_OVERRIDE: source };
   put(`${source}/.garrison/conversations/chat-one/log.jsonl`);
   put(`${source}/.garrison/conversations/chat-one/ledger.json`);
   put(`${source}/.garrison/conversations/chat-one/work/private.txt`);

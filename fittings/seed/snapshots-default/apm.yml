@@ -14,9 +14,8 @@ x-garrison:
   summary: >-
     Off-site, encrypted backups of everything Garrison depends on - ~/.garrison
     (the runs evidence home), ~/.claude, and the projects root - using restic to
-    a GCS backend. Scheduling runs on a systemd user timer (daily 03:00 + weekly
-    prune), DELIBERATELY independent of Garrison so backups survive Garrison being
-    down. The restic password and the GCS service-account key come from the Vault
+    a GCS backend. Systemd user timers run on Linux; scheduler jobs cover other
+    nodes. Consistent state snapshots and mesh conversation ledgers are included. The restic password and the GCS service-account key come from the Vault
     (secret_scope), with a 0600 fallback env file at ~/.garrison/snapshots/env.
     Restore is never automated: the Snapshots view prints the exact
     `restic restore` command to copy.
@@ -34,6 +33,10 @@ x-garrison:
       description: >-
         Projects directory included in the backup set. Overridden per-machine
         via SNAPSHOTS_PROJECTS_ROOT in the environment; defaults to ~/dev.
+    - key: state_ship_target
+      type: string
+      default: ""
+      description: SSH target for the state host to ship daily DB snapshots off-box. Empty disables shipping.
   provides: []
   consumes:
     - kind: vault

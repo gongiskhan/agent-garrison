@@ -13,7 +13,7 @@ beforeEach(() => {
   fs.mkdirSync(path.join(home, ".claude"));
   fs.mkdirSync(path.join(home, "dev"));
   fs.writeFileSync(path.join(home, "bin/restic"), `#!/usr/bin/env node\nconst fs=require('fs');fs.appendFileSync(process.env.ARGV_LOG,JSON.stringify(process.argv.slice(2))+'\\n');console.log('{}');`, { mode: 0o755 });
-  env = { PATH: `${home}/bin:${process.env.PATH}`, HOME: home, GARRISON_HOME: `${home}/.garrison`, GARRISON_CLAUDE_HOME: `${home}/.claude`, GARRISON_STATE_HOME: `${home}/.garrison-state`, RESTIC_REPOSITORY: `${home}/repo`, RESTIC_PASSWORD: "fixture-only", ARGV_LOG: `${home}/argv.jsonl` };
+  env = { NODE_ENV: "test", PATH: `${home}/bin:${process.env.PATH}`, HOME: home, GARRISON_HOME: `${home}/.garrison`, GARRISON_CLAUDE_HOME: `${home}/.claude`, GARRISON_STATE_HOME: `${home}/.garrison-state`, RESTIC_REPOSITORY: `${home}/repo`, RESTIC_PASSWORD: "fixture-only", ARGV_LOG: `${home}/argv.jsonl` };
 });
 afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
 

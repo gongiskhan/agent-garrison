@@ -15,6 +15,16 @@ if [ "${GARRISON_DISABLE_HOST_DAEMONS:-0}" = "1" ]; then
   exit 0
 fi
 
+# Register on every supported OS. A shared all-node job resolves the scheduling
+# choice locally, so Linux timers cannot disable backups on Macs.
+SYSTEMD_ACTIVE=0
+register_schedules() {
+  local flags=()
+  [ "$SYSTEMD_ACTIVE" = "1" ] && flags=(--systemd)
+  node "$SCRIPT_DIR/schedule.mjs" "${flags[@]}" || return 1
+  node "$SCRIPT_DIR/schedule-status.mjs" --publish || return 1
+}
+
 # 1. restic binary.
 if ! command -v restic >/dev/null 2>&1; then
   echo "restic not found; attempting non-interactive install..."
@@ -26,6 +36,7 @@ if ! command -v restic >/dev/null 2>&1; then
   echo "FOLLOWUP: restic could not be installed automatically. Install it with:"
   echo "    sudo apt-get install -y restic"
   echo "snapshots setup incomplete (restic missing); timers not installed."
+  register_schedules || exit 1
   exit 0
 fi
 echo "restic present: $(restic version 2>/dev/null | head -1)"
@@ -33,8 +44,8 @@ echo "restic present: $(restic version 2>/dev/null | head -1)"
 # 2. systemd user timers - the Garrison-independent scheduling path.
 if ! command -v systemctl >/dev/null 2>&1 || [ -z "${XDG_RUNTIME_DIR:-}" ]; then
   echo "FOLLOWUP: no systemd user session detected; skipping timer install."
-  echo "  Backups can still be taken on demand from the Snapshots view."
-  echo "snapshots setup ok (on-demand only)"
+  register_schedules || exit 1
+  echo "snapshots setup ok (scheduler)"
   exit 0
 fi
 
@@ -63,9 +74,11 @@ done
 
 systemctl --user daemon-reload || true
 if systemctl --user enable --now garrison-snapshots.timer garrison-snapshots-prune.timer >/dev/null 2>&1; then
+  SYSTEMD_ACTIVE=1
   echo "installed + enabled garrison-snapshots.timer (daily 03:00) and garrison-snapshots-prune.timer (weekly)"
 else
   echo "FOLLOWUP: wrote units to $USER_UNIT_DIR but could not enable them; run:"
   echo "    systemctl --user enable --now garrison-snapshots.timer garrison-snapshots-prune.timer"
 fi
+register_schedules || exit 1
 echo "snapshots setup ok"

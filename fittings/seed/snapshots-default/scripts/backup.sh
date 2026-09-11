@@ -37,6 +37,7 @@ write_state() {
     printf '\n}\n'
   } > "$tmp"
   mv -f "$tmp" "$STATE_FILE"
+  node "$SCRIPT_DIR/schedule-status.mjs" --publish >>"$LOG_FILE" 2>&1 || true
 }
 
 if ! command -v restic >/dev/null 2>&1; then
