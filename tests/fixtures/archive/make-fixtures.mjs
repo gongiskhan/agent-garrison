@@ -53,7 +53,7 @@ for(let l=0;l<3;l++) {
     const meta={garrison:'card',title,cover:'sample-document.jpg',tags:['fixture',l===0?'documentos':'home'],order:(c+1)*10,created:at,updated:at,sensitive:l===0&&c<2};
     let body='Synthetic fixture. Keep the original in the sample folder.';
     if(c===2) body+='\n\n## Links\n- [Example portal](https://example.com/)\n\n## Checklists\n### Preparation\n- [ ] Book appointment\n- [x] Gather documents';
-    if(c===0) body+='\n\n## Comments\n'+[11,10,9].map(day=>`### 2026-09-${day} 10:14 · Gonçalo\nSynthetic comment ${day}.`).join('\n');
+    if(c===0) body+='\n\n## Comments\n'+[11,10,9].map(day=>`### 2026-09-${String(day).padStart(2,'0')} 10:14 · Gonçalo\nSynthetic comment ${day}.`).join('\n');
     put(`${dir}/index.md`,markdown(meta,body)); attachment(dir,'sample-document.jpg');
     if(l===0&&c===1) attachment(dir,'sample-text.pdf','sample-text.pdf','pdf');
   }

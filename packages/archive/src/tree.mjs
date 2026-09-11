@@ -39,5 +39,7 @@ export async function tree(ctx,relative='',depth=2) {
   children.sort((a,b)=>{const folder=k=>['list','folder'].includes(k)?0:k==='card'?1:2;return folder(a.kind)-folder(b.kind)||byOrder(a,b)});
   let kind=relative===''||relative==='Archive'?'area':relative.startsWith('Archive/')&&relative.split('/').length===2?'list':'folder';
   if(areaOf(relative)==='yours'&&entries.some(e=>e.name==='index.md'))kind='card';
-  return {path:relative,kind,children};
+  if(ctx.index?.state==='ready')for(const child of children){if(!['folder','list'].includes(child.kind))continue;const notes=[...ctx.index.docs.values()].filter(d=>d.kind==='note'&&d.path.startsWith(child.path+'/'));child.counts.notes=notes.length;if(notes.length)child.updated=notes.map(d=>d.updated).filter(Boolean).sort().at(-1)??child.updated;}
+  const meta=kind==='list'?await readList(ctx,relative):null;
+  return {path:relative,name:path.posix.basename(relative),title:meta?.title??path.posix.basename(relative),order:meta?.order,notes:meta?.body??'',kind,children,counts:{files:children.filter(c=>c.kind==='file').length,notes:children.reduce((n,c)=>n+(c.kind==='note'?1:c.counts?.notes??0),0)}};
 }

@@ -31,11 +31,11 @@ async function readDocument(ctx,relative) {
 export class ArchiveIndex {
   constructor(ctx){this.ctx=ctx;this.docs=new Map();this.engine=new MiniSearch(options);this.state='building';this.pending=Promise.resolve();}
   async cardDocument(relative) {
-    const data=await readDocument(this.ctx,path.posix.join(relative,'index.md'));if(!data)return null;const card=parseCard(data.raw,path.posix.basename(relative));const side=[];let attachment=null;
-    for(const e of await fs.readdir(confine(this.ctx.vaultDir,relative),{withFileTypes:true})){if(!e.isFile()||e.name==='index.md'||!e.name.endsWith('.md')||e.name.startsWith('.'))continue;let d;try{d=await readDocument(this.ctx,path.posix.join(relative,e.name));}catch{continue;}if(d?.parsed.frontmatter.garrison==='derived'){side.push(d.parsed.body);attachment??=d.parsed.frontmatter.source;}}
+    const data=await readDocument(this.ctx,path.posix.join(relative,'index.md'));if(!data)return null;const card=parseCard(data.raw,path.posix.basename(relative));const side=[],attachmentSources=[];let attachment=null;
+    for(const e of await fs.readdir(confine(this.ctx.vaultDir,relative),{withFileTypes:true})){if(!e.isFile()||e.name==='index.md'||!e.name.endsWith('.md')||e.name.startsWith('.'))continue;let d;try{d=await readDocument(this.ctx,path.posix.join(relative,e.name));}catch{continue;}if(d?.parsed.frontmatter.garrison==='derived'){side.push(d.parsed.body);attachmentSources.push({name:d.parsed.frontmatter.source,body:d.parsed.body});attachment??=d.parsed.frontmatter.source;}}
     const fields=[...card.details.map(f=>`${f.label}: ${f.value}`),...side.map(s=>s.split('## Fields')[1]??'')].join('\n');
     const body=[card.description,...card.links.map(l=>`${l.title} ${l.url}`),...card.checklists.flatMap(l=>[l.title,...l.items.map(i=>i.text)]),...card.comments.map(c=>c.markdown),...side].join('\n');
-    return {path:relative,kind:'card',title:card.frontmatter.title,tags:card.frontmatter.tags??[],fields,body,area:areaOf(relative),list:path.posix.basename(path.posix.dirname(relative)),updated:card.frontmatter.updated??null,sensitive:card.frontmatter.sensitive===true,attachment};
+    return {path:relative,kind:'card',title:card.frontmatter.title,tags:card.frontmatter.tags??[],fields,body,area:areaOf(relative),list:path.posix.basename(path.posix.dirname(relative)),updated:card.frontmatter.updated??null,sensitive:card.frontmatter.sensitive===true,attachment,attachmentSources};
   }
   async fileDocument(relative){
     const file=confine(this.ctx.vaultDir,relative);const stat=await fs.stat(file).catch(()=>null);if(!stat?.isFile())return null;
@@ -71,7 +71,7 @@ export class ArchiveIndex {
   query(q,{area,list,kind,tag,limit=50}={}){
     const started=performance.now();if(!q?.trim())return {hits:[],total:0,tookMs:0};
     const results=this.engine.search(q,{filter:r=>(!area||area==='all'||r.area===area)&&(!list||r.list===list)&&(!kind||r.kind===kind)&&(!tag||r.tags?.includes(tag))});
-    const hits=results.slice(0,limit).map(r=>{const d=this.docs.get(r.id);return {path:d.path,kind:d.kind,title:d.title,area:d.area,list:d.list,snippet:d.sensitive?'Sensitive card, open to view':snippet(d.body+' '+d.fields,q),score:r.score,updated:d.updated,sensitive:d.sensitive,...(d.attachment?{attachment:d.attachment}:{})};});
-    return {hits,total:results.length,tookMs:Math.round((performance.now()-started)*100)/100,tags:[...new Set(results.flatMap(r=>r.tags??[]))]};
+    const hits=results.slice(0,limit).map(r=>{const d=this.docs.get(r.id),terms=tokenize(q),body=d.body+' '+d.fields,matching=(d.attachmentSources??[]).map(a=>({...a,matches:terms.filter(t=>fold(a.body).includes(t)).length})).sort((a,b)=>b.matches-a.matches)[0];const attachment=matching?.matches?matching.name:null;return {path:d.path,kind:d.kind,title:d.title,area:d.area,list:d.list,snippet:d.sensitive?'Sensitive card, open to view':snippet(terms.some(t=>fold(body).includes(t))?body:d.title+' '+body,q),score:r.score,updated:d.updated,sensitive:d.sensitive,...(attachment?{attachment}:{})};});
+    return {hits,total:results.length,tookMs:Math.round((performance.now()-started)*100)/100,tags:[...new Set(results.filter(r=>Object.values(r.match??{}).some(fields=>fields.includes('tags'))).flatMap(r=>r.tags??[]))]};
   }
 }

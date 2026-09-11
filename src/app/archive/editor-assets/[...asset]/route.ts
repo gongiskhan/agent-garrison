@@ -1,0 +1,5 @@
+import fs from 'node:fs/promises';import path from 'node:path';
+export const runtime='nodejs';export const dynamic='force-dynamic';
+// Monaco's installed browser assets stay on this origin, including over the
+// tailnet and in the iOS webview. This is a fixed package root, never vault input.
+export async function GET(_request:Request,{params}:{params:{asset:string[]}}){try{const parts=params.asset;if(!parts?.length||parts.some(p=>p.startsWith('.')||/[\\/\x00]/.test(p))||! /\.(?:js|css|ttf)$/.test(parts.at(-1)!))return new Response('Not found',{status:404});const root=await fs.realpath(path.join(process.cwd(),'node_modules/monaco-editor/min/vs')),file=await fs.realpath(path.join(root,...parts));if(!file.startsWith(root+path.sep))return new Response('Not found',{status:404});const mime=file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':'font/ttf';return new Response(await fs.readFile(file),{headers:{'content-type':mime,'x-content-type-options':'nosniff','cache-control':'public, max-age=86400'}});}catch{return new Response('Not found',{status:404});}}

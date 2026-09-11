@@ -41,7 +41,13 @@ md.use({
       const text = self.parser.parseInline(token.tokens);
       let url = token.href || "";
       const g = /^garrison:\/\/([^/]+)\/?(.*)$/.exec(url);
-      if (g) url = `/fitting/${g[1]}${g[2] ? `/${g[2]}` : ""}`;
+      if (g?.[1] === "archive") {
+        let archivePath = g[2];
+        try { archivePath = decodeURIComponent(archivePath); } catch { /* Keep literal text. */ }
+        const card = archivePath.startsWith("Archive/") && archivePath.split("/").filter(Boolean).length >= 3 && (!archivePath.toLowerCase().endsWith(".md") || archivePath.endsWith("/index.md"));
+        if (card) archivePath = archivePath.replace(/\/index\.md$/, "");
+        url = `/archive/${card ? "card" : "notes"}?path=${encodeURIComponent(archivePath)}`;
+      } else if (g) url = `/fitting/${g[1]}${g[2] ? `/${g[2]}` : ""}`;
       if (!isSafeHref(url)) return text; // drop the href, keep the text
       const attrs =
         /^https?:\/\//i.test(url) || /^\/\//.test(url) ? ` target="_blank" rel="noopener noreferrer"` : "";
@@ -54,7 +60,12 @@ md.use({
 // images / same-origin /file links. Root-relative, so safe at SSR here (no
 // client host needed); loopback-URL rewriting is a client concern handled by the
 // live chat surfaces (ClaudeChat, kanban).
-md.use({ extensions: [filePathMarkedExtension()] });
+md.use({ extensions: [filePathMarkedExtension(), {
+  name: "archiveWikilink", level: "inline",
+  start: (src: string) => src.indexOf("[["),
+  tokenizer(src: string) { const match = /^\[\[([^\]\n]+)\]\]/.exec(src); if (match) return { type: "archiveWikilink", raw: match[0], text: match[1] }; },
+  renderer(token: any) { return `<a href="/archive/search?q=${escapeAttr(encodeURIComponent(token.text))}">${escapeHtml(token.text)}</a>`; }
+}] });
 
 export function renderMarkdown(src: string): string {
   return md.parse(src) as string;

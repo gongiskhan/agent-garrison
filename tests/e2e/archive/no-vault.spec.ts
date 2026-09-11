@@ -1,0 +1,2 @@
+import {test,expect,goto} from './fixture';
+test('missing Basic Memory shows the No vault state',async({page,app},info)=>{test.skip(info.project.name==='phone','The brief specifies desktop for this state.');await goto(page,app);await expect(page.getByRole('heading',{name:'No vault yet'})).toBeVisible();await expect(page.getByRole('link',{name:'Open composition'})).toHaveAttribute('href','/compose');expect((await page.request.get(app.base+'/api/archive/tree')).status()).toBe(409);});

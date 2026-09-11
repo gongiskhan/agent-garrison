@@ -79,7 +79,7 @@ export function createArchiveService({vaultDir,home,config={},node='local',rende
         case 'GET card':return json(await cardView(ctx,queryPath()));
         case 'POST card':return json(await mutate(()=>body(z.object({list:p,title,description:text.optional()}).strict()).then(b=>ops.createCard(ctx,b))));
         case 'PATCH card':{const b=await body(cardPatch);return json(await mutate(()=>ops.patchCard(ctx,b)));}
-        case 'POST card/comment':{const b=await body(z.object({path:p,text:title}).strict());return json(await mutate(()=>ops.addComment(ctx,b)));}
+        case 'POST card/comment':{const b=await body(z.object({path:p,text:text.trim().min(1)}).strict());return json(await mutate(()=>ops.addComment(ctx,b)));}
         case 'DELETE card':{const b=await body(z.object({path:p}).strict());await cardView(ctx,b.path);return json(await mutate(()=>ops.trash(ctx,b.path)));}
         case 'POST card/reorder':{const b=await body(z.object({path:p,index:z.number().int().min(0)}).strict());return json(await mutate(async()=>{await reorderCard(ctx,b.path,b.index);return {ok:true};}));}
         case 'POST list':{const b=await body(z.object({title}).strict());return json(await mutate(()=>ops.createList(ctx,b.title)));}

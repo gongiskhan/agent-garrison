@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { ArchiveNavigationGuard } from "../../packages/archive/ui/navigation";
 import { Barlow, Source_Serif_4, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/chrome/AppShell";
@@ -118,6 +119,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       }
     >
       <body>
+        <ArchiveNavigationGuard />
         <AppShell>{children}</AppShell>
         <ServiceWorkerRegistrar />
       </body>

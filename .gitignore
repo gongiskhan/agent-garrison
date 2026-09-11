@@ -145,3 +145,7 @@ bench/prefix-2026-08-29/capture/req-*.json
 
 # Isolated listening UI validation build
 .next-listening/
+
+# Archive scratch browser outputs (evidence remains on its owner node)
+/test-results/archive-*/
+/test-results/.last-run.json

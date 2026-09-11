@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import {pathToFileURL} from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolveActiveComposition } from '@/lib/active-composition';
@@ -16,9 +17,9 @@ import { writeFileAtomic } from '@/lib/atomic-write';
 // @ts-ignore ESM core also runs independently of Next.
 import { createArchiveService } from '../../../../packages/archive/src/service.mjs';
 // @ts-ignore
+import { TrelloClient } from '../../../../packages/archive/src/trello/client.mjs';
+// @ts-ignore
 import { vaultRoot } from '../../../../packages/archive/src/paths.mjs';
-// @ts-ignore Existing gateway runtime substrate.
-import { AgentSdkAdapter } from '../../../../fittings/seed/agent-sdk-runtime/lib/agent-sdk-adapter.mjs';
 // @ts-ignore
 import { SDK_PROVIDERS, capabilityRecord } from '../../../../fittings/seed/agent-sdk-runtime/lib/providers.mjs';
 
@@ -33,6 +34,9 @@ export function routedLook(targets:RuntimeTarget[],home:string){
     const provider=selected.provider??'anthropic',spec=SDK_PROVIDERS[provider];
     const secrets=spec?.needsKey?Object.fromEntries((await scopedSecrets([spec.vaultKey])).map(s=>[s.key,s.value])):null;
     await fs.mkdir(path.join(home,'archive'),{recursive:true});
+    // Resolve the installed runtime only when extraction is called. A clean shell
+    // build does not require every optional fitting's private node_modules.
+    const {AgentSdkAdapter}=await import(/* webpackIgnore: true */ pathToFileURL(path.join(process.cwd(),'fittings/seed/agent-sdk-runtime/lib/agent-sdk-adapter.mjs')).href);
     const work=await fs.mkdtemp(path.join(home,'archive/look-'));const adapter=new AgentSdkAdapter();let session:any;let timer:ReturnType<typeof setTimeout>|undefined;let usage:any;
     try{
       session=await adapter.spawn({compositionDir:work,provider,model:selected.model,baseUrl:selected.params?.baseUrl,secrets,
@@ -68,6 +72,11 @@ export async function archiveService(){
     if(!entry)return {};const scope=connectorSecretScope(entry.metadata);return Object.fromEntries((await scopedSecrets(scope)).map(s=>[s.key,s.value]));
   };
   const service=createArchiveService({vaultDir,home,config,node:fixture?'fixture-node':readNodeIdentity().id,render:renderMarkdown,write:writeFileAtomic,invoke,credentials,
+    clientFactory:fixture?.trelloBase?(env:{TRELLO_KEY:string;TRELLO_TOKEN:string})=>{
+      const mock=new URL(fixture.trelloBase);
+      if(mock.hostname!=='127.0.0.1'||mock.protocol!=='http:')throw new Error('Fixture Trello must use loopback');
+      return new TrelloClient({key:env.TRELLO_KEY,token:env.TRELLO_TOKEN,base:mock.origin+'/1',fetchImpl:(url:string|URL,options:any)=>{const incoming=new URL(url);return fetch(incoming.hostname==='trello.com'?mock.origin+'/attachment'+incoming.pathname:incoming,options);}});
+    }:undefined,
     authorizeInternal:(request:Request)=>verifyInternalToken(request.headers.get('x-garrison-internal')),
     runNow:fixture?async()=>{}:async(id:string)=>{await execute(process.execPath,[path.join(process.cwd(),'fittings/seed/scheduler/scripts/scheduler.mjs'),'run-now',id],{env:{...process.env,GARRISON_HOME:home},timeout:300_000,maxBuffer:1024*1024});},
     onError:(error:Error)=>console.error('[archive]',error.message)});

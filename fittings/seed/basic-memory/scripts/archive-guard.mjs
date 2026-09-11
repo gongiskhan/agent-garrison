@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 export const MESSAGE='Archive/ is user-owned. Agents read it but never write it. If this belongs in the Archive, tell the user and let them file it.';
 export const MATCHER='Write|Edit|MultiEdit|NotebookEdit|mcp__basic-memory__write_note|mcp__basic-memory__edit_note|mcp__basic-memory__move_note|mcp__basic-memory__delete_note';
 const expand=p=>p?.replace(/^~(?=\/|$)/,os.homedir());
-function real(p){const rest=[];let base=path.resolve(p);while(!fs.existsSync(base)){const parent=path.dirname(base);if(parent===base)break;rest.unshift(path.basename(base));base=parent;}return path.resolve(fs.realpathSync(base),...rest);}
+function real(p){const rest=[];let base=path.resolve(p);while(!fs.existsSync(base)){const parent=path.dirname(base);if(parent===base)break;rest.unshift(path.basename(base));base=parent;}return path.resolve(fs.realpathSync.native(base),...rest);}
 const quote=s=>"'"+String(s).replaceAll("'","'\"'\"'")+"'";
 function write(file,data){fs.mkdirSync(path.dirname(file),{recursive:true});const temp=file+'.tmp-'+process.pid;fs.writeFileSync(temp,JSON.stringify(data,null,2)+'\n',{mode:0o600});fs.renameSync(temp,file);}
 export function install(settings,vault,home,script){
@@ -21,7 +21,7 @@ export function install(settings,vault,home,script){
     `const MESSAGE=${JSON.stringify(MESSAGE)},expand=${expand.toString()};`,
     real.toString(),write.toString(),guardVault.toString(),blocked.toString(),
     `try{const payload=JSON.parse(fs.readFileSync(0,'utf8'));if(blocked(payload,guardVault(${JSON.stringify(settings)},${JSON.stringify(home)}))){process.stderr.write(MESSAGE+'\\n');process.exitCode=2;}}catch{process.stderr.write(MESSAGE+'\\n');process.exitCode=2;}`].join('\n');
-  const cmd=`node --no-experimental-fetch -e ${quote(code)}`;
+  const cmd=`exec node --no-experimental-fetch -e ${quote(code)}`;
   hooks.PreToolUse.push({matcher:MATCHER,hooks:[{type:'command',command:cmd,timeout:5}]});
   write(path.join(home,'basic-memory/guard-config.json'),{vaultDir:expand(vault)});write(settings,data);
   fs.rmSync(path.join(home,'basic-memory/guard-cache.json'),{force:true});

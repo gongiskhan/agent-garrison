@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-export const ARCHIVE_LABEL = 'Archive';
+export { ARCHIVE_LABEL } from '../label.mjs';
 export const DEFAULT_CONFIG = Object.freeze({ extract_target: 'cc-sonnet', max_file_mb: 25, pdf_max_pages: 30, author: 'Gonçalo' });
 // Copied from the shell's confined same-origin file server.
 export const SENSITIVE = /(?:^|\/)(?:\.env(?:\.|$)|id_rsa|id_ed25519|[^/]*\.pem|vault\.json)|\/\.git\//i;
@@ -96,4 +96,11 @@ if(process.argv[1]&&path.resolve(process.argv[1])===new URL(import.meta.url).pat
   const [mode,vault,...inputs]=process.argv.slice(2);
   if(mode==='--check-paths')process.exitCode=inputs.some(p=>isArchivePath(vault,p))?2:0;
   if(mode==='--check-inputs')process.exitCode=inputs.every(p=>automationInputAllowed(vault,p))?0:2;
+}
+
+export function uniqueFileName(dir, filename) {
+ const ext=path.extname(filename),stem=sanitizeName(path.basename(filename,ext)).slice(0,Math.max(1,80-ext.length));
+ const used=new Set(fs.readdirSync(dir).map(n=>n.toLocaleLowerCase('pt-PT')));let name=stem+ext,n=2;
+ while(used.has(name.toLocaleLowerCase('pt-PT'))||used.has((name+'.md').toLocaleLowerCase('pt-PT')))name=`${stem} (${n++})${ext}`;
+ return name;
 }

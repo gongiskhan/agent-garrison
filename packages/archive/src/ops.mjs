@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { confine, fail, uniqueName, areaOf, isMirror } from './paths.mjs';
+import { confine, fail, uniqueName, uniqueFileName, areaOf, isMirror } from './paths.mjs';
 import { readCard, writeCard, serializeCard } from './card.mjs';
 import { nextOrder, writeList, cardsInList } from './list.mjs';
 import { now, sha, maybeRead } from './io.mjs';
@@ -89,7 +89,7 @@ export async function upload(ctx,target,files){
   const dir=confine(ctx.vaultDir,target),result=[];
   // Validate the whole batch before the first write.
   for(const file of files)if(file.bytes.length>ctx.config.max_file_mb*1024*1024)throw fail(`${file.name} is ${Math.round(file.bytes.length/1024/1024)} MB. The limit is ${ctx.config.max_file_mb} MB, so it was not added. Large files can be linked instead.`,413);
-  for(const file of files){const ext=path.extname(file.name);let name=uniqueName(dir,file.name);if(file.name!==path.posix.basename(file.name)||file.name.startsWith('.'))throw fail('Invalid filename',400);let relative=path.posix.join(target,name);await ctx.write(confine(ctx.vaultDir,relative),file.bytes,{mode:0o600});
+  for(const file of files){const ext=path.extname(file.name);let name=uniqueFileName(dir,file.name);if(file.name!==path.posix.basename(file.name)||file.name.startsWith('.'))throw fail('Invalid filename',400);let relative=path.posix.join(target,name);await ctx.write(confine(ctx.vaultDir,relative),file.bytes,{mode:0o600});
     if(/\.hei[cf]$/i.test(ext)&&ctx.convertHeic)relative=await ctx.convertHeic(relative);
     result.push({path:relative,size:file.bytes.length,queued:!relative.endsWith('.md')});
   }return {files:result};

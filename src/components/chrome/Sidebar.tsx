@@ -1,4 +1,5 @@
 "use client";
+import { ARCHIVE_LABEL } from "../../../packages/archive/label.mjs";
 
 import { Fragment, useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -442,6 +443,7 @@ export const COMMAND_ITEMS: CommandItem[] = [
     Icon: KeyRound,
     isActive: (p) => p === "/accounts" || p.startsWith("/accounts/")
   },
+  { id: "nav:archive", href: "/archive", label: ARCHIVE_LABEL, Icon: Archive, isActive: (p) => p === "/archive" || p.startsWith("/archive/") },
   {
     id: "nav:composition",
     href: "/compose",

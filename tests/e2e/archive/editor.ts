@@ -1,0 +1,2 @@
+import {Page,expect} from '@playwright/test';
+export async function edit(page:Page,label:string,value:string,project:string){if(project==='phone')await page.getByRole('textbox',{name:label,exact:true}).fill(value);else{const area=page.locator('.archive-monaco').getByRole('textbox',{name:label,exact:true});await expect(area).toBeAttached();await page.locator('.archive-monaco .view-lines').click();await page.keyboard.press('ControlOrMeta+A');await page.keyboard.insertText(value);}}
