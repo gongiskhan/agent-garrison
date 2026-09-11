@@ -29,6 +29,17 @@ app.ingress.handleSessionStart = (socket, message, send) => {
 };
 const receive = app.listening.message.bind(app.listening);
 app.listening.message = (owner, message) => { if (message.type === "listening.heartbeat") heartbeats++; return receive(owner, message); };
+async function captureAppStack(label) {
+  try {
+    const { stdout } = await promisify(execFile)("ps", ["-axo", "pid=,comm="], { timeout: 5000 });
+    const processes = stdout.split("\n").filter(line => /\/GarrisonApp\.app\/GarrisonApp$/.test(line));
+    hostEvent("journey:app-processes", { label, processes });
+    for (const process of processes) {
+      const pid = process.trim().split(/\s+/)[0];
+      await promisify(execFile)("sample", [pid, "1", "-file", path.resolve(`evidence/phone-listening/${label}-${pid}.sample.txt`)], { timeout: 5000 });
+    }
+  } catch (error) { hostEvent("journey:sample-failed", { label, message: error.message }); }
+}
 // Test harness control is on a separate ephemeral loopback listener, outside
 // the shipped capture server. It can only affect this isolated node.
 const control = createServer(async (req, res) => {
@@ -37,20 +48,22 @@ const control = createServer(async (req, res) => {
   if (["/open-capture", "/background-app"].includes(url.pathname)) {
     const openingCapture = url.pathname === "/open-capture";
     try {
+      if (!openingCapture) await captureAppStack("before-background");
       const simulator = readFileSync("/tmp/listening-simulator-id", "utf8").trim();
       if (!/^[0-9A-F-]{36}$/i.test(simulator)) throw new Error("Invalid isolated simulator identity");
       const command = openingCapture
         ? ["simctl", "openurl", simulator, "garrison://open?path=%2Fcapture%3Fsource%3Dphone"]
         : ["simctl", "launch", simulator, "com.apple.Preferences"];
-      await promisify(execFile)("xcrun", command, { timeout: 15000 });
+      await promisify(execFile)("xcrun", command, { timeout: 30000 });
       hostEvent(openingCapture ? "journey:capture-url-opened" : "journey:settings-opened");
     } catch (error) {
-      hostEvent(openingCapture ? "journey:capture-url-failed" : "journey:settings-open-failed", error.message);
+      hostEvent(openingCapture ? "journey:capture-url-failed" : "journey:settings-open-failed", { message: error.message, code: error.code, killed: error.killed, signal: error.signal, stderr: error.stderr });
+      await captureAppStack("switch-failed");
       res.writeHead(500, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: error.message })); return;
     }
   }
-  if (url.pathname.startsWith("/event/")) hostEvent(`journey:${url.pathname.slice(7)}`);
+  if (url.pathname.startsWith("/event/")) hostEvent(`journey:${url.pathname.slice(7)}`, url.searchParams.get("simulator"));
   if (url.pathname === "/mock-start") {
     mock?.kill();
     mock = spawn(process.execPath, ["scripts/mock-phone-source.mjs", "--url", `http://127.0.0.1:${app.cfg.port}`, "--device", device, "--wait-for-intent", "--duration", "240"], { env: { ...process.env, CAPTURE_TOKEN: token }, stdio: ["ignore", "inherit", "inherit"] });

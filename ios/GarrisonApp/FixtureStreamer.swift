@@ -41,8 +41,9 @@ enum FixtureStreamer {
     @MainActor
     private static func reportListeningEvent(_ event: String) {
         if let control = ProcessInfo.processInfo.environment["GARRISON_LISTENING_PROOF_CONTROL"],
-           let url = URL(string: control + "/event/" + event), url.host == "127.0.0.1" {
-            Task { _ = try? await URLSession.shared.data(from: url) }
+           var url = URLComponents(string: control + "/event/" + event), url.host == "127.0.0.1" {
+            url.queryItems = [URLQueryItem(name: "simulator", value: ProcessInfo.processInfo.environment["SIMULATOR_UDID"])]
+            if let endpoint = url.url { Task { _ = try? await URLSession.shared.data(from: endpoint) } }
         }
     }
 
