@@ -19,9 +19,12 @@ fi
 # choice locally, so Linux timers cannot disable backups on Macs.
 SYSTEMD_ACTIVE=0
 register_schedules() {
-  local flags=()
-  [ "$SYSTEMD_ACTIVE" = "1" ] && flags=(--systemd)
-  node "$SCRIPT_DIR/schedule.mjs" "${flags[@]}" || return 1
+  # macOS ships Bash 3.2, where expanding an empty array under nounset fails.
+  if [ "$SYSTEMD_ACTIVE" = "1" ]; then
+    node "$SCRIPT_DIR/schedule.mjs" --systemd || return 1
+  else
+    node "$SCRIPT_DIR/schedule.mjs" || return 1
+  fi
   node "$SCRIPT_DIR/schedule-status.mjs" --publish || return 1
 }
 
