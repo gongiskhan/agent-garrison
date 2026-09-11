@@ -46,6 +46,9 @@ final class ListeningShellJourneyTests: XCTestCase {
                 if (try? await js(condition)) as? Bool == true { return }
                 try await Task.sleep(nanoseconds: 100_000_000)
             }
+            if let detail = try? await js("JSON.stringify({url:location.href,ready:document.readyState,body:document.body.innerText.slice(0,4000),native:!!window.Capacitor?.isNativePlatform?.()})") {
+                let attachment = XCTAttachment(string: String(describing: detail)); attachment.name = "navigation-failure"; attachment.lifetime = .keepAlways; add(attachment)
+            }
             XCTFail("Missing DOM state: \(condition)"); throw NSError(domain: "ListeningShellJourney", code: 1)
         }
         func route(_ path: String) async throws {
