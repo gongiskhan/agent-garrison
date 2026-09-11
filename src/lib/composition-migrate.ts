@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import yaml from "js-yaml";
+import { parseDocument, isMap } from "yaml";
 import { pathExists } from "./fs-utils";
 
 // Composition v3 -> v4 migrator (MARATHON-V3 S3b1, migration discipline
@@ -334,4 +335,23 @@ export function migrateArchiveManifest(manifest: { "x-garrison"?: { composition?
   if (Object.prototype.hasOwnProperty.call(config, "archive")) return false;
   config.archive = { ...ARCHIVE_DEFAULTS };
   return true;
+}
+
+// Insert only the new block in normal block-style manifests. This leaves
+// authored comments, duty prose and scalar wrapping byte-for-byte intact.
+export function migrateArchiveYaml(raw: string): string {
+  const document = parseDocument(raw);
+  const value = document.toJS();
+  if (!migrateArchiveManifest(value)) return raw;
+  const config = document.getIn(["x-garrison", "composition", "global_config"]);
+  if (isMap(config) && !config.flow && config.range && config.items.length) {
+    const first = config.items[0].key as { range?: number[] };
+    const start = first.range?.[0] ?? config.range[0];
+    const indent = start - raw.lastIndexOf("\n", start - 1) - 1;
+    const end = config.range[1];
+    const block = yaml.dump({ archive: ARCHIVE_DEFAULTS }, { lineWidth: -1 }).trimEnd().split("\n").map(line => " ".repeat(indent) + line).join("\n") + "\n";
+    return raw.slice(0, end) + (raw[end - 1] === "\n" ? "" : "\n") + block + raw.slice(end);
+  }
+  document.setIn(["x-garrison", "composition", "global_config", "archive"], ARCHIVE_DEFAULTS);
+  return document.toString({ lineWidth: 0 });
 }

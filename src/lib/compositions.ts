@@ -1,4 +1,4 @@
-import { migrateArchiveManifest, ARCHIVE_DEFAULTS } from "./composition-migrate";
+import { migrateArchiveManifest, migrateArchiveYaml, ARCHIVE_DEFAULTS } from "./composition-migrate";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { COMPOSITIONS_DIR, ROOT_DIR } from "./paths";
@@ -9,6 +9,7 @@ import { validateSelection } from "./metadata";
 import { resolveCapabilities, serializeCapabilityGraph } from "./capabilities";
 import { facultyIds, dutyEfforts, type CapabilityIssue, type FittingSelectionMap, type Composition, type GlobalConfig, type LibraryEntry, type FacultyId, type SelectedFitting, type SerializedCapabilityGraph, type DutySpec } from "./types";
 import { readYamlFile, writeYamlFile } from "./yaml";
+import { writeFileAtomic } from "./atomic-write";
 import { persistManifest } from "./manifest-write";
 import { z } from "zod";
 import { resolvePrimaryFromPolicy } from "./routing-primary";
@@ -512,7 +513,9 @@ export async function readComposition(id = DEFAULT_COMPOSITION_ID): Promise<Comp
     ? await resolvePrimaryFromPolicy(getCompositionDirectory(id))
     : null;
   const legacy = migrateLegacyRoutingOnPrimaryManifest(manifest, { primaryRuntimeId: policyPrimary });
-  if (migrateArchiveManifest(manifest) || legacy.changed) await writeYamlFile(manifestPath, manifest);
+  const archiveChanged = migrateArchiveManifest(manifest);
+  if (legacy.changed) await writeYamlFile(manifestPath, manifest);
+  else if (archiveChanged) await writeFileAtomic(manifestPath, migrateArchiveYaml(await fs.readFile(manifestPath, "utf8")));
   if (legacy.warning) console.warn(`[garrison] ${id}: ${legacy.warning}`);
   const overlay = await readLocalOverlay(id);
   return manifestToComposition(id, applyLocalOverlay(manifest, overlay));
@@ -834,7 +837,12 @@ export async function readCompositionWithDerivedTasks(id = DEFAULT_COMPOSITION_I
     ? await resolvePrimaryFromPolicy(getCompositionDirectory(id))
     : null;
   const legacy = migrateLegacyRoutingOnPrimaryManifest(manifest, { primaryRuntimeId: policyPrimary });
-  if (migrateArchiveManifest(manifest) || legacy.changed) await writeYamlFile(getCompositionManifestPath(id), manifest);
+  const archiveChanged = migrateArchiveManifest(manifest);
+  if (legacy.changed) await writeYamlFile(getCompositionManifestPath(id), manifest);
+  else if (archiveChanged) {
+    const manifestPath = getCompositionManifestPath(id);
+    await writeFileAtomic(manifestPath, migrateArchiveYaml(await fs.readFile(manifestPath, "utf8")));
+  }
   if (legacy.warning) console.warn(`[garrison] ${id}: ${legacy.warning}`);
   const overlay = await readLocalOverlay(id);
   const composition = manifestToComposition(id, applyLocalOverlay(manifest, overlay));
