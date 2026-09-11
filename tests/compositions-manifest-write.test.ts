@@ -88,6 +88,9 @@ describe("composition writer uses the shared manifest persistence path", () => {
     expect(result.selections.observability ?? []).toEqual([]);
     expect(fixture.putComposition).toHaveBeenCalledTimes(1);
     expect(fixture.putComposition).toHaveBeenCalledWith("fixture", saved, { ifMatchRev: 17 });
+    expect(parse(saved)["x-garrison"].composition.global_config.archive).toEqual({
+      extract_target: "cc-sonnet", max_file_mb: 25, pdf_max_pages: 30, author: "Gonçalo"
+    });
   });
 
   it("uses the existing create CAS when the authority has no composition yet", async () => {

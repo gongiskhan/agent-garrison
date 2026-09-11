@@ -589,6 +589,9 @@ export async function writeComposition(
   };
   // Selection/config repairs use the same comment-preserving, atomic writer
   // and authority CAS as Muster. A local-only save must not report success.
+  // Publish Archive defaults in this same save, before the returned read can
+  // migrate the local file beyond the exact bytes sent to the authority.
+  migrateArchiveManifest(manifest);
   await persistManifest(id, manifestPath, before, manifest);
   return readCompositionWithDerivedTasks(id);
 }
