@@ -13,6 +13,9 @@ final class PhoneListeningJourneyTests: XCTestCase {
         continueAfterFailure = false
         executionTimeAllowance = 300
         var device: String?
+        func signal(_ event: String) {
+            CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFNotificationName("com.gomes.garrison.listening-test.\(event)" as CFString), nil, nil, true)
+        }
         func probe(_ route: String) async throws -> [String: Any] {
             var url = URLComponents(string: control + "/" + route)!
             if let device { url.queryItems = [URLQueryItem(name: "device", value: device)] }
@@ -38,7 +41,8 @@ final class PhoneListeningJourneyTests: XCTestCase {
         app.launchEnvironment = [
             "GARRISON_NODE_ORIGIN": shell, "GARRISON_NODE_NAME": "listening-proof",
             "GARRISON_CAPTURE_URL": base, "GARRISON_CAPTURE_TOKEN": token,
-            "GARRISON_OPEN_PATH": "/", "GARRISON_LISTENING_UI_TEST": "1"
+            "GARRISON_OPEN_PATH": "/", "GARRISON_LISTENING_UI_TEST": "1",
+            "GARRISON_LISTENING_PROOF_CONTROL": control
         ]
         _ = try await probe("unblock"); _ = try await probe("reset-pushes")
         app.launch()
@@ -46,14 +50,16 @@ final class PhoneListeningJourneyTests: XCTestCase {
         XCTAssertTrue(start.waitForExistence(timeout: 45))
         device = try await record()?["device_id"] as? String
         XCTAssertNotNil(device)
+        let setupEvents = (try await probe("state"))["hostEvents"] as? [[String: Any]] ?? []
+        XCTAssertTrue(setupEvents.contains { $0["type"] as? String == "journey:fixture-ready" })
         _ = try await probe("event/start-home")
         start.tap()
         try await waitFor(actual: "listening")
         XCTAssertTrue(app.links["Listening"].firstMatch.waitForExistence(timeout: 5))
 
-        app.open(URL(string: "garrison://listening-test/interruption-began")!)
+        signal("interruption-began")
         try await waitFor(actual: "interrupted")
-        app.open(URL(string: "garrison://listening-test/interruption-ended")!)
+        signal("interruption-ended")
         try await waitFor(actual: "listening")
         _ = try await probe("event/interruption-resumed")
 
@@ -95,7 +101,7 @@ final class PhoneListeningJourneyTests: XCTestCase {
         XCTAssertTrue(openedNewSession)
         _ = try await probe("event/manual-resume")
 
-        app.open(URL(string: "garrison://listening-test/pair-pendant")!)
+        signal("pair-pendant")
         let pendantStart = app.buttons["Start listening"].firstMatch
         XCTAssertTrue(pendantStart.waitForExistence(timeout: 5)); pendantStart.tap()
         try await waitFor("pendant", actual: "listening")

@@ -21,27 +21,37 @@ enum FixtureStreamer {
         guard listeningUITest else { return }
         AppGroup.consentSuppressed = true
         AppGroup.pendantIdentifier = nil
+        for event in ["interruption-began", "interruption-ended", "pair-pendant"] {
+            CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, name, _, _ in
+                guard let name else { return }
+                let event = name.rawValue as String
+                Task { @MainActor in handleListeningTestEvent(event) }
+            }, "com.gomes.garrison.listening-test.\(event)" as CFString, nil, .deliverImmediately)
+        }
+        if let control = ProcessInfo.processInfo.environment["GARRISON_LISTENING_PROOF_CONTROL"],
+           let url = URL(string: control + "/event/fixture-ready"), url.host == "127.0.0.1" {
+            Task { _ = try? await URLSession.shared.data(from: url) }
+        }
     }
 
     // XCTest's separate UI driver injects only these events into an isolated
     // simulator app. This hook is absent from Release and refuses live nodes.
     @MainActor
-    static func handleListeningTestURL(_ url: URL) -> Bool {
-        guard listeningUITest, url.scheme == "garrison", url.host == "listening-test" else { return false }
-        switch url.path {
-        case "/interruption-began":
+    private static func handleListeningTestEvent(_ event: String) {
+        guard listeningUITest else { return }
+        switch event {
+        case "com.gomes.garrison.listening-test.interruption-began":
             NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: nil, userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue])
-        case "/interruption-ended":
+        case "com.gomes.garrison.listening-test.interruption-ended":
             NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: nil, userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue, AVAudioSessionInterruptionOptionKey: AVAudioSession.InterruptionOptions.shouldResume.rawValue])
-        case "/pair-pendant":
+        case "com.gomes.garrison.listening-test.pair-pendant":
             var script = MockPendantTransport.Script(); script.connectDelayMs = 1
             let packets = (0..<6000).map { PendantFixturePacket(seq: $0 + 1, ts: Double($0) * 20, bytes: Data([0xf8, 0xff, 0xfe])) }
             GarrisonPendantPlugin.controllerOverride = PendantController(transport: MockPendantTransport(packets: packets, script: script), phoneSink: nil)
             AppGroup.pendantIdentifier = UUID()
             if let record = ListeningChannel.shared.records["phone"] { ListeningChannel.shared.receive(record) }
-        default: return false
+        default: return
         }
-        return true
     }
 
     static func autostartIfRequested() {

@@ -86,9 +86,6 @@ struct GarrisonApp: App {
                         }
                     }
                     .onOpenURL { url in
-                        #if DEBUG
-                        if FixtureStreamer.handleListeningTestURL(url) { return }
-                        #endif
                         PushRouter.shared.open(url)
                     }
                 if let notice = store.lastFailover {
