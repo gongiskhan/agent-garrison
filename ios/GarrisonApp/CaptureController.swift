@@ -15,6 +15,7 @@ final class CaptureController: ObservableObject {
     private var requestGeneration = 0
     private let wakeTone = WakeAcknowledgement()
     var engineRunning: Bool { engine.isRunning }
+    var wakeAcknowledgementInvocations: Int { wakeTone.invocations }
     enum Phase: Equatable {
         case idle
         case connecting

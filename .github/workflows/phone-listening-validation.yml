@@ -1,0 +1,45 @@
+name: Phone listening validation
+on:
+  workflow_dispatch:
+jobs:
+  simulator:
+    runs-on: macos-26
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: brew install xcodegen
+      - name: Start isolated Capture node
+        run: |
+          mkdir -p evidence/phone-listening
+          node scripts/phone-listening-simulator-node.mjs /tmp/listening-proof.json > evidence/phone-listening/simulator-node.log 2>&1 &
+          for n in $(seq 1 30); do test -s /tmp/listening-proof.json && break; sleep 1; done
+          node -e 'const f=require("fs");const c=JSON.parse(f.readFileSync("/tmp/listening-proof.json"));f.appendFileSync(process.env.GITHUB_ENV,`GARRISON_LISTENING_PROOF_URL=${c.url}\nGARRISON_LISTENING_PROOF_CONTROL=${c.control}\nGARRISON_LISTENING_PROOF_TOKEN=${c.token}\n`)'
+      - name: Generate and test iOS app
+        working-directory: ios
+        run: |
+          xcodegen generate
+          xcodebuild build-for-testing -project Garrison.xcodeproj -scheme GarrisonApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath /tmp/listening-build CODE_SIGNING_ALLOWED=NO > ../evidence/phone-listening/build.log 2>&1
+          DEVICE=$(xcrun simctl list devices available -j | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>console.log(Object.values(JSON.parse(s).devices).flat().find(d=>d.name==="iPhone 17 Pro").udid))')
+          xcrun simctl boot "$DEVICE" || true
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcrun simctl install "$DEVICE" /tmp/listening-build/Build/Products/Debug-iphonesimulator/GarrisonApp.app
+          xcrun simctl privacy "$DEVICE" grant microphone com.gomes.garrison
+          xcodebuild test-without-building -project Garrison.xcodeproj -scheme GarrisonApp -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath /tmp/listening-build -resultBundlePath ../evidence/phone-listening/native.xcresult CODE_SIGNING_ALLOWED=NO > ../evidence/phone-listening/xctest.log 2>&1
+      - name: Compile device target
+        working-directory: ios
+        run: xcodebuild build -project Garrison.xcodeproj -scheme GarrisonApp -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO > ../evidence/phone-listening/device-build.log 2>&1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phone-listening-evidence
+          path: evidence/phone-listening
