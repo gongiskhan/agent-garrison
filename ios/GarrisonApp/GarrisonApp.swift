@@ -14,7 +14,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
-    func applicationWillTerminate(_ application: UIApplication) { CaptureController.shared.terminating() }
+    func applicationWillTerminate(_ application: UIApplication) { ListeningChannel.shared.terminating() }
 
     func application(_ application: UIApplication,
                      didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {

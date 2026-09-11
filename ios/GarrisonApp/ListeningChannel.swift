@@ -53,7 +53,7 @@ final class ListeningChannel: ObservableObject {
         if record.source == "phone" {
             let controller = CaptureController.shared
             if record.intent == "off" {
-                if controller.isRunning { controller.stopForServer(reason: record.reason ?? "user_stop") }
+                if controller.isRunning || controller.recovery.intent { controller.stopForServer(reason: record.reason ?? "user_stop") }
             } else if !controller.recovery.intent && UIApplication.shared.applicationState == .active && (previous == nil || (record.actual == "starting" && record.reason == "user_start")) {
                 controller.beginListening(reason: record.reason == "user_start" ? "user_start" : "resume_on_foreground")
             }
@@ -73,6 +73,9 @@ final class ListeningChannel: ObservableObject {
     func report(source: String, actual: String, reason: String) {
         guard let deviceId else { return }
         uploader?.sendListening(ListeningMessage(type: "listening.transition", device_id: deviceId, source: source, actual: actual, reason: reason))
+    }
+    func terminating() {
+        for record in records.values where record.intent == "listening" { report(source: record.source, actual: "interrupted", reason: "app_terminated") }
     }
     func foreground() {
         connect()

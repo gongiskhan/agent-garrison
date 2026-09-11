@@ -62,6 +62,7 @@ final class ListeningRecovery {
         let delays = ListeningConstants.RESUME_RETRY_SCHEDULE_SECONDS
         let delay = min(remaining, delays[min(retryIndex, delays.count - 1)])
         retryIndex += 1
+        generation += 1
         let expected = generation
         schedule(delay) { [weak self] in
             guard let self, self.intent, self.generation == expected else { return }

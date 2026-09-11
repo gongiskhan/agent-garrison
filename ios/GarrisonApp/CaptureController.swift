@@ -119,6 +119,7 @@ final class CaptureController: ObservableObject {
 
     private func beginSession(baseURL: URL, token: String, consent: ConsentState, conversationId: String? = nil) {
         guard !isRunning else { return }
+        uploader?.abandon()
         let id = SessionId.generate()
         sessionId = id
         startedAt = Date()
@@ -149,7 +150,7 @@ final class CaptureController: ObservableObject {
         self.uploader = uploader
         uploader.onStateChange = { [weak self] state in
             Task { @MainActor in
-                guard let self else { return }
+                guard let self, self.sessionId == id else { return }
                 switch state {
                 case .streaming: if self.engineRunning { self.phase = .live; if self.alwaysOn { ListeningChannel.shared.report(source: "phone", actual: "listening", reason: "resume_retry") } }
                 case .failed(let message): if self.phase != .interrupted { self.phase = .failed(message) }
@@ -164,11 +165,11 @@ final class CaptureController: ObservableObject {
         }
         // The mouth: acks arrive on the session socket, the sink decides, and
         // the receipt goes straight back so the server can tell silence from off.
-        uploader.onSpeak = { [weak self] ack in
+        uploader.onSpeak = { [weak self, weak uploader] ack in
             Task { @MainActor in
                 guard let self else { return }
                 self.speechSink.onReceipt = { receipt in
-                    uploader.sendSpokenReceipt(ackId: receipt.ackId, ok: receipt.ok, reason: receipt.reason)
+                    uploader?.sendSpokenReceipt(ackId: receipt.ackId, ok: receipt.ok, reason: receipt.reason)
                 }
                 self.speechSink.handle(ack)
             }
@@ -204,6 +205,7 @@ final class CaptureController: ObservableObject {
     private func installTap() throws {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else { throw NSError(domain: "garrison.audio", code: 1) }
         guard let encoder = OpusEncoder(inputFormat: format) else {
             throw NSError(domain: "garrison", code: 1, userInfo: [NSLocalizedDescriptionKey: "Opus encoder unavailable for \(format)"])
         }
@@ -233,12 +235,12 @@ final class CaptureController: ObservableObject {
         heartbeat?.cancel()
         heartbeat = nil
         speechSink.stopAll()
-        uploader?.end(reason: "user")
-        finishLocally()
-    }
-
-    func terminating() {
-        if alwaysOn && recovery.intent { ListeningChannel.shared.report(source: "phone", actual: "interrupted", reason: "app_terminated") }
+        let ending = uploader
+        uploader = nil
+        sessionId = nil
+        phase = .idle
+        ending?.end(reason: "user")
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     /// Drain the converter's buffered tail (the end of the last spoken word -

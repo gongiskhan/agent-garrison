@@ -63,6 +63,18 @@ final class ListeningRecoveryTests: XCTestCase {
         XCTAssertEqual(starts, 1)
         XCTAssertEqual(state.actual, "off")
     }
+    func testDuplicateNoResumeNotificationsDoNotCreateCompetingRetries() {
+        var queued: [@MainActor () -> Void] = []
+        var starts = 0
+        let state = ListeningRecovery(schedule: { _, block in queued.append(block) })
+        state.startEngine = { starts += 1 }
+        state.start()
+        let ended = Notification(name: AVAudioSession.interruptionNotification,
+            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue])
+        state.interruption(ended); state.interruption(ended)
+        for retry in queued { retry() }
+        XCTAssertEqual(starts, 2)
+    }
     func testMediaResetRebuildsAndForegroundRetriesImmediately() {
         let state = ListeningRecovery()
         var rebuilds = 0
