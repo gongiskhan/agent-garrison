@@ -24,3 +24,17 @@
 19/19 tests passed across snapshots-backup-set, mesh-conversations-pull and snapshots-fitting, including a real temporary restic repository round trip. New tests isolate HOME, GARRISON_HOME and GARRISON_CLAUDE_HOME. Consistent state snapshots are refreshed before restic; refresh failure aborts backup. State DB/WAL are never backup roots. Conversation sink has no time prune; peer sources are unchanged.
 
 The command/file sandbox fails at bubblewrap loopback creation before execution. Approved unsandboxed repository commands are used; patch helper has the same failure, so scoped Python edits write the files.
+
+## Scheduling implementation and view verification
+
+Portable `fitting-script` jobs use the existing scheduler store's CAS and enable-preservation semantics. Backup/prune keep the requested `all` target; a per-node receipt selects systemd or scheduler at execution time. On the shared store the all-node jobs remain enabled, because one global disabled bit cannot represent Linux timers and Mac scheduler jobs simultaneously. The dispatcher skips systemd nodes. Standalone file-store registrations use the requested disabled initial flag. No state-service scheduler API changed. File-store records now retain structured specs/targets while legacy shell records retain their shape.
+
+State-host jobs are registered only on dev-madrid; one mesh-pull registration per registry peer. The empty shipping target registers disabled and prints the requested warning. Setup preserves the existing Linux timer path and registers schedules on Macs. Prune is aligned to Sunday 04:00. Per-node scheduling receipts and last-run records use existing node-scoped config records for the Snapshots status view.
+
+The existing core Improver shell view is the durable notices UI. State notifications have no browser consumer in this tree. `--notify` writes the requested state notification and a matching core notice using the existing config API; no new notification surface or state API is introduced.
+
+43 phase-specific/existing tests passed before the final shared-store test; the final scheduler registration suite passes 4/4, including actual Linux+Mac state-service registration/status. Restore drill tests pass 4/4 with a real temporary service. Typecheck passed. Lint exits zero with a pre-existing ListeningControl effect-cleanup warning (peer voice code, untouched here).
+
+Snapshots E2E: 6/6 desktop/phone cases pass for never-run, ok and failed reports plus streaming button state. A separate mkdtemp-home launcher instance uses `.next-two-homes`, avoiding Archive's active `.next-e2e`. Service workers are blocked in fixtures (otherwise they bypass Playwright route handlers). Phone success and desktop failure screenshots were visually inspected; text and controls fit, with readable counts/errors. This is fixture proof, not the pending live acceptance.
+
+Final pre-deploy checks: 34 existing state-service tests and 4 restore-drill tests pass (38/38); typecheck passes after the route/view/spec work. The restore notification's body is asserted byte-identical to `restore-drill.md`. Final scheduler registration suite passes 4/4. Fixture screenshots committed here are named `fixture-*` and do not claim live acceptance. No shell/state deployment has yet occurred.

@@ -166,6 +166,16 @@ const server = http.createServer(async (req, res) => {
       return await handleChanges(res, url);
     }
 
+    // Counts only; normal node authentication above applies to this endpoint.
+    if (req.method === "GET" && p[0] === "stats" && p.length === 1) {
+      return send(res, 200, {
+        cards: db.prepare("SELECT COUNT(*) AS c FROM cards WHERE deleted_at IS NULL").get().c,
+        cardDocs: db.prepare("SELECT COUNT(*) AS c FROM card_docs").get().c,
+        sessions: db.prepare("SELECT COUNT(*) AS c FROM sessions").get().c,
+        nodes: db.prepare("SELECT COUNT(*) AS c FROM nodes").get().c
+      });
+    }
+
     // ── nodes ──
     if (p[0] === "nodes") {
       if (req.method === "GET" && p.length === 1) return send(res, 200, { nodes: listNodes(db) });
