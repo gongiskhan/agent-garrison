@@ -16,6 +16,8 @@ final class ListeningSimulatorJourneyTests: XCTestCase {
         AppGroup.consentSuppressed = true
         let channel = ListeningChannel.shared
         channel.connect()
+        XCTAssertNil(channel.error, "Listening connection: \(channel.error ?? "none")")
+        XCTAssertNotNil(channel.deviceId, "Keychain identity must be available")
         try await wait { channel.records["phone"] != nil }
         channel.intent("phone", "listening")
         try await wait { CaptureController.shared.engineRunning && channel.records["phone"]?.actual == "listening" }

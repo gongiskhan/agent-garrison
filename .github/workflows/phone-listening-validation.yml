@@ -28,13 +28,13 @@ jobs:
         working-directory: ios
         run: |
           xcodegen generate
-          xcodebuild build-for-testing -project Garrison.xcodeproj -scheme GarrisonApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath /tmp/listening-build CODE_SIGNING_ALLOWED=NO > ../evidence/phone-listening/build.log 2>&1
+          xcodebuild build-for-testing -project Garrison.xcodeproj -scheme GarrisonApp -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath /tmp/listening-build CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES > ../evidence/phone-listening/build.log 2>&1
           DEVICE=$(xcrun simctl list devices available -j | node -e 'let s="";process.stdin.on("data",c=>s+=c);process.stdin.on("end",()=>console.log(Object.values(JSON.parse(s).devices).flat().find(d=>d.name==="iPhone 17 Pro").udid))')
           xcrun simctl boot "$DEVICE" || true
           xcrun simctl bootstatus "$DEVICE" -b
           xcrun simctl install "$DEVICE" /tmp/listening-build/Build/Products/Debug-iphonesimulator/GarrisonApp.app
           xcrun simctl privacy "$DEVICE" grant microphone com.gomes.garrison
-          xcodebuild test-without-building -parallel-testing-enabled NO -project Garrison.xcodeproj -scheme GarrisonApp -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath /tmp/listening-build -resultBundlePath ../evidence/phone-listening/native.xcresult CODE_SIGNING_ALLOWED=NO > ../evidence/phone-listening/xctest.log 2>&1
+          xcodebuild test-without-building -parallel-testing-enabled NO -project Garrison.xcodeproj -scheme GarrisonApp -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath /tmp/listening-build -resultBundlePath ../evidence/phone-listening/native.xcresult CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES > ../evidence/phone-listening/xctest.log 2>&1
       - name: Compile device target
         working-directory: ios
         run: xcodebuild build -project Garrison.xcodeproj -scheme GarrisonApp -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO > ../evidence/phone-listening/device-build.log 2>&1
