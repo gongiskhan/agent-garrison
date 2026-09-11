@@ -80,12 +80,15 @@ final class PhoneListeningJourneyTests: XCTestCase {
         _ = try await probe("event/deep-link-resumed")
         let resumed = XCTAttachment(screenshot: app.screenshot()); resumed.name = "e2e-capture-resumed"; resumed.lifetime = .keepAlways; add(resumed)
 
+        let previousSessions = Set((try await probe("state"))["session_ids"] as? [String] ?? [])
         _ = try await probe("cut")
         try await waitFor(actual: "stalled", timeout: 25)
         _ = try await probe("unblock")
         let resume = app.buttons["Resume"].firstMatch
         XCTAssertTrue(resume.waitForExistence(timeout: 5)); resume.tap()
         try await waitFor(actual: "listening")
+        let resumedSessions = Set((try await probe("state"))["session_ids"] as? [String] ?? [])
+        XCTAssertFalse(resumedSessions.subtracting(previousSessions).isEmpty)
         _ = try await probe("event/manual-resume")
 
         app.open(URL(string: "garrison://listening-test/pair-pendant")!)

@@ -45,7 +45,7 @@ const control = createServer((req, res) => {
   if (url.pathname === "/cut") { blocked = true; for (const session of sessions) session.socket?.terminate(); }
   if (url.pathname === "/unblock") blocked = false;
   res.setHeader("content-type", "application/json");
-  res.end(JSON.stringify({ heartbeats, pushes, hostEvents, records: app.listening.list(device), frames: sessions.reduce((n, s) => n + s.media.highWater().audio, 0) }));
+  res.end(JSON.stringify({ heartbeats, pushes, hostEvents, session_ids: [...app.ingress.sessions.keys()], records: app.listening.list(device), frames: sessions.reduce((n, s) => n + s.media.highWater().audio, 0) }));
 });
 await new Promise(resolve => control.listen(0, "127.0.0.1", resolve));
 const info = { url: `http://127.0.0.1:${app.cfg.port}`, control: `http://127.0.0.1:${control.address().port}`, token };
