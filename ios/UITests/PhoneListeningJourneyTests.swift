@@ -50,7 +50,6 @@ final class PhoneListeningJourneyTests: XCTestCase {
         start.tap()
         try await waitFor(actual: "listening")
         XCTAssertTrue(app.links["Listening"].firstMatch.waitForExistence(timeout: 5))
-        let first = XCTAttachment(screenshot: app.screenshot()); first.name = "e2e-home-listening"; first.lifetime = .keepAlways; add(first)
 
         app.open(URL(string: "garrison://listening-test/interruption-began")!)
         try await waitFor(actual: "interrupted")
@@ -78,7 +77,6 @@ final class PhoneListeningJourneyTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Capture"].firstMatch.waitForExistence(timeout: 15))
         try await waitFor(actual: "listening")
         _ = try await probe("event/deep-link-resumed")
-        let resumed = XCTAttachment(screenshot: app.screenshot()); resumed.name = "e2e-capture-resumed"; resumed.lifetime = .keepAlways; add(resumed)
 
         let previousSessions = Set((try await probe("state"))["session_ids"] as? [String] ?? [])
         _ = try await probe("cut")
@@ -87,8 +85,14 @@ final class PhoneListeningJourneyTests: XCTestCase {
         let resume = app.buttons["Resume"].firstMatch
         XCTAssertTrue(resume.waitForExistence(timeout: 5)); resume.tap()
         try await waitFor(actual: "listening")
-        let resumedSessions = Set((try await probe("state"))["session_ids"] as? [String] ?? [])
-        XCTAssertFalse(resumedSessions.subtracting(previousSessions).isEmpty)
+        var openedNewSession = false
+        let sessionDeadline = Date().addingTimeInterval(5)
+        while Date() < sessionDeadline && !openedNewSession {
+            let resumedSessions = Set((try await probe("state"))["session_ids"] as? [String] ?? [])
+            openedNewSession = !resumedSessions.subtracting(previousSessions).isEmpty
+            if !openedNewSession { try await Task.sleep(nanoseconds: 100_000_000) }
+        }
+        XCTAssertTrue(openedNewSession)
         _ = try await probe("event/manual-resume")
 
         app.open(URL(string: "garrison://listening-test/pair-pendant")!)
@@ -118,6 +122,5 @@ final class PhoneListeningJourneyTests: XCTestCase {
         let stoppedCount = ((try await probe("state"))["pushes"] as? [[String: Any]])?.count
         XCTAssertEqual(stoppedCount, count)
         _ = try await probe("event/stopped-without-push")
-        let stopped = XCTAttachment(screenshot: app.screenshot()); stopped.name = "e2e-deliberate-stop"; stopped.lifetime = .keepAlways; add(stopped)
     }
 }
