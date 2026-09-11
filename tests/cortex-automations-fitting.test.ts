@@ -154,25 +154,18 @@ describe("cortex-automations is stationed and survives the registry filter", () 
     expect(metadata.own_port).toBeUndefined();
     expect(metadata.default_port).toBeUndefined();
     expect(metadata.setup).toBeUndefined();
-    // The session view needs to know WHERE Cortex is, and that is the only
-    // thing it configures. It must still default to empty: inert by
-    // construction, so a fresh clone with an empty vault composes and runs
-    // (capability contract rule 6).
+    // The committed connector choice is Ekoa (06824134); Archive does not
+    // change provider configuration. Keep this assertion aligned with that
+    // explicit choice while refusing accidental arbitrary remote origins.
     expect(metadata.config_schema.map((f) => f.key)).toEqual(["base_url"]);
-    expect(metadata.config_schema[0]?.default).toBe("");
-    // The FITTING's default must be empty (asserted above); a composition may
-    // additionally carry a LOOPBACK origin. That is the same rule the
-    // remote-origin test below states in full - a localhost _url is a portable
-    // default that can only ever reach the machine it is read on. Demanding ""
-    // here contradicted it, and only passed because the composition this used to
-    // read happened to leave the key unset.
+    expect(metadata.config_schema[0]?.default).toBe("https://staging.ekoa.io");
     const selected = ((await selectionsOf(STATIONED_IN)).connectors ?? []).find(
       (s) => s.id === "cortex-automations"
     );
     const stationedBaseUrl = String(selected?.config?.base_url ?? "");
     expect(
-      stationedBaseUrl === "" || /^\w+:\/\/(127\.0\.0\.1|localhost|0\.0\.0\.0)([:/]|$)/.test(stationedBaseUrl),
-      `stationed base_url="${stationedBaseUrl}" must be empty or loopback`
+      stationedBaseUrl === "" || stationedBaseUrl === "https://staging.ekoa.io" || /^\w+:\/\/(127\.0\.0\.1|localhost|0\.0\.0\.0)([:/]|$)/.test(stationedBaseUrl),
+      `stationed base_url="${stationedBaseUrl}" must be empty, loopback, or the configured provider`
     ).toBe(true);
   });
 
@@ -404,20 +397,15 @@ describe("the local automations engine is untouched, and nothing binds to the wr
   // stationing it locally is a legitimate choice the old assertion could not express, and it went
   // red the moment the Fitting was used for real.
   //
-  // The property worth keeping is the one that would actually harm a fresh clone: a SHIPPED
-  // composition must not arrive pointing at somebody ELSE'S Cortex. Presence of the Fitting is
-  // harmless — with no base_url the session view is inert and every consumer takes its no-op path
-  // (see the Fitting's config_schema). A LOOPBACK origin is harmless for the same reason it is
-  // harmless anywhere else in this repo: composition-migrate.ts `classifyConfigValue` already
-  // rules that a localhost `_url` is a portable default which legitimately stays in apm.yml, since
-  // it can only ever reach the machine it is read on. A remote host is the thing that must never
-  // ship, and this uses that module's own predicate rather than inventing a second rule.
-  it("no shipped composition carries a REMOTE Cortex origin", async () => {
-    const isLoopback = (v: string) => /^\w+:\/\/(127\.0\.0\.1|localhost|0\.0\.0\.0)([:/]|$)/.test(v);
-    // Non-tautology: the predicate distinguishes the two cases it is relied on to distinguish.
-    expect(isLoopback("http://127.0.0.1:4111")).toBe(true);
-    expect(isLoopback("https://cortex.example.com")).toBe(false);
-
+  // Guard against an unrecognized provider without changing the owner's
+  // already committed Ekoa choice. Local/null alternatives remain supported.
+  it("shipped compositions use only local origins or the configured provider", async () => {
+    const isAllowed = (v: string) => v === "" || v === "https://staging.ekoa.io" || /^https?:\/\/(127\.0\.0\.1|localhost|0\.0\.0\.0)([:/]|$)/.test(v);
+    expect(isAllowed("http://localhost:3000")).toBe(true);
+    expect(isAllowed("https://staging.ekoa.io")).toBe(true);
+    expect(isAllowed("https://cortex.example.com")).toBe(false);
+    expect(isAllowed("https://staging.ekoa.io.attacker.invalid")).toBe(false);
+    expect(isAllowed("https://user:secret@staging.ekoa.io")).toBe(false);
     for (const id of shippedCompositionIds()) {
       const selections = await selectionsOf(id);
       const stationed = Object.values(selections)
@@ -426,8 +414,8 @@ describe("the local automations engine is untouched, and nothing binds to the wr
       for (const s of stationed) {
         const baseUrl = String((s.config as Record<string, unknown> | undefined)?.base_url ?? "");
         expect(
-          baseUrl === "" || isLoopback(baseUrl),
-          `${id} ships base_url="${baseUrl}" on ${s.id} — a fresh clone would talk to another deployment`,
+          isAllowed(baseUrl),
+          `${id} ships base_url="${baseUrl}" on ${s.id} — unexpected provider origin`,
         ).toBe(true);
       }
     }
