@@ -3,7 +3,8 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createServer } from "node:http";
-import { execFileSync, spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import { loadConfig } from "../fittings/seed/capture-service/lib/config.mjs";
 import { startServer } from "../fittings/seed/capture-service/scripts/server.mjs";
 const root = mkdtempSync(path.join(os.tmpdir(), "listening-simulator-"));
@@ -13,6 +14,13 @@ const cfg = { ...loadConfig({ GARRISON_HOME: root, CAPTURE_TOKEN: token, GARRISO
 const app = await startServer(cfg);
 let heartbeats = 0, blocked = false, mock = null;
 const pushes = [];
+const hostEvents = [];
+const run = promisify(execFile);
+function hostEvent(type, detail = null) {
+  const event = { type, detail, at: new Date().toISOString() };
+  hostEvents.push(event);
+  console.log(JSON.stringify(event));
+}
 const sendPush = app.notifier.sendListeningPush.bind(app.notifier);
 app.notifier.sendListeningPush = async payload => { pushes.push(payload); return sendPush(payload); };
 const startSession = app.ingress.handleSessionStart.bind(app.ingress);
@@ -38,14 +46,23 @@ const control = createServer((req, res) => {
   if (url.pathname === "/cut") { blocked = true; for (const session of sessions) session.socket?.terminate(); }
   if (url.pathname === "/unblock") blocked = false;
   if (url.pathname === "/background-and-open") {
-    execFileSync("xcrun", ["simctl", "launch", "booted", "com.apple.Preferences"]);
-    setTimeout(() => {
+    // Return the app's request before backgrounding it, and keep Capture's
+    // event loop available while simctl waits for the application switch.
+    setTimeout(async () => {
+      try {
+        await run("xcrun", ["simctl", "launch", "booted", "com.apple.Preferences"], { timeout: 15000 });
+        hostEvent("background-launched");
+      } catch (error) { hostEvent("background-error", error.message); }
+      await new Promise(resolve => setTimeout(resolve, 3000));
       blocked = false;
-      execFileSync("xcrun", ["simctl", "openurl", "booted", "garrison://open?path=%2Fcapture%3Fsource%3Dphone"]);
-    }, 3000);
+      try {
+        await run("xcrun", ["simctl", "openurl", "booted", "garrison://open?path=%2Fcapture%3Fsource%3Dphone"], { timeout: 15000 });
+        hostEvent("capture-deep-link-opened");
+      } catch (error) { hostEvent("deep-link-error", error.message); }
+    }, 250);
   }
   res.setHeader("content-type", "application/json");
-  res.end(JSON.stringify({ heartbeats, pushes, records: app.listening.list(device), frames: sessions.reduce((n, s) => n + s.media.highWater().audio, 0) }));
+  res.end(JSON.stringify({ heartbeats, pushes, hostEvents, records: app.listening.list(device), frames: sessions.reduce((n, s) => n + s.media.highWater().audio, 0) }));
 });
 await new Promise(resolve => control.listen(0, "127.0.0.1", resolve));
 const info = { url: `http://127.0.0.1:${app.cfg.port}`, control: `http://127.0.0.1:${control.address().port}`, token };

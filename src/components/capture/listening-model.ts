@@ -9,7 +9,7 @@ export function listeningCopy(state: DeviceListeningState) {
     case "starting": return { label: "Starting", sub: state.source === "phone" ? "Setting up the microphone" : "Connecting to the pendant", button: "Starting", tone: "paused", disabled: true };
     case "listening": return { label: "Listening", sub: `${source}, since ${time(state.actual_changed_at)}`, button: "Hold to stop", tone: "live", disabled: false };
     case "interrupted": return { label: "Paused by another app", sub: "Will resume automatically", button: "Hold to stop", tone: "paused", disabled: false };
-    case "stalled": return { label: "Stopped listening", sub: `No audio reaching Garrison since ${time(state.last_seen_at)}`, button: "Resume", tone: "stopped", disabled: false };
+    case "stalled": return { label: "Stopped listening", sub: `No audio reaching Garrison since ${time(state.last_seen_at ?? state.intent_changed_at)}`, button: "Resume", tone: "stopped", disabled: false };
     case "failed": return { label: "Microphone unavailable", sub: state.reason === "permission_denied" ? "Microphone permission is off. Open Settings." : `Could not start the microphone (${state.reason})`, button: "Try again", tone: "stopped", disabled: false };
   }
 }
