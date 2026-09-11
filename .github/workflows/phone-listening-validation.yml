@@ -24,6 +24,10 @@ jobs:
           node scripts/phone-listening-simulator-node.mjs /tmp/listening-proof.json > evidence/phone-listening/simulator-node.log 2>&1 &
           for n in $(seq 1 30); do test -s /tmp/listening-proof.json && break; sleep 1; done
           node -e 'const f=require("fs");const c=JSON.parse(f.readFileSync("/tmp/listening-proof.json"));f.appendFileSync(process.env.GITHUB_ENV,`GARRISON_LISTENING_PROOF_URL=${c.url}\nGARRISON_LISTENING_PROOF_CONTROL=${c.control}\nGARRISON_LISTENING_PROOF_TOKEN=${c.token}\n`)'
+      - name: Start isolated shell
+        run: |
+          GARRISON_HOME_OVERRIDE=/tmp/listening-shell GARRISON_CLAUDE_HOME_OVERRIDE=/tmp/listening-claude NEXT_DIST_DIR=.next-listening bash scripts/garrison-instance.sh codex next > evidence/phone-listening/shell.log 2>&1 &
+          node -e 'const fs=require("fs"),cp=require("child_process");const env=cp.execFileSync("bash",["scripts/garrison-instance.sh","codex","env"],{encoding:"utf8"});const port=env.match(/^GARRISON_APP_PORT=(.*)$/m)[1];fs.appendFileSync(process.env.GITHUB_ENV,`GARRISON_LISTENING_PROOF_SHELL=http://127.0.0.1:${port}\n`)'
       - name: Generate and test iOS app
         working-directory: ios
         run: |
@@ -35,6 +39,9 @@ jobs:
           xcrun simctl install "$DEVICE" /tmp/listening-build/Build/Products/Debug-iphonesimulator/GarrisonApp.app
           xcrun simctl privacy "$DEVICE" grant microphone com.gomes.garrison
           xcodebuild test-without-building -parallel-testing-enabled NO -project Garrison.xcodeproj -scheme GarrisonApp -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath /tmp/listening-build -resultBundlePath ../evidence/phone-listening/native.xcresult CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES > ../evidence/phone-listening/xctest.log 2>&1
+      - name: Export simulator screenshots
+        if: always()
+        run: xcrun xcresulttool export attachments --path evidence/phone-listening/native.xcresult --output-path evidence/phone-listening/screenshots || true
       - name: Compile device target
         working-directory: ios
         run: xcodebuild build -project Garrison.xcodeproj -scheme GarrisonApp -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO > ../evidence/phone-listening/device-build.log 2>&1

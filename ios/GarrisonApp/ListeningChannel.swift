@@ -15,6 +15,7 @@ final class ListeningChannel: ObservableObject {
     private var pending: [(String, String)] = []
     private var ready = false
     private(set) var deviceId: String?
+    var pendant: PendantController { GarrisonPendantPlugin.controllerOverride ?? PendantController.shared }
     var onRecord: ((DeviceListeningState) -> Void)?
 
     func connect() {
@@ -58,9 +59,9 @@ final class ListeningChannel: ObservableObject {
                 controller.beginListening(reason: record.reason == "user_start" ? "user_start" : "resume_on_foreground")
             }
         } else if record.intent == "off" {
-            PendantController.shared.disconnect()
+            pendant.disconnect()
         } else if record.intent == "listening" && (previous == nil || (record.intent_changed_at != previous?.intent_changed_at && record.reason == "user_start")) {
-            PendantController.shared.connect()
+            pendant.connect()
         }
     }
     func intent(_ source: String, _ intent: String) {
@@ -79,7 +80,7 @@ final class ListeningChannel: ObservableObject {
     }
     func foreground() {
         connect()
-        if records["pendant"]?.intent == "listening" { PendantController.shared.reconnectIfNeeded() }
+        if records["pendant"]?.intent == "listening" { pendant.reconnectIfNeeded() }
         if records["phone"]?.intent == "listening" {
             if !CaptureController.shared.recovery.intent || records["phone"]?.actual == "stalled" { CaptureController.shared.beginListening(reason: "resume_on_foreground") }
             else { CaptureController.shared.recovery.foreground() }

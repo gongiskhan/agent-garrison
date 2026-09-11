@@ -106,7 +106,7 @@ final class GarrisonCapturePlugin: CAPPlugin, CAPBridgedPlugin {
                 ListeningChannel.shared.intent(source, intent)
                 if intent == "off" {
                     if source == "phone" { self.controller.stopForServer(reason: "user_stop") }
-                    else { PendantController.shared.disconnect() }
+                    else { ListeningChannel.shared.pendant.disconnect() }
                 }
                 call.resolve(self.listeningPayload())
             }
