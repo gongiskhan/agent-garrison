@@ -14,3 +14,9 @@ test('pending reads are cancelled on reload and polling resumes after page resto
   const restored=page.waitForResponse(r=>r.url().endsWith('/api/archive/status')&&r.status()===200);await page.evaluate(()=>dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true})));await restored;
  }finally{release();await page.unroute('**/api/archive/status',handler);}
 });
+
+test('development remounts do not start duplicate initial reads',async({page,app})=>{
+ await page.addInitScript(()=>{const original=fetch.bind(window);(window as any).archiveInitialReads=0;window.fetch=(input,init)=>{if(String(input).endsWith('/api/archive/status'))(window as any).archiveInitialReads++;return original(input,init);};});
+ await goto(page,app);await expect(page.locator('.archive-status')).toContainText('fixture-node');
+ expect(await page.evaluate(()=>(window as any).archiveInitialReads)).toBe(1);
+});

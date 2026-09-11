@@ -60,8 +60,8 @@ export function createArchiveService({vaultDir,home,config={},node='local',rende
     for(const row of jobs.list('queued').filter(j=>j.kind==='import-trello'))void runImport(row).catch(onError);
   })();service.ready.catch(()=>{});
   async function rebuild(){const row=await jobs.create('index-rebuild',{}, {done:0,total:1,label:'Indexing…'});await jobs.update(row,{state:'running',startedAt:now()});try{const count=await index.build();await jobs.update(row,{state:'done',endedAt:now(),progress:{done:count,total:count,label:'Index ready'}});}catch(error){await jobs.update(row,{state:'failed',endedAt:now(),error:error.message});throw error;}}
-  async function trello(){const env=await credentials?.();if(!env?.TRELLO_KEY||!env?.TRELLO_TOKEN)throw fail('trello_not_connected',409);return clientFactory?clientFactory(env):new TrelloClient({key:env.TRELLO_KEY,token:env.TRELLO_TOKEN});}
-  async function runImport(row){let client;try{client=await trello();}catch(e){if(!row.input.board)throw e;}return serial(()=>importBoard(ctx,jobs,row,{client}));}
+  async function trello(log){const env=await credentials?.();if(!env?.TRELLO_KEY||!env?.TRELLO_TOKEN)throw fail('trello_not_connected',409);const client=clientFactory?clientFactory(env):new TrelloClient({key:env.TRELLO_KEY,token:env.TRELLO_TOKEN});if(log)client.log=log;return client;}
+  async function runImport(row){let client;try{client=await trello(message=>jobs.log(row,message));}catch(e){if(!row.input.board)throw e;}return serial(()=>importBoard(ctx,jobs,row,{client}));}
   async function mutate(fn){return serial(async()=>{await service.indexReady;const result=await fn();await index.build();return result;});}
   const json=(value,status=200)=>Response.json(value,{status,headers:{'cache-control':'no-store'}});
   async function handle(request,route){

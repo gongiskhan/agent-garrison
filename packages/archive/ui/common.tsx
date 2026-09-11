@@ -21,13 +21,18 @@ export function useData(url:string|null,poll=0){const [data,setData]=useState<an
    if(live)return;
    live=true;abort=new AbortController();const signal=abort.signal;
    const load=()=>api(url,'GET',undefined,signal).then(out=>{if(live&&!signal.aborted){setData(out);setLoadedUrl(url);setError(null);}}).catch(e=>{if(live&&!signal.aborted)setError(e);});
-   void load();if(poll)timer=setInterval(load,poll);
+   // Let an immediately cleaned-up StrictMode mount end before starting I/O.
+   queueMicrotask(()=>{if(!signal.aborted)void load();});if(poll)timer=setInterval(load,poll);
   };
   // A full navigation can suspend the document without unmounting React.
   const stop=()=>{live=false;abort?.abort();if(timer)clearInterval(timer);timer=undefined;};
   const restore=(event:PageTransitionEvent)=>{if(event.persisted)start();};
-  start();window.addEventListener('pagehide',stop);window.addEventListener('pageshow',restore);
-  return()=>{stop();window.removeEventListener('pagehide',stop);window.removeEventListener('pageshow',restore);};
+  const interact=()=>{if(document.visibilityState==='visible')start();};
+  // WebKit can reject a timer's fetch during a provisional navigation, before
+  // pagehide. Pause at beforeunload; a cancelled leave resumes on focus/input.
+  start();window.addEventListener('beforeunload',stop);window.addEventListener('pagehide',stop);window.addEventListener('pageshow',restore);
+  window.addEventListener('focus',interact);window.addEventListener('pointerdown',interact);window.addEventListener('keydown',interact);
+  return()=>{stop();window.removeEventListener('beforeunload',stop);window.removeEventListener('pagehide',stop);window.removeEventListener('pageshow',restore);window.removeEventListener('focus',interact);window.removeEventListener('pointerdown',interact);window.removeEventListener('keydown',interact);};
  },[url,poll,version]);
  useEffect(()=>{setData(null);setError(null);},[url]);return {data:loadedUrl===url?data:null,error,refresh,setData};
 }

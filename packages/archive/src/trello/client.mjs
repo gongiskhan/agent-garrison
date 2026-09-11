@@ -18,7 +18,7 @@ export class TrelloClient {
   }
   async fetchWithBackoff(url,options,label){
     for(let attempt=0;attempt<5;attempt++){
-      options.signal?.throwIfAborted();this.log(label);
+      options.signal?.throwIfAborted();await this.log(label);
       const response=await this.fetch(url,options);
       if((response.status!==429&&response.status<500)||attempt===4)return response;
       const retry=response.headers.get('retry-after');

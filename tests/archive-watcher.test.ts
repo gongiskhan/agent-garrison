@@ -7,3 +7,13 @@ it('updates search within one second and removes orphan sidecars',async()=>{cons
 it('repairs external moves and the UI carries the source-sidecar pair',async()=>{const s=await scratch({seed:false,watch:true});try{
  await s.write('Archive/Inbox/old.txt','Move text');await s.write('Archive/Inbox/old.txt.md','---\ngarrison: derived\nsource: old.txt\nstatus: ok\n---\n## Text\nMove text');await new Promise(r=>setTimeout(r,700));await fs.rename(path.join(s.vaultDir,'Archive/Inbox/old.txt'),path.join(s.vaultDir,'Archive/Inbox/new.txt'));await until(async()=>!await fs.stat(path.join(s.vaultDir,'Archive/Inbox/old.txt.md')).catch(()=>null));await until(()=>s.service.jobs.list('done').some((j:any)=>j.kind==='ingest'&&j.input.path==='Archive/Inbox/new.txt'));await s.service.queue.idle();expect(await s.read('Archive/Inbox/new.txt.md')).toContain('source: new.txt');
 }finally{await s.close();}},8000);
+
+it('indexes a folder burst in one persisted snapshot while preserving existing notes',async()=>{
+ const s=await scratch({seed:false,watch:true});try{
+  s.service.queue.close();await s.write('Memory/Keep.md','# Existing watcher note');await until(()=>s.service.index.query('Existing').total===1);
+  let snapshots=0;const write=s.ctx.write;s.ctx.write=async(p:string,...rest:any[])=>{if(p.endsWith('/index.json'))snapshots++;return write(p,...rest);};
+  for(let n=0;n<20;n++)await s.write(`Archive/Burst/Card ${n}/index.md`,`---\ngarrison: card\ntitle: Watched ${n}\n---\nWatcher-burst-needle`);
+  await until(()=>s.service.index.query('Watcher-burst-needle').total===20,1500);
+  expect(snapshots).toBe(1);expect(s.service.index.query('Existing').total).toBe(1);
+ }finally{await s.close();}
+},8000);

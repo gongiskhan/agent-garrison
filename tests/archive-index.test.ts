@@ -16,3 +16,27 @@ it('treats every Garrison markdown file as a note, including index.md',async()=>
 it('links the attachment that matched and highlights title-only matches',async()=>{const s=await scratch();try{const p='Archive/House/House maintenance';await s.write(p+'/second.txt','Second attachment');await s.write(p+'/second.txt.md','---\ngarrison: derived\nsource: second.txt\nstatus: ok\n---\n## Text\nUNIQUE-SECOND-92814\n');await s.service.index.build();expect(s.service.index.query('UNIQUE-SECOND-92814').hits[0].attachment).toBe('second.txt');expect(s.service.index.query('maintenance').hits[0].snippet).toContain('<mark>maintenance</mark>');}finally{await s.close();}});
 
 it('offers tag filters when tags match the query',async()=>{const s=await scratch();try{expect(s.service.index.query('TEST-48392017').tags).toEqual([]);expect(s.service.index.query('fixture').tags).toContain('fixture');await s.write('Memory/Tagged.md','---\ntitle: Tagged note\ntags: [unique-tag]\n---\nFixture text');await s.service.index.update('Memory/Tagged.md');expect(s.service.index.query('fixture',{tag:'unique-tag'}).hits.map((h:any)=>h.path)).toEqual(['Memory/Tagged.md']);}finally{await s.close();}});
+
+it('coalesces an imported folder burst without rereading unrelated notes or persisting each card',async()=>{
+ const s=await scratch({seed:false});try{
+  for(let n=0;n<500;n++)await s.write(`Memory/Unchanged ${n}.md`,`# Existing ${n}\nExisting-note-needle`);
+  await s.service.index.build();const index=s.service.index,originalNote=index.noteDocument.bind(index);
+  index.noteDocument=async(p:string)=>{if(p.startsWith('Memory/'))throw new Error('An unrelated note was reread');return originalNote(p);};
+  const changes=['Archive/Imported'],write=s.ctx.write;let snapshots=0;
+  s.ctx.write=async(p:string,...rest:any[])=>{if(p.endsWith('/index.json'))snapshots++;return write(p,...rest);};
+  for(let n=0;n<80;n++){
+   const card=`Archive/Imported/Card ${n}`;await s.write(card+'/index.md',`---\ngarrison: card\ntitle: Burst ${n}\n---\nBatch-needle`);
+   await s.write(card+'/file.txt','Fixture source');await s.write(card+'/file.txt.md','---\ngarrison: derived\nsource: file.txt\n---\n## Text\nBURST-48392017');
+   changes.push(card,card+'/index.md',card+'/file.txt',card+'/file.txt.md');
+  }
+  await index.updateMany(changes);expect(snapshots).toBe(1);expect(index.state).toBe('ready');expect(index.query('Existing-note-needle').total).toBe(500);expect(index.query('BURST-48392017').total).toBe(80);
+  const card='Archive/Imported/Card 0';await s.write(card+'/index.md','---\ngarrison: card\ntitle: Changed card\n---\nLatest-burst-needle');
+  snapshots=0;await index.updateMany([card,card+'/index.md',card+'/file.txt.md']);expect(snapshots).toBe(1);expect(index.query('Latest-burst-needle').hits[0].title).toBe('Changed card');
+  const fs=await import('node:fs/promises');await fs.rename(s.vaultDir+'/Archive/Imported',s.vaultDir+'/Archive/Relocated');
+  await s.write('Projects/New/index.md','# Garrison folder note');await s.write('Projects/New/ignored.bin','Not a note');
+  await index.updateMany(['Archive/Imported','Archive/Relocated','Projects/New','Projects/New/index.md','Projects/New/ignored.bin']);
+  expect(index.query('BURST-48392017').hits.every((h:any)=>h.path.startsWith('Archive/Relocated/'))).toBe(true);
+  const fresh=new ArchiveIndex(s.ctx);await fresh.build();
+  expect([...index.docs].sort()).toEqual([...fresh.docs].sort());
+ }finally{await s.close();}
+},15000);

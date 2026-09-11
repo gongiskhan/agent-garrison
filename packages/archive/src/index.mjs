@@ -44,28 +44,55 @@ export class ArchiveIndex {
   }
   async noteDocument(relative){const d=await readDocument(this.ctx,relative);if(!d||d.parsed.frontmatter.garrison==='derived'||(areaOf(relative)==='yours'&&['_list.md','index.md'].includes(path.posix.basename(relative))))return null;return {path:relative,kind:'note',title:d.parsed.frontmatter.title??path.posix.basename(relative,'.md'),tags:d.parsed.frontmatter.tags??[],fields:'',body:d.parsed.body+'\n'+Object.values(d.parsed.frontmatter).flat().join(' '),area:areaOf(relative),list:null,updated:(await fs.stat(confine(this.ctx.vaultDir,relative))).mtime.toISOString(),sensitive:false};}
   set(doc){if(!doc)return; if(this.docs.has(doc.path))this.engine.discard(doc.path);this.docs.set(doc.path,doc);this.engine.add(doc);}
-  remove(relative){for(const key of [...this.docs.keys()])if(key===relative||key.startsWith(relative+'/')){this.engine.discard(key);this.docs.delete(key);}}
+  remove(relative){for(const key of [...this.docs.keys()])if(!relative||key===relative||key.startsWith(relative+'/')){this.engine.discard(key);this.docs.delete(key);}}
   exclusive(fn){const task=this.pending.then(fn,fn);this.pending=task.catch(()=>{});return task;}
   build(){return this.exclusive(()=>this.buildNow());}
   async buildNow(){
     this.state='building';const files=await walkVault(this.ctx);this.engine=new MiniSearch(options);this.docs.clear();
+    await this.addFiles(files);
+    this.state='ready';await this.persist(fingerprint(files));return this.docs.size;
+  }
+  async addFiles(files){
     const cards=new Set(files.filter(f=>f.name==='index.md'&&areaOf(f.path)==='yours').map(f=>path.posix.dirname(f.path)));
     const work=[...cards].map(p=>()=>this.cardDocument(p));
     for(const f of files){if(areaOf(f.path)==='yours'&&(f.name==='index.md'||f.name==='_list.md'))continue;const parent=path.posix.dirname(f.path);if(cards.has(parent))continue;if(f.path.endsWith('.md'))work.push(()=>this.noteDocument(f.path));else if(areaOf(f.path)==='yours')work.push(()=>this.fileDocument(f.path));}
     let cursor=0;await Promise.all(Array.from({length:Math.min(24,work.length)},async()=>{while(cursor<work.length){const task=work[cursor++];this.set(await task());}}));
-    this.state='ready';await this.persist(fingerprint(files));return this.docs.size;
   }
   async load(){const files=await walkVault(this.ctx);const stamp=fingerprint(files);try{const meta=JSON.parse(await fs.readFile(path.join(this.ctx.dataDir,'index.meta.json'),'utf8'));if(JSON.stringify(meta)!==JSON.stringify(stamp))return false;const stored=JSON.parse(await fs.readFile(path.join(this.ctx.dataDir,'index.json'),'utf8'));this.engine=MiniSearch.loadJSON(JSON.stringify(stored.index),options);this.docs=new Map(stored.docs.map(d=>[d.path,d]));this.state='ready';return true;}catch{return false;}}
-  update(relative){return this.exclusive(()=>this.updateNow(relative));}
-  async updateNow(relative){
-    if(relative.split('/').some(s=>s.startsWith('.')))return;
-    let parent=relative.endsWith('/index.md')?path.posix.dirname(relative):path.posix.dirname(relative);
+  update(relative){return this.updateMany([relative]);}
+  updateMany(relatives){return this.exclusive(()=>this.updateManyNow(relatives));}
+  async updateTarget(relative){
+    const stat=await fs.stat(confine(this.ctx.vaultDir,relative)).catch(()=>null);
+    let parent=stat?.isDirectory()||this.docs.get(relative)?.kind==='card'?relative:path.posix.dirname(relative);
     while(parent&&parent!=='.'){
-      if(areaOf(parent)==='yours'&&(this.docs.get(parent)?.kind==='card'||await maybeRead(confine(this.ctx.vaultDir,parent+'/index.md'))!==null)){this.remove(parent);this.set(await this.cardDocument(parent));await this.persist();return;}
+      if(areaOf(parent)==='yours'&&(this.docs.get(parent)?.kind==='card'||await maybeRead(confine(this.ctx.vaultDir,parent+'/index.md'))!==null))return {path:parent,kind:'card'};
       parent=path.posix.dirname(parent);
     }
-    this.remove(relative);if(relative.endsWith('.md')){const d=await readDocument(this.ctx,relative);if(d?.parsed.frontmatter.garrison==='derived'){const source=relative.slice(0,-3);this.remove(source);this.set(await this.fileDocument(source));}else this.set(await this.noteDocument(relative));}else{const st=await fs.stat(confine(this.ctx.vaultDir,relative)).catch(()=>null);if(st?.isDirectory()){await this.buildNow();return;}this.set(await this.fileDocument(relative));}
-    await this.persist();
+    return {path:relative,kind:stat?.isDirectory()?'folder':'leaf'};
+  }
+  async updateManyNow(relatives){
+    const targets=new Map();
+    for(const relative of new Set(relatives)){
+      if(relative.split('/').some(s=>s.startsWith('.')))continue;
+      const target=await this.updateTarget(relative);targets.set(target.path,target);
+    }
+    const folders=[...targets.values()].filter(t=>t.kind==='folder').map(t=>t.path);
+    for(const target of targets.values()){
+      const relative=target.path;
+      // A folder event already covers its descendants. Scan only that subtree;
+      // imported card folders never rebuild the rest of the vault.
+      if(folders.some(p=>p!==relative&&(!p||relative.startsWith(p+'/'))))continue;
+      this.remove(relative);
+      if(target.kind==='card')this.set(await this.cardDocument(relative));
+      else if(target.kind==='folder')await this.addFiles(await walkVault(this.ctx,relative));
+      else if(relative.endsWith('.md')){
+        const d=await readDocument(this.ctx,relative);
+        if(d?.parsed.frontmatter.garrison==='derived'){
+          const source=relative.slice(0,-3);this.remove(source);this.set(await this.fileDocument(source));
+        }else this.set(await this.noteDocument(relative));
+      }else if(areaOf(relative)==='yours')this.set(await this.fileDocument(relative));
+    }
+    if(targets.size)await this.persist();
   }
   async persist(stamp){await this.ctx.write(path.join(this.ctx.dataDir,'index.json'),JSON.stringify({index:this.engine.toJSON(),docs:[...this.docs.values()]}));if(stamp)await this.ctx.write(path.join(this.ctx.dataDir,'index.meta.json'),JSON.stringify(stamp));}
   query(q,{area,list,kind,tag,limit=50}={}){

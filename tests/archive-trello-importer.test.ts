@@ -62,3 +62,21 @@ it('previews available comments while skipping cards whose badge is zero',async(
  const fetchImpl=vi.fn(async(value:any)=>{const url=new URL(value);if(url.pathname.endsWith('/lists'))return Response.json(board.lists);if(url.pathname.includes('/lists/'))return Response.json(cards.filter((c:any)=>c.idList===url.pathname.split('/')[3]));if(url.pathname.endsWith('/actions'))return Response.json(board.actions.filter((a:any)=>a.data.card.id===url.pathname.split('/')[3]));return Response.json({id:board.id,name:board.name,shortLink:board.shortLink});});
  const client=new TrelloClient({key:'fixture-key',token:'fixture-token',fetchImpl});const result=await client.preview(board.id,{includeArchived:true});expect(result.counts).toMatchObject({lists:3,cards:9,comments:board.actions.length,attachments:9,links:2,oversize:1});expect(fetchImpl).toHaveBeenCalledTimes(5+cards.filter((c:any)=>c.badges.comments>0).length);fetchImpl.mockClear();await client.preview(board.id,{includeArchived:true,includeComments:false});expect(fetchImpl).toHaveBeenCalledTimes(5);cards[0].badges.comments=100;expect((await client.preview(board.id,{includeArchived:true})).counts.comments).toBe(board.actions.length);
 });
+
+it('persists credential-free request paths in the import job through the real service client',async()=>{
+ const board=JSON.parse(await fs.readFile(path.join(fixture,'trello-board.json'),'utf8'));
+ const fetchImpl=async(url:string|URL)=>{
+  const p=new URL(url).pathname;
+  if(p.endsWith('/lists'))return Response.json([]);
+  if(p.endsWith('/customFields'))return Response.json([]);
+  return Response.json({id:board.id,name:board.name,shortLink:board.shortLink});
+ };
+ const s=await scratch({seed:false,credentials:async()=>({TRELLO_KEY:'fixture-secret-key',TRELLO_TOKEN:'fixture-secret-token'}),clientFactory:()=>new TrelloClient({key:'fixture-secret-key',token:'fixture-secret-token',fetchImpl})});
+ try{
+  init(s.vaultDir);const out=await s.request('import/trello/run','POST',{boardId:board.id});expect(out.status).toBe(200);
+  const row=s.service.jobs.get(out.data.jobId);await vi.waitFor(()=>expect(row.state).toBe('done'));
+  const raw=await fs.readFile(path.join(s.home,'archive/jobs',row.id+'.json'),'utf8');const messages=JSON.parse(raw).log.map((x:any)=>x.message);
+  expect(messages).toContain(`/boards/${board.id}`);expect(messages).toContain(`/boards/${board.id}/lists`);expect(messages).toContain(`/boards/${board.id}/customFields`);
+  expect(raw).not.toContain('fixture-secret');expect(raw).not.toContain('token=');
+ }finally{await s.close();}
+});
