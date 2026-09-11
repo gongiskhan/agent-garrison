@@ -54,8 +54,7 @@ export async function GET() {
         fittingId: parsed.fittingId,
         port: parsed.port,
         url: parsed.url,
-        tailnetUrl: identity.tetherHost && parsed.fittingId === "remote-shell-runtime"
-          ? identity.shellOrigin : serveMap.get(parsed.port) ?? null,
+        tailnetUrl: tailnetUrlFor(identity, serveMap, parsed.fittingId, parsed.port),
         pid: typeof parsed.pid === "number" ? parsed.pid : null,
         startedAt: typeof parsed.startedAt === "string" ? parsed.startedAt : null,
         healthy
@@ -67,6 +66,25 @@ export async function GET() {
   const settled = await Promise.all(probes);
   const views = settled.filter((v): v is ViewEntry => v !== null);
   return NextResponse.json({ views });
+}
+
+// A tethered node has no tailnet listener of its own, so it has no origin to
+// hand out for any own-port view except the one the tether itself forwards
+// (remote-shell-runtime, at identity.shellOrigin). Every other view is
+// reached through this app's own /api/fittings/proxy route instead — that
+// path is relative (same-origin), so it works over whatever origin the tether
+// already publishes for the app, with no new tailscale serve mapping and no
+// tether.forwards change required. A non-tethered node keeps using the real
+// tailscale serve map, unchanged.
+function tailnetUrlFor(
+  identity: { tetherHost: string | null; shellOrigin: string | null },
+  serveMap: Map<number, string>,
+  fittingId: string,
+  port: number
+): string | null {
+  if (!identity.tetherHost) return serveMap.get(port) ?? null;
+  if (fittingId === "remote-shell-runtime") return identity.shellOrigin;
+  return `/api/fittings/proxy/${encodeURIComponent(fittingId)}`;
 }
 
 async function probeHealth(url: string): Promise<boolean> {
