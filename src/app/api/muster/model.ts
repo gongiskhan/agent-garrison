@@ -31,9 +31,12 @@ import {
   listCompositions,
   readComposition,
   selectedLibraryEntries,
+  selectedFittingSchema,
   validateCompositionSelections,
   type CompositionTarget
 } from "@/lib/compositions";
+import { reconcileSavedSharing } from "@/lib/shared-selection-sync";
+import { fittingSharingInfo } from "@/lib/fitting-sharing";
 import { resolveActiveComposition } from "@/lib/active-composition";
 import { readLibrary } from "@/lib/library";
 import { getRunnerState } from "@/lib/runner";
@@ -1172,6 +1175,7 @@ async function writeStandingSelections(
         : {};
     manifest.dependencies = { ...deps, apm: dependencies };
   });
+  await reconcileSavedSharing(await readComposition(compositionId));
 }
 
 function cloneSelections(selections: FittingSelectionMap): FittingSelectionMap {
@@ -1322,6 +1326,30 @@ export async function setStandingConfig(
   return assembleStandingModel(id);
 }
 
+export async function setStandingShared(
+  compositionId: string | undefined, faculty: string, fittingId: string, shared: unknown
+): Promise<StandingModel> {
+  const id = await resolveCompositionId(compositionId);
+  const facultyId = assertStandingFaculty(faculty);
+  const composition = await readComposition(id);
+  const selected = composition.selections[facultyId]?.find(item => item.id === fittingId);
+  if (!selected) throw new Error(`fitting "${fittingId}" is not stationed in ${facultyId}`);
+  const nextSelection = selectedFittingSchema.parse({ ...selected, shared });
+  const library = await readLibrary();
+  const entry = library.find(item => item.id === fittingId);
+  if (!entry) throw new Error(`Unknown fitting: ${fittingId}`);
+  const info = await fittingSharingInfo(entry, composition, library);
+  for (const runtime of nextSelection.shared ?? []) {
+    if (!selected.shared?.includes(runtime) && (!info.runtimes.includes(runtime) || !info.available[runtime])) {
+      throw new Error(`Nothing to share for ${runtime}`);
+    }
+  }
+  const next = cloneSelections(composition.selections);
+  next[facultyId] = next[facultyId]!.map(item => item.id === fittingId ? nextSelection : item);
+  await writeStandingSelections(id, next);
+  return assembleStandingModel(id);
+}
+
 // Make a stationed runtime the composition's primary runtime (the engine that
 // runs the orchestrator loop). routing.json is the runner's source of truth;
 // remove the deprecated manifest fallback after the policy write succeeds.
@@ -1355,7 +1383,7 @@ export async function setPrimaryRuntime(
     const nextSelections = cloneSelections(composition.selections);
     nextSelections.runtimes = (nextSelections.runtimes ?? []).map((selection) =>
       selection.id === fittingId
-        ? { id: selection.id, config: { ...defaults, ...(selection.config ?? {}) } }
+        ? { ...selection, config: { ...defaults, ...(selection.config ?? {}) } }
         : selection
     );
     // Persist before publishing the primary policy: a runner can never observe

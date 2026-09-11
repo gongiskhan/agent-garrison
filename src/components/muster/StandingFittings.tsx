@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
+import { SharingSection } from "@/components/fitting-views/shared/SharingSection";
 import { useAppShell } from "@/components/chrome/AppShell";
 import { AccountField, GenericLoginPanel } from "@/components/accounts/AccountField";
 import { runtimeAccountContract } from "@/components/accounts/shared";
@@ -773,7 +774,7 @@ function FittingBlock({
         <p className={styles.cfgEmpty} data-testid={`standing-duty-note-${fitting.id}`}>
           Runs as a duty - its routing and levels are managed in Orchestrator → Duties.
         </p>
-      ) : fitting.configSchema.length > 0 || fitting.login ? (
+      ) : (
         <>
           <button
             type="button"
@@ -788,6 +789,7 @@ function FittingBlock({
           </button>
           {cfgOpen ? (
             <div className={styles.configForm}>
+              <SharingSection fittingId={fitting.id} />
               {fitting.configSchema.map((field) => (
                 <ConfigField
                   key={field.key}
@@ -808,8 +810,6 @@ function FittingBlock({
             </div>
           ) : null}
         </>
-      ) : (
-        <p className={styles.cfgEmpty}>No configuration for this fitting.</p>
       )}
 
       <div className={styles.runtimeControls} style={{ borderTop: "none", paddingTop: 6, marginTop: 8 }}>

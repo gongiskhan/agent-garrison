@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { setStandingConfig } from "../../model";
+import { setStandingConfig, setStandingShared } from "../../model";
 import { jsonError } from "@/lib/http";
 
 export const runtime = "nodejs";
@@ -18,6 +18,7 @@ export async function POST(request: NextRequest) {
       fittingId?: unknown;
       key?: unknown;
       value?: unknown;
+      shared?: unknown;
     };
     const composition = typeof body.composition === "string" ? body.composition.trim() || undefined : undefined;
     const faculty = typeof body.faculty === "string" ? body.faculty.trim() : "";
@@ -25,6 +26,10 @@ export async function POST(request: NextRequest) {
     const key = typeof body.key === "string" ? body.key.trim() : "";
     if (!faculty) return jsonError(new Error("faculty is required"), 400);
     if (!fittingId) return jsonError(new Error("fittingId is required"), 400);
+    if (Object.hasOwn(body, "shared")) {
+      if (!Array.isArray(body.shared)) return jsonError(new Error("shared must be a list of runtimes"), 400);
+      return NextResponse.json(await setStandingShared(composition, faculty, fittingId, body.shared));
+    }
     if (!key) return jsonError(new Error("key is required"), 400);
     const value = body.value;
     if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {

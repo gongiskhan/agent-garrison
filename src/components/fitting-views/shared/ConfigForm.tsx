@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { SharingSection } from "./SharingSection";
 import type { LibraryEntry, SelectedFitting } from "@/lib/types";
 import { SaveBadge, SectionLabel, EmptyNote, useAutosave, fetchJson } from "./common";
 
@@ -46,6 +47,7 @@ export function ConfigForm({
       <section>
         <SectionLabel>Configuration</SectionLabel>
         <EmptyNote>This Fitting has no configuration.</EmptyNote>
+        <SharingSection fittingId={entry.id} />
       </section>
     );
   }
@@ -132,6 +134,7 @@ export function ConfigForm({
           );
         })}
       </div>
+      <SharingSection fittingId={entry.id} />
     </section>
   );
 }

@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { readCompositionWithDerivedTasks, writeComposition } from "@/lib/compositions";
+import { reconcileSavedSharing } from "@/lib/shared-selection-sync";
 import { jsonError } from "@/lib/http";
 
 export const runtime = "nodejs";
@@ -20,6 +21,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       selections: body.selections,
       globalConfig: body.globalConfig
     });
+    await reconcileSavedSharing(composition);
     return NextResponse.json({ composition });
   } catch (error) {
     return jsonError(error, 400);
