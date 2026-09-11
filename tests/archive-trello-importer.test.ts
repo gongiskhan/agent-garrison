@@ -55,3 +55,10 @@ it('limits simultaneous board requests to four across nested callers',async()=>{
  let active=0,peak=0;const client=new TrelloClient({key:'x',token:'y',fetchImpl:async()=>{active++;peak=Math.max(peak,active);await new Promise(r=>setTimeout(r,5));active--;return Response.json([]);}});
  await Promise.all(Array.from({length:20},(_,i)=>client.request('/fixture/'+i)));expect(peak).toBe(4);expect(active).toBe(0);
 });
+
+it('previews available comments while skipping cards whose badge is zero',async()=>{
+ const board=JSON.parse(await fs.readFile(path.join(fixture,'trello-board.json'),'utf8'));
+ const cards=board.cards.map((c:any)=>({...c,badges:{comments:board.actions.filter((a:any)=>a.data.card.id===c.id).length}}));
+ const fetchImpl=vi.fn(async(value:any)=>{const url=new URL(value);if(url.pathname.endsWith('/lists'))return Response.json(board.lists);if(url.pathname.includes('/lists/'))return Response.json(cards.filter((c:any)=>c.idList===url.pathname.split('/')[3]));if(url.pathname.endsWith('/actions'))return Response.json(board.actions.filter((a:any)=>a.data.card.id===url.pathname.split('/')[3]));return Response.json({id:board.id,name:board.name,shortLink:board.shortLink});});
+ const client=new TrelloClient({key:'fixture-key',token:'fixture-token',fetchImpl});const result=await client.preview(board.id,{includeArchived:true});expect(result.counts).toMatchObject({lists:3,cards:9,comments:board.actions.length,attachments:9,links:2,oversize:1});expect(fetchImpl).toHaveBeenCalledTimes(5+cards.filter((c:any)=>c.badges.comments>0).length);fetchImpl.mockClear();await client.preview(board.id,{includeArchived:true,includeComments:false});expect(fetchImpl).toHaveBeenCalledTimes(5);cards[0].badges.comments=100;expect((await client.preview(board.id,{includeArchived:true})).counts.comments).toBe(board.actions.length);
+});

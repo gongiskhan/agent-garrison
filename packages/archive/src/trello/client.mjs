@@ -1,5 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { trelloHosted } from './mapper.mjs';
+import { trelloHosted, mapBoard } from './mapper.mjs';
 
 export class TrelloClient {
   constructor({key,token,fetchImpl=fetch,base='https://api.trello.com/1',sleep=(ms,signal)=>delay(ms,undefined,{signal}),log=()=>{}}){this.key=key;this.token=token;this.fetch=fetchImpl;this.base=base;this.sleep=sleep;this.log=log;this.active=0;this.waiters=[];}
@@ -30,6 +30,16 @@ export class TrelloClient {
     }
   }
   async boards(){return this.request('/members/me/boards?fields=name,shortLink,closed&filter=open');}
+  async preview(boardId,{includeArchived=false,signal,maxFileMb=25,includeComments=true}={}){
+    const filter=includeArchived?'all':'open',id=encodeURIComponent(boardId);
+    const [board,lists]=await Promise.all([this.request(`/boards/${id}?fields=name,shortLink`,{signal}),this.request(`/boards/${id}/lists?filter=${filter}`,{signal})]);
+    const cards=(await parallel(lists,4,l=>this.request(`/lists/${encodeURIComponent(l.id)}/cards?filter=${filter}&fields=id,idList,name,closed,badges&attachments=true&attachment_fields=all`,{signal}))).flat();
+    const counts=mapBoard({...board,lists,cards},{includeArchived,maxFileMb}).counts;
+    // Badges identify empty cards, but positive counts can include comments
+    // no longer returned by Trello. Count the available comments for the preview.
+    if(includeComments){const comments=await parallel(cards,4,async card=>card.badges?.comments===0?0:(await this.request(`/cards/${encodeURIComponent(card.id)}/actions?filter=commentCard&limit=1000`,{signal})).length);counts.comments=comments.reduce((sum,n)=>sum+n,0);}
+    return {board,counts};
+  }
   async board(boardId,{includeArchived=false,signal}={}){
     const filter=includeArchived?'all':'open',id=encodeURIComponent(boardId);
     const [board,lists,customFields]=await Promise.all([this.request(`/boards/${id}?fields=name,shortLink`,{signal}),this.request(`/boards/${id}/lists?filter=${filter}`,{signal}),this.request(`/boards/${id}/customFields`,{signal})]);
