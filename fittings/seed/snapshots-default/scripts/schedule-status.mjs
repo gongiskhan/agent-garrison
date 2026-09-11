@@ -32,6 +32,6 @@ export async function schedulingStatus() {
   }
   return { nodes: [...nodes.filter(n => n?.node && n.node !== local.node), local], ...(error ? { error } : {}) };
 }
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {
   (process.argv.includes('--publish') ? publishSchedulingStatus() : schedulingStatus().then(s => console.log(JSON.stringify(s)))).catch(e => { console.error(e.message); process.exitCode = 1; });
 }

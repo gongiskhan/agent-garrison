@@ -196,7 +196,7 @@ export async function runDrill({ env = process.env, log = console.log, notify = 
   }
   return report;
 }
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {
   if (process.argv.includes('--counts-only')) liveCounts().then(r => console.log(JSON.stringify(r))).catch(e => { console.error(e.message); process.exitCode = 1; });
   else runDrill({ notify: process.argv.includes('--notify') }).then(r => { process.exitCode = r.ok ? 0 : 1; }).catch(e => { console.error(e.message); process.exitCode = 1; });
 }

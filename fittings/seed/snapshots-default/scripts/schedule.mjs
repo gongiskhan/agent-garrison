@@ -65,6 +65,6 @@ export async function registerSchedules({ systemd = false } = {}) {
   return receipt;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url))) {
   registerSchedules({ systemd: process.argv.includes('--systemd') }).catch(e => { console.error(e.message); process.exitCode = 1; });
 }

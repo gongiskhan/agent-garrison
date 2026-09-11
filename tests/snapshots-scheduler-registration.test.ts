@@ -66,3 +66,15 @@ it('keeps shared jobs enabled for Macs and publishes per-node timer receipts', a
     expect(JSON.parse(status.stdout).nodes).toEqual(expect.arrayContaining([expect.objectContaining({ node: 'dev-madrid', path: 'systemd' }), expect.objectContaining({ node: 'mac-mini', path: 'scheduler' })]));
   } finally { await service.stop(); }
 });
+
+it('registers and reports when invoked through a symlinked fitting directory', () => {
+  const linked = path.join(home, 'installed-scripts');
+  fs.symlinkSync(scripts, linked, 'dir');
+  const setup = spawnSync('bash', [path.join(linked, 'setup.sh')], { env, encoding: 'utf8' });
+  expect(setup.status, setup.stderr).toBe(0);
+  expect(setup.stdout).toContain('snapshots scheduling: scheduler');
+  expect(JSON.parse(fs.readFileSync(`${home}/.garrison/snapshots/schedule.json`, 'utf8')).path).toBe('scheduler');
+  const status = spawnSync(process.execPath, [path.join(linked, 'schedule-status.mjs')], { env, encoding: 'utf8' });
+  expect(status.status, status.stderr).toBe(0);
+  expect(JSON.parse(status.stdout).nodes).toEqual(expect.arrayContaining([expect.objectContaining({ node: 'dev-madrid', path: 'scheduler' })]));
+});
