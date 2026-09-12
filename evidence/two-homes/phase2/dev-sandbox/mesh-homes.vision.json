@@ -1,0 +1,9 @@
+{
+  "file": "/home/ggomes/dev/garrison/test-results/two-homes-live/two-homes-real-migrated-ho-b71f0-ill-listing-and-Mesh-status-desktop/mesh-homes.png",
+  "imageSha": "979b05f20348e7024d0d7488429759aab63333cfe45778cf7b6cd11bc9988f79",
+  "rubric": "The Mesh page has a readable node row and a green Homes ok control.",
+  "pass": true,
+  "reasons": [
+    "Inspected final PNG: the two-homes-dev row is readable with This node, Ready and a green Homes ok control. The home status is visible without overlap or clipping."
+  ]
+}

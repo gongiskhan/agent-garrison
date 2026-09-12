@@ -1,0 +1,9 @@
+{
+  "file": "/home/ggomes/dev/garrison/test-results/two-homes-live/two-homes-real-migrated-ho-b71f0-ill-listing-and-Mesh-status-desktop/garrison-home.png",
+  "imageSha": "d673b0241b1678f57408361b787c9aaa6e0d8a67e1bd5303a00a8a232ba469a3",
+  "rubric": "Quarters shows the Garrison home tab selected and a distinct Your Claude Code tab. The config categories are visible and readable.",
+  "pass": true,
+  "reasons": [
+    "Inspected fresh-sandbox PNG: Garrison home has the selected dark tab; all four home tabs and configuration categories are legible; descriptions name the Garrison home; no clipped or overlapping controls."
+  ]
+}
