@@ -40,10 +40,11 @@ import {
 } from "./lib/tools.mjs";
 
 import { ASSISTANT_TOOL_DEFINITIONS, callListCards, callGetCard, callListConnectors, callConnectorRead } from "./lib/assistant-tools.mjs";
+import { ARCHIVE_TOOL_DEFINITIONS, callArchiveSearch, callArchiveRead } from "./lib/archive-tools.mjs";
 
 // ─────────────────────────────────────────── dynamic tool discovery
 async function discoverTools() {
-  const tools = [...ASSISTANT_TOOL_DEFINITIONS];
+  const tools = [...ASSISTANT_TOOL_DEFINITIONS, ...ARCHIVE_TOOL_DEFINITIONS];
   const [tierOk, testingOk] = await Promise.all([
     checkProbe("tier-classifier", "classify_tier.mjs"),
     checkProbe("testing", "run_tests.mjs"),
@@ -396,6 +397,8 @@ async function callFindingAdd(input) {
 }
 
 async function dispatchTool(name, input) {
+  if (name === "garrison_archive_search") return callArchiveSearch(input);
+  if (name === "garrison_archive_read") return callArchiveRead(input);
   if (name === "garrison_list_cards") return callListCards(input);
   if (name === "garrison_get_card") return callGetCard(input);
   if (name === "garrison_list_connectors") return callListConnectors(input);

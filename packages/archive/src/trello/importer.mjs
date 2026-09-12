@@ -10,8 +10,34 @@ import { parseFrontmatter } from '../frontmatter.mjs';
 import { serializeCard } from '../card.mjs';
 import { writeList } from '../list.mjs';
 import { now } from '../io.mjs';
+import { listTrash } from '../ops.mjs';
 
 const exec=promisify(execFile);
+// A deleted import remains deleted on another import. Trash is already synced
+// file provenance, so this needs no separate list of hidden database tombstones.
+async function removedImports(ctx){
+  const sources=new Set(),lists=new Set();
+  async function scan(relative){
+    const root=confine(ctx.vaultDir,relative,{trash:true});
+    for(const entry of await fs.readdir(root,{withFileTypes:true})){
+      if(entry.name.startsWith('.')||entry.isSymbolicLink())continue;
+      const file=path.posix.join(relative,entry.name);
+      if(entry.isDirectory())await scan(file);
+      else if(entry.isFile()&&entry.name==='index.md'){
+        const meta=parseFrontmatter(await fs.readFile(confine(ctx.vaultDir,file,{trash:true}),'utf8')).frontmatter;
+        if(meta.garrison==='card'&&meta.source)sources.add(meta.source);
+      }
+    }
+  }
+  for(const entry of await listTrash(ctx)){
+    if(!entry.isDirectory||!entry.original?.startsWith('Archive/'))continue;
+    const root=path.posix.join('Archive/.trash',entry.entry,entry.stored);
+    const metadata=await fs.readFile(confine(ctx.vaultDir,root+'/_list.md',{trash:true}),'utf8').catch(e=>{if(e.code==='ENOENT')return '';throw e;});
+    if(parseFrontmatter(metadata).frontmatter.garrison==='list'&&!await fs.stat(confine(ctx.vaultDir,entry.original)).catch(()=>null))lists.add(entry.original);
+    await scan(root);
+  }
+  return {sources,lists};
+}
 export async function importBoard(ctx,jobs,row,{board,client,afterCard}={}){
   const controller=new AbortController();jobs.controllers.set(row.id,controller);
   const summary={lists:0,imported:0,skipped:0,attachments:0,links:0,oversize:0,tag:null};
@@ -22,10 +48,16 @@ export async function importBoard(ctx,jobs,row,{board,client,afterCard}={}){
     const stamp=now().replace(/[:.]/g,'-');summary.tag=`archive/pre-import-${String(model.shortLink).replace(/[^a-zA-Z0-9-]/g,'-')}-${stamp}-${randomUUID().slice(0,6)}`;
     await exec('git',['-C',ctx.vaultDir,'tag',summary.tag]);
     await jobs.log(row,`Pre-import tag: ${summary.tag}`);
-    const existing=new Set();for(const file of await walkVault(ctx,'Archive'))if(file.name==='index.md'){const meta=parseFrontmatter(await fs.readFile(confine(ctx.vaultDir,file.path),'utf8')).frontmatter;if(meta.source)existing.add(meta.source);}
+    const removed=await removedImports(ctx),existing=new Set(removed.sources);for(const file of await walkVault(ctx,'Archive'))if(file.name==='index.md'){const meta=parseFrontmatter(await fs.readFile(confine(ctx.vaultDir,file.path),'utf8')).frontmatter;if(meta.source)existing.add(meta.source);}
     await jobs.update(row,{progress:{done:0,total:model.counts.cards,label:model.name}});
     for(const list of model.lists){
       if(controller.signal.aborted)break;
+      if(removed.lists.has(list.path)){
+        summary.skipped+=list.cards.length;
+        await jobs.log(row,`Skipped ${list.cards.length} cards in a list kept in Trash`);
+        await jobs.update(row,{progress:{done:summary.imported+summary.skipped,total:model.counts.cards,label:'Kept removed list in Trash'}});
+        continue;
+      }
       await fs.mkdir(confine(ctx.vaultDir,list.path),{recursive:true});if(!await fs.stat(confine(ctx.vaultDir,list.path+'/_list.md')).catch(()=>null))await writeList(ctx,list.path,{title:list.title,order:list.order});summary.lists++;
       for(const card of list.cards){
         if(controller.signal.aborted)break;

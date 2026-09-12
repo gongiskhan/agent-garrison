@@ -52,11 +52,11 @@ export function FolderRows({rows,onPick}:{rows:any[];onPick?:(p:string)=>void}){
 export function Editor({value,onChange,label='Markdown editor'}:{value:string;onChange:(s:string)=>void;label?:string}){const phone=usePhone();return phone?<textarea className="archive-editor" aria-label={label} value={value} onChange={e=>onChange(e.target.value)}/>:<div className="archive-monaco" data-testid="archive-monaco"><Monaco height="340px" language="markdown" value={value} onChange={v=>onChange(v??'')} options={{wordWrap:'on',minimap:{enabled:false},fontSize:15,scrollBeyondLastLine:false,automaticLayout:true,ariaLabel:label}}/></div>;}
 export function useUnsaved(dirty:boolean){useEffect(()=>{
  if(!dirty)return;
- const url=location.href,state=history.state;
- const unload=(e:BeforeUnloadEvent)=>{e.preventDefault();e.returnValue='';};
- const click=(e:MouseEvent)=>{const link=(e.target as Element)?.closest('a[href]');if(link&&!window.confirm('Discard unsaved changes?')){e.preventDefault();e.stopPropagation();}};
+ const url=location.href,state=history.state;let approved=false;
+ const unload=(e:BeforeUnloadEvent)=>{if(!approved){e.preventDefault();e.returnValue='';}};
+ const click=(e:MouseEvent)=>{const link=(e.target as Element)?.closest('a[href]');if(!link||e.metaKey||e.ctrlKey||e.shiftKey||e.button!==0)return;if(!window.confirm('Discard unsaved changes?')){e.preventDefault();e.stopPropagation();}else approved=true;};
  // The shell's early listener preserves the mounted editor on cancelled Back.
- const pop=(e:PopStateEvent)=>{if(!window.confirm('Discard unsaved changes?')){e.stopImmediatePropagation();history.pushState(state,'',url);}};
+ const pop=(e:PopStateEvent)=>{if(!approved&&!window.confirm('Discard unsaved changes?')){e.stopImmediatePropagation();history.pushState(state,'',url);}};
  const removeGuard=registerArchiveNavigationGuard(pop);window.addEventListener('beforeunload',unload);document.addEventListener('click',click,true);
  return()=>{removeGuard();window.removeEventListener('beforeunload',unload);document.removeEventListener('click',click,true);};
  },[dirty]);}

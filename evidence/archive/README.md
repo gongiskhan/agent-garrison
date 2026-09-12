@@ -37,3 +37,24 @@ The normal suite keeps video disabled even if the recording flag is set. Only
 the explicit walkthrough enables it. Do not run the two Playwright configs at
 the same time. Final test counts and the scoped review are recorded in
 [the decision](../../docs/decisions/2026-09-11-archive.md).
+
+## Knowledge and navigation follow-up — 2026-09-12
+
+The follow-up browser run passed 43 phone/desktop journeys. Three cases retained
+their normal gates: two real-model ingestion cases and phone No vault (desktop
+only). Compact card rows and Inbox screenshots were inspected directly; this run
+did not use a model vision judge. The original accepted vision receipts above are
+preserved and are not claimed as verification of the new card design.
+
+- [Follow-up browser report](../../.walkthrough/runs/agent-garrison/archive/2026-09-12/knowledge-followup/full-report/index.html)
+- [Follow-up browser log](../../.walkthrough/runs/agent-garrison/archive/2026-09-12/knowledge-followup/full-e2e.log)
+- [Final verification receipt](../../.walkthrough/runs/agent-garrison/archive/2026-09-12/knowledge-followup/receipt.json)
+
+The whole repository passed 8,629 tests across 751 suites, with 27 normal gated
+cases. Typecheck, lint and the isolated production build also passed.
+
+The native assistant regression runs the real SDK, MCP server and confined
+Archive service against synthetic documents, with only the remote model
+simulated. It proves discovery, search, extracted fields, source links and no
+vault writes. The separate real-model certificate lookup remains pending account
+authorization; an unauthenticated attempt returned “Not logged in”.

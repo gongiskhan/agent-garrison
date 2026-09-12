@@ -24,18 +24,20 @@ cards or a prefix. The earlier timeout-default board is no longer active.
   files were preserved, and zero old-board source IDs remain active.
 - Correction recovery tag: `archive/pre-correction-GERAL-2026-09-12T07-21-45-211Z`.
 - GERAL import tag: `archive/pre-import-vl1Z8KFH-2026-09-12T07-22-40-440Z-80ff54`.
-- Text extraction continues as a persisted background queue under the hourly
-  limit; Jobs shows progress and unsupported types. No extraction failures at
-  import completion. The correction sync receipt is recorded in the decision.
-- Re-running skips existing cards by `source: trello:<id>`.
+- The extraction queue has drained; three files failed, two because Madrid lacks
+  HEIC conversion. Jobs shows the remaining details and unsupported types.
+  Import and cleanup sync receipts are recorded in the decision.
+- Follow-up cleanup removed eight task lists / 175 cards to Trash: 321 active
+  cards remain. Tag: `archive/pre-task-cleanup-2026-09-12T08-31-41-063Z`.
+- Re-imports keep trashed imported cards/lists removed until restored.
+- Inbox is for unfiled documents/photos; it is separate from task management.
 
 To reverse an import-only commit, use `git -C <vault> revert <commit>` and let
 vault-git-sync distribute the corrective commit. Here sync commits also contain
 other changes: restore the tagged Archive state in a temporary recovery branch,
 retain subsequent edits, commit only the intended correction, then cherry-pick
 that corrective commit onto the current vault branch. Never reset shared history.
-The retired Documents store had zero artifacts; existing artifacts on other
-nodes migrate to `Projects/Garrison/Documents` with redirects and originals kept.
+Retired Documents artifacts migrate to `Projects/Garrison/Documents` with originals kept.
 
 ## Evidence
 
@@ -44,9 +46,14 @@ nodes migrate to `Projects/Garrison/Documents` with redirects and originals kept
 - [Narrated phone walkthrough](.walkthrough/runs/agent-garrison/archive/2026-09-12/phone/final.mp4),
   63.2 seconds, seven narration beats. All images and documents are synthetic.
 
-The closeout staging error in `954e3a0d` was corrected by `f948abb4`; that
-intermediate commit must not be deployed. Published runtime files match the
-tested Madrid build; the unfinished work remains local and preserved.
+The earlier staging error in `954e3a0d` was corrected by `f948abb4`; do not
+deploy that intermediate commit. The decision document preserves the history.
+
+Follow-up source adds context-preserving Back, compact left thumbnails and
+`garrison_archive_search` / `garrison_archive_read` in working assistant sessions.
+Tool tests use a sensitive synthetic company certificate and verify its number
+and citation without vault changes. Real model acceptance/deployment remain
+pending account authorization and the independent Two Homes rollout hold.
 
 ## Needs the physical phone
 
@@ -67,6 +74,6 @@ HEIC from an actual iPhone photo. These cannot be accepted through emulation.
 
 None from the scoped review. All five crucial findings were fixed and tested.
 The independent Two Homes activation remains unfinished; automatic deployments
-stay paused. Madrid is deployed and healthy; all 35 peer-work paths are restored.
-Acceptance tested committed main with that unfinished work preserved separately.
+stay paused. Original Archive acceptance/deployment is complete; this follow-up
+requires a later guarded deployment without bypassing the migration hold.
 Archive does not activate that migration or resume its rollout.

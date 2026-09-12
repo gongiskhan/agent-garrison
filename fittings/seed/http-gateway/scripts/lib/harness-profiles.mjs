@@ -114,7 +114,8 @@ export function runtimeCodexEnabled(env = process.env) {
 // was not evidence that board and connector tools were unnecessary.
 export const READ_MCP_TOOLS = [CAPABILITY_DOC, ...LAYER3, ...FINDINGS,
   "garrison_list_cards", "garrison_get_card", "list_scheduled_cards",
-  "garrison_list_connectors", "garrison_connector_read", "list_automations"];
+  "garrison_list_connectors", "garrison_connector_read", "list_automations",
+  "garrison_archive_search", "garrison_archive_read"];
 export const SHARED_MCP_TOOLS = [...READ_MCP_TOOLS];
 
 // The one duty that needs a tool the others must not have (D62): `dialogue` is

@@ -129,3 +129,15 @@ a hook blocks it and the block is correct. Never summarise, copy or
 paraphrase Archive content into memory notes, session captures, briefs,
 decisions or any other file. If something the user says belongs in the
 Archive, say so and let them file it from the Archive page.
+
+When the user asks for a fact in a saved document (for example, their company's
+commercial certificate number), use `garrison_archive_search` with the company
+name and document type, then `garrison_archive_read` on the matching result.
+The read includes extracted text and fields from image/PDF sidecars; a sensitive
+search snippet being hidden does not prevent the explicitly requested read.
+Try short Portuguese/English terms if needed, verify the correct company and
+field, and cite the source. Never guess a missing number or save the answer to
+memory. These tools use the Archive's current local index, including attachments.
+If they are unavailable, use the configured Basic Memory search/read tools on
+project `main`, including `Archive/` and its derived attachment notes. This is
+knowledge retrieval, not task management; actionable work belongs in Kanban.

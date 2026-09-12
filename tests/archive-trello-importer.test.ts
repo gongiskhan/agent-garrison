@@ -80,3 +80,24 @@ it('persists credential-free request paths in the import job through the real se
   expect(raw).not.toContain('fixture-secret');expect(raw).not.toContain('token=');
  }finally{await s.close();}
 });
+
+it('keeps removed task lists and cards in Trash across imports, including new tasks, until a list is restored',async()=>{
+ const s=await scratch({seed:false});
+ try{
+  init(s.vaultDir);const board=JSON.parse(await fs.readFile(path.join(fixture,'trello-board.json'),'utf8'));
+  const run=async()=>importBoard(s.ctx,s.service.jobs,await s.service.jobs.create('import-trello',{board,includeArchived:true}),{});
+  expect((await run()).imported).toBe(9);
+  // @ts-ignore Existing shell operations, with a synthetic vault only.
+  const {trash,restore}=await import('../packages/archive/src/ops.mjs');
+  const removed=await trash(s.ctx,'Archive/Personal documents');
+  await trash(s.ctx,'Archive/House/Fixture card 4');
+  board.cards.push({...board.cards[0],id:'ffffffff0000000000000042',name:'A newly added task'});
+  const result=await run();expect(result).toMatchObject({imported:0,skipped:10});
+  await expect(fs.stat(path.join(s.vaultDir,'Archive/Personal documents'))).rejects.toMatchObject({code:'ENOENT'});
+  await expect(fs.stat(path.join(s.vaultDir,'Archive/House/Fixture card 4'))).rejects.toMatchObject({code:'ENOENT'});
+  await restore(s.ctx,removed.trashedTo);
+  expect(await run()).toMatchObject({imported:1,skipped:9});
+  expect(await s.read('Archive/Personal documents/A newly added task/index.md')).toContain('trello:ffffffff0000000000000042');
+  await expect(fs.stat(path.join(s.vaultDir,'Archive/House/Fixture card 4'))).rejects.toMatchObject({code:'ENOENT'});
+ }finally{await s.close();}
+});

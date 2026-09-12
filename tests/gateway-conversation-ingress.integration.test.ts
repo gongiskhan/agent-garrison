@@ -168,7 +168,8 @@ describe("normal conversation ingress through a real gateway process", () => {
       const before = calls().length;
       expect((await message(id, "invalid", "Never run these settings", { routing: { ...pins, ...invalid } })).status).toBe(202);
       await until(() => ledger(id).some((row) => row.kind === "routing-rejected"));
-      expect(ledger(id).some((row) => row.kind === "note" && row.payload.text.includes("The conversation did not start"))).toBe(true);
+      // The rejection and its visible note are appended separately.
+      await until(() => ledger(id).some((row) => row.kind === "note" && row.payload.text.includes("The conversation did not start")));
       expect(ledger(id).filter((row) => row.kind === "stretch-started")).toHaveLength(0);
       expect(calls().length).toBe(before);
     },

@@ -35,12 +35,11 @@ describe("spawnTracked", () => {
 
     await new Promise<void>((resolve) => result.child.on("close", () => resolve()));
 
-    const stdout = await fsp.readFile(result.stdoutPath, "utf8");
-    const stderr = await fsp.readFile(result.stderrPath, "utf8");
+    // Child close starts draining the independent log streams; their files may
+    // not be open/flushed yet, especially for a very short shell invocation.
+    await expect.poll(() => fsp.readFile(result.stdoutPath, "utf8")).toContain("hello-stdout");
+    await expect.poll(() => fsp.readFile(result.stderrPath, "utf8")).toContain("hello-stderr");
     const meta: MetaJson = JSON.parse(await fsp.readFile(result.metaPath, "utf8"));
-
-    expect(stdout).toContain("hello-stdout");
-    expect(stderr).toContain("hello-stderr");
 
     expect(meta.pid).toBe(result.child.pid);
     expect(meta.spawnSite).toBe("test:basic");
@@ -64,12 +63,9 @@ describe("spawnTracked", () => {
 
     await new Promise<void>((resolve) => result.child.on("close", () => resolve()));
 
-    const stdout = await fsp.readFile(result.stdoutPath, "utf8");
-    const stderr = await fsp.readFile(result.stderrPath, "utf8");
+    await expect.poll(() => fsp.readFile(result.stdoutPath, "utf8")).toContain("shell-form");
+    await expect.poll(() => fsp.readFile(result.stderrPath, "utf8")).toContain("shell-stderr");
     const meta: MetaJson = JSON.parse(await fsp.readFile(result.metaPath, "utf8"));
-
-    expect(stdout).toContain("shell-form");
-    expect(stderr).toContain("shell-stderr");
     expect(meta.shell).toBe(true);
     expect(meta.args).toEqual([]);
   });
