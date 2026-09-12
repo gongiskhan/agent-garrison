@@ -1,6 +1,6 @@
 # Phone listening
 
-Server, native Phase 2 and UI Phase 3 acceptance passed on 11 September 2026. UI screenshots and the mock control journey are recorded in [run 34636326744](https://github.com/gongiskhan/agent-garrison/actions/runs/34636326744). All 135 native tests, including Stop reconnect and foreground notification regressions, passed in [run 34656307376](https://github.com/gongiskhan/agent-garrison/actions/runs/34656307376). Combined Phase 4 acceptance and TestFlight delivery are pending.
+Automated acceptance passed on 12 September 2026: [135 native tests](https://github.com/gongiskhan/agent-garrison/actions/runs/34656307376), [Home/Capture screenshots and mock controls](https://github.com/gongiskhan/agent-garrison/actions/runs/34636326744), and [the complete simulator journey plus device compilation](https://github.com/gongiskhan/agent-garrison/actions/runs/34659711993). TestFlight delivery is pending.
 
 ## Intent and actual
 
@@ -49,4 +49,4 @@ The session uses `.playAndRecord`, `.default`, and exactly `[.mixWithOthers, .al
 
 ## Verification and device checks
 
-`scripts/phone-listening-server-proof.mjs` verifies real WebSocket stall/recovery and dry-run push delivery. The Phone listening validation workflow runs component-backed simulator journeys and XCTest against an isolated built shell, exports screenshots and compiles the device target. Physical checks remain separate: follow [the seven-step device checklist](phone-listening-checklist.md).
+`scripts/phone-listening-server-proof.mjs` verifies real WebSocket stall/recovery and dry-run push delivery. The Phone listening validation workflow uses macOS 15, Xcode 26.2 and iOS Simulator 26.2. It runs XCTest against an isolated built shell, exports screenshots and compiles the device target. Phase 4 node events are retained in `evidence/phone-listening/phase4/` on the evidence owner. Physical checks remain separate: follow [the seven-step device checklist](phone-listening-checklist.md).
