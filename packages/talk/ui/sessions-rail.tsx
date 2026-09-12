@@ -15,6 +15,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DISCONNECTED_COLOR, sessionDisconnected, sessionRunning } from "./session-connection";
+import { cursorStateLabel, type CursorConversationState } from './cursor-sessions';
 
 export interface RailThread {
   connection?: string;
@@ -73,6 +74,7 @@ export interface RailTransport {
  *  groupable: this is a derived, transient list, not part of the organizer
  *  document. */
 export interface RailSession {
+  cursor?: CursorConversationState;
   terminalRef?: string | null;
   id: string;
   node: string;
@@ -868,6 +870,7 @@ export function SessionsRail(props: {
     if (s.kind === "bg") meta.push(<span key="k" className="wc-thread-src">bg</span>);
     if (s.project) meta.push(<span key="p" className="wc-thread-proj" title={s.cwd ?? undefined}>{s.project}</span>);
     if (sessionDisconnected(s)) meta.push(<span key="s" className="wc-thread-src">Offline</span>);
+    else if (s.cursor) meta.push(<span key="s" className="wc-thread-src wc-thread-working-label">{cursorStateLabel(s.cursor.state)}</span>);
     else if (sessionRunning(s)) meta.push(<span key="s" className="wc-thread-src wc-thread-working-label">Working</span>);
     else if (s.status === "idle") meta.push(<span key="s" className="wc-thread-src">Idle</span>);
     else if (s.status === "ended") meta.push(<span key="s" className="wc-thread-src">Ended</span>);

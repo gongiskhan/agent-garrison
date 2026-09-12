@@ -25,6 +25,9 @@ import { configDefaults, defineWorkspace } from "vitest/config";
 // spawns node processes (scheduler, own-port servers without a browser) does
 // not - those are cheap enough to stay parallel.
 const BROWSER_FIXTURE_SUITES = [
+  "tests/cursor-desktop-phone.test.ts",
+  "tests/cursor-desktop-live.test.ts",
+  "tests/cursor-desktop-ingest.test.ts",
   "tests/talk-structured-shell-browser.test.ts",
   "tests/listening-control-browser.test.ts",
   "tests/cards-from-conversations.test.ts",

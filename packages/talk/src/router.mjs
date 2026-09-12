@@ -25,6 +25,8 @@ import { createReadStream, existsSync, readFileSync, realpathSync, statSync } fr
 import { meshThreads } from "./mesh-threads.mjs";
 import { localSessionForStream, localSessionsStatus, meshSessions } from "./mesh-sessions.mjs";
 import { readCursorDesktopTranscript } from "./cursor-desktop-transcript.mjs";
+import { cursorProxy } from "./cursor-proxy.mjs";
+import { cursorNodeHandler } from './cursor-node.mjs';
 import { parseByFormat } from "./transcript-formats.mjs";
 import { gatewayCancelForwarder, gatewayMessageForwarder, handleConversationRequest } from "@garrison/claude-pty";
 import { rotateZecaConversation, zecaConversation } from "./zeca.mjs";
@@ -3558,11 +3560,20 @@ function settle(res, pending, log) {
 // names the voice provider and hands over the capture token; without it every
 // /api/voice/* answer is "no voice provider".
 export function createTalkRouter(liveOpts, { distDir = null, log = console } = {}) {
+  let cursor;
   return async function handleTalkRequest(req, res) {
     try {
       const parsed = url.parse(req.url || "/", true);
       const pathname = parsed.pathname || "/";
       const method = req.method || "GET";
+      if (pathname.startsWith('/api/cursor/')) {
+        if (pathname.startsWith('/api/cursor/hooks/') || pathname.startsWith('/api/cursor/internal/')) {
+          cursor ??= cursorNodeHandler({ home: garrisonDir() });
+          const localPath = pathname.replace(/^\/api\/cursor(?:\/internal)?\//, '/cursor/');
+          settle(res, cursor.handle(req, res, localPath), log); return true;
+        }
+        return cursorProxy(req, res, pathname, { home: garrisonDir(), nodeUrl: `http://127.0.0.1:${liveOpts.port}`, prefix: '/api/cursor/internal' });
+      }
       if (pathname === "/health" || pathname === "/api/health") { settle(res, handleHealth(req, res, liveOpts), log); return true; }
       // Host-aware URL/file rendering + rich transcript (issues #1/#3/#4). Root
       // paths (not /api/*) so they inherit this origin's tailscale serve mapping.

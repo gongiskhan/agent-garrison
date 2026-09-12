@@ -341,6 +341,7 @@ export const SESSION_BLOCK_TYPES = [
 ] as const;
 
 export interface SessionEvent {
+  origin?: 'desk' | 'phone';
   id: string | null;
   role: string;
   ts: number | null;
@@ -499,7 +500,7 @@ export function sessionActivityBeats(events: SessionEvent[]): SessionActivityBea
         beats.push({ type: block.type, eventIndex, blockIndex, block });
       } else if (
         block.type === "status" &&
-        (block.subtype === "api_retry" || block.subtype === "model_refusal_fallback")
+        (block.subtype === "api_retry" || block.subtype === "model_refusal_fallback" || block.subtype === "session_lifecycle")
       ) {
         // Migration compatibility for durable M2/M5 rows produced before the
         // typed retry block existed.
@@ -687,7 +688,7 @@ export function hasVisibleSessionActivity(events: SessionEvent[]): boolean {
             String(block.status ?? "").toLowerCase() !== "allowed" ||
             Boolean(block.overageStatus && String(block.overageStatus).toLowerCase() !== "allowed")
           )) ||
-          (block.type === "status" && (block.subtype === "api_retry" || block.subtype === "model_refusal_fallback")) ||
+          (block.type === "status" && (block.subtype === "api_retry" || block.subtype === "model_refusal_fallback" || block.subtype === "session_lifecycle")) ||
           block.type === "thinking" ||
           block.type === "tool_use" ||
           block.type === "permission_request" ||

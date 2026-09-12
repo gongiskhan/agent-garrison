@@ -826,6 +826,9 @@ function SessionNotice({
     label = errorLabel(block);
     reset = finiteEpochTime(block.retryAt);
     timePrefix = "Retry after";
+  } else if (block.type === 'status' && block.subtype === 'session_lifecycle') {
+    label = compactNoticeText(block.text);
+    detail = '';
   } else if (block.type === "retry" || block.type === "status") {
     const fallback = block.kind === "model_fallback" || block.subtype === "model_refusal_fallback";
     tone = fallback ? "route" : "warning";
@@ -2057,7 +2060,7 @@ export function SessionStream({
               String(block.status ?? "").toLowerCase() !== "allowed" ||
               Boolean(block.overageStatus && String(block.overageStatus).toLowerCase() !== "allowed")
             )) ||
-            (block.type === "status" && (block.subtype === "api_retry" || block.subtype === "model_refusal_fallback"))
+            (block.type === "status" && (block.subtype === "api_retry" || block.subtype === "model_refusal_fallback" || block.subtype === "session_lifecycle"))
           ));
           // The turn's reasoning, in order. On a settled turn these render
           // hoisted above the reply - never inside the interim fold, where a
@@ -2082,7 +2085,7 @@ export function SessionStream({
                 String(block.status ?? "").toLowerCase() !== "allowed" ||
                 Boolean(block.overageStatus && String(block.overageStatus).toLowerCase() !== "allowed")
               )) ||
-              (block.type === "status" && (block.subtype === "api_retry" || block.subtype === "model_refusal_fallback"))
+              (block.type === "status" && (block.subtype === "api_retry" || block.subtype === "model_refusal_fallback" || block.subtype === "session_lifecycle"))
             ).length;
             return count + textCount + activityCount;
           }, 0);
@@ -2091,6 +2094,7 @@ export function SessionStream({
               {userText && (
                 <div className="cc-session-turn user">
                   <span className="cc-session-role">You</span>
+                  {turn.userEvents.some(event => event.origin) && <span className="cc-session-role">{turn.userEvents.find(event => event.origin)?.origin}</span>}
                   <TextBlock text={userText} role="user" />
                 </div>
               )}
