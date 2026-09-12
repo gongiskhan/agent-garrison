@@ -1,0 +1,353 @@
+{
+  "generated_at": "2026-09-11T21:25:22.418Z",
+  "cursor_versions": [
+    "3.20.10"
+  ],
+  "platforms": [
+    "darwin"
+  ],
+  "workspace_root_counts": [
+    2
+  ],
+  "schema": [
+    {
+      "event": "sessionStart",
+      "count": 6,
+      "fields": [
+        "composer_mode",
+        "conversation_id",
+        "cursor_version",
+        "generation_id",
+        "hook_event_name",
+        "is_background_agent",
+        "model",
+        "model_id",
+        "model_params",
+        "session_id",
+        "transcript_path",
+        "user_email",
+        "workspace_roots"
+      ]
+    },
+    {
+      "event": "sessionEnd",
+      "count": 1,
+      "fields": [
+        "conversation_id",
+        "cursor_version",
+        "duration_ms",
+        "final_status",
+        "generation_id",
+        "hook_event_name",
+        "is_background_agent",
+        "model",
+        "model_id",
+        "model_params",
+        "reason",
+        "session_id",
+        "transcript_path",
+        "user_email",
+        "workspace_roots"
+      ]
+    },
+    {
+      "event": "beforeSubmitPrompt",
+      "count": 17,
+      "fields": [
+        "attachments",
+        "composer_mode",
+        "conversation_id",
+        "cursor_version",
+        "generation_id",
+        "hook_event_name",
+        "model",
+        "model_id",
+        "model_params",
+        "prompt",
+        "session_id",
+        "transcript_path",
+        "user_email",
+        "workspace_roots"
+      ]
+    },
+    {
+      "event": "afterAgentResponse",
+      "count": 18,
+      "fields": [
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "conversation_id",
+        "cursor_version",
+        "generation_id",
+        "hook_event_name",
+        "input_tokens",
+        "model",
+        "model_id",
+        "model_params",
+        "output_tokens",
+        "session_id",
+        "text",
+        "transcript_path",
+        "user_email",
+        "workspace_roots"
+      ]
+    },
+    {
+      "event": "afterAgentThought",
+      "count": 56,
+      "fields": [
+        "conversation_id",
+        "cursor_version",
+        "duration_ms",
+        "generation_id",
+        "hook_event_name",
+        "model",
+        "model_id",
+        "model_params",
+        "session_id",
+        "text",
+        "transcript_path",
+        "user_email",
+        "workspace_roots"
+      ]
+    },
+    {
+      "event": "beforeShellExecution",
+      "count": 3,
+      "fields": [
+        "command",
+        "conversation_id",
+        "cursor_version",
+        "cwd",
+        "generation_id",
+        "hook_event_name",
+        "model",
+        "sandbox",
+        "session_id",
+        "transcript_path",
+        "user_email",
+        "workspace_roots"
+      ]
+    },
+    {
+      "event": "afterShellExecution",
+      "count": 4,
+      "fields": [
+        "command",
+        "conversation_id",
+        "cursor_version",
+        "duration",
+        "generation_id",
+        "hook_event_name",
+        "model",
+        "output",
+        "sandbox",
+        "session_id",
+        "transcript_path",
+        "user_email",
+        "workspace_roots"
+      ]
+    },
+    {
+      "event": "beforeMCPExecution",
+      "count": 1,
+      "fields": [
+        "command",
+        "conversation_id",
+        "cursor_version",
+        "generation_id",
+        "hook_event_name",
+        "mcp_server_name",
+        "model",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "transcript_path",
+        "user_email",
+        "workspace_roots"
+      ]
+    },
+    {
+      "event": "afterMCPExecution",
+      "count": 1,
+      "fields": [
+        "conversation_id",
+        "cursor_version",
+        "duration",
+        "generation_id",
+        "hook_event_name",
+        "mcp_server_name",
+        "model",
+        "result_json",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "transcript_path",
+        "user_email",
+        "workspace_roots"
+      ]
+    },
+    {
+      "event": "beforeReadFile",
+      "count": 5,
+      "fields": [
+        "attachments",
+        "content",
+        "conversation_id",
+        "cursor_version",
+        "file_path",
+        "generation_id",
+        "hook_event_name",
+        "model",
+        "session_id",
+        "transcript_path",
+        "user_email",
+        "workspace_roots"
+      ]
+    },
+    {
+      "event": "afterFileEdit",
+      "count": 1,
+      "fields": [
+        "conversation_id",
+        "cursor_version",
+        "edits",
+        "file_path",
+        "generation_id",
+        "hook_event_name",
+        "model",
+        "session_id",
+        "transcript_path",
+        "user_email",
+        "workspace_roots"
+      ]
+    },
+    {
+      "event": "preToolUse",
+      "count": 4,
+      "fields": [
+        "conversation_id",
+        "cursor_version",
+        "cwd",
+        "generation_id",
+        "hook_event_name",
+        "model",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "tool_use_id",
+        "transcript_path",
+        "user_email",
+        "workspace_roots"
+      ]
+    },
+    {
+      "event": "postToolUse",
+      "count": 12,
+      "fields": [
+        "conversation_id",
+        "cursor_version",
+        "cwd",
+        "duration",
+        "generation_id",
+        "hook_event_name",
+        "model",
+        "session_id",
+        "tool_input",
+        "tool_name",
+        "tool_output",
+        "tool_use_id",
+        "transcript_path",
+        "user_email",
+        "workspace_roots"
+      ]
+    },
+    {
+      "event": "stop",
+      "count": 18,
+      "fields": [
+        "cache_read_tokens",
+        "cache_write_tokens",
+        "conversation_id",
+        "cursor_version",
+        "generation_id",
+        "hook_event_name",
+        "input_tokens",
+        "loop_count",
+        "model",
+        "model_id",
+        "model_params",
+        "output_tokens",
+        "session_id",
+        "status",
+        "transcript_path",
+        "user_email",
+        "workspace_roots"
+      ]
+    }
+  ],
+  "missing_events": [],
+  "stop_statuses": [
+    "completed",
+    "aborted"
+  ],
+  "session_end_reasons": [
+    "user_close"
+  ],
+  "holds": [
+    {
+      "requested_seconds": 28800,
+      "started_at": "2026-09-11T18:12:53.745Z",
+      "return_reason": "SIGTERM",
+      "held_seconds": 5915.482,
+      "elapsed_since_start_seconds": null,
+      "followup_observed": false,
+      "followup_delay_ms": null
+    },
+    {
+      "requested_seconds": 120,
+      "started_at": "2026-09-11T18:14:37.414Z",
+      "return_reason": "deadline",
+      "held_seconds": 120.003,
+      "elapsed_since_start_seconds": null,
+      "followup_observed": true,
+      "followup_delay_ms": 106
+    },
+    {
+      "requested_seconds": 1800,
+      "started_at": "2026-09-11T18:15:27.174Z",
+      "return_reason": "deadline",
+      "held_seconds": 1800.064,
+      "elapsed_since_start_seconds": null,
+      "followup_observed": true,
+      "followup_delay_ms": 186
+    },
+    {
+      "requested_seconds": 600,
+      "started_at": "2026-09-11T18:15:59.453Z",
+      "return_reason": "deadline",
+      "held_seconds": 600.07,
+      "elapsed_since_start_seconds": null,
+      "followup_observed": true,
+      "followup_delay_ms": 179
+    },
+    {
+      "requested_seconds": 90,
+      "started_at": "2026-09-11T18:17:59.913Z",
+      "return_reason": "deadline",
+      "held_seconds": 90.004,
+      "elapsed_since_start_seconds": null,
+      "followup_observed": true,
+      "followup_delay_ms": 82
+    },
+    {
+      "requested_seconds": 120,
+      "started_at": "2026-09-11T19:51:00.290Z",
+      "return_reason": "SIGTERM",
+      "held_seconds": 1.954,
+      "elapsed_since_start_seconds": null,
+      "followup_observed": false,
+      "followup_delay_ms": null
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "node_native_keyboard_preflight": true,
+  "direct_task_keyboard_preflight": false,
+  "creation": {
+    "started_at": 1789161221251,
+    "steps": [
+      {
+        "name": "focus",
+        "elapsed_ms": 1983,
+        "stdout": ""
+      },
+      {
+        "name": "prefill",
+        "elapsed_ms": 76,
+        "stdout": ""
+      },
+      {
+        "name": "confirm_enter",
+        "elapsed_ms": 575,
+        "stdout": "{\"enter_sent\":true}\n"
+      },
+      {
+        "name": "submit_enter",
+        "elapsed_ms": 169,
+        "stdout": "{\"enter_sent\":true}\n"
+      }
+    ],
+    "ok": true,
+    "elapsed_ms": 7306
+  },
+  "confirmation_count": 1,
+  "confirmation_elapsed_ms": 7418,
+  "authorized_enter_count": 2,
+  "no_window_test": "pending permission to stop existing client background terminal or waive this test"
+}
