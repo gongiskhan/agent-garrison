@@ -65,3 +65,13 @@ it("leaves other platforms alone", () => {
   expect(guardUnicodeAliases({ cwd, platform: "linux" })).toEqual({ removed: 0 });
   expect(git(cwd, "ls-files", "--stage", "-z")).toBe(before);
 });
+
+it("handles vault indexes larger than the subprocess default output buffer", () => {
+  const cwd = fixture(); writeFileSync(path.join(cwd, alias), "original\n"); stage(cwd, alias, "original\n");
+  const oid = git(cwd, "rev-parse", "HEAD:" + canonical);
+  const prefix = Array(10).fill("segment".repeat(15)).join("/");
+  const rows = Array.from({ length: 1100 }, (_, i) => `100644 ${oid}\tbulk/${i}/${prefix}/file.md\0`).join("");
+  expect(Buffer.byteLength(rows)).toBeGreaterThan(1024 * 1024);
+  execFileSync("git", ["update-index", "-z", "--index-info"], { cwd, input: rows });
+  expect(guardUnicodeAliases({ cwd, platform: "darwin" })).toEqual({ removed: 1 });
+});
