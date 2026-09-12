@@ -1,6 +1,6 @@
 # Phone listening device checklist
 
-Run these checks on the TestFlight build identified in the release evidence. Simulator acceptance verifies the state and transport behaviour; these checks verify physical audio routing, background capture and APNs delivery.
+Run these checks on **TestFlight 1.0 build 40**, processed on 12 September 2026 ([release evidence](https://github.com/gongiskhan/ios-thing/actions/runs/34660796010), revision `a25683e1`). Simulator acceptance verifies the state and transport behaviour; these checks verify physical audio routing, background capture and APNs delivery.
 
 1. On Home, tap Start listening. Lock the phone. After 10 minutes the orange microphone indicator is still shown on the lock screen. Say "Zeca, create a test task called phone listening". A short tone plays within a second and the card appears in the Kanban Loop.
 2. Receive or place a phone call and end it. Within a few seconds Home shows Listening again and no push arrived.
