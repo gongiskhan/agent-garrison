@@ -1,0 +1,42 @@
+// Real APM and real fitting hooks, confined to a caller-created temporary root.
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import YAML from 'yaml';
+import type { Composition } from '../../src/lib/types';
+async function main() {
+  const root = process.env.TWO_HOMES_SANDBOX;
+  if (!root || !(await fs.realpath(root)).startsWith(await fs.realpath(os.tmpdir()) + path.sep)) throw new Error('TWO_HOMES_SANDBOX must be a temporary directory');
+  const gh = path.join(root, '.garrison-dev'), managed = path.join(gh, 'runtime-homes/claude');
+  for (const key of Object.keys(process.env)) if (key.startsWith('GARRISON_') || ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'GEMINI_CLI_HOME'].includes(key)) delete process.env[key];
+  Object.assign(process.env, { HOME: root, GARRISON_HOME: gh, GARRISON_CLAUDE_HOME: managed, CLAUDE_CONFIG_DIR: managed, GARRISON_CLAUDE_JSON: path.join(managed, '.claude.json'), GARRISON_CLAUDE_SETTINGS_PATH: path.join(managed, 'settings.json'), GARRISON_INSTANCE_ID: 'dev', GARRISON_SHARE_TARGET: 'garrison', GARRISON_ASSUME_INSTALLED: '1', CODEX_HOME: path.join(gh, 'runtime-homes/codex'), GEMINI_CLI_HOME: path.join(gh, 'runtime-homes/gemini'), BASIC_MEMORY_CONFIG_DIR: path.join(gh, 'basic-memory'), BASIC_MEMORY_HOME: path.join(gh, 'basic-memory/default') });
+  const { readLibrary } = await import('../../src/lib/library');
+  const { defaultApmRunner } = await import('../../src/lib/apm-exec');
+  const { reconcileHomes } = await import('../../src/lib/homes-migration');
+  const { captureHomesInventory } = await import('../../src/lib/homes-inventory');
+  const { runFittingSetup } = await import('../../src/lib/runner');
+  const entries = (await readLibrary()).filter(entry => ['basic-memory', 'garrison-skills'].includes(entry.id));
+  if (entries.length !== 2) throw new Error('Missing fixture fittings');
+  const directory = path.join(root, 'composition'); await fs.mkdir(directory, { recursive: true });
+  await fs.mkdir(path.join(root, '.claude/skills/my-notes'), { recursive: true });
+  await fs.writeFile(path.join(root, '.claude/skills/my-notes/SKILL.md'), '---\nname: my-notes\ndescription: User-authored fixture notes.\n---\nKeep these user notes.\n');
+  await fs.mkdir(path.join(root, '.claude/skills/garrison-legacy'), { recursive: true });
+  await fs.writeFile(path.join(root, '.claude/skills/garrison-legacy/SKILL.md'), 'Legacy fixture skill\n');
+  await fs.writeFile(path.join(root, '.claude.json'), JSON.stringify({ hasCompletedOnboarding: true, hasTrustDialogAccepted: true, bypassPermissionsModeAccepted: true }));
+  await fs.mkdir(gh, { recursive: true });
+  await fs.writeFile(path.join(gh, 'node.json'), JSON.stringify({ id: 'two-homes-dev', name: 'two-homes-dev', accent: 'fern' }));
+  const config = { vault_dir: path.join(root, 'vault'), capture_enabled: false, kanban_completion_capture_enabled: false, register_codex_gemini: false, spool_enabled: 'never' };
+  await fs.mkdir(config.vault_dir, { recursive: true });
+  const composition = { id: 'two-homes-dev', name: 'Two homes acceptance', directory, manifestPath: path.join(directory, 'apm.yml'), selections: { memory: [{ id: 'basic-memory', config, shared: ['claude-code'] }], building: [{ id: 'garrison-skills', config: {} }] }, globalConfig: {}, targets: [] } as unknown as Composition;
+  await fs.writeFile(composition.manifestPath, YAML.stringify({ name: composition.id, version: '0.1.0', target: 'claude', dependencies: { apm: entries.map(entry => ({ path: path.resolve(entry.localPath!) })) } }));
+  const installed = await defaultApmRunner(['install', '--force'], directory, { env: process.env });
+  if (!installed.ok) throw new Error(installed.stderr || installed.stdout);
+  await captureHomesInventory();
+  const state = await reconcileHomes(composition, { library: entries, log: console.log });
+  const memory = entries.find(entry => entry.id === 'basic-memory')!;
+  const setup = await runFittingSetup(memory, directory, config, process.env as Record<string, string>);
+  if (!setup.ok) throw new Error(setup.stderr || setup.stdout);
+  await fs.writeFile(path.join(root, 'acceptance.json'), JSON.stringify({ root, gh, managed, composition: composition.id, state }, null, 2) + '\n');
+  console.log(JSON.stringify({ ok: state.report.leaks === 0, root, moved: state.report.moved }));
+}
+main().catch(error => { console.error(error.message); process.exitCode = 1; });
