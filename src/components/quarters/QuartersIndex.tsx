@@ -126,7 +126,7 @@ export function QuartersIndex() {
         </div>
 
         <div role="tablist" aria-label="Runtime homes" style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
-          {([{ id: "garrison", title: "Garrison home" }, { id: "claude-code", title: "Your Claude Code" }, ...sections.filter(entry => ["codex", "gemini"].includes(entry.descriptor.id)).map(entry => ({ id: entry.descriptor.id, title: entry.descriptor.id === "codex" ? "Your Codex" : "Your Gemini" }))] as Array<{ id: "garrison" | SharedRuntime; title: string }>).map(tab => <button key={tab.id} role="tab" aria-selected={homeTab === tab.id} className="btn" onClick={() => setHomeTab(tab.id)}>{tab.title}</button>)}
+          {([{ id: "garrison", title: "Garrison home" }, { id: "claude-code", title: "Your Claude Code" }, ...sections.filter(entry => ["codex", "gemini"].includes(entry.descriptor.id)).map(entry => ({ id: entry.descriptor.id, title: entry.descriptor.id === "codex" ? "Your Codex" : "Your Gemini" }))] as Array<{ id: "garrison" | SharedRuntime; title: string }>).map(tab => <button key={tab.id} role="tab" aria-selected={homeTab === tab.id} className={homeTab === tab.id ? "btn primary" : "btn"} onClick={() => setHomeTab(tab.id)}>{tab.title}</button>)}
         </div>
         {homeTab !== "garrison" ? <UserHomePanel runtime={homeTab} /> : <>
         <InstallBanner />

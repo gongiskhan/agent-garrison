@@ -36,7 +36,7 @@ export const QUARTERS_CATEGORIES: QuartersCategory[] = [
   {
     slug: "context",
     label: "Context",
-    blurb: "CLAUDE.md (user + project) — the durable guidance the Memory faculty produces.",
+    blurb: "CLAUDE.md (Garrison home + project) — the durable guidance the Memory faculty produces.",
     writer: "garrison",
     kind: "document",
     icon: "NotebookText"
@@ -44,7 +44,7 @@ export const QUARTERS_CATEGORIES: QuartersCategory[] = [
   {
     slug: "skills",
     label: "Skills",
-    blurb: "Agent skills compiled into ~/.claude/skills by APM.",
+    blurb: "Agent skills installed in the Garrison home by APM.",
     writer: "apm",
     kind: "primitives",
     icon: "Sparkles",
@@ -62,7 +62,7 @@ export const QUARTERS_CATEGORIES: QuartersCategory[] = [
   {
     slug: "mcps",
     label: "MCPs",
-    blurb: "MCP servers Claude Code loads from ~/.claude.json — add, edit, remove, and enable/disable directly.",
+    blurb: "MCP servers loaded from the Garrison home — add, edit, remove, and enable/disable directly.",
     writer: "garrison",
     kind: "primitives",
     icon: "Plug",
@@ -80,7 +80,7 @@ export const QUARTERS_CATEGORIES: QuartersCategory[] = [
   {
     slug: "scripts",
     label: "Scripts",
-    blurb: "Commands and rules — file primitives APM deploys into ~/.claude.",
+    blurb: "Commands and rules installed in the Garrison home.",
     writer: "split",
     kind: "primitives",
     icon: "ScrollText",
@@ -89,7 +89,7 @@ export const QUARTERS_CATEGORIES: QuartersCategory[] = [
   {
     slug: "plans",
     label: "Plans",
-    blurb: "Markdown plan files under ~/.claude/plans.",
+    blurb: "Markdown plan files in the Garrison home.",
     writer: "garrison",
     kind: "document",
     icon: "ClipboardList"
