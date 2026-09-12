@@ -16,10 +16,11 @@ export function ListeningRow({ state, onIntent, readOnly = false }: { state: Dev
   const stop = copy.button === "Hold to stop";
   const cancel = () => { hold.current.cancel(); setHolding(false); };
   useEffect(() => {
+    const mountedHold = hold.current;
     const blur = () => cancel();
     window.addEventListener("blur", blur);
     document.addEventListener("visibilitychange", blur);
-    return () => { hold.current.cancel(); clearTimeout(tooltipTimer.current); window.removeEventListener("blur", blur); document.removeEventListener("visibilitychange", blur); };
+    return () => { mountedHold.cancel(); clearTimeout(tooltipTimer.current); window.removeEventListener("blur", blur); document.removeEventListener("visibilitychange", blur); };
   }, []);
   useEffect(() => { cancel(); }, [state.actual]);
   const begin = () => {

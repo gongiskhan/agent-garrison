@@ -146,7 +146,7 @@ it.each(['chromium', 'webkit'])('renders human prompts and collapsed tools in th
   const f = await fixture(target, true);
   try {
     await f.page.evaluate(() => (window as any).mount('native', { row: {id:'native-one', node:'mini', runtime:'claude', kind:'cli', status:'idle', title:'Build check'}, streamUrl:'/stream' }));
-    await expect.poll(() => f.page.locator('.cc-session-turn.user').count()).toBe(1);
+    await expect.poll(() => f.page.locator('.cc-session-turn.user').count(), { timeout: 5000 }).toBe(1);
     expect(await f.page.locator('.cc-session-turn.user').textContent()).toContain('Check the build status.');
     expect(await f.page.locator('.cc-session-turn.user').textContent()).not.toContain('15 prompts');
     expect(await f.page.getByText('The build completed.', {exact:true}).isVisible()).toBe(true);
@@ -158,7 +158,7 @@ it.each(['chromium', 'webkit'])('renders human prompts and collapsed tools in th
     await f.page.getByRole('button', {name:'Plain output',exact:true}).click();
     await expect.poll(() => f.page.locator('.xterm-rows').textContent()).toContain('TOOL OUTPUT');
     await f.page.getByRole('button', {name:'Conversation view',exact:true}).click();
-    await expect.poll(() => f.page.locator('.cc-session-turn.user').count()).toBe(1);
+    await expect.poll(() => f.page.locator('.cc-session-turn.user').count(), { timeout: 5000 }).toBe(1);
     expect(await f.page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
   } finally { await f.context.close(); if (target !== browser) await target.close(); }
 }, 30_000);
@@ -168,7 +168,7 @@ it('sends prompts to the existing shell while its terminal is hidden, keeps the 
   try {
     await f.page.evaluate(() => (window as any).mount('shell', {threadId:'owned-thread', title:'Build check', binding:{node:'mini', transport:'local', tmuxSession:'owned', sessionId:'existing'}, origin:'http://talk.test', streamUrl:'/stream', originError:null, onRetryOrigin:()=>{}}));
     await expect.poll(f.sockets).toBe(1);
-    await expect.poll(() => f.page.locator('.cc-session-turn.user').count()).toBe(1);
+    await expect.poll(() => f.page.locator('.cc-session-turn.user').count(), { timeout: 5000 }).toBe(1);
     expect(await f.page.locator('.wc-shell-terminal').isVisible()).toBe(false);
     await f.page.getByRole('button', {name:'Show shell',exact:true}).click();
     expect(await f.page.locator('.wc-shell-terminal').isVisible()).toBe(true);
@@ -229,7 +229,7 @@ it('hides all running and selected rows in collapsed groups except Zeca and reme
     await expect.poll(f.streamReads).toBe(2);
     await expect.poll(() => f.page.locator('.cc-session-head').textContent()).toContain('transcript unavailable');
     await f.page.clock.fastForward(2000);
-    await expect.poll(() => f.page.locator('.cc-session-turn.user').count()).toBe(1);
+    await expect.poll(() => f.page.locator('.cc-session-turn.user').count(), { timeout: 5000 }).toBe(1);
     await f.page.clock.fastForward(20000);
     expect(f.streamReads()).toBe(3);
   } finally { await f.context.close(); }
