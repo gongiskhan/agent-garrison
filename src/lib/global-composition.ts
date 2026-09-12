@@ -5,8 +5,7 @@ import {
   globalCompositionDir,
   userCompositionDir,
   userClaudeHome,
-  garrisonDir,
-  assertGarrisonHome
+  garrisonDir
 } from "./claude-home";
 import { readYamlFile, writeYamlFile } from "./yaml";
 import { pathExists } from "./fs-utils";
@@ -88,7 +87,6 @@ export function apmProject({ dir, home, name }: ApmProjectOptions) {
 }
 
 export function globalComposition() {
-  assertGarrisonHome();
   return apmProject({ dir: globalCompositionDir(), home: claudeHome(), name: "garrison-global" });
 }
 export function userComposition() {

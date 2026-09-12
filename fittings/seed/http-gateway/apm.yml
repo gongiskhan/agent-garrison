@@ -50,6 +50,18 @@ x-garrison:
         credentials). Empty disables it. Only meaningful with
         session_log_proxy on; for auditing an assembled prompt the session
         log's payload cap makes unusable.
+    - key: stretch_claude_home
+      type: boolean
+      default: false
+      description: >-
+        Point spawned stretches at a Garrison-owned CLAUDE_CONFIG_DIR
+        ($GARRISON_HOME/stretch-claude) instead of the user's real ~/.claude.
+        With the real one, the CLI injects the personal memory index, the
+        personal skills list and the agent-type list into every stretch - about
+        6,300 tokens on sonnet, shipped to every provider a stretch runs on, and
+        changing whenever personal memory changes, which forks the byte-stable
+        prefix that cross-stretch cache sharing needs. The Garrison directory
+        carries only symlinked credentials and a seeded state file.
     - key: prefix_cache_ttl
       type: string
       default: ''

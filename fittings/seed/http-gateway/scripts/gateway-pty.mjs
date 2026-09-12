@@ -5426,6 +5426,18 @@ const server = http.createServer(async (request, response) => {
 });
 
 async function main() {
+  // A stretch is not the user's Claude Code session. Opt-in via the fitting's
+  // `stretch_claude_home` config; refuses (and leaves the old behaviour) if it
+  // cannot link credentials, so this can never be the reason a turn fails.
+  if (/^(1|true|yes)$/i.test(String(process.env.GARRISON_HTTPGATEWAY_STRETCH_CLAUDE_HOME ?? ""))) {
+    try {
+      const { ensureStretchClaudeHome } = await import("./lib/stretch-claude-home.mjs");
+      const dir = ensureStretchClaudeHome({ log: (e) => logEvent("stdout", e) });
+      if (dir) process.env.GARRISON_STRETCH_CLAUDE_HOME = dir;
+    } catch (err) {
+      logEvent("stderr", { kind: "stretch-claude-home-error", error: String(err?.message ?? err) });
+    }
+  }
   // Session-log proxy (Harness brief §2), opt-in via the fitting's
   // `session_log_proxy` config. Started before the operative spawns so the
   // spawn env can carry the proxy URL.

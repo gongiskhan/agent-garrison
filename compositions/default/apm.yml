@@ -135,6 +135,7 @@ x-garrison:
             compact_enabled: true
             compact_threshold_pct: 60
             session_log_proxy: true
+            stretch_claude_home: true
             prefix_cache_ttl: 1h
             prefix_tool_search: regex
             prefix_tool_search_keep: none

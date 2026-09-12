@@ -4,7 +4,6 @@ import {
   garrisonRuntimeHome, userClaudeHome, userClaudeJsonPath,
   userCodexHome, userGeminiHome, resolvedHome, garrisonHomeRefusal
 } from "./claude-home";
-import type { Composition } from "./types";
 import { writeFileAtomic } from "./atomic-write";
 
 export const GARRISON_HOME_README = `This directory is Garrison's own Claude Code home (CLAUDE_CONFIG_DIR for every
@@ -23,11 +22,6 @@ const ONBOARDING_KEYS = [
 async function lstat(file: string) {
   try { return await fs.lstat(file); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
-}
-
-export function runtimeHomeAccountPinned(composition: Composition, runtime: "claude" | "codex" | "gemini"): boolean {
-  const ids = runtime === "claude" ? ["claude-code-runtime", "agent-sdk-runtime"] : [`${runtime}-runtime`];
-  return (composition.selections.runtimes ?? []).some(selection => ids.includes(selection.id) && typeof selection.config.account === "string" && !!selection.config.account.trim() && selection.config.account !== "auto");
 }
 
 /** Materialise only runtime credentials and initial onboarding, never user settings. */

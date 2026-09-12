@@ -8,8 +8,7 @@ import {
   readdirSync,
   realpathSync,
   rmSync,
-  writeFileSync,
-  symlinkSync
+  writeFileSync
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -53,8 +52,6 @@ function launcherEnv(profile: string, fakeHome: string): Record<string, string> 
       GARRISON_HOME: "",
       GARRISON_HOME_OVERRIDE: "",
       GARRISON_CLAUDE_HOME_OVERRIDE: "",
-      GARRISON_USER_CLAUDE_HOME: "", GARRISON_USER_CLAUDE_JSON: "",
-      GARRISON_USER_CODEX_HOME: "", GARRISON_USER_GEMINI_HOME: "",
       GARRISON_APP_PORT: "",
       GARRISON_OUTPOST_PORT: "",
       GARRISON_SCHEDULER_HEALTH_PORT: "",
@@ -120,7 +117,7 @@ describe("Codex secondary-instance isolation", () => {
     sandboxes.push(fakeHome);
     const env = launcherEnv("codex", fakeHome);
     const garrison = path.join(fakeHome, ".garrison-codex");
-    const claude = path.join(garrison, "runtime-homes", "claude");
+    const claude = path.join(fakeHome, ".claude-garrison-codex");
 
     expect(env.GARRISON_INSTANCE_ID).toBe("codex");
     expect(env.GARRISON_HOME).toBe(garrison);
@@ -181,8 +178,7 @@ describe("Codex secondary-instance isolation", () => {
     expect(startSource).not.toMatch(/\bsystemctl\b|garrison-scheduler\.service/);
 
     const primaryRoots = [path.join(fakeHome, ".garrison"), path.join(fakeHome, ".claude")];
-    for (const [key, value] of Object.entries(env)) {
-      if (key.startsWith("GARRISON_USER_")) continue;
+    for (const value of Object.values(env)) {
       expect(primaryRoots.some((root) => value === root || value.startsWith(`${root}${path.sep}`))).toBe(false);
     }
   });
@@ -227,11 +223,11 @@ describe("Codex secondary-instance isolation", () => {
     // that ownership IS Garrison's control plane, and a dev instance writing
     // there would edit the user's live Claude Code config.
     expect(envs.node.GARRISON_HOME).toBe(path.join(fakeHome, ".garrison"));
-    expect(envs.node.GARRISON_CLAUDE_HOME).toBe(path.join(fakeHome, ".garrison/runtime-homes/claude"));
+    expect(envs.node.GARRISON_CLAUDE_HOME).toBe(path.join(fakeHome, ".claude"));
     const nodeRoots = [envs.node.GARRISON_HOME, envs.node.GARRISON_CLAUDE_HOME];
     for (const profile of ["dev", "codex"]) {
       for (const [key, value] of Object.entries(envs[profile])) {
-        if (!value || key.startsWith("GARRISON_USER_")) continue;
+        if (!value) continue;
         expect(
           nodeRoots.some((root) => value === root || value.startsWith(`${root}${path.sep}`)),
           `${profile}.${key} (${value}) must stay out of the node profile's state roots`
@@ -296,26 +292,27 @@ describe("Codex secondary-instance isolation", () => {
     }
   });
 
-  it("uses an in-home CLI config for every profile and exports explicit user homes", () => {
-    const fakeHome = mkdtempSync(path.join(os.tmpdir(), "garrison-claudecfg-")); sandboxes.push(fakeHome);
-    for (const profile of ["node", "dev", "codex"]) {
+  // The Claude CLI keeps its user config at the SIBLING of its home
+  // (~/.claude -> ~/.claude.json), not inside it. Setting CLAUDE_CONFIG_DIR to
+  // the real ~/.claude is NOT a no-op — the CLI switches to
+  // ~/.claude/.claude.json, a stub with no `theme`/`hasCompletedOnboarding`, so
+  // the interactive TUI boots the onboarding screen and the gateway spawn dies
+  // with "waiting on a login/setup screen". Prod must therefore leave
+  // CLAUDE_CONFIG_DIR unset; the isolated profiles must still set it.
+  it("leaves CLAUDE_CONFIG_DIR unset for prod and uses the sibling ~/.claude.json", () => {
+    const fakeHome = mkdtempSync(path.join(os.tmpdir(), "garrison-claudecfg-"));
+    sandboxes.push(fakeHome);
+
+    const prod = launcherEnv("node", fakeHome);
+    expect(prod.GARRISON_CLAUDE_HOME).toBe(path.join(fakeHome, ".claude"));
+    expect(prod.CLAUDE_CONFIG_DIR || "").toBe("");
+    expect(prod.GARRISON_CLAUDE_JSON).toBe(path.join(fakeHome, ".claude.json"));
+
+    for (const profile of ["dev", "codex"]) {
       const env = launcherEnv(profile, fakeHome);
-      expect(env.CLAUDE_CONFIG_DIR).toBe(path.join(env.GARRISON_HOME, "runtime-homes/claude"));
-      expect(env.GARRISON_CLAUDE_JSON).toBe(path.join(env.CLAUDE_CONFIG_DIR, ".claude.json"));
-      expect(env.GARRISON_USER_CLAUDE_HOME).toBe(path.join(fakeHome, ".claude"));
-      expect(env.GARRISON_USER_CLAUDE_JSON).toBe(path.join(fakeHome, ".claude.json"));
-      expect(env.GARRISON_USER_CODEX_HOME).toBe(path.join(fakeHome, ".codex"));
-      expect(env.GARRISON_USER_GEMINI_HOME).toBe(path.join(fakeHome, ".gemini"));
+      expect(env.CLAUDE_CONFIG_DIR, `${profile} must redirect the CLI`).toBe(env.GARRISON_CLAUDE_HOME);
+      expect(env.GARRISON_CLAUDE_JSON).toBe(path.join(env.GARRISON_CLAUDE_HOME, ".claude.json"));
     }
-  });
-  it("refuses a user config override, including a symlink alias, before creating homes", () => {
-    const fakeHome = mkdtempSync(path.join(os.tmpdir(), "garrison-home-refusal-")); sandboxes.push(fakeHome);
-    mkdirSync(path.join(fakeHome, ".claude")); symlinkSync(path.join(fakeHome, ".claude"), path.join(fakeHome, "alias"));
-    for (const override of [path.join(fakeHome, ".claude"), path.join(fakeHome, "alias")]) {
-      try { execFileSync("bash", [LAUNCHER, "node", "env"], { env: { ...process.env, HOME: fakeHome, GARRISON_CLAUDE_HOME_OVERRIDE: override }, stdio: "pipe" }); throw new Error("expected refusal"); }
-      catch (error) { const failure = error as { status: number; stderr: Buffer }; expect(failure.status).toBe(2); expect(String(failure.stderr)).toContain("refusing to run Garrison against your own Claude Code config"); }
-    }
-    expect(existsSync(path.join(fakeHome, ".garrison"))).toBe(false);
   });
 
   // systemd's PATH is minimal — it lacks everything a login profile supplies.

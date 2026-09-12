@@ -3,7 +3,7 @@ import path from "node:path";
 import { scanClaudeFiles } from "./claude-scan";
 import { userCompositionDir, capturedFittingsDir, userClaudeHome } from "./claude-home";
 import { readApmLock } from "./global-composition";
-import { readMcpServers, readSharedState, readUserProvenance, userRuntimeHome, userHookFile } from "./home-ownership";
+import { readMcpServers, readSharedState, readUserProvenance, userRuntimeHome } from "./home-ownership";
 import { confinedHomePath, ownerId, readJsonObject, statOrNull } from "./home-quarantine";
 import { checkHomeLeaks, quarantineHomeLeaks, type HomeLeak } from "./home-leaks";
 import { sharedRuntimes, type SharedRuntime } from "./types";
@@ -36,7 +36,7 @@ export async function getUserQuartersState(runtime: SharedRuntime): Promise<User
   };
   for (const file of await scanClaudeFiles(home)) add(file.surface, file.relPath, file.name);
   for (const item of await fs.readdir(path.join(home, "agents"), { withFileTypes: true }).catch(() => [])) if (item.isFile()) add("agent", `agents/${item.name}`, item.name);
-  const settingsFile = userHookFile(runtime);
+  const settingsFile = path.join(home, "settings.json");
   const settings = await readJsonObject<{ hooks?: Record<string, Array<{ _garrison?: unknown }>> }>(settingsFile);
   for (const [event, groups] of Object.entries(settings.hooks ?? {})) if (Array.isArray(groups)) groups.forEach((group, index) => add("hook", `${event}#${index}`, event, ownerId(group?._garrison) ?? undefined));
   for (const name of Object.keys(await readMcpServers(runtime))) add("mcp", name, name);

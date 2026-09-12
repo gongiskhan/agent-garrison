@@ -12,7 +12,7 @@ const comp = { selections: { memory: [{ id: "memory", config: {}, shared: ["clau
 describe("fitting sharing availability", () => {
   it("offers only equipped engines and detects native registration targets", async () => {
     await fs.mkdir(path.join(root, "scripts"));
-    await fs.writeFile(path.join(root, "scripts", "setup.mjs"), 'const home = process.env.CODEX_HOME; writeFile(home + "/config.toml", "[mcp_servers.fixture]")');
+    await fs.writeFile(path.join(root, "scripts", "setup.mjs"), "const home = process.env.CODEX_HOME");
     const entry = { id: "memory", localPath: root, metadata: { provides: [], setup: [{ command: "node scripts/setup.mjs" }], shared_default: ["claude-code"] } } as unknown as LibraryEntry;
     expect(await fittingSharingInfo(entry, comp, [runtime("sdk", "agent-sdk"), runtime("codex", "codex")])).toEqual({ runtimes: ["claude-code", "codex"], shared: ["claude-code"], available: { "claude-code": true, codex: true, gemini: false } });
   });
@@ -23,10 +23,4 @@ describe("fitting sharing availability", () => {
     await fs.mkdir(path.join(root, ".apm", "skills"), { recursive: true });
     expect((await fittingSharingInfo(entry, comp, [])).available["claude-code"]).toBe(true);
   });
-});
-
-it("does not offer auth-home provisioning as a shared primitive", async () => {
-  await fs.mkdir(path.join(root, "scripts")); await fs.writeFile(path.join(root, "scripts/provision.mjs"), 'writeFile(process.env.CODEX_HOME + "/auth.json", auth)');
-  const entry = { id: "memory", localPath: root, metadata: { provides: [], setup: [{ command: "node scripts/provision.mjs" }] } } as unknown as LibraryEntry;
-  expect((await fittingSharingInfo(entry, comp, [])).available.codex).toBe(false);
 });

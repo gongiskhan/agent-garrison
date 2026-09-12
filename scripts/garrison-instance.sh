@@ -6,7 +6,7 @@
 # `next dev` bypasses this and will scribble on whichever home it inherits.
 #
 #   profile  offset   app     gateway  fittings  scheduler  home
-#   node         0    8777     5777     80xx      8099      ~/.garrison   (runtime-homes/claude)
+#   node         0    8777     5777     80xx      8099      ~/.garrison   (+ real ~/.claude)
 #   dev     +10000   18777    15777    180xx     18099     ~/.garrison-dev
 #   codex   +20000   28777    25777    280xx     28099     ~/.garrison-codex
 #
@@ -51,20 +51,22 @@ case "$profile" in
   node)
     PORT_OFFSET=0
     DEFAULT_HOME="$HOME/.garrison"
-    # Every profile keeps composition primitives in its own runtime home.
-    DEFAULT_CLAUDE_HOME="$HOME/.garrison/runtime-homes/claude"
+    # The node profile on EVERY machine owns that machine's real ~/.claude —
+    # on a mesh there is no lesser instance; each box's node IS its control
+    # plane. Sandboxes (dev/codex) must never point here.
+    DEFAULT_CLAUDE_HOME="$HOME/.claude"
     KEYCHAIN_SUFFIX=""
     ;;
   dev)
     PORT_OFFSET=10000
     DEFAULT_HOME="$HOME/.garrison-dev"
-    DEFAULT_CLAUDE_HOME="$HOME/.garrison-dev/runtime-homes/claude"
+    DEFAULT_CLAUDE_HOME="$HOME/.claude-garrison-dev"
     KEYCHAIN_SUFFIX="-dev"
     ;;
   codex)
     PORT_OFFSET=20000
     DEFAULT_HOME="$HOME/.garrison-codex"
-    DEFAULT_CLAUDE_HOME="$HOME/.garrison-codex/runtime-homes/claude"
+    DEFAULT_CLAUDE_HOME="$HOME/.claude-garrison-codex"
     KEYCHAIN_SUFFIX="-codex"
     ;;
 esac
@@ -72,12 +74,7 @@ esac
 export GARRISON_INSTANCE_ID="$profile"
 export GARRISON_PORT_OFFSET="$PORT_OFFSET"
 export GARRISON_HOME="${GARRISON_HOME_OVERRIDE:-$DEFAULT_HOME}"
-export GARRISON_CLAUDE_HOME="${GARRISON_CLAUDE_HOME_OVERRIDE:-$GARRISON_HOME/runtime-homes/claude}"
-export GARRISON_USER_CLAUDE_HOME="${GARRISON_USER_CLAUDE_HOME:-$HOME/.claude}"
-export GARRISON_USER_CLAUDE_JSON="${GARRISON_USER_CLAUDE_JSON:-$HOME/.claude.json}"
-export GARRISON_USER_CODEX_HOME="${GARRISON_USER_CODEX_HOME:-$HOME/.codex}"
-export GARRISON_USER_GEMINI_HOME="${GARRISON_USER_GEMINI_HOME:-$HOME/.gemini}"
-export GARRISON_SHARE_TARGET=garrison
+export GARRISON_CLAUDE_HOME="${GARRISON_CLAUDE_HOME_OVERRIDE:-$DEFAULT_CLAUDE_HOME}"
 
 # --- process-level ports ----------------------------------------------------
 export GARRISON_APP_PORT="${GARRISON_APP_PORT:-$((8777 + PORT_OFFSET))}"
@@ -129,26 +126,15 @@ if [ "$GARRISON_BIND_HOST" != "127.0.0.1" ]; then
 fi
 
 # --- writable control-plane surfaces ---------------------------------------
-# CLAUDE_CONFIG_DIR uses an in-home .claude.json, as the isolated profiles
-# already do. Resolve existing ancestors so aliases cannot cross the boundary.
-if ! node - "$GARRISON_CLAUDE_HOME" "$HOME/.claude" "$GARRISON_USER_CLAUDE_HOME" <<'JS_HOME'
-const fs = require("node:fs"), path = require("node:path");
-function resolved(file) {
-  file = path.resolve(file);
-  try { return fs.realpathSync(file); }
-  catch (error) {
-    if (error.code !== "ENOENT") throw error;
-    const parent = path.dirname(file);
-    return parent === file ? file : path.join(resolved(parent), path.basename(file));
-  }
-}
-const [managed, ...users] = process.argv.slice(2).map(resolved);
-process.exit(users.includes(managed) ? 2 : 0);
-JS_HOME
-then
-  echo "refusing to run Garrison against your own Claude Code config; the Garrison home is $HOME/.garrison/runtime-homes/claude" >&2
-  exit 2
-fi
+# The Claude CLI keeps its user config at the SIBLING of its home
+# ($HOME/.claude -> $HOME/.claude.json), NOT inside it. Setting
+# CLAUDE_CONFIG_DIR to the real ~/.claude is therefore NOT a no-op: the CLI
+# switches to <dir>/.claude.json, a stub without `theme`/`hasCompletedOnboarding`,
+# and the interactive TUI boots into the "choose a text style" onboarding screen
+# — which the gateway reports as `spawn-failed: waiting on a login/setup screen`.
+# So prod (whose home IS the real ~/.claude) leaves CLAUDE_CONFIG_DIR unset and
+# uses the sibling json; only the isolated profiles redirect the CLI.
+# Mirrors the sibling rule in src/lib/claude-home.ts.
 if [ "$GARRISON_CLAUDE_HOME" = "$HOME/.claude" ]; then
   unset CLAUDE_CONFIG_DIR
   export GARRISON_CLAUDE_JSON="$HOME/.claude.json"
@@ -297,8 +283,6 @@ case "$mode" in
     for key in \
       GARRISON_INSTANCE_ID GARRISON_PORT_OFFSET \
       GARRISON_HOME GARRISON_CLAUDE_HOME CLAUDE_CONFIG_DIR \
-      GARRISON_USER_CLAUDE_HOME GARRISON_USER_CLAUDE_JSON \
-      GARRISON_USER_CODEX_HOME GARRISON_USER_GEMINI_HOME GARRISON_SHARE_TARGET \
       GARRISON_CLAUDE_JSON GARRISON_CLAUDE_CONFIG_PATH \
       GARRISON_CLAUDE_PROJECTS_DIR GARRISON_CLAUDE_SESSIONS_DIR \
       GARRISON_CLAUDE_SETTINGS_PATH GARRISON_VAULT_PATH \

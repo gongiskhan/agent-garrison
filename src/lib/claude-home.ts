@@ -10,7 +10,7 @@ import { homedir } from "node:os";
 
 export function claudeHome(): string {
   const override = process.env.GARRISON_CLAUDE_HOME?.trim();
-  return override && override.length > 0 ? override : path.join(garrisonDir(), "runtime-homes", "claude");
+  return override && override.length > 0 ? override : path.join(homedir(), ".claude");
 }
 
 // Claude Code's user config file `~/.claude.json` — a SIBLING of ~/.claude (not
@@ -37,11 +37,11 @@ export function garrisonDir(): string {
   return override && override.length > 0 ? override : path.join(homedir(), ".garrison");
 }
 
-// The Garrison-owned APM project that installs the active runtime primitives.
+// The Garrison-owned APM project that drives the REAL ~/.claude install.
 //
 // APM is project-scoped: `apm install` deploys into `<cwd>/.claude/`. We make
 // `<cwd>` this dir and symlink its `.claude` to claudeHome(), so `apm install`
-// writes through the link into the Garrison home while apm.yml + apm_modules/
+// writes THROUGH the link into the real ~/.claude while apm.yml + apm_modules/
 // stay confined here (never polluting $HOME). Verified symlink write-through.
 export function globalCompositionDir(): string {
   return path.join(garrisonDir(), "global-composition");

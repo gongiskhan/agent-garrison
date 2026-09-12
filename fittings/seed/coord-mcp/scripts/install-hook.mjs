@@ -18,7 +18,7 @@ const HOME = os.homedir();
 const SETTINGS_PATH =
   process.env.GARRISON_CLAUDE_SETTINGS_PATH && process.env.GARRISON_CLAUDE_SETTINGS_PATH.trim().length > 0
     ? process.env.GARRISON_CLAUDE_SETTINGS_PATH
-    : path.join(process.env.GARRISON_CLAUDE_HOME || process.env.CLAUDE_CONFIG_DIR || path.join(HOME, ".claude"), "settings.json");
+    : path.join(HOME, ".claude", "settings.json");
 
 const OWNER = "fitting:coord-mcp";
 const EVENTS = ["SessionStart", "UserPromptSubmit"];
