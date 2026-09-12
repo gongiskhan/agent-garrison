@@ -125,6 +125,30 @@ refs only: merge their remaining work into `main`, then switch the checkout to
 `main` without discarding local changes. Code synchronization and deployment are
 separate: an active Conversation prevents a restart, not work on the other nodes.
 
+## Two homes (September 2026)
+
+Every Garrison process uses `$GARRISON_HOME/runtime-homes/claude` as its
+`CLAUDE_CONFIG_DIR`; Codex and Gemini use sibling runtime homes. The launcher
+refuses your Claude Code config as a managed home. `claudeHome()` names the
+Garrison home; `userClaudeHome()` and the `GARRISON_USER_*` variables name your
+terminal config. Credentials are linked, never copied; pinned accounts use the
+existing account delivery path. Every stretch inherits the launcher's home and
+loads the composition's complete skill, hook and MCP set.
+
+The global APM project deploys into the Garrison home. The separate user APM
+project deploys only selections explicitly marked Shared; fitting setup observes
+`GARRISON_SHARE_TARGET` and `GARRISON_SHARE_RUNTIMES`. Quarters manages the
+Garrison home and shows your runtime config in read-only tabs with scoped
+promotion/quarantine actions. Config drift sync, pristine backups and native
+memory mirroring deliberately read the user config.
+
+Home migration must preserve the old lock and a config snapshot before cleanup.
+Owned files move into timestamped quarantine only while their hashes match;
+modified files stay. Stripped hook groups and MCP values are recorded verbatim
+before removal. A failed APM install stops migration before user cleanup. Mesh
+reports leaks and offers quarantine; it never treats a modified user file as an
+owned leak. Tests materialise all runtime and user homes under temporary roots.
+
 ## The Archive
 
 Archive is the core knowledge surface at `/archive`. `Archive/` is the owner's:
@@ -263,7 +287,8 @@ from a local AES-256-GCM vault, assembles the orchestrator system prompt,
 and spawns Claude Code via the Anthropic Agent SDK in-process.
 
 > **2026-06-07 Quarters pivot (largely shipped).** Garrison is now a
-> transparent **control plane over the user's real `~/.claude`**: APM is
+> transparent **control plane over the user's `~/.claude`** (historical;
+> superseded by the September 2026 two-homes split below): APM is
 > the single package writer; the owned/loose/parked state model and 6 roles
 > (down from the prior flat-Faculty list) are live; the layered Orchestrator
 > document (editable Identity/routing doctrine plus generated capabilities,
@@ -321,7 +346,7 @@ and never syncing a working tree into a checkout a service is executing from
 
 - **Garrison** — the platform (this app). Its job is **compose · run · observe · quarters**. Anything beyond that lives in Fittings.
 - **Faculty** - a **role** slot in a composition. **16 in total** (`facultyIds` in `src/lib/types.ts`): **8 core roles** (`orchestrator`, `channels`, `gateway`, `runtimes`, `memory`, `observability`, `sessions`, `surfaces`) plus **7 optional capability faculties** added 2026-06-24 (`knowledge`, `research`, `building`, `code-intelligence`, `design`, `browser-qa`, `coordination`) - the purpose-named homes the promoted Claude Code primitives fill (the primitive type - skill/hook/mcp/plugin - survives only as an internal `component_shape`, never as a user-facing label) - plus the **`connectors`** faculty added 2026-06-26 (Agent-tier, multi): authenticated, Vault-sealed connections to external services (Trello, Google, Slack, WhatsApp, the `voice` connector on capture-service, …), each a Fitting providing the `connector` kind with an action catalog + sealed auth + optional triggers (it absorbs the dropped read-only `data-source` case). The former flat 24-Faculty list collapsed into the core roles and Skills/Hooks/MCPs/Plugins/Scripts/Settings/Context/Plans became Quarters platform primitives. The 2026-06-18 split moved the runtime engines into `runtimes` and the auxiliary own-port viewers (screen-share, browser, outpost) into `surfaces`, slimming the overloaded `sessions` role to the Dev Env surface + artifact store. A subset of runtime Fittings is **own-port** - they serve their own React UI on their own HTTP port under the `sessions`/`surfaces`/`channels`/`observability` roles via the `own_port` flag. Garrison links to those views from the sidebar's Fittings section. Every faculty also carries a display **tier** (`agent`/`dev`) driving the Compose grid's two headers. Legacy `modes` selections are removed during composition migration; live identity is authored inside Orchestrator.
-- **Quarters** — the `~/.claude` config surface (Skills, Hooks, MCPs, Plugins, Scripts, Settings, Context, Plans, Commands, Rules) surfaced at `/quarters`. APM is the single writer; Garrison autosaves via `reconcile.ts`. State = owned / loose / parked.
+- **Quarters** — the Garrison home config surface (Skills, Hooks, MCPs, Plugins, Scripts, Settings, Context, Plans, Commands, Rules) surfaced at `/quarters`. APM is the single writer; Garrison autosaves via `reconcile.ts`. State = owned / loose / parked.
 - **The menu (sidebar)** — three groups: **Pinned** on top (always open), then **Command** and **Fittings**, both collapsible and both FLAT alphabetical (the 2026-08-26 refit dropped the category sub-groups; category survives as the Compose/library axis). Pinned takes both kinds — a `nav:`-prefixed Command route or a Fitting id — dragged in and dragged out, and it lives in the state service (`sidebar.pins` / `global`), so **the menu is the same on every node**; `~/.garrison/sidebar-pins.json` is only the standalone store and this node's degraded-read materialisation, and a pin write REFUSES when the service is unreachable. The Fittings group is auto-populated for the current composition and lists EVERY equipped Fitting (2026-07-29 refit: every Fitting has a view). Embedded views open at `/fitting/<id>` (the view IS the page — the old per-fitting overview/config page is gone); own-port live links embed at `/embed/<id>` (status read from `~/.garrison/ui-fittings/*.json` via `/api/fittings/views`).
 - **Lifecycle for own-port Fittings** — fittings share the operative's lifecycle, always (2026-07-29 refit: the eager/detached split is gone; `x-garrison.lifecycle` is parsed-and-ignored with a deprecation warning). `up` starts EVERY own-port Fitting with the runner-projected env (gateway URL, composition id, selection config, vault) and heals running ones on env drift; `down` stops every one by killing the PID found in `~/.garrison/ui-fittings/<id>.json`. The status file is the single source of truth; `lsof` is never consulted. The startup orphan sweep reaps anything not protected by a RUNNING composition. `/api/fittings/[id]/start|restart` remain as recovery/code-reload controls (env parity via `operativeEnvForFitting`). Every spawn writes a record under `~/.garrison/ui-fittings/spawn/<id>.json` tracking `secretsDelivered`, so a vault-consuming Fitting started keyless is healed (restarted with secrets) on vault unlock or `up`.
 - **Armory** — `/armory`, the Fitting registry browser.
@@ -439,8 +464,8 @@ role into three: `sessions` keeps the Dev Env surface + artifact store,
 OpenCode / Cursor),
 and `surfaces` holds the auxiliary own-port viewers (screen-share / browser /
 outpost). Everything else — Skills, Hooks, MCPs, Plugins, Scripts, Settings,
-Context, Plans — is now a **Quarters platform primitive** surfaced over the real
-`~/.claude`, not a Faculty.
+Context, Plans — is now a **Quarters platform primitive** surfaced over the
+Garrison home, not a Faculty.
 
 **Own-port runtime residue** — survives at runtime under
 `sessions`/`channels`/`observability` via the per-Fitting `own_port` metadata
@@ -458,8 +483,10 @@ branches.
 ### Quarters engine
 
 `src/lib/global-composition.ts` — the symlink-confined global composition at
-`~/.garrison/global-composition/` with `.claude` → symlink to `~/.claude`.
-`apm install` writes through the link into the real `~/.claude`.
+`~/.garrison/global-composition/` with `.claude` pointing at the Garrison home.
+`apm install` deploys all equipped primitives there. The separate
+`~/.garrison/user-composition/` links to your Claude Code and deploys only Shared
+fittings, with independent lock ownership and provenance.
 
 State model: **owned** (in `apm.yml` + `apm.lock.yaml`), **loose** (on disk,
 not in lock), **parked** (off-disk under `~/.garrison/parked/`). APM is the
@@ -700,7 +727,7 @@ offset, defined once in `src/lib/instance-profile.ts` and mirrored in
 
 | profile | offset | app | gateway | fittings | scheduler | home |
 |---|---|---|---|---|---|---|
-| **node** | **0** | **8777** | **5777** | **80xx** | **8099** | `~/.garrison` + that machine's real `~/.claude` |
+| **node** | **0** | **8777** | **5777** | **80xx** | **8099** | `~/.garrison` + its `runtime-homes/claude` |
 | dev | +10000 | 18777 | 15777 | 180xx | 18099 | `~/.garrison-dev` |
 | codex | +20000 | 28777 | 25777 | 280xx | 28099 | `~/.garrison-codex` |
 
@@ -714,9 +741,10 @@ serves exactly the ports the old prod profile served, so nothing live moved.)
   silently sends the other instance's traffic there. `tests/instance-isolation.test.ts`
   pins the launcher and the TS module against each other.
 - **HARD RULE — the node profile and the sandboxes never share a port, a
-  `GARRISON_HOME`, or a Claude config dir.** On every machine, the `node`
-  profile owns that machine's real `~/.claude`; a dev/codex sandbox pointing
-  there would edit the user's live Claude Code config.
+  `GARRISON_HOME`, or a Claude config dir.** Every profile uses
+  its own runtime homes below its own `GARRISON_HOME`. No profile may manage
+  your Claude Code config directly; only the explicit Shared reconcile writes
+  there, under recorded ownership.
 - **HARD RULE — one instance per composition working tree.** The launcher
   isolates ports, `GARRISON_HOME` and the Claude config dir, but
   `COMPOSITIONS_DIR` is checkout-relative, so all three profiles resolve the

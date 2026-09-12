@@ -142,3 +142,7 @@ The final user message carries its own 1h breakpoint. It looks like waste - the
 brief never repeats between stretches - but a stretch is many turns, and each
 turn re-sends the growing message array, so that entry is read within the
 stretch. Not touched.
+
+## 2026-09-11 — Two homes
+
+The Garrison home now carries all composition skills, hooks and MCP servers. Its skills list and project memory index change with composition reconciliation, independently of personal memory in the user's config. Operative sessions and stretches share that stable home and inherit the launcher's config directory; the duty brief and flow determine the work. The previous empty stretch home is retired. No new benchmark was required for this separation.

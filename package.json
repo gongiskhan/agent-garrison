@@ -13,6 +13,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "pretest": "node scripts/check-two-homes.mjs",
     "test:e2e": "playwright test",
     "e2e:companion": "vitest run tests/companion-e2e.test.ts",
     "e2e:pendant": "vitest run tests/pendant-e2e.test.ts",
