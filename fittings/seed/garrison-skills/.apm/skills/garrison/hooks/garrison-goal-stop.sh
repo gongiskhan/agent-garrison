@@ -39,7 +39,7 @@ SESSION_ID="$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)"
 
 GARRISON_SENT="${HOME}/.garrison/sentinels/${SESSION_ID}.json"
 LEGACY_SENT="${HOME}/.autothing/sentinels/${SESSION_ID}.json"
-SETTINGS="${CLAUDE_SETTINGS:-$HOME/.claude/settings.json}"
+SETTINGS="${GARRISON_CLAUDE_SETTINGS_PATH:-${CLAUDE_SETTINGS:-${GARRISON_CLAUDE_HOME:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}/settings.json}}"
 
 # Resolve which sentinel to act on. Prefer the garrison home (new runs). Fall back
 # to the legacy home ONLY when the legacy autothing Stop hook is not (any longer)

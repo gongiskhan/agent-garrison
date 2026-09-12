@@ -276,7 +276,7 @@ export async function computeDream({ now = null, dryRun = false } = {}) {
 function runLegacy() {
   const memoryPath =
     process.env.IMPROVER_MEMORY ||
-    path.join(process.env.GARRISON_HOME || path.join(os.homedir(), ".claude", "projects"), "MEMORY.md");
+    path.join(process.env.GARRISON_HOME || path.join(process.env.GARRISON_CLAUDE_HOME || process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"), "projects"), "MEMORY.md");
   const decisionsPath = process.env.IMPROVER_DECISIONS || "";
   const vaultLocked = process.env.IMPROVER_VAULT_LOCKED === "1";
   const serverUp = process.env.IMPROVER_SERVER_DOWN !== "1";
@@ -336,7 +336,7 @@ async function runSkills() {
   // proposals are appended to the same queue afterward.
   const memoryPath =
     process.env.IMPROVER_MEMORY ||
-    path.join(process.env.GARRISON_HOME || path.join(os.homedir(), ".claude", "projects"), "MEMORY.md");
+    path.join(process.env.GARRISON_HOME || path.join(process.env.GARRISON_CLAUDE_HOME || process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"), "projects"), "MEMORY.md");
   const memoryEntries = existsSync(memoryPath) ? parseMemory(readFileSync(memoryPath, "utf8")) : [];
   // The dream phase drives a PTY model pass, and a PTY pass can fail for reasons
   // that have nothing to do with this run: on prod it has thrown AuthTrapError

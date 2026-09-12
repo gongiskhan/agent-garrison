@@ -29,13 +29,13 @@ export function findWatchPy() {
   }
   const home = os.homedir();
   const direct = [
-    path.join(home, '.claude', 'skills', 'watch', 'scripts', 'watch.py'),
-    path.join(home, '.codex', 'skills', 'watch', 'scripts', 'watch.py'),
+    path.join(process.env.GARRISON_CLAUDE_HOME || process.env.CLAUDE_CONFIG_DIR || path.join(home, '.claude'), 'skills', 'watch', 'scripts', 'watch.py'),
+    path.join(process.env.CODEX_HOME || path.join(home, '.codex'), 'skills', 'watch', 'scripts', 'watch.py'),
   ];
   for (const p of direct) if (existsSync(p)) return p;
   // Plugin installs land somewhere under ~/.claude/plugins/ — find watch.py whose
   // path mentions the watch skill.
-  for (const base of [path.join(home, '.claude', 'plugins'), path.join(home, '.claude', 'skills')]) {
+  for (const base of [path.join(process.env.GARRISON_CLAUDE_HOME || process.env.CLAUDE_CONFIG_DIR || path.join(home, '.claude'), 'plugins'), path.join(process.env.GARRISON_CLAUDE_HOME || process.env.CLAUDE_CONFIG_DIR || path.join(home, '.claude'), 'skills')]) {
     const hit = findFile(base, 'watch.py', 6);
     if (hit) return hit;
   }

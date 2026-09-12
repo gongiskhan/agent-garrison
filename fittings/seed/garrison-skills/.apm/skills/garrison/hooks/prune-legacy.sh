@@ -27,9 +27,9 @@
 #   prune-legacy.sh --remove-skill-dir  also remove ~/.claude/skills/autothing/
 set -u
 
-SETTINGS="${CLAUDE_SETTINGS:-$HOME/.claude/settings.json}"
+SETTINGS="${GARRISON_CLAUDE_SETTINGS_PATH:-${CLAUDE_SETTINGS:-${GARRISON_CLAUDE_HOME:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}/settings.json}}"
 LEGACY_SENTINEL_DIR="${AUTOTHING_SENTINEL_DIR:-$HOME/.autothing/sentinels}"
-LEGACY_SKILL_DIR="${AUTOTHING_SKILL_DIR:-$HOME/.claude/skills/autothing}"
+LEGACY_SKILL_DIR="${AUTOTHING_SKILL_DIR:-${GARRISON_CLAUDE_HOME:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}/skills/autothing}"
 CHECK_ONLY=0
 REMOVE_SKILL_DIR=0
 for arg in "$@"; do
@@ -89,14 +89,21 @@ else
   if ! jq -e . "$tmp" >/dev/null 2>&1; then
     echo "garrison-prune: refusing to write invalid settings.json"; rm -f "$tmp"; exit 1
   fi
-  cp "$SETTINGS" "$SETTINGS.garrison-prune.bak" 2>/dev/null || true
+  # Preserve original matcher groups before stripping any legacy command.
+  QUARANTINE="${GARRISON_HOME:-$HOME/.garrison}/quarantine/$(date -u +%Y-%m-%dT%H-%M-%SZ)-$$"
+  mkdir -p "$QUARANTINE" || exit 1
+  jq --arg source "$SETTINGS" '{version: 1, items: [.hooks // {} | to_entries[] | .key as $event | .value[]? | select(any(.hooks[]?; ((.command // "") | test("skills/autothing/hooks/goal-(stop|sessionstart)\\.sh")))) | {runtime: "claude-code", kind: "hook", ref: $event, source: $source, value: .}]}' "$SETTINGS" > "$QUARANTINE/removed.json" || exit 1
+  chmod 600 "$QUARANTINE/removed.json"
   mv "$tmp" "$SETTINGS" || { echo "garrison-prune: could not write $SETTINGS"; exit 1; }
   after="$(count_legacy)"
-  echo "garrison-prune: removed $((before - after)) legacy hook entr(y/ies) from $SETTINGS (backup: $SETTINGS.garrison-prune.bak)"
+  echo "garrison-prune: removed $((before - after)) legacy hook entr(y/ies) from $SETTINGS (quarantine: $QUARANTINE)"
 fi
 
 if [ "$REMOVE_SKILL_DIR" -eq 1 ] && [ -d "$LEGACY_SKILL_DIR" ]; then
-  rm -rf "$LEGACY_SKILL_DIR" && echo "garrison-prune: removed the retired doorway dir $LEGACY_SKILL_DIR"
+  QUARANTINE="${QUARANTINE:-${GARRISON_HOME:-$HOME/.garrison}/quarantine/$(date -u +%Y-%m-%dT%H-%M-%SZ)-$$}"
+  mkdir -p "$QUARANTINE/claude-code/skills" || exit 1
+  mv "$LEGACY_SKILL_DIR" "$QUARANTINE/claude-code/skills/autothing" || exit 1
+  echo "garrison-prune: quarantined the retired doorway dir $LEGACY_SKILL_DIR"
 fi
 
 echo "garrison-prune: done - the garrison goal hooks now own every sentinel dir"

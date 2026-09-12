@@ -20,7 +20,7 @@ if [ -f "$CJ" ] && ! grep -q '"coord-mcp"' "$CJ"; then
 fi
 
 # The coordination hook is installed (owner-tagged).
-SETTINGS="${GARRISON_CLAUDE_SETTINGS_PATH:-$HOME/.claude/settings.json}"
+SETTINGS="${GARRISON_CLAUDE_SETTINGS_PATH:-${GARRISON_CLAUDE_HOME:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}/settings.json}"
 if [ -f "$SETTINGS" ] && ! grep -q 'fitting:coord-mcp' "$SETTINGS"; then
   echo "verify-failed: coord-mcp hook not installed in $SETTINGS"
   exit 1

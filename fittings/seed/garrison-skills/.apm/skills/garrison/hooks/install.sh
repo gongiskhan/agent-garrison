@@ -30,7 +30,7 @@ set -u
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 STOP_SH="$SELF_DIR/garrison-goal-stop.sh"
 SS_SH="$SELF_DIR/garrison-goal-sessionstart.sh"
-SETTINGS="${CLAUDE_SETTINGS:-$HOME/.claude/settings.json}"
+SETTINGS="${GARRISON_CLAUDE_SETTINGS_PATH:-${CLAUDE_SETTINGS:-${GARRISON_CLAUDE_HOME:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}/settings.json}}"
 MIN_CAP="${GARRISON_TURN_CAP:-${AUTOTHING_TURN_CAP:-250}}"
 MODE="${1:-install}"
 

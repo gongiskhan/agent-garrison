@@ -7,7 +7,7 @@
 // idempotent.
 import { describe, it, expect, beforeEach } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -59,7 +59,7 @@ function seedSettings() {
 function runPrune(args: string[] = []): { code: number; out: string } {
   try {
     const out = execFileSync("bash", [SCRIPT, ...args], {
-      env: { ...process.env, CLAUDE_SETTINGS: settings, AUTOTHING_SENTINEL_DIR: sentinels },
+      env: { ...process.env, HOME: home, GARRISON_HOME: path.join(home, "garrison"), GARRISON_CLAUDE_HOME: path.join(home, "config"), CLAUDE_SETTINGS: settings, AUTOTHING_SENTINEL_DIR: sentinels },
       encoding: "utf8"
     });
     return { code: 0, out };
@@ -127,4 +127,14 @@ describe("A5 prune-legacy — the second half of the hook transition", () => {
     runPrune();
     expect(readFileSync(settings, "utf8")).toBe(before);
   });
+});
+
+it("archives original hook groups and moves the retired skill without deleting its contents", () => {
+  const original = JSON.parse(readFileSync(settings, "utf8"));
+  const skill = path.join(home, "config/skills/autothing"); mkdirSync(skill, { recursive: true }); writeFileSync(path.join(skill, "SKILL.md"), "preserve these bytes");
+  expect(runPrune(["--remove-skill-dir"]).code).toBe(0);
+  const root = path.join(home, "garrison/quarantine"); const q = path.join(root, readdirSync(root)[0]);
+  const archived = JSON.parse(readFileSync(path.join(q, "removed.json"), "utf8"));
+  expect(archived.items.map((item: any) => item.value)).toEqual([original.hooks.Stop[0], original.hooks.SessionStart[0]]);
+  expect(readFileSync(path.join(q, "claude-code/skills/autothing/SKILL.md"), "utf8")).toBe("preserve these bytes"); expect(existsSync(skill)).toBe(false);
 });

@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import os from 'node:os';
 
-const ROOT = path.join(os.homedir(), '.claude', 'skill-improver', 'backups');
+const ROOT = path.join(process.env.GARRISON_CLAUDE_HOME || process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'skill-improver', 'backups');
 const cmd = process.argv[2];
 const arg = (n) => { const i = process.argv.indexOf(n); return i !== -1 ? process.argv[i + 1] : null; };
 const sha = (p) => createHash('sha256').update(readFileSync(p)).digest('hex').slice(0, 16);

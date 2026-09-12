@@ -5,13 +5,35 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { install as installArchiveGuard } from './archive-guard.mjs';
 
 const runtimes = new Set((process.env.GARRISON_SHARE_RUNTIMES || '').split(',').filter(Boolean));
 const bm = process.env.BASIC_MEMORY_BIN || 'basic-memory';
 const backend = process.env.BASIC_MEMORY_BACKEND || 'local';
+const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+async function selectSharedSkill() {
+  if (!runtimes.has('claude-code') || backend === 'local') return;
+  const home = process.env.GARRISON_CLAUDE_HOME || process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+  const ref = 'skills/garrison-memory/SKILL.md', file = path.join(home, ref);
+  const bytes = await fs.readFile(file);
+  const root = await fs.realpath(home), parent = await fs.realpath(path.dirname(file));
+  if ((await fs.lstat(file)).isSymbolicLink() || !parent.startsWith(root + path.sep)) throw new Error('Shared memory skill escapes its home');
+  const provenance = process.env.GARRISON_USER_PROVENANCE;
+  const ledger = provenance ? JSON.parse(await fs.readFile(provenance, 'utf8')) : {};
+  const owner = ledger[`file:claude-code:${ref}`];
+  if (owner?.fittingId !== 'basic-memory' || hash(bytes) !== owner.lastWrittenHash?.replace(/^sha256:/, '')) throw new Error('Shared memory variant requires an unchanged Garrison-owned skill; your file was left untouched');
+  const variant = await fs.readFile(new URL('../skill-variants/cortex/SKILL.md', import.meta.url));
+  if (bytes.equals(variant)) return;
+  const temp = `${file}.garrison-${randomUUID()}`;
+  try {
+    await fs.writeFile(temp, variant, { mode: (await fs.stat(file)).mode & 0o777, flag: 'wx' });
+    if (!(await fs.readFile(file)).equals(bytes)) throw new Error('Shared memory skill changed; retry');
+    await fs.rename(temp, file);
+  } finally { await fs.rm(temp, { force: true }); }
+}
+await selectSharedSkill();
 async function addJsonMcp(file) {
   let bytes = null;
   try { bytes = await fs.readFile(file, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }

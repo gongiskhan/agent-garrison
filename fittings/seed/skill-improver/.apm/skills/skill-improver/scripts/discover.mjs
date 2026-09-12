@@ -16,9 +16,9 @@ import os from 'node:os';
 
 const arg = (n, d) => { const i = process.argv.indexOf(n); return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : d; };
 const HOURS = parseFloat(arg('--hours', '24'));
-const PROJECTS = arg('--projects', path.join(os.homedir(), '.claude', 'projects'));
-const SKILLS_DIR = arg('--skills-dir', path.join(os.homedir(), '.claude', 'skills'));
-const OUT = arg('--out', path.join(os.homedir(), '.claude', 'skill-improver', 'state', 'candidates.json'));
+const PROJECTS = arg('--projects', path.join(process.env.GARRISON_CLAUDE_HOME || process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'projects'));
+const SKILLS_DIR = arg('--skills-dir', path.join(process.env.GARRISON_CLAUDE_HOME || process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'skills'));
+const OUT = arg('--out', path.join(process.env.GARRISON_CLAUDE_HOME || process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'), 'skill-improver', 'state', 'candidates.json'));
 const SINCE = Date.now() - HOURS * 3600 * 1000;
 
 // ---- known skill names (user skills + their real homes) ---------------------

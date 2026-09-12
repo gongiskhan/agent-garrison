@@ -100,7 +100,8 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
 #    FAIL CLOSED when the mirror exists: a vault commit must not silently omit
 #    a mirror update. A node WITHOUT the mirror script (the Macs — tools/ is
 #    not in the portable subset) still syncs; only dev-madrid mirrors.
-MEMORY_MIRROR="${CLAUDE_MEMORY_MIRROR:-$HOME/.claude/tools/claude-memory-to-obsidian.py}"
+USER_CLAUDE_HOME="${GARRISON_USER_CLAUDE_HOME:-$HOME/.claude}"
+MEMORY_MIRROR="${CLAUDE_MEMORY_MIRROR:-$USER_CLAUDE_HOME/tools/claude-memory-to-obsidian.py}"
 if [ "$MODE" != "pull" ] && [ -x "$MEMORY_MIRROR" ]; then
   # The mirror receives an explicit native source. No vault glob can turn the
   # user-owned Archive into an automatic memory input.
@@ -114,7 +115,7 @@ for parent in Path(sys.argv[1]).resolve().parents:
         break
 PY_ARCHIVE_PATH
 )}"
-  MIRROR_SOURCE="${CLAUDE_MEMORY_SOURCE:-$HOME/.claude/projects/-home-ggomes-dev-garrison/memory}"
+  MIRROR_SOURCE="${CLAUDE_MEMORY_SOURCE:-$USER_CLAUDE_HOME/projects/-home-ggomes-dev-garrison/memory}"
   if [ -z "$ARCHIVE_PATHS" ] || ! node "$ARCHIVE_PATHS" --check-mirror-source "$VAULT" "$MIRROR_SOURCE"; then
     log "Archive excluded from native mirror inputs; vault sync deferred"
     write_status error "Archive excluded from native mirror inputs"

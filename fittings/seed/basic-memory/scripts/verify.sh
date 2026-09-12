@@ -22,6 +22,7 @@ COMPOSITION_DIR="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 MODULES_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 SCRIPT_DIR_PARENT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SKILL_DEST="$COMPOSITION_DIR/.claude/skills/garrison-memory/SKILL.md"
+[ "${GARRISON_SHARE_TARGET:-}" != "garrison" ] || SKILL_DEST="$GARRISON_CLAUDE_HOME/skills/garrison-memory/SKILL.md"
 SKILL_STATE_FILE="$COMPOSITION_DIR/.garrison/basic-memory-skill-backend"
 # Full-line, fixed-string. Used only to ATTEST that the deployed file is the
 # remote variant - never to decide the backend, and never as a substring match:
@@ -108,7 +109,7 @@ else
   fi
 fi
 
-if [ "$CAPTURE_ENABLED" = "true" ]; then
+if [ "$CAPTURE_ENABLED" = "true" ] && [ "${GARRISON_SHARE_TARGET:-}" != "garrison" ]; then
   [ -f "$SETTINGS_FILE" ] || fail "$SETTINGS_FILE missing"
   python3 - "$SETTINGS_FILE" <<'PY' || exit 1
 import json, sys
