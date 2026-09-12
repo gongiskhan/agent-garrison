@@ -27,6 +27,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { SetupTokenOutput } from "./lib/account-login-output.mjs";
 
 const require = createRequire(import.meta.url);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -60,7 +61,6 @@ if (!dir) {
 }
 fs.mkdirSync(dir, { recursive: true });
 
-const TOKEN_RE = /sk-ant-oat01-[A-Za-z0-9_-]{20,}/;
 const ANY_TOKEN_RE = /sk-ant-[A-Za-z0-9_-]{8,}/g;
 // The full unbroken URL travels in OSC 8 hyperlink sequences; the visible text
 // is wrapped across lines. Prefer OSC 8, fall back to de-wrapped plain text.
@@ -78,6 +78,8 @@ let userCode = null;
 let exitCode = null;
 let error = null;
 let tokenCaptured = false;
+const setupOutput = mode === "setup-token" ? new SetupTokenOutput() : null;
+let outputQueue = Promise.resolve();
 
 function stripAnsi(text) {
   return text
@@ -91,7 +93,7 @@ function redact(text) {
 }
 
 function writeStatus() {
-  const tail = redact(stripAnsi(raw)).slice(-2500);
+  const tail = (setupOutput ? setupOutput.redactedText() : redact(stripAnsi(raw))).slice(-2500);
   const status = {
     state,
     mode,
@@ -142,6 +144,13 @@ state = "running";
 writeStatus();
 
 child.onData((chunk) => {
+  outputQueue = outputQueue.then(async () => {
+    if (setupOutput) await setupOutput.write(chunk);
+    handleOutput(chunk);
+  });
+});
+
+function handleOutput(chunk) {
   raw += chunk;
   if (raw.length > 1_000_000) raw = raw.slice(-500_000);
 
@@ -178,12 +187,17 @@ child.onData((chunk) => {
 
   // setup-token is the only mode whose credential is PRINTED; browser mode
   // captures a file instead (pollCaptureFile).
-  if (mode === "setup-token" && !tokenCaptured) {
-    const token = stripAnsi(raw).match(TOKEN_RE);
+  captureSetupToken();
+  writeStatus();
+}
+
+function captureSetupToken(exitedSuccessfully = false) {
+  if (setupOutput && !tokenCaptured && state !== "cancelled") {
+    const token = setupOutput.token({ exitedSuccessfully });
     if (token) {
       tokenCaptured = true;
       try {
-        fs.writeFileSync(path.join(dir, "token.txt"), token[0], { mode: 0o600 });
+        fs.writeFileSync(path.join(dir, "token.txt"), token, { mode: 0o600 });
         state = "captured";
       } catch (writeError) {
         state = "error";
@@ -200,11 +214,12 @@ child.onData((chunk) => {
       }, 1500);
     }
   }
-  writeStatus();
-});
+}
 
-child.onExit(({ exitCode: code }) => {
+child.onExit(async ({ exitCode: code }) => {
+  await outputQueue;
   exitCode = code;
+  captureSetupToken(code === 0);
   // The CLI may exit the instant it writes the credential - look once more
   // before calling the attempt a failure.
   pollCaptureFile();
@@ -223,6 +238,7 @@ child.onExit(({ exitCode: code }) => {
     }
   }
   writeStatus();
+  setupOutput?.dispose();
   setTimeout(() => process.exit(0), 200);
 });
 
