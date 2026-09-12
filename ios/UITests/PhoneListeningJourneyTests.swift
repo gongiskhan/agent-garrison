@@ -134,7 +134,7 @@ final class PhoneListeningJourneyTests: XCTestCase {
         let previousSessions = Set((try probe("state"))["session_ids"] as? [String] ?? [])
         _ = try probe("cut")
         try waitFor(actual: "stalled", timeout: 25)
-        _ = try probe("unblock")
+        _ = try probe("unblock-new-session")
         let resume = app.buttons["Resume"].firstMatch
         XCTAssertTrue(resume.waitForExistence(timeout: 5)); resume.tap()
         try waitFor(actual: "listening")

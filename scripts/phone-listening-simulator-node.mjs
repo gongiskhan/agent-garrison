@@ -12,6 +12,7 @@ const cfg = { ...loadConfig({ GARRISON_HOME: root, CAPTURE_TOKEN: token, GARRISO
   stateDir: path.join(root, "capture"), statusFile: path.join(root, "status.json"), port: 0, bindHost: "127.0.0.1", listeningPushDryRun: true, speakEnabled: true };
 const app = await startServer(cfg);
 let heartbeats = 0, blocked = false, mock = null;
+let rejectedSessions = new Set();
 const pushes = [];
 const speechReceipts = [];
 const spokenReceipt = app.ingress.onSpokenReceipt;
@@ -29,7 +30,7 @@ const sendPush = app.notifier.sendListeningPush.bind(app.notifier);
 app.notifier.sendListeningPush = async payload => { pushes.push(payload); return sendPush(payload); };
 const startSession = app.ingress.handleSessionStart.bind(app.ingress);
 app.ingress.handleSessionStart = (socket, message, send) => {
-  if (blocked) { socket.terminate(); return null; }
+  if (blocked || rejectedSessions.has(message.session_id)) { socket.terminate(); return null; }
   return startSession(socket, message, send);
 };
 const receive = app.listening.message.bind(app.listening);
@@ -58,7 +59,13 @@ const control = createServer(async (req, res) => {
     hostEvent("voice:interrupt");
   }
   if (url.pathname === "/cut") { blocked = true; for (const session of sessions) session.socket?.terminate(); }
-  if (url.pathname === "/unblock") blocked = false;
+  if (url.pathname === "/unblock") { blocked = false; rejectedSessions.clear(); }
+  // Keep retries of the cut stream blocked until the UI deliberately opens a
+  // fresh session. Otherwise automatic recovery can beat the Resume tap.
+  if (url.pathname === "/unblock-new-session") {
+    rejectedSessions = new Set(sessions.map(session => session.record.id));
+    blocked = false;
+  }
   res.setHeader("content-type", "application/json");
   res.end(JSON.stringify({ heartbeats, pushes, hostEvents, speechReceipts, session_ids: [...app.ingress.sessions.keys()], records: app.listening.list(device), frames: sessions.reduce((n, s) => n + s.media.highWater().audio, 0) }));
 });
