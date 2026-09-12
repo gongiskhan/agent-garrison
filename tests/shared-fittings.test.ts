@@ -51,3 +51,21 @@ it("keeps the prior shared state when setup fails", async () => {
   await expect(reconcileShared(composition, { library, runApm: apm, runSetup: broken })).rejects.toThrow("fixture failure");
   expect((await readSharedState()).at).toBe("");
 });
+
+it("keeps ownership when the CLI strips hook tags, but preserves a user's later edit", async () => {
+  await reconcileShared(composition, { library, runApm: apm, runSetup: setup });
+  const file = path.join(root, "user/settings.json");
+  const config = JSON.parse(await fs.readFile(file, "utf8"));
+  delete config.hooks.Stop[0]._garrison;
+  config.hooks.Stop.push({ hooks: [{ command: "capture", timeout: 42 }] });
+  await fs.writeFile(file, JSON.stringify(config));
+  const { getUserQuartersState } = await import("../src/lib/quarters-user");
+  const rows = (await getUserQuartersState("claude-code")).rows.filter(row => row.kind === "hook");
+  expect(rows.map(row => row.sharedOwner)).toEqual(["basic-memory", undefined]);
+  composition.selections.memory![0].shared = [];
+  const result = await reconcileShared(composition, { library, runApm: apm, runSetup: setup });
+  expect(result.hooksStripped).toBe(1);
+  expect(JSON.parse(await fs.readFile(file, "utf8")).hooks.Stop).toEqual([{ hooks: [{ command: "capture", timeout: 42 }] }]);
+  const removed = JSON.parse(await fs.readFile(path.join(result.quarantineDir, "removed.json"), "utf8")).items.find((item: any) => item.kind === "hook");
+  expect(removed.value).toEqual({ hooks: [{ command: "capture" }] });
+});

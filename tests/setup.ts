@@ -1,5 +1,5 @@
-import { mkdtempSync, realpathSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 
 // Scratch paths are canonical.
@@ -42,6 +42,15 @@ process.env.GARRISON_ASSUME_INSTALLED = "1";
 // Tests that need their own home still set GARRISON_HOME themselves (they
 // pass it explicitly to loadConfig or set process.env after this setup runs).
 process.env.GARRISON_HOME = mkdtempSync(join(tmpdir(), "garrison-test-home-"));
+
+// User-runtime fallbacks also belong to a fixture. Do not inherit a launching
+// node's explicit config paths; individual tests set their own managed homes.
+process.env.PLAYWRIGHT_BROWSERS_PATH ??= join(homedir(), process.platform === "darwin" ? "Library/Caches" : ".cache", "ms-playwright");
+process.env.HOME = mkdtempSync(join(tmpdir(), "garrison-test-user-"));
+// A native shell should reach its prompt, not zsh-newuser-install onboarding.
+writeFileSync(join(process.env.HOME, ".zshrc"), "# Isolated test shell\n");
+for (const key of ["GARRISON_CLAUDE_HOME", "GARRISON_CLAUDE_JSON", "CLAUDE_CONFIG_DIR", "GARRISON_CLAUDE_SETTINGS_PATH", "CLAUDE_SETTINGS_FILE", "GARRISON_USER_CLAUDE_HOME", "GARRISON_USER_CLAUDE_JSON", "GARRISON_USER_CODEX_HOME", "GARRISON_USER_GEMINI_HOME", "CODEX_HOME", "GEMINI_CLI_HOME"]) delete process.env[key];
+
 
 // A test must never reach the REAL state service either.
 //

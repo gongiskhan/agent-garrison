@@ -4,6 +4,7 @@ import os from "node:os";
 import { apmProject, userComposition, type ApmLockView } from "./global-composition";
 import type { ApmDependencyInput } from "./apm-manifest";
 import type { ApmRunner } from "./apm-exec";
+import { readUserProvenance } from "./home-ownership";
 import { userClaudeHome } from "./claude-home";
 import { confinedHomePath, contentHash, fileHash, hashMatches, HomeQuarantine, isPreserved, preservedHomeItems, preserveModified, statOrNull } from "./home-quarantine";
 
@@ -25,6 +26,13 @@ async function deployedLeafHashes(home: string, lock: ApmLockView): Promise<Map<
 export async function installSharedApm(dependencies: ApmDependencyInput[], options: { runApm?: ApmRunner; previousGlobalLock?: ApmLockView; quarantine: HomeQuarantine }): Promise<ApmLockView> {
   const project = userComposition();
   const previous = await project.readLock();
+  // Setup hooks may select another shipped variant after APM deploys. Only a
+  // ledger hash on a path already owned by this lock can supersede its hash.
+  const ledger = await readUserProvenance();
+  for (const dep of previous.deps) for (const [ref] of Object.entries(dep.deployedHashes)) {
+    const owner = ledger[`file:claude-code:${ref}`];
+    if (owner?.lastWrittenHash && owner.fittingId && (dep.name === owner.fittingId || dep.repoUrl?.endsWith(`/${owner.fittingId}`))) dep.deployedHashes[ref] = owner.lastWrittenHash;
+  }
   const ownedHashes = Object.assign({}, ...[...previous.deps, ...(options.previousGlobalLock?.deps ?? [])].map(dep => dep.deployedHashes)) as Record<string, string>;
   const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "garrison-shared-apm-"));
   try {

@@ -4,17 +4,18 @@ import os from "node:os";
 import { execFileSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-// Drives the real installed USER-scope skill script. The Kanban Validate list
-// invokes exactly this file, so the test exercises the shipped artifact, not a copy.
-// It therefore only runs on a box where garrison-validate is actually deployed to
-// ~/.claude; skip gracefully otherwise (matches the jq-gated Phase 0 installer test).
-const SCRIPT = path.join(os.homedir(), ".claude", "skills", "garrison-validate", "scripts", "validate.mjs");
-const SKILL_DEPLOYED = fs.existsSync(SCRIPT);
+// Deploy the shipped source into a temporary managed home. This suite must
+// run on fresh machines and must never depend on a user's installed skill.
+const SOURCE = path.resolve(__dirname, "../fittings/seed/garrison-skills/.apm/skills/garrison-validate");
+let SCRIPT: string;
 
 let dir: string;
 
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "gar-validate-"));
+  const deployed = path.join(dir, "managed/skills/garrison-validate");
+  fs.cpSync(SOURCE, deployed, { recursive: true });
+  SCRIPT = path.join(deployed, "scripts/validate.mjs");
 });
 afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
@@ -67,7 +68,7 @@ const PASSING_GATES = (sliceId: string) => ({
   }
 });
 
-describe.skipIf(!SKILL_DEPLOYED)("garrison-validate validate.mjs", () => {
+describe("garrison-validate validate.mjs", () => {
   it("ships the skill script", () => {
     expect(fs.existsSync(SCRIPT)).toBe(true);
   });

@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { userClaudeHome, userClaudeJsonPath, userCodexHome, userGeminiHome, userCompositionDir, userProvenanceLedgerPath } from "./claude-home";
-import { contentHash, HomeQuarantine, readJsonObject } from "./home-quarantine";
+import { contentHash, HomeQuarantine, readJsonObject, ownerId } from "./home-quarantine";
 import { writeFileAtomic } from "./atomic-write";
 import { sharedRuntimes, type FittingSelectionMap, type SharedRuntime } from "./types";
 
@@ -27,6 +27,7 @@ export async function readSharedState(): Promise<SharedState> {
 export function userRuntimeHome(runtime: SharedRuntime): string {
   return runtime === "claude-code" ? userClaudeHome() : runtime === "codex" ? userCodexHome() : userGeminiHome();
 }
+export function userHookFile(runtime: SharedRuntime): string { return path.join(userRuntimeHome(runtime), runtime === "codex" ? "hooks.json" : "settings.json"); }
 export function userMcpFile(runtime: SharedRuntime): string {
   return runtime === "claude-code" ? userClaudeJsonPath() : path.join(userRuntimeHome(runtime), runtime === "codex" ? "config.toml" : "settings.json");
 }
@@ -43,8 +44,23 @@ export interface HomeProvenanceEntry {
   ref?: string;
   fittingId?: string;
   lastWrittenHash?: string;
+  event?: string;
 }
 export type HomeProvenance = Record<string, HomeProvenanceEntry>;
+/** The CLI removes unknown owner markers when it normalizes settings. Match
+ * the complete remaining group, so an edited or expanded group is not owned. */
+export function hookValueHash(group: unknown): string {
+  const value = { ...(group as Record<string, unknown>) }; delete value._garrison;
+  return valueHash(value);
+}
+export function hookOwner(runtime: SharedRuntime, event: string, group: unknown, ledger: HomeProvenance): string | null {
+  const tagged = ownerId((group as { _garrison?: unknown })?._garrison);
+  if (tagged) return tagged;
+  const hash = hookValueHash(group);
+  const entry = Object.values(ledger).find(item => item.kind === "hook" && (item.runtime ?? "claude-code") === runtime && item.event === event && item.lastWrittenHash?.replace(/^sha256:/, "") === hash);
+  return ownerId(entry?.fittingId);
+}
+
 export async function readUserProvenance(): Promise<HomeProvenance> { return readJsonObject(userProvenanceLedgerPath()); }
 export async function readMcpServers(runtime: SharedRuntime): Promise<Record<string, unknown>> {
   const file = userMcpFile(runtime);

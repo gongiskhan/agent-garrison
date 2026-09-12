@@ -7,8 +7,8 @@ import { applyPortOffsetToConfig } from "./instance-profile";
 import type { ApmRunner } from "./apm-exec";
 import type { ApmLockView } from "./global-composition";
 import { installSharedApm } from "./shared-apm";
-import { HomeQuarantine, confinedHomePath, fileHash, hashMatches, ownerId, readJsonObject, statOrNull } from "./home-quarantine";
-import { canonicalValue, readMcpServers, readSharedState, readUserProvenance, selectedSharedSet, quarantineMcp, userRuntimeHome, valueHash, type HomeProvenance, type SharedSet } from "./home-ownership";
+import { HomeQuarantine, confinedHomePath, fileHash, hashMatches, ownerId, readJsonObject, statOrNull, isPreserved, preservedHomeItems } from "./home-quarantine";
+import { canonicalValue, hookValueHash, hookOwner, readMcpServers, readSharedState, readUserProvenance, selectedSharedSet, quarantineMcp, userRuntimeHome, userHookFile, valueHash, type HomeProvenance, type SharedSet } from "./home-ownership";
 import { sharedRuntimes, type Composition, type LibraryEntry, type SelectedFitting, type SharedRuntime } from "./types";
 
 export interface SharedSetupResult { ok: boolean; stdout: string; stderr: string; exitCode: number | null; }
@@ -43,24 +43,30 @@ async function userPrimitiveSnapshot(runtime: SharedRuntime): Promise<HomeProven
   };
   for (const category of ["skills", "commands", "agents", "rules", "hooks", "scripts", "basic-memory"]) await walk(category);
   for (const [name, value] of Object.entries(await readMcpServers(runtime))) out[`mcp:${runtime}:${name}`] = { runtime, kind: "mcp", surface: "mcp", ref: name, lastWrittenHash: valueHash(value) };
+  const settings = await readJsonObject<{ hooks?: Record<string, unknown[]> }>(userHookFile(runtime));
+  for (const [event, groups] of Object.entries(settings.hooks ?? {})) if (Array.isArray(groups)) for (const group of groups) {
+    const hash = hookValueHash(group);
+    out[`hook:${runtime}:${event}:${hash}`] = { runtime, kind: "hook", surface: "hook", ref: event, event, lastWrittenHash: hash };
+  }
   return out;
 }
 async function removeSharedOwner(runtime: SharedRuntime, fittingId: string, ledger: HomeProvenance, q: HomeQuarantine) {
+  const hookLedger = { ...ledger };
   for (const [key, entry] of Object.entries(ledger)) {
     if ((entry.runtime ?? "claude-code") !== runtime || ownerId(entry.fittingId) !== fittingId) continue;
     const ref = entry.ref ?? key.replace(/^mcp:/, "");
     if (entry.kind === "mcp" || entry.surface === "mcp") await quarantineMcp(q, runtime, ref, entry.lastWrittenHash);
-    else if (entry.ref && entry.lastWrittenHash) await q.move(runtime, userRuntimeHome(runtime), entry.ref, entry.lastWrittenHash);
+    else if (entry.kind !== "hook" && entry.ref && entry.lastWrittenHash) await q.move(runtime, userRuntimeHome(runtime), entry.ref, entry.lastWrittenHash);
     // Removed or changed: Garrison relinquishes ownership either way. A user's
     // later edit must never remain eligible for a future uninstall sweep.
     delete ledger[key];
   }
-  const file = path.join(userRuntimeHome(runtime), "settings.json");
+  const file = userHookFile(runtime);
   const config = await readJsonObject<{ hooks?: Record<string, Array<{ _garrison?: unknown }>> }>(file);
-  const entries = Object.entries(config.hooks ?? {}).flatMap(([event, groups]) => Array.isArray(groups) ? groups.flatMap((value, index) => ownerId(value?._garrison) === fittingId ? [{ event, index, value }] : []) : []);
+  const entries = Object.entries(config.hooks ?? {}).flatMap(([event, groups]) => Array.isArray(groups) ? groups.flatMap((value, index) => hookOwner(runtime, event, value, hookLedger) === fittingId ? [{ event, index, value }] : []) : []);
   if (entries.length) await q.editJson(file, entries.map(item => ({ runtime, kind: "hook", ref: `${item.event}#${item.index}`, source: file, value: item.value })), draft => {
     for (const item of entries) if (canonicalValue(draft.hooks?.[item.event]?.[item.index]) !== canonicalValue(item.value)) throw new Error("Hook config changed during unshare; retry");
-    for (const event of new Set(entries.map(item => item.event))) draft.hooks[event] = draft.hooks[event].filter((group: { _garrison?: unknown }) => ownerId(group?._garrison) !== fittingId);
+    for (const event of new Set(entries.map(item => item.event))) draft.hooks[event] = draft.hooks[event].filter((group: { _garrison?: unknown }) => hookOwner(runtime, event, group, hookLedger) !== fittingId);
   });
 }
 let sharedQueue: Promise<unknown> = Promise.resolve();
@@ -88,7 +94,19 @@ async function reconcileSharedLocked(composition: Composition, options: SharedRe
   for (const [key, entry] of Object.entries(await readJsonObject<HomeProvenance>(provenanceLedgerPath()))) {
     if (entry.fittingId && shared[entry.runtime ?? "claude-code"].includes(ownerId(entry.fittingId)!)) ledger[key] ??= entry;
   }
-  await installSharedApm(dependencies, { runApm: options.runApm, previousGlobalLock: options.previousGlobalLock, quarantine: q });
+  const sharedLock = await installSharedApm(dependencies, { runApm: options.runApm, previousGlobalLock: options.previousGlobalLock, quarantine: q });
+  // Record APM ownership before setup can select a backend-specific variant.
+  // Pre-existing or hand-modified files remain explicitly user-owned.
+  const preserved = await preservedHomeItems();
+  for (const dep of sharedLock.deps) {
+    const entry = library.find(item => dep.name === item.id || (item.localPath && dep.localPath && path.resolve(item.localPath) === path.resolve(dep.localPath)) || (!!item.repo && item.repo === dep.repoUrl));
+    if (!entry || !shared["claude-code"].includes(entry.id)) continue;
+    for (const [ref, hash] of Object.entries(dep.deployedHashes)) {
+      if (isPreserved(preserved, "claude-code", ref) || !hashMatches(await fileHash(userClaudeHome(), ref), hash)) continue;
+      ledger[`file:claude-code:${ref}`] = { runtime: "claude-code", kind: "file", surface: ref.split("/")[0], ref, fittingId: entry.id, lastWrittenHash: hash };
+    }
+  }
+  await writeJsonAtomic(userProvenanceLedgerPath(), ledger, { mode: 0o600 });
   const setup = options.runSetup ?? (await import("./runner")).runFittingSetup;
   const removed = new Map<string, SharedRuntime[]>();
   for (const runtime of sharedRuntimes) for (const id of previous.byRuntime[runtime]) {
@@ -112,12 +130,12 @@ async function reconcileSharedLocked(composition: Composition, options: SharedRe
     const entry = entryById.get(id)!;
     const config = applyPortOffsetToConfig(selected.get(id)!.config);
     const result = await setup(entry, composition.directory, config, sharedFittingEnv(runtimes));
-    if (!result.ok) throw new Error(`Shared setup ${id} failed: ${result.stderr || result.stdout || result.exitCode}`);
     const after = Object.assign({}, ...await Promise.all(runtimes.map(userPrimitiveSnapshot))) as HomeProvenance;
     for (const [key, item] of Object.entries(after)) {
       if (!before[key] || (ledger[key]?.fittingId === id && !hashMatches(item.lastWrittenHash ?? null, before[key].lastWrittenHash))) ledger[key] = { ...item, fittingId: id };
     }
     await writeJsonAtomic(userProvenanceLedgerPath(), ledger, { mode: 0o600 });
+    if (!result.ok) throw new Error(`Shared setup ${id} failed: ${result.stderr || result.stdout || result.exitCode}`);
     log(`Shared ${id}: ${runtimes.join(", ")}`);
   }
   const state = { version: 1, byRuntime: shared, at: new Date().toISOString() };

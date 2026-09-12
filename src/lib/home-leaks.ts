@@ -3,7 +3,7 @@ import path from "node:path";
 import { garrisonDir, provenanceLedgerPath, userProvenanceLedgerPath } from "./claude-home";
 import { readGlobalLock, userComposition } from "./global-composition";
 import { HomeQuarantine, contentHash, confinedHomePath, fileHash, hashMatches, isPreserved, ownerId, preservedHomeItems, readJsonObject, statOrNull } from "./home-quarantine";
-import { canonicalValue, quarantineMcp, readMcpServers, readSharedState, userRuntimeHome, valueHash, type HomeProvenance, type SharedSet } from "./home-ownership";
+import { canonicalValue, hookOwner, quarantineMcp, readMcpServers, readSharedState, userRuntimeHome, userHookFile, valueHash, type HomeProvenance, type SharedSet } from "./home-ownership";
 import { sharedRuntimes, type SharedRuntime } from "./types";
 
 export interface HomeLeak {
@@ -15,7 +15,12 @@ export interface HomeLeak {
 }
 export interface HomeLeakReport { ok: boolean; checkedAt: string; leaks: HomeLeak[]; sharedOwners: string[]; }
 export const legacyHookCommand = /garrison-goal-|\/skills\/garrison\/hooks\/|autothing|stretch-claude/;
-export function hookFile(runtime: SharedRuntime): string { return path.join(userRuntimeHome(runtime), "settings.json"); }
+export const hookFile = userHookFile;
+export function isLegacyHomeHook(command: string): boolean {
+  if (legacyHookCommand.test(command)) return true;
+  const script = path.join(garrisonDir(), "shells", "agent-event-hook.sh");
+  return command.startsWith(script + " ") && /^(agent-start|agent-stop|session-start|session-end) (claude|codex|gemini)$/.test(command.slice(script.length + 1));
+}
 function kindFor(ref: string): HomeLeak["kind"] {
   return ({ skills: "skill", commands: "command", agents: "agent", rules: "rule" } as const)[ref.split("/")[0] as "skills"] ?? "file";
 }
@@ -62,9 +67,9 @@ export async function checkHomeLeaks(options: { shared?: SharedSet } = {}): Prom
     for (const [event, groups] of Object.entries(config.hooks ?? {})) {
       if (!Array.isArray(groups)) continue;
       groups.forEach((group, index) => {
-        const owner = ownerId(group?._garrison);
+        const owner = hookOwner(runtime, event, group, { ...globalLedger, ...userLedger });
         if (owner && owners.has(owner)) return;
-        const legacy = group?.hooks?.some(hook => legacyHookCommand.test(hook.command ?? ""));
+        const legacy = group?.hooks?.some(hook => isLegacyHomeHook(hook.command ?? ""));
         if (owner || legacy) add({ runtime, kind: "hook", ref: `${event}#${index}`, name: owner ?? event, reason: owner ? "garrison-owned-not-shared" : "legacy-hook-command" });
       });
     }
@@ -102,7 +107,16 @@ export async function quarantineHomeLeaks(options: { shared?: SharedSet; quarant
         for (const item of values) if (canonicalValue(draft.hooks?.[item.event]?.[item.index]) !== canonicalValue(item.value)) throw new Error("Hook config changed during quarantine; retry");
         for (const event of new Set(values.map(item => item.event))) {
           const indices = new Set(values.filter(item => item.event === event).map(item => item.index));
-          draft.hooks[event] = draft.hooks[event].filter((_value: unknown, index: number) => !indices.has(index));
+          draft.hooks[event] = draft.hooks[event].flatMap((value: { _garrison?: unknown; hooks?: Array<{ command?: string }> }, index: number) => {
+            if (!indices.has(index)) return [value];
+            // A legacy command can share a group with a user's own hook. Only
+            // owner-tagged groups belong wholly to the fitting.
+            if (!hookOwner(runtime, event, value, ledger)) {
+              const kept = (value.hooks ?? []).filter(hook => !isLegacyHomeHook(hook.command ?? ""));
+              if (kept.length) return [{ ...value, hooks: kept }];
+            }
+            return [];
+          });
         }
       });
     }

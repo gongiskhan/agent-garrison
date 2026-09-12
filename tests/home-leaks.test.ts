@@ -52,3 +52,20 @@ it("never treats modified lock files or MCP entries as removable leaks", async (
   expect((await quarantineHomeLeaks()).report.ok).toBe(true);
   expect(await fs.readFile(path.join(user, "skills/garrison-plan/SKILL.md"), "utf8")).toBe("my edits");
 });
+
+it("quarantines exact native lifecycle commands across runtimes while preserving mixed user hooks", async () => {
+  const unrelated = { type: "command", command: "/my/tools/agent-event-hook.sh agent-start claude" };
+  for (const [runtime, dir, file] of [["claude-code", "user", "settings.json"], ["codex", "codex", "hooks.json"], ["gemini", "gemini", "settings.json"]]) {
+    const group = { matcher: "*", hooks: [{ type: "command", command: `${gh}/shells/agent-event-hook.sh agent-start ${runtime === "claude-code" ? "claude" : runtime}` }, unrelated] };
+    await write(`${dir}/${file}`, JSON.stringify({ hooks: { Stop: [group] } }));
+  }
+  expect((await checkHomeLeaks()).leaks).toHaveLength(3);
+  const result = await quarantineHomeLeaks();
+  expect(result.report.ok).toBe(true);
+  const removed = JSON.parse(await fs.readFile(path.join(result.quarantineDir, "removed.json"), "utf8"));
+  expect(removed.items).toHaveLength(3);
+  for (const item of removed.items) expect(item.value.hooks).toHaveLength(2);
+  for (const [dir, file] of [["user", "settings.json"], ["codex", "hooks.json"], ["gemini", "settings.json"]]) {
+    expect(JSON.parse(await fs.readFile(path.join(root, dir, file), "utf8")).hooks.Stop).toEqual([{ matcher: "*", hooks: [unrelated] }]);
+  }
+});

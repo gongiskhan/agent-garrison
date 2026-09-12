@@ -5,6 +5,7 @@ import YAML from "yaml";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ApmRunner } from "../src/lib/apm-exec";
 import { installSharedApm } from "../src/lib/shared-apm";
+import { userProvenanceLedgerPath } from "../src/lib/claude-home";
 import { HomeQuarantine, contentHash } from "../src/lib/home-quarantine";
 let root: string; let user: string; let fitting: string;
 const apm: ApmRunner = async (_args, cwd) => {
@@ -40,4 +41,14 @@ it("retains a user's edit on unshare instead of moving or deleting it", async ()
   await fs.writeFile(path.join(user, "skills/shared/SKILL.md"), "edited"); const q = new HomeQuarantine();
   await installSharedApm([], { runApm: apm, quarantine: q });
   expect(q.leftModified).toContain("skills/shared/SKILL.md"); expect(await fs.readFile(path.join(user, "skills/shared/SKILL.md"), "utf8")).toBe("edited");
+});
+
+it("recognizes a setup-selected variant only through its existing lock ownership", async () => {
+  await installSharedApm([{ absPath: fitting }], { runApm: apm, quarantine: new HomeQuarantine() });
+  const ref = "skills/shared/SKILL.md";
+  await fs.writeFile(path.join(user, ref), "variant");
+  await fs.writeFile(userProvenanceLedgerPath(), JSON.stringify({ [`file:claude-code:${ref}`]: { runtime: "claude-code", kind: "file", ref, fittingId: "shared", lastWrittenHash: contentHash("variant") } }));
+  const q = new HomeQuarantine();
+  await installSharedApm([], { runApm: apm, quarantine: q });
+  expect(await fs.readFile(path.join(q.dir, "claude-code", ref), "utf8")).toBe("variant");
 });
