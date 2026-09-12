@@ -23,14 +23,14 @@ enum FixtureStreamer {
         guard listeningUITest else { return }
         AppGroup.consentSuppressed = true
         AppGroup.pendantIdentifier = nil
-        for event in ["interruption-began", "interruption-ended", "pair-pendant"] {
+        for event in ["interruption-began", "interruption-ended", "pair-pendant", "native-ping"] {
             CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), nil, { _, _, name, _, _ in
                 guard let name else { return }
                 let event = name.rawValue as String
                 Task { @MainActor in FixtureStreamer.handleListeningTestEvent(event) }
             }, "com.gomes.garrison.listening-test.\(event)" as CFString, nil, .deliverImmediately)
         }
-        for (notification, event) in [(UIApplication.didEnterBackgroundNotification, "app-backgrounded"), (UIApplication.didBecomeActiveNotification, "app-foregrounded")] {
+        for (notification, event) in [(UIApplication.willResignActiveNotification, "app-resigning"), (UIApplication.didEnterBackgroundNotification, "app-backgrounded"), (UIApplication.didBecomeActiveNotification, "app-foregrounded")] {
             lifecycleObservers.append(NotificationCenter.default.addObserver(forName: notification, object: nil, queue: .main) { _ in
                 Task { @MainActor in FixtureStreamer.reportListeningEvent(event) }
             })
@@ -53,6 +53,8 @@ enum FixtureStreamer {
     private static func handleListeningTestEvent(_ event: String) {
         guard listeningUITest else { return }
         switch event {
+        case "com.gomes.garrison.listening-test.native-ping":
+            reportListeningEvent("native-ping")
         case "com.gomes.garrison.listening-test.interruption-began":
             NotificationCenter.default.post(name: AVAudioSession.interruptionNotification, object: nil, userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue])
         case "com.gomes.garrison.listening-test.interruption-ended":
