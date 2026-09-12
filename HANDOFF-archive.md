@@ -14,17 +14,19 @@
 
 ## Imported
 
-Existing Trello credentials on dev-madrid were verified and sealed through the
-secret authority; no new key/token was necessary. The ten-minute preview window
-received no selection, so the brief's largest-board default was used:
-**Baby D & Fraldinhas**, without archived cards or a prefix.
+Existing Trello credentials on dev-madrid are sealed through the secret authority.
+On 12 September the owner corrected the selection to **GERAL**, without archived
+cards or a prefix. The earlier timeout-default board is no longer active.
 
-- 10 lists, 2,985 cards, 38 downloaded attachments; no links, oversize or skips.
-- 38 sidecars processed successfully; zero failed.
-- Recovery tag: `archive/pre-import-Z1vIK3SI-2026-09-11T22-14-22-959Z-bbd63d`.
-- Import and ingestion were pushed by vault-git-sync; the ingestion receipt was
-  `2026-09-11T22:56:15Z`. Final sync `2026-09-12T00:34:46Z` matched local/remote
-  vault commit `6a44efcbf1ddf53dbeee6e078c7f45283b1c8d62`.
+- GERAL: 25 lists, 496 cards, 323 downloaded attachments, 9 links (including
+  two oversized attachments); no skipped cards.
+- The wrong board's ten lists / 2,985 cards are recoverable in Trash. All current
+  files were preserved, and zero old-board source IDs remain active.
+- Correction recovery tag: `archive/pre-correction-GERAL-2026-09-12T07-21-45-211Z`.
+- GERAL import tag: `archive/pre-import-vl1Z8KFH-2026-09-12T07-22-40-440Z-80ff54`.
+- Text extraction continues as a persisted background queue under the hourly
+  limit; Jobs shows progress and unsupported types. No extraction failures at
+  import completion. The correction sync receipt is recorded in the decision.
 - Re-running skips existing cards by `source: trello:<id>`.
 
 To reverse an import-only commit, use `git -C <vault> revert <commit>` and let
