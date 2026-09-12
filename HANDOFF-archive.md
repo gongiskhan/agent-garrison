@@ -42,6 +42,10 @@ nodes migrate to `Projects/Garrison/Documents` with redirects and originals kept
 - [Narrated phone walkthrough](.walkthrough/runs/agent-garrison/archive/2026-09-12/phone/final.mp4),
   63.2 seconds, seven narration beats. All images and documents are synthetic.
 
+The closeout staging error in `954e3a0d` was corrected by `f948abb4`; that
+intermediate commit must not be deployed. Published runtime files match the
+tested Madrid build; the unfinished work remains local and preserved.
+
 ## Needs the physical phone
 
 Camera upload inside the iOS webview (`capture="environment"`), pinch zoom, and
