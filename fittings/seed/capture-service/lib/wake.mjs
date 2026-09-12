@@ -1110,7 +1110,7 @@ export class WakeBus {
   }
 
   appendFeedback(sessionId, segment, w) {
-    if (!confidentSpeech(segment) || this.isSpokenEcho(segment.text, w.spoken)) {
+    if (!confidentSpeech(segment) || this.isReplyEcho(segment.text, w.spoken)) {
       this.counters.bump("voice_feedback_unconfirmed");
       return;
     }
@@ -1121,7 +1121,7 @@ export class WakeBus {
 
   observeFeedbackInterim(sessionId, segment) {
     const w = this.openAnswerWindow(sessionId);
-    if (!w?.conversationId || !confidentSpeech(segment, { interim: true }) || this.isSpokenEcho(segment.text, w.spoken)) return;
+    if (!w?.conversationId || !confidentSpeech(segment, { interim: true }) || this.isReplyEcho(segment.text, w.spoken)) return;
     // Speech begun before expiry can finish after it. Only final text is sent.
     w.startedAt ??= this.now();
     this.scheduleFeedback(sessionId, w, 2000);
@@ -1146,6 +1146,15 @@ export class WakeBus {
       sessionId, command, wakeHitAt: w.startedAt, conversationId: w.conversationId,
       screen: this.screenContextFn?.({ sessionId, atMs: w.startedAt }) ?? null
     })).catch(err => this.log.error(`[${this.source.logPrefix}] feedback turn failed: ${err?.message ?? err}`));
+  }
+
+  isReplyEcho(text, spoken) {
+    const words = normalizeTokens(text);
+    // Short feedback such as yes/no must survive even when the reply used it.
+    // Ingest already checks active playback fragments and registered cues.
+    if (!spoken || words.length < 3) return false;
+    const line = new Set(normalizeTokens(spoken));
+    return words.filter(word => line.has(word)).length / words.length >= 0.8;
   }
 
   // -> true when this segment is nothing but words from the line Zeca just

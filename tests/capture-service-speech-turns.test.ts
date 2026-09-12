@@ -82,6 +82,15 @@ describe("interruptible playback", () => {
 });
 
 describe("15-second reply feedback", () => {
+  it("accepts a clear yes or no even when the reply included that word", async () => {
+    const h = fixture();
+    h.bus.expectAnswer("phone", "reply", { conversationId: "zeca-thread", spoken: "No other changes are needed." });
+    h.bus.armAnswerWindow("reply");
+    h.bus.handleSegments({ sessionId: "phone", segments: [speech("No.", { end: 0.25 })] });
+    await vi.advanceTimersByTimeAsync(901);
+    await h.bus.dispatchChain;
+    expect(h.turns[0]?.command).toBe("No.");
+  });
   it("opens after playback, filters noise and echo, and posts the complete follow-up to the same conversation", async () => {
     const h = fixture();
     h.bus.expectAnswer("phone", "reply", { conversationId: "zeca-thread", spoken: "The report is ready.", rounds: 99 });
