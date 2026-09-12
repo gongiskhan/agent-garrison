@@ -30,6 +30,8 @@
 
 set -uo pipefail
 
+SYNC_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 MODE="full"
 REQUIRE_FRESH=0
 for arg in "$@"; do
@@ -133,6 +135,11 @@ fi
 LOCAL_CHANGES=0
 if [ "$MODE" != "pull" ]; then
   git add -A
+  if ! node "$SYNC_SCRIPT_DIR/git-unicode-aliases.mjs" "$VAULT" >>"$LOG" 2>&1; then
+    log "Unicode index alias check failed; vault files preserved"
+    write_status error "Unicode filename aliases need review; nothing pushed"
+    exit 1
+  fi
   if ! git diff --cached --quiet; then
     git commit -q -m "vault sync: $(ts)" 2>>"$LOG"
     log "committed local changes"
