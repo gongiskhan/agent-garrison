@@ -183,7 +183,10 @@ describe("capture-service ack sink", () => {
       { afterFrames: 3, message: result("Wait please", 4, 0.3) },
       { afterFrames: 4, message: result("Change the date to Friday.", 6) }
     ], { wakeEnabled: true, pendantEnabled: true });
-    const bus = mode === "pendant" ? handle.pendantWakeBus : handle.wakeBus;
+    const bus = (mode === "pendant" ? handle.pendantWakeBus : handle.wakeBus) as {
+      conversationTurnFn: (args: unknown) => Promise<{ ok: boolean }>;
+      notifier: { send(payload: unknown): Promise<unknown> };
+    };
     const turns: any[] = [];
     bus.conversationTurnFn = async (args: any) => { turns.push(args); return { ok: true }; };
     const app = await appSession(base, "01INTERRUPTIONTEST1", mode, { confirmSpeaks: false, speechProtocol: 1 });
