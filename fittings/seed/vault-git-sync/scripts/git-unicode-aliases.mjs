@@ -8,7 +8,7 @@ import { pathToFileURL } from "node:url";
 export function guardUnicodeAliases({ cwd = process.cwd(), platform = process.platform } = {}) {
   if (platform !== "darwin") return { removed: 0 };
   const git = (args, input) => execFileSync("git", args, {
-    cwd, input, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"],
+    cwd, input, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024,
   });
   const previous = new Set(git(["ls-tree", "-rz", "--name-only", "HEAD"]).split("\0").filter(Boolean));
   const groups = new Map();
