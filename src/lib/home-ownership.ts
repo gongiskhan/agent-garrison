@@ -27,6 +27,7 @@ export async function readSharedState(): Promise<SharedState> {
 export function userRuntimeHome(runtime: SharedRuntime): string {
   return runtime === "claude-code" ? userClaudeHome() : runtime === "codex" ? userCodexHome() : userGeminiHome();
 }
+export function userHookFile(runtime: SharedRuntime): string { return path.join(userRuntimeHome(runtime), runtime === "codex" ? "hooks.json" : "settings.json"); }
 export function userMcpFile(runtime: SharedRuntime): string {
   return runtime === "claude-code" ? userClaudeJsonPath() : path.join(userRuntimeHome(runtime), runtime === "codex" ? "config.toml" : "settings.json");
 }

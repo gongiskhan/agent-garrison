@@ -12,17 +12,9 @@
 //
 // GARRISON_REMOTESHELLRUNTIME_INSTALL_HOOKS=false (or win32) skips entirely.
 //
-// Deliberately NOT env.CODEX_HOME / env.GEMINI_CLI_HOME: the runner projects
-// those into EVERY fitting's spawn env, pointed at this INSTANCE's own
-// redirected home (~/.garrison/runtime-homes/{codex,gemini}) for credential
-// isolation - reading them here would install hooks somewhere a plain
-// interactive `codex`/`gemini` session on this machine never looks, quietly
-// defeating the whole point (found live on dev-madrid: the first deploy of
-// this script wrote into the redirected home and left the real
-// ~/.codex/hooks.json untouched). This always targets the REAL, unredirected
-// home a bare terminal session uses. Env overrides for TESTS only (never the
-// CLI's own var names, for the same reason): HOME, GARRISON_HOME,
-// GARRISON_CURSOR_HOME, GARRISON_SHELLS_CODEX_HOME, GARRISON_SHELLS_GEMINI_HOME.
+// The launcher's homes are authoritative. Explicit sharing runs this same
+// setup with the selected user homes and GARRISON_SHARE_RUNTIMES; ordinary
+// Garrison setup must never add hooks to terminal config.
 
 import fs from "node:fs";
 import os from "node:os";
@@ -39,15 +31,15 @@ function cursorHome(env) {
 }
 
 function codexHome(env) {
-  return env.GARRISON_SHELLS_CODEX_HOME?.trim() || path.join(homeDir(env), ".codex");
+  return env.CODEX_HOME?.trim() || env.GARRISON_SHELLS_CODEX_HOME?.trim() || path.join(homeDir(env), ".codex");
 }
 
 function claudeHome(env) {
-  return env.GARRISON_SHELLS_CLAUDE_HOME?.trim() || path.join(homeDir(env), ".claude");
+  return env.GARRISON_CLAUDE_HOME?.trim() || env.CLAUDE_CONFIG_DIR?.trim() || env.GARRISON_SHELLS_CLAUDE_HOME?.trim() || path.join(homeDir(env), ".claude");
 }
 
 function geminiHome(env) {
-  return env.GARRISON_SHELLS_GEMINI_HOME?.trim() || path.join(homeDir(env), ".gemini");
+  return env.GEMINI_CLI_HOME?.trim() || env.GARRISON_SHELLS_GEMINI_HOME?.trim() || path.join(homeDir(env), ".gemini");
 }
 
 function hookScriptPath(env) {
@@ -88,7 +80,7 @@ function ensureClaudeShapedHook(hooks, event, command, matcher = "") {
     hooks[event] = list;
     return false;
   }
-  hooks[event] = [...list, { matcher, hooks: [{ type: "command", command, timeout: 5 }] }];
+  hooks[event] = [...list, { _garrison: "fitting:remote-shell-runtime", matcher, hooks: [{ type: "command", command, timeout: 5 }] }];
   return true;
 }
 
@@ -219,10 +211,11 @@ export function installHooks(env = process.env, log = console.log) {
     log(`shells hook script written (${hookPath})`);
   }
 
-  installClaudeHooks(env, garrisonHomeDir, hookPath, log);
-  installCursorHooks(env, garrisonHomeDir, hookPath, log);
-  installCodexHooks(env, garrisonHomeDir, hookPath, log);
-  installGeminiHooks(env, garrisonHomeDir, hookPath, log);
+  const shared = env.GARRISON_SHARE_TARGET === "user" ? new Set(String(env.GARRISON_SHARE_RUNTIMES || "").split(",")) : null;
+  if (!shared || shared.has("claude-code")) installClaudeHooks(env, garrisonHomeDir, hookPath, log);
+  if (!env.GARRISON_SHARE_TARGET) installCursorHooks(env, garrisonHomeDir, hookPath, log);
+  if (!shared || shared.has("codex")) installCodexHooks(env, garrisonHomeDir, hookPath, log);
+  if (!shared || shared.has("gemini")) installGeminiHooks(env, garrisonHomeDir, hookPath, log);
   return { skipped: false, hookPath };
 }
 

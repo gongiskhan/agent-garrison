@@ -23,7 +23,8 @@ received no selection, so the brief's largest-board default was used:
 - 38 sidecars processed successfully; zero failed.
 - Recovery tag: `archive/pre-import-Z1vIK3SI-2026-09-11T22-14-22-959Z-bbd63d`.
 - Import and ingestion were pushed by vault-git-sync; the ingestion receipt was
-  `2026-09-11T22:56:15Z`, vault commit `af636d9818d8980a1c1fc75ffec81858246efe86`.
+  `2026-09-11T22:56:15Z`. Final sync `2026-09-12T00:34:46Z` matched local/remote
+  vault commit `6a44efcbf1ddf53dbeee6e078c7f45283b1c8d62`.
 - Re-running skips existing cards by `source: trello:<id>`.
 
 To reverse an import-only commit, use `git -C <vault> revert <commit>` and let
@@ -60,4 +61,6 @@ HEIC from an actual iPhone photo. These cannot be accepted through emulation.
 
 None from the scoped review. All five crucial findings were fixed and tested.
 The independent Two Homes activation remains unfinished; automatic deployments
-stay paused. Archive does not activate that migration or resume its rollout.
+stay paused. Madrid is deployed and healthy; all 35 peer-work paths are restored.
+Acceptance tested committed main with that unfinished work preserved separately.
+Archive does not activate that migration or resume its rollout.

@@ -1631,12 +1631,7 @@ export class RoutedGateway {
       // Inherit the gateway process env (PATH/HOME/CLAUDE_CONFIG_DIR + the
       // Paymaster account pin) — the SDK replaces the subprocess env, so an
       // empty baseEnv would strip config-dir isolation and the account token.
-      // GARRISON_STRETCH_CLAUDE_HOME, when set, redirects the CLI away from the
-      // user's real ~/.claude: see stretch-claude-home.mjs for why a stretch
-      // must not read the user's memory index, skills or agents.
-      env: stretchProcessEnv(process.env.GARRISON_STRETCH_CLAUDE_HOME
-        ? { ...process.env, CLAUDE_CONFIG_DIR: process.env.GARRISON_STRETCH_CLAUDE_HOME }
-        : process.env, { conversationId: opts.conversationId, stretchId: opts.stretchId }),
+      env: stretchProcessEnv(process.env, { conversationId: opts.conversationId, stretchId: opts.stretchId }),
       permissionMode: fixed.permissionMode,
       ...(streamingInput ? { streamingInput: true } : {}),
     };
