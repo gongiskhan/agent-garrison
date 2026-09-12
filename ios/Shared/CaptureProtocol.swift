@@ -85,6 +85,7 @@ struct SessionStartMessage: Codable {
     var deviceId: String?
     var source: String?
     var appVersion: String?
+    var speechProtocol: Int = 1
 
     enum CodingKeys: String, CodingKey {
         case type
@@ -98,6 +99,7 @@ struct SessionStartMessage: Codable {
         case deviceId = "device_id"
         case source
         case appVersion = "app_version"
+        case speechProtocol = "speech_protocol"
     }
 }
 
@@ -130,6 +132,11 @@ struct FeedbackAckMessage: Codable {
 /// The ack payload delivered over {type:"speak"} — pre-rendered, pre-validated
 /// upstream (wake-word check, referent rule). The app SPEAKS `text`; it never
 /// composes sentences.
+struct SpeechAudioChunk: Codable {
+    let text: String
+    let audioPath: String?
+}
+
 struct AckPayload: Codable {
     let id: String
     let kind: String?
@@ -147,6 +154,7 @@ struct AckPayload: Codable {
     /// resolved one. Drives the on-device voice selection so a fallback to the
     /// synthesizer does not speak Portuguese with an English voice.
     let lang: String?
+    var audioChunks: [SpeechAudioChunk]? = nil
 }
 
 /// A short line the wearer should HEAR alongside a feedback event - "Sim?" the
@@ -205,6 +213,7 @@ enum ServerMessage {
     case ack(stream: String, seq: UInt32)
     case sessionEnded(reason: String)
     case speak(AckPayload)
+    case interruptSpeech(ackIds: [String])
     case feedback(FeedbackEvent)
     case listeningState(DeviceListeningState)
     case wakeDetected(deviceId: String, source: String, at: String)
@@ -235,6 +244,9 @@ enum ServerMessage {
             return .ack(stream: stream, seq: UInt32(max(0, seq)))
         case "session_ended":
             return .sessionEnded(reason: object["reason"] as? String ?? "user")
+        case "speech.interrupt":
+            guard let ids = object["ack_ids"] as? [String], !ids.isEmpty, ids.count <= 100 else { return nil }
+            return .interruptSpeech(ackIds: ids)
         case "speak":
             guard let ackObject = object["ack"],
                   let ackData = try? JSONSerialization.data(withJSONObject: ackObject),

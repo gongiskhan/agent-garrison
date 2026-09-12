@@ -16,6 +16,7 @@ import { atomicWriteJSON, ulid } from "./store.mjs";
 import { detectLanguage, isLanguage, t } from "./lang.mjs";
 import { awaitConversationReply, DEFAULT_REPLY_DUTIES } from "./conversation-reply.mjs";
 import { normalizeTokens } from "./echo-guard.mjs";
+import { confidentSpeech, REPLY_FEEDBACK_WINDOW_MS, FEEDBACK_SETTLE_MS, FEEDBACK_MAX_UTTERANCE_MS } from "./speech-input.mjs";
 import path from "node:path";
 import { readFileSync } from "node:fs";
 
@@ -1061,7 +1062,7 @@ export class WakeBus {
   // Registered by the capture-service's speak-first notifier; omi-channel has
   // no speak lane and therefore never opens one - the mirror stays inert.
 
-  expectAnswer(sessionId, ackId, { lang = "en", rounds = 0, eventId = null, reprompt = false, spoken = null } = {}) {
+  expectAnswer(sessionId, ackId, { lang = "en", rounds = 0, eventId = null, reprompt = false, spoken = null, conversationId = null } = {}) {
     if (!sessionId || !ackId) return;
     // Only the bus that actually owns this session may open a window. The
     // capture-service runs two (companion + pendant) and registers on both,
@@ -1069,11 +1070,12 @@ export class WakeBus {
     // companion bus - inert today, but it would consume a mic-mode answer
     // meant for the pendant the moment both lanes are live at once.
     if (!this.sessions.has(sessionId)) return;
-    if (rounds >= (this.cfg.wakeFollowupMaxRounds ?? 3)) {
+    if (!conversationId && rounds >= (this.cfg.wakeFollowupMaxRounds ?? 3)) {
       this.counters.bump("wake_followup_rounds_capped");
       return;
     }
-    this.answers.set(sessionId, { ackId, lang, rounds, eventId, reprompt, spoken, armed: false, expiresAt: 0 });
+    this.clearAnswerWindow(sessionId);
+    this.answers.set(sessionId, { ackId, lang, rounds, eventId, reprompt, spoken, conversationId, armed: false, expiresAt: 0, parts: [], timer: null, startedAt: null });
   }
 
   armAnswerWindow(ackId) {
@@ -1083,7 +1085,7 @@ export class WakeBus {
       // A re-prompt window is wider than a clarification one: the user has to
       // realise they were not understood, think, and say the whole thing again,
       // where answering a question is a reflex.
-      w.expiresAt = this.now() + (w.reprompt ? (this.cfg.wakeRepromptWindowMs ?? 20000) : (this.cfg.wakeFollowupWindowMs ?? 12000));
+      w.expiresAt = this.now() + (w.conversationId ? REPLY_FEEDBACK_WINDOW_MS : w.reprompt ? (this.cfg.wakeRepromptWindowMs ?? 20000) : (this.cfg.wakeFollowupWindowMs ?? 12000));
       this.counters.bump("wake_followup_windows_armed");
       return sessionId;
     }
@@ -1093,12 +1095,57 @@ export class WakeBus {
   openAnswerWindow(sessionId) {
     const w = this.answers.get(sessionId);
     if (!w || !w.armed) return null;
-    if (this.now() > w.expiresAt) {
-      this.answers.delete(sessionId);
+    if (this.now() >= w.expiresAt && w.startedAt == null) {
+      this.clearAnswerWindow(sessionId);
       this.counters.bump("wake_followup_windows_expired");
       return null;
     }
     return w;
+  }
+
+  clearAnswerWindow(sessionId) {
+    const w = this.answers.get(sessionId);
+    if (w?.timer) clearTimeout(w.timer);
+    this.answers.delete(sessionId);
+  }
+
+  appendFeedback(sessionId, segment, w) {
+    if (!confidentSpeech(segment) || this.isSpokenEcho(segment.text, w.spoken)) {
+      this.counters.bump("voice_feedback_unconfirmed");
+      return;
+    }
+    w.parts.push(segment.text.trim());
+    w.startedAt ??= this.now();
+    this.scheduleFeedback(sessionId, w, segment.speech_final === false ? 2000 : FEEDBACK_SETTLE_MS);
+  }
+
+  observeFeedbackInterim(sessionId, segment) {
+    const w = this.openAnswerWindow(sessionId);
+    if (!w?.conversationId || !confidentSpeech(segment, { interim: true }) || this.isSpokenEcho(segment.text, w.spoken)) return;
+    // Speech begun before expiry can finish after it. Only final text is sent.
+    w.startedAt ??= this.now();
+    this.scheduleFeedback(sessionId, w, 2000);
+  }
+
+  scheduleFeedback(sessionId, w, settleMs) {
+    if (w.timer) clearTimeout(w.timer);
+    const remaining = FEEDBACK_MAX_UTTERANCE_MS - (this.now() - w.startedAt);
+    w.timer = setTimeout(() => {
+      if (w.parts.length) this.flushFeedback(sessionId, w);
+      else if (this.answers.get(sessionId) === w) this.clearAnswerWindow(sessionId);
+    }, Math.max(0, Math.min(settleMs, remaining)));
+    w.timer.unref?.();
+  }
+
+  flushFeedback(sessionId, w) {
+    if (this.answers.get(sessionId) !== w || !w.parts.length) return;
+    const command = w.parts.join(" ");
+    this.clearAnswerWindow(sessionId);
+    this.counters.bump("voice_feedback_turns");
+    this.dispatchChain = this.dispatchChain.then(() => this.dispatch({
+      sessionId, command, wakeHitAt: w.startedAt, conversationId: w.conversationId,
+      screen: this.screenContextFn?.({ sessionId, atMs: w.startedAt }) ?? null
+    })).catch(err => this.log.error(`[${this.source.logPrefix}] feedback turn failed: ${err?.message ?? err}`));
   }
 
   // -> true when this segment is nothing but words from the line Zeca just
@@ -1289,6 +1336,10 @@ export class WakeBus {
         // ANSWERING Zeca's question, not issuing a command. The wake word
         // still wins - saying the name is always a fresh start.
         const answerWindow = this.openAnswerWindow(sessionId);
+        if (answerWindow?.conversationId && !this.regex.test(text)) {
+          this.appendFeedback(sessionId, seg, answerWindow);
+          continue;
+        }
         if (answerWindow && !this.regex.test(text)) {
           // Our own "didn't catch that" coming back through the mic must not be
           // read as the repeat. The echo guard's containment lane cannot help
@@ -1300,7 +1351,7 @@ export class WakeBus {
             this.counters.bump("wake_reprompt_echo_ignored");
             continue;
           }
-          this.answers.delete(sessionId);
+          this.clearAnswerWindow(sessionId);
           this.counters.bump("wake_followup_answers");
           this.emitLifecycle("segment_captured", { sessionId, at: this.now() });
           const answer = text.trim();
@@ -1345,7 +1396,7 @@ export class WakeBus {
             .catch((err) => this.log.error(`[${this.source.logPrefix}] wake followup error: ${err?.message ?? err}`));
           continue;
         }
-        if (answerWindow && this.regex.test(text)) this.answers.delete(sessionId);
+        if (answerWindow && this.regex.test(text)) this.clearAnswerWindow(sessionId);
 
         // A live discussion owns the microphone: everything said goes to the
         // thread, with no wake word, until the user ends it.
@@ -2489,10 +2540,8 @@ export class WakeBus {
       });
     }
     this.counters.bump("wake_conversation_turns");
-    const shown = command.length > 80 ? `${command.slice(0, 77)}...` : command;
-    // The answer comes later, in the conversation; watch for it and push/speak
-    // it back (D56). Runs after the confirmation went out, off the delegate
-    // chain, and never blocks the next wake hit.
+    // Send the words directly. Watch the answer without rendering or playing
+    // a repeat of the request first.
     const canWatch = typeof posted.base === "string" && posted.base && typeof posted.fromIndex === "number";
     const after = canWatch
       ? () => {
@@ -2500,7 +2549,8 @@ export class WakeBus {
         }
       : null;
     return {
-      confirmation: t("wake.conversation_sent", { text: shown }, lang),
+      confirmation: null,
+      silent: true,
       // The push opens the conversation itself; no card was made.
       path: `/talk/${encodeURIComponent(conversationId)}`,
       ...(after ? { after } : {}),

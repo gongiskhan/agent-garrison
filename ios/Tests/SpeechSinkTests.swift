@@ -85,6 +85,85 @@ final class SpeechSinkTests: XCTestCase {
         SpeechSink.Cue(eventId: "ev-1", text: text, lang: lang, audioPath: audioPath, at: at)
     }
 
+    final class DeferredClipPlayer: ClipPlaying {
+        var paths: [String] = []
+        var completions: [(Bool) -> Void] = []
+        var stops = 0
+        func play(path: String, volume: Float, completion: @escaping (Bool) -> Void) {
+            paths.append(path)
+            completions.append(completion)
+        }
+        func stop() { stops += 1 }
+        func finish(_ ok: Bool) { completions.removeFirst()(ok) }
+    }
+
+    func testInterruptCancelsActiveAndQueuedClipsAndIgnoresLateDownload() {
+        let clips = DeferredClipPlayer()
+        let sink = makeSink(clipPlayer: clips)
+        sink.handle(ack("active", audioPath: "/speak/one.mp3"))
+        sink.handle(ack("queued", audioPath: "/speak/two.mp3"))
+        sink.interrupt(ackIds: ["active", "queued"])
+        XCTAssertEqual(clips.stops, 1)
+        XCTAssertEqual(Set(receipts.map(\.ackId)), Set(["active", "queued"]))
+        XCTAssertTrue(receipts.allSatisfy { !$0.ok && $0.reason == "user-speech" })
+        clips.finish(false)
+        XCTAssertTrue(utterer.spoken.isEmpty, "a cancelled fetch must not start the fallback voice")
+        XCTAssertEqual(clips.paths, ["/speak/one.mp3"])
+        XCTAssertEqual(receipts.count, 2)
+        sink.handle(ack("next", audioPath: "/speak/three.mp3"))
+        clips.finish(true)
+        XCTAssertEqual(receipts.last?.ackId, "next")
+        XCTAssertEqual(receipts.last?.ok, true)
+    }
+
+    func testInterruptedSynthCompletionCannotAdvanceTheNewReply() {
+        let sink = makeSink()
+        sink.handle(ack("old", text: "Old answer"))
+        sink.interrupt(ackIds: ["old"])
+        sink.handle(ack("new", text: "New answer"))
+        utterer.finishNext(false)
+        XCTAssertEqual(receipts.count, 1)
+        utterer.finishNext()
+        XCTAssertEqual(receipts.map(\.ackId), ["old", "new"])
+        XCTAssertEqual(receipts.map(\.ok), [false, true])
+    }
+
+    func testChunkedReplyPlaysInOrderAndReportsCompletionOnlyAfterLastClip() {
+        let clips = DeferredClipPlayer()
+        let sink = makeSink(clipPlayer: clips)
+        var reply = ack("long", text: "First. Second. Third.")
+        reply.audioChunks = [
+            SpeechAudioChunk(text: "First.", audioPath: "/speak/one.mp3"),
+            SpeechAudioChunk(text: "Second.", audioPath: "/speak/two.mp3"),
+            SpeechAudioChunk(text: "Third.", audioPath: "/speak/three.mp3")
+        ]
+        sink.handle(reply)
+        XCTAssertEqual(clips.paths, ["/speak/one.mp3"])
+        clips.finish(true)
+        XCTAssertTrue(receipts.isEmpty)
+        clips.finish(false)
+        XCTAssertEqual(utterer.spoken, ["Second."], "only the failed chunk falls back")
+        utterer.finishNext()
+        XCTAssertEqual(clips.paths, ["/speak/one.mp3", "/speak/two.mp3", "/speak/three.mp3"])
+        XCTAssertTrue(receipts.isEmpty)
+        clips.finish(true)
+        XCTAssertEqual(receipts.count, 1)
+        XCTAssertEqual(receipts.first?.ok, true)
+    }
+
+    func testInterruptionDuringChunkedReplyPreventsRemainingChunks() {
+        let clips = DeferredClipPlayer()
+        let sink = makeSink(clipPlayer: clips)
+        var reply = ack("long")
+        reply.audioChunks = [SpeechAudioChunk(text: "First.", audioPath: "/speak/one.mp3"), SpeechAudioChunk(text: "Second.", audioPath: "/speak/two.mp3")]
+        sink.handle(reply)
+        sink.interrupt(ackIds: ["long"])
+        clips.finish(true)
+        XCTAssertEqual(clips.paths, ["/speak/one.mp3"])
+        XCTAssertEqual(receipts.count, 1)
+        XCTAssertEqual(receipts.first?.reason, "user-speech")
+    }
+
     // Zeca's own voice, when the service managed to render one.
     func testPlaysTheRenderedClipInsteadOfSynthesizing() {
         let clips = RecordingClipPlayer()

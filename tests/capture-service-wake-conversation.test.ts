@@ -82,7 +82,8 @@ describe("wake hit inside a broadcast started from a conversation", () => {
     expect(turns[0]).toMatchObject({ conversationId: THREAD, command: "explain what this error means", eventId: "ev1" });
     expect((turns[0].frames as any[]).map((f) => f.file)).toEqual(["/m/rec-1/frames/9.jpg", "/m/rec-1/frames/6.jpg"]);
     expect(outcome.result).toMatchObject({ intent: "conversation_turn", conversation_id: THREAD, input_id: "in-1" });
-    expect(outcome.confirmation).toBe("Sent to the conversation: explain what this error means");
+    expect(outcome.confirmation).toBeNull();
+    expect(outcome.silent).toBe(true);
     expect(outcome.path).toBe(`/talk/${THREAD}`);
     expect(counters.read().wake_conversation_turns).toBe(1);
   });
@@ -112,13 +113,13 @@ describe("wake hit inside a broadcast started from a conversation", () => {
     // The broadcast ends while the window is still open.
     live = false;
     const deadline = Date.now() + 3000;
-    while (sent.length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
+    while (turns.length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 10));
     expect(turns).toHaveLength(1);
     expect(turns[0].conversationId).toBe(THREAD);
     expect(turns[0].command).toBe("escreve comprar morangos.");
     expect(runCalls).toEqual([]);
     expect(counters.read().wake_conversation_turns).toBe(1);
-    expect(sent[0].params.path).toBe(`/talk/${THREAD}`);
+    expect(sent).toEqual([]);
   });
 
   it("watches the ledger for the answer and pushes it back as conversation_reply", async () => {

@@ -49,6 +49,39 @@ final class ListeningSimulatorJourneyTests: XCTestCase {
         channel.intent("phone", "off")
         try await wait { channel.records["phone"]?.intent == "off" && !CaptureController.shared.engineRunning }
     }
+    func testSpeechInterruptionTravelsThroughTheNativeSocketAndCancelsLatePlayback() async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let base = env["GARRISON_LISTENING_PROOF_URL"], base.hasPrefix("http://127.0.0.1:"),
+              let control = env["GARRISON_LISTENING_PROOF_CONTROL"] else { throw XCTSkip("Run the simulator validation workflow") }
+        let saved = AppGroup.defaults
+        AppGroup.defaults = UserDefaults(suiteName: "voice-journey-\(UUID().uuidString)")
+        AppGroup.defaults?.set(base, forKey: AppGroup.Key.baseURL)
+        AppGroup.defaults?.set(env["GARRISON_LISTENING_PROOF_TOKEN"], forKey: AppGroup.Key.token)
+        let clips = SpeechSinkTests.DeferredClipPlayer()
+        let utterer = FakeUtterer()
+        let sink = SpeechSink(utterer: utterer, clipPlayer: clips, defaults: AppGroup.defaults!)
+        let controller = CaptureController(speechSink: sink)
+        defer { controller.stop(); AppGroup.defaults = saved }
+        controller.start(consent: .shown)
+        try await wait(timeout: 30) { controller.engineRunning && controller.ackedFrames > 0 }
+        let session = try XCTUnwrap(controller.sessionId)
+        func probe(_ route: String) async throws -> [String: Any] {
+            let url = try XCTUnwrap(URL(string: "\(control)/\(route)?session=\(session)"))
+            let (data, _) = try await URLSession.shared.data(from: url)
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        _ = try await probe("voice-play")
+        try await wait { clips.paths.count == 1 }
+        _ = try await probe("voice-interrupt")
+        try await wait { clips.stops == 1 }
+        clips.finish(false)
+        XCTAssertTrue(utterer.spoken.isEmpty, "late downloads cannot restart speech")
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let state = try await probe("state")
+        let receipts = state["speechReceipts"] as? [[String: Any]] ?? []
+        XCTAssertTrue(receipts.contains { $0["sessionId"] as? String == session && $0["reason"] as? String == "user-speech" })
+    }
+
     private func wait(timeout: TimeInterval = 12, until condition: () -> Bool) async throws {
         let end = Date().addingTimeInterval(timeout)
         while Date() < end { if condition() { return }; try await Task.sleep(nanoseconds: 20_000_000) }

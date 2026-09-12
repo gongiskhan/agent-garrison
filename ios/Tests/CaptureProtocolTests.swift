@@ -91,6 +91,20 @@ final class CaptureProtocolTests: XCTestCase {
         XCTAssertNil(ServerMessage.parse(#"{"type":"unknown-kind"}"#))
     }
 
+    func testInterruptAndChunkedReplyProtocol() throws {
+        guard case .interruptSpeech(let ids)? = ServerMessage.parse(#"{"type":"speech.interrupt","ack_ids":["reply-1","reply-2"]}"#)
+        else { return XCTFail("expected interruption") }
+        XCTAssertEqual(ids, ["reply-1", "reply-2"])
+        XCTAssertNil(ServerMessage.parse(#"{"type":"speech.interrupt","ack_ids":[]}"#))
+        guard case .speak(let ack)? = ServerMessage.parse(#"{"type":"speak","ack":{"id":"long","text":"First. Second.","audioChunks":[{"text":"First.","audioPath":"/speak/one.mp3"},{"text":"Second.","audioPath":null}]}}"#)
+        else { return XCTFail("expected chunked reply") }
+        XCTAssertEqual(ack.audioChunks?.map(\.text), ["First.", "Second."])
+        XCTAssertEqual(ack.audioChunks?.first?.audioPath, "/speak/one.mp3")
+        let start = SessionStartMessage(sessionId: "01TESTSESSION0001", mode: "audio", deviceName: "Test", consent: "shown", startedAt: "2026-09-12T00:00:00Z")
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(start)) as? [String: Any])
+        XCTAssertEqual(json["speech_protocol"] as? Int, 1)
+    }
+
     func testSessionIdMatchesServerCharset() {
         for _ in 0 ..< 50 {
             let id = SessionId.generate()

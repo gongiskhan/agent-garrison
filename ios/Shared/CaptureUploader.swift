@@ -55,6 +55,7 @@ final class CaptureUploader: NSObject {
 
     var onStateChange: ((State) -> Void)?
     var onSpeak: ((AckPayload) -> Void)?
+    var onInterruptSpeech: (([String]) -> Void)?
     var onAck: ((String, UInt32) -> Void)?
     var onSessionEnded: ((String) -> Void)?
     /// Pendant sessions: server-pushed feedback lifecycle events. The sink
@@ -253,6 +254,8 @@ final class CaptureUploader: NSObject {
         case .ack(let stream, let seq):
             if stream == "audio" { ackedAudio = max(ackedAudio, seq) } else { ackedVideo = max(ackedVideo, seq) }
             onAck?(stream, seq)
+        case .interruptSpeech(let ids):
+            onInterruptSpeech?(ids)
         case .speak(let ack):
             onSpeak?(ack)
         case .feedback(let event):

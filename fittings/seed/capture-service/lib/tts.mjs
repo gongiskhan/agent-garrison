@@ -126,6 +126,28 @@ export function looksPortuguese(text) {
   return detectLanguage(text) === "pt";
 }
 
+// Same sentence, clause and word boundaries as the existing browser TTS path.
+// Keep every word while honoring the provider's per-request limit.
+export function speechChunks(text, max = MAX_TEXT_CHARS) {
+  const out = [];
+  let rest = String(text ?? "").trim();
+  while (rest.length > max) {
+    const window = rest.slice(0, max + 1);
+    let cut = -1;
+    for (const re of [/[.!?]["')\]]?\s+/g, /[,;:]\s+/g, /\s+/g]) {
+      for (const match of window.matchAll(re)) {
+        if (match.index > 0 && match.index + match[0].length <= max + 1) cut = match.index + match[0].length;
+      }
+      if (cut > 0) break;
+    }
+    if (cut <= 0) cut = max;
+    out.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) out.push(rest);
+  return out;
+}
+
 export class ZecaVoice {
   constructor({ cfg, counters, log = console, fetchImpl = null, now = () => Date.now() }) {
     this.cfg = cfg;

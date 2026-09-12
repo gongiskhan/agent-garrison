@@ -240,6 +240,9 @@ final class PendantController: ObservableObject {
         // loud, and it is the same phone and the same speaker as the companion
         // lane, so the sink and the receipt path are identical to
         // CaptureController's.
+        uploader.onInterruptSpeech = { [weak self] ids in
+            Task { @MainActor in self?.speechSink.interrupt(ackIds: ids) }
+        }
         uploader.onSpeak = { [weak self, weak uploader] ack in
             Task { @MainActor in
                 guard let self, self.sessionId == id else { return }

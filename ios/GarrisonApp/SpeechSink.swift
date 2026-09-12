@@ -95,6 +95,9 @@ final class SpeechSink {
     private let clipPlayer: ClipPlaying?
     private var queue: [AckPayload] = []
     private var speaking = false
+    private var currentAck: AckPayload?
+    private var generation: UInt64 = 0
+    private var cancelledIds: [String] = []
     var onReceipt: ((Receipt) -> Void)?
 
     init(
@@ -148,25 +151,27 @@ final class SpeechSink {
         if let at = cue.at, now().timeIntervalSince(at) > Self.cueStalenessSeconds { return }
         guard !speaking else { return }
         speaking = true
+        generation &+= 1
+        let token = generation
         if let clipPlayer, let audioPath = cue.audioPath, !audioPath.isEmpty {
             clipPlayer.play(path: audioPath, volume: volume) { [weak self] played in
-                guard let self else { return }
+                guard let self, self.generation == token else { return }
                 if played {
                     self.speaking = false
                     self.pump()
                 } else {
-                    self.utterCue(cue)
+                    self.utterCue(cue, token: token)
                 }
             }
             return
         }
-        utterCue(cue)
+        utterCue(cue, token: token)
     }
 
-    private func utterCue(_ cue: Cue) {
+    private func utterCue(_ cue: Cue, token: UInt64) {
         utterer.utter(cue.text, rate: rate, volume: volume, voiceId: voiceId ?? Self.localVoice(for: cue.lang)) {
             [weak self] _ in
-            guard let self else { return }
+            guard let self, self.generation == token else { return }
             self.speaking = false
             self.pump()
         }
@@ -230,6 +235,10 @@ final class SpeechSink {
     // MARK: - Intake
 
     func handle(_ ack: AckPayload) {
+        guard !cancelledIds.contains(ack.id) else {
+            onReceipt?(Receipt(ackId: ack.id, ok: false, reason: "user-speech"))
+            return
+        }
         let isError = ack.severity == "error"
         if !masterOn {
             onReceipt?(Receipt(ackId: ack.id, ok: false, reason: "sink-off"))
@@ -270,45 +279,76 @@ final class SpeechSink {
         guard !speaking, !queue.isEmpty else { return }
         let ack = queue.removeFirst()
         speaking = true
-        // Zeca's own voice when the service rendered one, the on-device
-        // synthesizer otherwise - and ALSO whenever the clip fails to fetch or
-        // play. The nicer voice must never be able to cost an acknowledgement:
-        // a wearer who hears nothing cannot tell "no clip" from "not listening",
-        // and that ambiguity is exactly what this app is bad at.
-        if let clipPlayer, let audioPath = ack.audioPath, !audioPath.isEmpty {
-            clipPlayer.play(path: audioPath, volume: volume) { [weak self] played in
-                guard let self else { return }
-                if played {
-                    self.speaking = false
-                    self.onReceipt?(Receipt(ackId: ack.id, ok: true, reason: "clip"))
-                    self.pump()
-                } else {
-                    self.speakLocally(ack)
-                }
-            }
-            return
-        }
-        speakLocally(ack)
+        currentAck = ack
+        generation &+= 1
+        let chunks = ack.audioChunks?.isEmpty == false ? ack.audioChunks! : [SpeechAudioChunk(text: ack.text, audioPath: ack.audioPath)]
+        playChunk(ack, chunks: chunks, index: 0, token: generation, usedSynth: false)
     }
 
-    private func speakLocally(_ ack: AckPayload) {
-        let reason = Self.synthReason(for: ack.lang)
-        utterer.utter(ack.text, rate: rate, volume: volume, voiceId: voiceId ?? Self.localVoice(for: ack.lang)) {
-            [weak self] finished in
-            guard let self else { return }
-            self.speaking = false
-            // The reason rides even on success: it is the ONLY way the server
-            // learns a line was read by a system voice rather than Diogo.
-            self.onReceipt?(Receipt(ackId: ack.id, ok: finished, reason: finished ? reason : "interrupted"))
-            self.pump()
+    private func playChunk(_ ack: AckPayload, chunks: [SpeechAudioChunk], index: Int, token: UInt64, usedSynth: Bool) {
+        guard generation == token else { return }
+        guard index < chunks.count else {
+            speaking = false
+            currentAck = nil
+            onReceipt?(Receipt(ackId: ack.id, ok: true, reason: usedSynth ? Self.synthReason(for: ack.lang) : "clip"))
+            pump()
+            return
         }
+        let chunk = chunks[index]
+        if let clipPlayer, let path = chunk.audioPath, !path.isEmpty {
+            clipPlayer.play(path: path, volume: volume) { [weak self] played in
+                guard let self, self.generation == token else { return }
+                if played {
+                    self.playChunk(ack, chunks: chunks, index: index + 1, token: token, usedSynth: usedSynth)
+                } else {
+                    self.speakChunk(ack, chunks: chunks, index: index, token: token)
+                }
+            }
+        } else {
+            speakChunk(ack, chunks: chunks, index: index, token: token)
+        }
+    }
+
+    private func speakChunk(_ ack: AckPayload, chunks: [SpeechAudioChunk], index: Int, token: UInt64) {
+        utterer.utter(chunks[index].text, rate: rate, volume: volume, voiceId: voiceId ?? Self.localVoice(for: ack.lang)) { [weak self] finished in
+            guard let self, self.generation == token else { return }
+            if finished {
+                self.playChunk(ack, chunks: chunks, index: index + 1, token: token, usedSynth: true)
+            } else {
+                self.speaking = false
+                self.currentAck = nil
+                self.onReceipt?(Receipt(ackId: ack.id, ok: false, reason: "interrupted"))
+                self.pump()
+            }
+        }
+    }
+
+    func interrupt(ackIds: [String], reason: String = "user-speech") {
+        let ids = Set(ackIds)
+        cancelledIds.append(contentsOf: ackIds)
+        cancelledIds = Array(cancelledIds.suffix(200))
+        let pending = queue.filter { ids.contains($0.id) }
+        queue.removeAll { ids.contains($0.id) }
+        let active = currentAck.flatMap { ids.contains($0.id) ? $0 : nil }
+        if active != nil {
+            generation &+= 1
+            currentAck = nil
+            speaking = false
+            clipPlayer?.stop()
+            utterer.stop()
+        }
+        for ack in pending + (active.map { [$0] } ?? []) {
+            onReceipt?(Receipt(ackId: ack.id, ok: false, reason: reason))
+        }
+        pump()
     }
 
     func stopAll() {
-        for pending in queue {
-            onReceipt?(Receipt(ackId: pending.id, ok: false, reason: "sink-off"))
-        }
-        queue.removeAll()
+        let ids = queue.map(\.id) + (currentAck.map { [$0.id] } ?? [])
+        interrupt(ackIds: ids, reason: "sink-off")
+        // A cue has no ack identity, but its late callback must also stay quiet.
+        generation &+= 1
+        speaking = false
         clipPlayer?.stop()
         utterer.stop()
     }

@@ -121,7 +121,7 @@ describe("capture-service ack sink", () => {
   }
 
   // A companion app stand-in: opens a session, records speaks, replies receipts.
-  async function appSession(base: string, sessionId: string, mode = "audio", { confirmSpeaks = true } = {}) {
+  async function appSession(base: string, sessionId: string, mode = "audio", { confirmSpeaks = true, speechProtocol = 0 } = {}) {
     const ws = new WebSocket(base.replace("http", "ws") + "/capture/stream", {
       headers: { authorization: `Bearer ${TOKEN}` }
     });
@@ -152,7 +152,7 @@ describe("capture-service ack sink", () => {
       ws.on("open", () => resolve());
       ws.on("error", reject);
     });
-    ws.send(JSON.stringify({ type: "session_start", session_id: sessionId, mode, device_name: "t", consent: "shown" }));
+    ws.send(JSON.stringify({ type: "session_start", session_id: sessionId, mode, device_name: "t", consent: "shown", speech_protocol: speechProtocol }));
     await next((m) => m.type === "session_started");
     return { ws, next, speaks };
   }
@@ -173,6 +173,36 @@ describe("capture-service ack sink", () => {
     }
     return pred();
   }
+
+  it.each(["audio", "pendant"])("interrupts a %s reply through real ingest and sends feedback to its conversation", async mode => {
+    const result = (text: string, start: number, confidence = 0.97) => JSON.stringify({ type: "Results", start, duration: 1, is_final: true, speech_final: true,
+      channel: { alternatives: [{ transcript: text, confidence, words: text.split(" ").map((word, i, words) => ({ word, start: start + i / words.length, end: start + (i + 1) / words.length, speaker: 0 })) }] } });
+    const { handle, base, pushes } = await boot([
+      { afterFrames: 1, message: result("The report is ready for your review.", 0) },
+      { afterFrames: 2, message: result("[noise]", 2) },
+      { afterFrames: 3, message: result("Wait please", 4, 0.3) },
+      { afterFrames: 4, message: result("Change the date to Friday.", 6) }
+    ], { wakeEnabled: true, pendantEnabled: true });
+    const bus = mode === "pendant" ? handle.pendantWakeBus : handle.wakeBus;
+    const turns: any[] = [];
+    bus.conversationTurnFn = async (args: any) => { turns.push(args); return { ok: true }; };
+    const app = await appSession(base, "01INTERRUPTIONTEST1", mode, { confirmSpeaks: false, speechProtocol: 1 });
+    await bus.notifier.send({ template: "conversation_reply", params: { text: "The report is ready for your review.", sessionId: "01INTERRUPTIONTEST1", conversationId: "zeca-thread" } });
+    expect(await waitFor(() => app.speaks.length === 1)).toBe(true);
+    for (let seq = 1; seq <= 3; seq++) {
+      app.ws.send(encodeMediaFrame(0, seq, seq * 20, Buffer.from([0xf8, 0xff, 0xfe])));
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+    expect(handle.counters.read().speech_interruptions ?? 0).toBe(0);
+    app.ws.send(encodeMediaFrame(0, 4, 80, Buffer.from([0xf8, 0xff, 0xfe])));
+    const interrupted = await app.next(m => m.type === "speech.interrupt");
+    expect(interrupted.ack_ids).toEqual([app.speaks[0].ack.id]);
+    expect(await waitFor(() => turns.length === 1)).toBe(true);
+    expect(turns[0]).toMatchObject({ conversationId: "zeca-thread", command: "Change the date to Friday." });
+    expect(app.speaks).toHaveLength(1);
+    expect(pushes).toEqual([]);
+    app.ws.close();
+  });
 
   it("speaks into a live audio session and ledgers the receipt; screen_audio and sink-off fall to push", async () => {
     const { handle, pushes, base } = await boot();

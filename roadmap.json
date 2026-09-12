@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-09-12T00:26:06.813Z",
+  "updatedAt": "2026-09-12T07:44:27.367Z",
   "categories": [
     {
       "id": "c1",
@@ -614,6 +614,13 @@
           "id": "c7.10",
           "text": "Deliver reliable phone listening through the existing native Capture plugin: separate intent and actual, phone and pendant watchdog pushes, automatic interruption recovery, shared Home/Capture controls and header badge, one wake tone, automated simulator acceptance and a TestFlight build. The 11 September 2026 brief supersedes the historical always-on phone deferral. Physical checks remain in docs/phone-listening-checklist.md; design and evidence are in docs/phone-listening.md.",
           "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c7.11",
+          "text": "Make spoken replies interruptible by confident speech after echo filtering, send captured commands directly without spoken repeat-back, and accept same-conversation feedback for 15 seconds after playback. Keep long replies on provider TTS with bounded clips. Automated native and server evidence and physical limitations are in docs/voice-conversation-controls.md.",
+          "done": false,
           "sentToKanban": null,
           "noteRef": null
         }

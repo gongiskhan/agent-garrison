@@ -170,6 +170,9 @@ final class CaptureController: ObservableObject {
         }
         // The mouth: acks arrive on the session socket, the sink decides, and
         // the receipt goes straight back so the server can tell silence from off.
+        uploader.onInterruptSpeech = { [weak self] ids in
+            Task { @MainActor in self?.speechSink.interrupt(ackIds: ids) }
+        }
         uploader.onSpeak = { [weak self, weak uploader] ack in
             Task { @MainActor in
                 guard let self else { return }

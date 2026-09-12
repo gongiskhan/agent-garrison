@@ -288,6 +288,7 @@ declare module "*/capture-service/lib/tts.mjs" {
     backend?: "elevenlabs" | "deepgram";
   }): string;
   export function looksPortuguese(text: unknown): boolean;
+  export function speechChunks(text: unknown, max?: number): string[];
   export const MAX_TEXT_CHARS: number;
   export const TTS_BACKENDS: string[];
   export function resolveBackend(cfg: Record<string, unknown>): {
@@ -453,9 +454,10 @@ declare module "*/capture-service/lib/wake.mjs" {
     expectAnswer(
       sessionId: string,
       ackId: string,
-      opts?: { lang?: string | null; rounds?: number; eventId?: string | null; reprompt?: boolean; spoken?: string | null }
+      opts?: { lang?: string | null; rounds?: number; eventId?: string | null; reprompt?: boolean; spoken?: string | null; conversationId?: string | null }
     ): void;
     armAnswerWindow(ackId: string): string | null;
+    observeFeedbackInterim(sessionId: string, segment: unknown): void;
     openAnswerWindow(sessionId: string): { ackId: string; lang: string; rounds: number; reprompt?: boolean } | null;
     isSpokenEcho(text: string, spoken: string | null): boolean;
     dispatch(args: {
@@ -648,4 +650,10 @@ declare module "*/capture-service/lib/device-listening.mjs" {
     activity(device: string, source: string): any;
     tick(): Promise<void>;
   }
+}
+
+declare module "*/capture-service/lib/speech-input.mjs" {
+  export const REPLY_FEEDBACK_WINDOW_MS: number;
+  export const FEEDBACK_SETTLE_MS: number;
+  export function confidentSpeech(segment: unknown, options?: { interim?: boolean }): boolean;
 }

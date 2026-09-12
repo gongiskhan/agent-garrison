@@ -1,6 +1,6 @@
 # Architecture conventions
 
-Native capture reliability: [Phone listening](phone-listening.md).
+Native capture reliability: [Phone listening](phone-listening.md). Spoken turns: [Voice conversation controls](voice-conversation-controls.md).
 
 Durable doctrine for adding a `src/lib/*` module or a UI surface to Agent
 Garrison. This is the conventions document a generic implementer is handed —

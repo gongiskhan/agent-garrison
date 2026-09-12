@@ -21,6 +21,8 @@
 // log keeps ids and outcomes, never text (I5 discipline).
 
 import path from "node:path";
+import { speechChunks } from "./tts.mjs";
+import { confidentSpeech } from "./speech-input.mjs";
 import { appendFileSync, mkdirSync } from "node:fs";
 
 const SPEAK_RECEIPT_TIMEOUT_MS = 30_000; // default; cfg.speakReceiptTimeoutMs overrides (tests)
@@ -47,6 +49,8 @@ export class AckSink {
     this.now = now;
     this.voice = voice;
     this.languageMemory = languageMemory;
+    this.interimSpeech = new Map();
+    this.onInterrupt = null;
     this.pendingSpeaks = new Map(); // ack id -> {sentAt, sessionId, timer}
     this.replyClaims = new Map();
     this.ackDeliveries = new Map();
@@ -138,7 +142,7 @@ export class AckSink {
   //
   // So: newest first, and a session that has recently failed to answer is
   // skipped rather than being chosen again and again.
-  speakableSession() {
+  speakableSession(sessionId = null) {
     if (!this.cfg.speakEnabled) return null;
     const candidates = [];
     for (const session of this.ingress.sessions.values()) {
@@ -147,6 +151,7 @@ export class AckSink {
       // exactly who wants to be answered out loud - excluding it meant Zeca
       // could not talk to the one session that listens all day. screen_audio
       // is still excluded (ADR section 6).
+      if (sessionId && session.record.id !== sessionId) continue;
       const speakableMode = session.record.mode === "audio" || session.record.mode === "pendant";
       if (!speakableMode) continue;
       if (session.record.ended) continue;
@@ -208,18 +213,27 @@ export class AckSink {
     this.counters.bump("acks_in");
 
     // 2. Speak lane.
-    const session = this.speakableSession();
+    const session = this.speakableSession(ack.sessionId ?? null);
     if (session) {
       try {
         // Zeca's own voice when one can be rendered, the phone's synthesizer
         // otherwise. clipFor NEVER throws and returns null on any failure, so
         // the acknowledgement is never held hostage to the nicety - the phone
         // just speaks it itself, exactly as it always did.
-        const clip = this.voice ? await this.voice.clipFor(ack.text, { lang: ack.lang ?? null }) : null;
-        // RELATIVE on purpose: the phone reaches this service over the tailnet,
-        // never on localhost, so an absolute machine-local URL would be
-        // unreachable AND mixed content (the standing house rule).
-        const speak = clip ? { ...ack, audioPath: `/speak/${clip.id}.mp3` } : ack;
+        const chunks = speechChunks(ack.text);
+        const chunked = session.speechProtocol === 1 && chunks.length > 1;
+        const audioChunks = chunked ? [] : null;
+        if (audioChunks) {
+          // Bound provider concurrency when a reply spans many clips.
+          for (let i = 0; i < chunks.length; i += 2) {
+            audioChunks.push(...await Promise.all(chunks.slice(i, i + 2).map(async text => {
+              const clip = this.voice ? await this.voice.clipFor(text, { lang: ack.lang ?? null }) : null;
+              return { text, audioPath: clip ? `/speak/${clip.id}.mp3` : null };
+            })));
+          }
+        }
+        const clip = !chunked && this.voice ? await this.voice.clipFor(ack.text, { lang: ack.lang ?? null }) : null;
+        const speak = audioChunks ? { ...ack, audioChunks } : clip ? { ...ack, audioPath: `/speak/${clip.id}.mp3` } : ack;
         // The echo-guard fingerprint and the receipt timer must expire together:
         // a longer wait for the phone's receipt with a shorter echo-suppression
         // window means the tail of a slow reply escapes suppression the moment
@@ -304,12 +318,45 @@ export class AckSink {
     return { status: 200, body: { ok: true, registered, delivered: via, receipts } };
   }
 
+  // Only recognized, non-echo speech from this playback's own capture stream
+  // may interrupt it. Interim text must remain stable across two observations.
+  considerInterruption(sessionId, segment) {
+    const session = this.ingress.sessions.get(sessionId);
+    if (session?.speechProtocol !== 1) return false;
+    const pending = [...this.pendingSpeaks].filter(([, value]) => value.sessionId === sessionId);
+    if (!pending.length) { this.interimSpeech.delete(sessionId); return false; }
+    if (!confidentSpeech(segment, { interim: !segment.final })) return false;
+    if (!segment.final) {
+      const words = String(segment.text).toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+      const previous = this.interimSpeech.get(sessionId);
+      if (!previous || previous.start !== segment.start || !words.join(" ").startsWith(previous.words)) {
+        this.interimSpeech.set(sessionId, { start: segment.start, words: words.join(" "), at: this.now() });
+        return false;
+      }
+      if (this.now() - previous.at < 250) return false;
+    }
+    this.interimSpeech.delete(sessionId);
+    const ids = pending.map(([id]) => id);
+    try { session.socket.send(JSON.stringify({ type: "speech.interrupt", ack_ids: ids })); }
+    catch { return false; }
+    for (const [id, value] of pending) {
+      clearTimeout(value.timer);
+      this.pendingSpeaks.delete(id);
+      this.echoGuard.finishPlayback(id);
+      this.onInterrupt?.(id, sessionId);
+    }
+    this.counters.bump("speech_interruptions");
+    this.log.log(`[capture-service] speech interrupted by recognized input (${ids.length} playback)`);
+    return true;
+  }
+
   // {spoken: <ack id>, ok, reason?} from the app over the session socket.
-  handleSpokenReceipt(msg) {
+  handleSpokenReceipt(msg, sessionId = null) {
     const pending = this.pendingSpeaks.get(msg.spoken);
+    if (pending && sessionId && pending.sessionId !== sessionId) return false;
     if (!pending) {
       this.counters.bump("speak_receipts_unknown");
-      return;
+      return false;
     }
     clearTimeout(pending.timer);
     this.pendingSpeaks.delete(msg.spoken);
@@ -334,5 +381,6 @@ export class AckSink {
       // synth-error) — no content.
       this.log.log(`[capture-service] speak ${msg.spoken} not spoken: ${msg.reason ?? "unknown"}`);
     }
+    return true;
   }
 }

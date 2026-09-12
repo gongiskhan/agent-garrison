@@ -246,7 +246,7 @@ export class CaptureIngress {
           // sink that silently drops is indistinguishable from one that is
           // off, so the server keeps the receipt ledger (set by the server
           // after construction; counted if nothing is listening).
-          if (this.onSpokenReceipt) this.onSpokenReceipt(msg);
+          if (session && this.onSpokenReceipt) this.onSpokenReceipt(msg, session.record.id);
           else this.counters.bump("spoken_receipts_ignored");
           return;
         }
@@ -299,6 +299,7 @@ export class CaptureIngress {
         } catch {}
       }
       existingLive.socket = ws;
+      existingLive.speechProtocol = msg.speech_protocol === 1 ? 1 : 0;
       this.armIdleTimer(existingLive);
       this.counters.bump("sessions_resumed");
       const hw = existingLive.media.highWater();
@@ -359,7 +360,7 @@ export class CaptureIngress {
       transient,
       onAudioFrame: (seq, ts, bytes) => this.feedAudio(session, bytes)
     });
-    const session = { record, media, socket: ws, idleTimer: null, transcribing, lastAudioAt: null };
+    const session = { record, media, socket: ws, idleTimer: null, transcribing, lastAudioAt: null, speechProtocol: msg.speech_protocol === 1 ? 1 : 0 };
     this.sessions.set(id, session);
     this.armIdleTimer(session);
 

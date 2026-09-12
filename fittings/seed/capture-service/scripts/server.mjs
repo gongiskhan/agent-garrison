@@ -944,7 +944,8 @@ export async function startServer(cfg = loadConfig()) {
           !ackSinkRef.claimReply(`${params.conversationId}:${params.stretchId}`, "native")) {
         return [{ means: "companion-speech", ok: true, deduplicated: true }];
       }
-      if (spokenFirst && text && ackSinkRef?.speakableSession()) {
+      const playbackSession = ackSinkRef?.speakableSession(params.sessionId ?? null) ?? ackSinkRef?.speakableSession();
+      if (spokenFirst && text && playbackSession) {
         const ackId = `wake-${ulid()}`;
         // Progress pings and "didn't catch that" are presence, not information:
         // spoken when someone is listening, never turned into a banner.
@@ -959,17 +960,18 @@ export async function startServer(cfg = loadConfig()) {
         // to disqualify it from opening a window at all, so the one line whose
         // whole purpose is "say it again" was the one line that stopped
         // listening.
-        const wantsAnswer = params.reprompt === true || (!isProgress && text.endsWith("?"));
+        const wantsAnswer = template === "conversation_reply" || params.reprompt === true || (!isProgress && text.endsWith("?"));
         if (wantsAnswer && params.sessionId) {
-          for (const bus of answerBuses) {
-            bus.expectAnswer(params.sessionId, ackId, {
+          const bus = playbackSession.record.mode === "pendant" ? pendantWakeBus : wakeBus;
+          bus.session(playbackSession.record.id);
+          bus.expectAnswer(playbackSession.record.id, ackId, {
               lang: params.lang ?? null,
               rounds: params.followupRounds ?? 0,
               eventId: params.eventId ?? null,
               reprompt: params.reprompt === true,
-              spoken: text
-            });
-          }
+              spoken: text,
+              conversationId: params.conversationId ?? null
+          });
         }
         try {
           const res = await ackSinkRef.handleAck({
@@ -977,6 +979,7 @@ export async function startServer(cfg = loadConfig()) {
             kind: "captured",
             severity: "info",
             templateId: template,
+            sessionId: playbackSession.record.id,
             text,
             ...(params.lang ? { lang: params.lang } : {})
           });
@@ -1144,11 +1147,15 @@ export async function startServer(cfg = loadConfig()) {
     // and the settled-close logic keys on smart_format punctuation. The one
     // interim consumer is the pendant's feedback-only wake watcher above.
     onSegment: (sessionId, segment) => {
+      ackSinkRef?.considerInterruption(sessionId, segment);
       // A cancellation is an ANSWER to a prompt Zeca just spoke, not a command,
       // so it is checked before the wake gate and before the discussion branch
       // and it needs no wake word.
       if (segment.final && confirmBus.consumeSegment(sessionId, segment.text)) return;
       const mode = ingress?.sessions.get(sessionId)?.record.mode ?? null;
+      if (!segment.final && live.wakeEnabled) {
+        (mode === "pendant" ? pendantWakeBus : wakeBus).observeFeedbackInterim(sessionId, segment);
+      }
       // Language is learned ONLY from speech aimed at Zeca: a segment carrying
       // the wake word, or one arriving while the capture window is open.
       // Ambient television in another language must never flip the cue.
@@ -1236,8 +1243,12 @@ export async function startServer(cfg = loadConfig()) {
     counters.bump("wake_confirmation_push_after_timeout");
     void notifier.send(entry.payload).catch(() => []);
   };
-  ingress.onSpokenReceipt = (msg) => {
-    ackSink.handleSpokenReceipt(msg);
+  ackSink.onInterrupt = (ackId) => {
+    awaitingReceipt.delete(ackId);
+    for (const bus of answerBuses) bus.armAnswerWindow(ackId);
+  };
+  ingress.onSpokenReceipt = (msg, sessionId) => {
+    if (!ackSink.handleSpokenReceipt(msg, sessionId)) return;
     // The announcement has actually left the speaker now, so the microphone is
     // hearing the user again rather than us.
     if (msg?.ok) {
