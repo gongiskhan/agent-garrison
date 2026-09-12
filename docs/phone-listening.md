@@ -1,6 +1,6 @@
 # Phone listening
 
-Automated acceptance passed on 12 September 2026: [135 native tests](https://github.com/gongiskhan/agent-garrison/actions/runs/34656307376), [Home/Capture screenshots and mock controls](https://github.com/gongiskhan/agent-garrison/actions/runs/34636326744), and [the complete simulator journey plus device compilation](https://github.com/gongiskhan/agent-garrison/actions/runs/34659711993). TestFlight delivery is pending.
+Automated acceptance passed on 12 September 2026: [135 native tests](https://github.com/gongiskhan/agent-garrison/actions/runs/34656307376), [Home/Capture screenshots and mock controls](https://github.com/gongiskhan/agent-garrison/actions/runs/34636326744), and [the complete simulator journey plus device compilation](https://github.com/gongiskhan/agent-garrison/actions/runs/34659711993). [TestFlight 1.0 build 40](https://github.com/gongiskhan/ios-thing/actions/runs/34660796010) finished Apple processing on 12 September 2026 from revision `a25683e1`.
 
 ## Intent and actual
 
