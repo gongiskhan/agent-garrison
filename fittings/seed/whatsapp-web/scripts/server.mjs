@@ -19,8 +19,9 @@
 // on disk (creds.json under session_dir/auth) OR a human explicitly requests
 // a pairing code via POST /pair (see scripts/pair.mjs + instructions.md).
 // Nothing in this Fitting calls /pair on its own.
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { mkdir, unlink, writeFile, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { timingSafeEqual } from "node:crypto";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -30,6 +31,7 @@ import { assertValidJid, isValidJid } from "../lib/jid.mjs";
 import { Outbox } from "../lib/outbox.mjs";
 import { SendQueue } from "../lib/pacing.mjs";
 import { MessageStore } from "../lib/store.mjs";
+import { WhatsAppMessagesStore, normalizeWhatsAppMessage, whatsappDescriptor, createWhatsAppMessagesAdapter } from "../lib/messages.mjs";
 
 // Mirrors garrisonDir() in src/lib/claude-home.ts.
 function garrisonDir() {
@@ -494,6 +496,8 @@ export function buildConnectionManager({
   contactIndex,
   sendQueue,
   messageBus = NULL_BUS,
+  messagesEnabled = () => false,
+  onMessagesRecord = () => {},
   log = () => {},
   fetchImpl = fetch,
   // Injectable so a hand test COULD exercise this against a fake Baileys
@@ -527,6 +531,7 @@ export function buildConnectionManager({
   const avatars = createAvatarResolver({
     getProfilePictureUrl: (jid, kind) => state.sock?.profilePictureUrl?.(jid, kind)
   });
+  const groupCache = new Map();
 
   function credsPath() {
     return path.join(authDir, "creds.json");
@@ -631,6 +636,7 @@ export function buildConnectionManager({
 
     sock.ev.on("messages.upsert", ({ messages }) => {
       for (const m of messages || []) {
+        onMessagesRecord(m, state.sock?.user?.id?.replace(/:\d+@/, "@") ?? "default");
         const body = extractMessageText(m.message);
         if (!body) continue;
         const chatJid = m.key?.remoteJid;
@@ -675,7 +681,7 @@ export function buildConnectionManager({
             const avatarUrl = await avatars.lookup(chatJid);
             messageBus.publish({ type: "message", direction: "in", avatarUrl, ...pulse });
           })();
-          void forwardInbound(chatJid, body);
+          if (!messagesEnabled()) void forwardInbound(chatJid, body);
         }
       }
     });
@@ -721,6 +727,11 @@ export function buildConnectionManager({
       indexContacts(contacts);
       for (const c of chats || []) {
         if (c.id && (c.name || c.subject)) contactIndex.upsert(c.id, c.name || c.subject);
+      }
+      for (const message of payload?.messages ?? []) {
+        if (Number(message.messageTimestamp) * 1000 >= Date.now() - 24 * 3600_000) {
+          onMessagesRecord(message, state.sock?.user?.id?.replace(/:\d+@/, "@") ?? "default");
+        }
       }
       log("history sync: contact index now " + contactIndex.size + " entries");
     });
@@ -805,6 +816,51 @@ export function buildConnectionManager({
       return { id: result?.key?.id ?? null };
     },
 
+    async sendMedia(jid, body, attachments = []) {
+      assertValidJid(jid);
+      if (!state.sock || !state.connected) throw new Error("WhatsApp is not connected");
+      if (!attachments.length) return this.sendText(jid, body);
+      let result;
+      for (const [index, attachment] of attachments.entries()) {
+        const bytes = await readFile(attachment.path);
+        let content;
+        if (attachment.asVoiceNote || attachment.mime.startsWith("audio/")) {
+          content = { audio: bytes, mimetype: attachment.mime, ptt: !!attachment.asVoiceNote };
+        } else if (attachment.mime.startsWith("image/")) {
+          content = { image: bytes, mimetype: attachment.mime, caption: index === 0 ? body : "" };
+        } else {
+          content = { document: bytes, mimetype: attachment.mime, fileName: attachment.name, caption: index === 0 ? body : "" };
+        }
+        result = await sendQueue.enqueue(() => state.sock.sendMessage(jid, content));
+      }
+      if (body && attachments.every(attachment => attachment.mime.startsWith("audio/"))) await this.sendText(jid, body);
+      return { id: result?.key?.id ?? null };
+    },
+
+    async downloadMedia(message) {
+      const { downloadMediaMessage } = await baileysModuleLoader();
+      return downloadMediaMessage(message, "buffer", {}, { reuploadRequest: state.sock?.updateMediaMessage,
+        logger: { trace() {}, debug() {}, info() {}, warn() {}, error() {} } });
+    },
+
+    async readMessages(keys) {
+      if (!state.sock || !state.connected) throw new Error("WhatsApp is not connected");
+      if (keys.length) await state.sock.readMessages(keys);
+    },
+
+    async deleteMessage(key) {
+      if (!state.sock || !state.connected) throw new Error("WhatsApp is not connected");
+      await sendQueue.enqueue(() => state.sock.sendMessage(key.remoteJid, { delete: key }));
+    },
+
+    accountId() { return state.sock?.user?.id?.replace(/:\d+@/, "@") ?? "default"; },
+
+    async groupMetadata(jid) {
+      if (!jid.endsWith("@g.us") || !state.sock?.groupMetadata) return null;
+      if (!groupCache.has(jid)) groupCache.set(jid, Promise.resolve(state.sock.groupMetadata(jid)).catch(() => { groupCache.delete(jid); return null; }));
+      return groupCache.get(jid);
+    },
+
     status() {
       return {
         paired: state.paired,
@@ -847,11 +903,12 @@ export function createOutboxSender(connectionManager) {
     // sendText, not the raw socket: the connection check, the jid assertion and
     // the human-pacing SendQueue all belong to the moment of the real send, not
     // to the moment it was parked.
+    if (entry.action === "send_message") return connectionManager.sendMedia(entry.payload.jid, entry.payload.body, entry.payload.attachments);
     return connectionManager.sendText(entry.payload.jid, entry.payload.body);
   };
 }
 
-export function createApp({ connectionManager, store, contactIndex, messageBus = NULL_BUS, outbox = null, port, host, log = () => {} }) {
+export function createApp({ connectionManager, store, contactIndex, messageBus = NULL_BUS, outbox = null, messagesAdapter = null, messagesBus = NULL_BUS, verifyMessagesWrite = async () => false, port, host, log = () => {} }) {
   // What a queued entry looks like from outside: enough to decide whether to
   // cancel it, never the whole record (the payload is a private message).
   const publicEntry = (entry) => ({
@@ -872,6 +929,24 @@ export function createApp({ connectionManager, store, contactIndex, messageBus =
         return jsonRes(res, 403, { ok: false, error: "loopback only" });
       }
       const parsed = url.parse(req.url || "", true);
+
+      if (req.method === "POST" && parsed.pathname?.startsWith("/messages-adapter/")) {
+        const method = parsed.pathname.slice("/messages-adapter/".length);
+        if (!messagesAdapter || !Object.hasOwn(messagesAdapter, method) || typeof messagesAdapter[method] !== "function") return jsonRes(res, 404, { error: "Unknown Messages adapter method" });
+        if (["send", "setRead", "delete", "cancelSend", "outboxStatus"].includes(method) && !await verifyMessagesWrite(req)) return jsonRes(res, 403, { error: "Messages write authorization is required" });
+        const result = await messagesAdapter[method](await readJsonBody(req));
+        return jsonRes(res, 200, result ?? { ok: true });
+      }
+
+      if (req.method === "GET" && parsed.pathname === "/messages-adapter/events") {
+        res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache, no-transform", "connection": "keep-alive" });
+        res.write("event: hello\ndata: {}\n\n");
+        const unsubscribe = messagesBus.subscribe(event => { res.write(`event: message\ndata: ${JSON.stringify(event)}\n\n`); });
+        const heartbeat = setInterval(() => res.write(": ping\n\n"), 25_000);
+        heartbeat.unref?.();
+        res.on("close", () => { unsubscribe(); clearInterval(heartbeat); });
+        return;
+      }
 
       if (req.method === "GET" && parsed.pathname === "/health") {
         return jsonRes(res, 200, {
@@ -1082,6 +1157,10 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const cachedContacts = contactIndex.load();
   const sendQueue = new SendQueue({ minDelayMs: opts.minSendDelayMs, maxDelayMs: opts.maxSendDelayMs });
   const messageBus = createMessageBus();
+  const messagesBus = createMessageBus();
+  const messagesRoot = path.join(garrisonDir(), "messages");
+  const messagesStore = new WhatsAppMessagesStore(messagesRoot);
+  let messagesActive = false;
   const connectionManager = buildConnectionManager({
     sessionDir: opts.sessionDir,
     gatewayUrl: opts.gatewayUrl,
@@ -1089,15 +1168,37 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     contactIndex,
     sendQueue,
     messageBus,
+    messagesEnabled: () => messagesActive,
+    onMessagesRecord(raw, account) {
+      const normalized = normalizeWhatsAppMessage(raw, { account, contactName: jid => contactIndex.byJid.get(jid)?.name });
+      if (messagesStore.append(raw, normalized)) messagesBus.publish(messagesStore.expose(normalized));
+      if (raw.key?.remoteJid?.endsWith("@g.us")) {
+        void connectionManager.groupMetadata(raw.key.remoteJid).then(group => {
+          if (!group) return;
+          const enriched = normalizeWhatsAppMessage(raw, { account, group, contactName: jid => contactIndex.byJid.get(jid)?.name });
+          if (messagesStore.append(raw, enriched)) messagesBus.publish(messagesStore.expose(enriched));
+        }).catch(error => log(`Messages group metadata unavailable: ${error.message}`));
+      }
+    },
     log
   });
 
   // The delay buffer. Every agent-triggered send is parked here first; this
   // daemon is the only process long-lived enough to hold the window.
   const outbox = new Outbox({ file: OUTBOX_FILE, log, send: createOutboxSender(connectionManager) });
+  const messagesAdapter = createWhatsAppMessagesAdapter({ connectionManager, messagesStore, outbox, root: messagesRoot });
 
   const server = http.createServer(
-    createApp({ connectionManager, store, contactIndex, messageBus, outbox, port, host: opts.host, log })
+    createApp({ connectionManager, store, contactIndex, messageBus, outbox, messagesAdapter, messagesBus, port, host: opts.host, log,
+      async verifyMessagesWrite(request) {
+        try {
+          const expected = (await readFile(process.env.GARRISON_INTERNAL_TOKEN_PATH ?? path.join(garrisonDir(), "internal-token"), "utf8")).trim();
+          const received = request.headers["x-garrison-internal"];
+          if (typeof received !== "string" || !expected) return false;
+          const a = Buffer.from(expected), b = Buffer.from(received);
+          return a.length === b.length && timingSafeEqual(a, b);
+        } catch { return false; }
+      } })
   );
 
   await new Promise((resolve, reject) => {
@@ -1123,8 +1224,26 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   log(`listening on http://${opts.host}:${port} (session: ${opts.sessionDir})`);
   log(`contact index: ${cachedContacts} entries restored from cache`);
 
+  async function registerMessages() {
+    const appUrl = process.env.GARRISON_APP_URL;
+    if (!appUrl) return;
+    try {
+      const internal = (await readFile(process.env.GARRISON_INTERNAL_TOKEN_PATH ?? path.join(garrisonDir(), "internal-token"), "utf8")).trim();
+      const node = JSON.parse(await readFile(path.join(garrisonDir(), "node.json"), "utf8"));
+      const stateToken = process.env.GARRISON_STATE_TOKEN || JSON.parse(await readFile(path.join(garrisonDir(), "state.json"), "utf8")).token;
+      const descriptor = { ...whatsappDescriptor(connectionManager.accountId(), connectionManager.status().connected), ownerNode: node.name,
+        callbackBaseUrl: `http://${opts.host}:${port}/messages-adapter` };
+      const response = await fetch(`${appUrl.replace(/\/$/, "")}/api/messages/providers/register`, { method: "POST",
+        headers: { "content-type": "application/json", "x-garrison-internal": internal, authorization: `Bearer ${stateToken}` }, body: JSON.stringify({ descriptor, callbackBaseUrl: descriptor.callbackBaseUrl }), signal: AbortSignal.timeout(10_000) });
+      if (response.ok) messagesActive = true;
+    } catch (error) { log(`Messages registration unavailable: ${error.message}`); }
+  }
+  await registerMessages();
+
   // Auto-reconnect only; never pairs on its own (see buildConnectionManager.init).
   await connectionManager.init().catch((err) => log(`init failed: ${err.message}`));
+  const registrationTimer = setInterval(() => { void registerMessages(); }, 30_000);
+  registrationTimer.unref();
 
   // A restart inside someone's cancel window must not swallow their message:
   // re-arm what is still parked (overdue entries fire now). Anything caught
@@ -1133,6 +1252,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   if (rearmed.length) log(`outbox: re-armed ${rearmed.length} parked send(s)`);
 
   const shutdown = async (signal) => {
+    clearInterval(registrationTimer);
     log(`received ${signal}, shutting down`);
     await connectionManager.close().catch(() => {});
     await clearStatusFile();
@@ -1142,5 +1262,5 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   process.on("SIGINT", () => void shutdown("SIGINT"));
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
-  return { server, connectionManager, store, contactIndex };
+  return { server, connectionManager, store, contactIndex, messagesStore, messagesAdapter };
 }

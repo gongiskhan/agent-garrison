@@ -1,0 +1,11 @@
+{
+  "group": { "subject": "Fixture project", "participants": [{ "id": "100@s.whatsapp.net" }, { "id": "200@s.whatsapp.net" }] },
+  "messages": [
+    { "key": { "id": "WAIMAGE1", "remoteJid": "123456@g.us", "participant": "200@s.whatsapp.net", "fromMe": false }, "pushName": "Example Client", "messageTimestamp": 1789300800,
+      "message": { "imageMessage": { "caption": "*Project update*", "mimetype": "image/jpeg", "fileLength": 4096, "width": 640, "height": 480 } } },
+    { "key": { "id": "WAAUDIO1", "remoteJid": "200@s.whatsapp.net", "fromMe": false }, "pushName": "Example Client", "messageTimestamp": 1789300801,
+      "message": { "audioMessage": { "mimetype": "audio/ogg; codecs=opus", "fileLength": 8192, "seconds": 3, "ptt": true } } },
+    { "key": { "id": "WATEXT1", "remoteJid": "200@s.whatsapp.net", "fromMe": true }, "messageTimestamp": 1789300802,
+      "message": { "conversation": "Thanks for the update." } }
+  ]
+}

@@ -56,3 +56,29 @@ These are API journey reports. Inbox styling and interaction checks are recorded
 - p4/slack-replied-desktop.png: PASS. Provider and account badge visible; timestamp readable; mail or chat actions and fenced code fit; composer stays within the viewport; no clipped controls or overlap. Conversation content scrolls inside its pane.
 
 The initial raw filter chip and copied outgoing Slack reactions were corrected, recaptured and checked. Mail remote-image placeholders are deliberate until Load images is selected.
+
+## Phase 5, lead visual check, 13 September 2026
+
+- p5/group-inbox-desktop.png: PASS. Provider badge and group title remain visible; text and actions fit; no overlapping controls.
+- p5/group-inbox-iphone.png: PASS. Provider badge and group title remain visible; text and actions fit; no overlapping controls.
+- p5/group-replied-desktop.png: PASS. Provider badge and group title remain visible; text and actions fit; no overlapping controls.
+- p5/group-replied-iphone.png: PASS. Provider badge and group title remain visible; text and actions fit; no overlapping controls.
+- p5/photo-viewer-desktop.png: PASS. Image viewer controls remain reachable; the initial image fits and the zoomed image pans inside the viewer.
+- p5/photo-viewer-iphone.png: PASS. Image viewer controls remain reachable; the initial image fits and the zoomed image pans inside the viewer.
+- p5/photo-viewer-zoomed-desktop.png: PASS. Image viewer controls remain reachable; the initial image fits and the zoomed image pans inside the viewer.
+- p5/photo-viewer-zoomed-iphone.png: PASS. Image viewer controls remain reachable; the initial image fits and the zoomed image pans inside the viewer.
+
+## Phase 6, lead visual check, 13 September 2026
+
+- p6/drive-picker-desktop.png: PASS. Search, file choices and selection controls fit the picker without clipping.
+- p6/drive-picker-iphone.png: PASS. Search, file choices and selection controls fit the picker without clipping.
+- p6/file-and-link-desktop.png: PASS. Media controls, attachment preview and applicable transcript are legible; composer remains docked; no overlapping controls.
+- p6/file-and-link-iphone.png: PASS. Media controls, attachment preview and applicable transcript are legible; composer remains docked; no overlapping controls.
+- p6/photo-attached-desktop.png: PASS. Media controls, attachment preview and applicable transcript are legible; composer remains docked; no overlapping controls.
+- p6/photo-attached-iphone.png: PASS. Media controls, attachment preview and applicable transcript are legible; composer remains docked; no overlapping controls.
+- p6/transcript-search-desktop.png: PASS. Media controls, attachment preview and applicable transcript are legible; composer remains docked; no overlapping controls.
+- p6/transcript-search-iphone.png: PASS. Media controls, attachment preview and applicable transcript are legible; composer remains docked; no overlapping controls.
+- p6/voice-player-desktop.png: PASS. Audio duration, playback progress, speed control and transcript render completely; actual playback advancement is asserted by the journey.
+- p6/voice-player-iphone.png: PASS. Audio duration, playback progress, speed control and transcript render completely; actual playback advancement is asserted by the journey.
+- p6/voice-preview-desktop.png: PASS. Media controls, attachment preview and applicable transcript are legible; composer remains docked; no overlapping controls.
+- p6/voice-preview-iphone.png: PASS. Media controls, attachment preview and applicable transcript are legible; composer remains docked; no overlapping controls.

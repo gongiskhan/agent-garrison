@@ -98,11 +98,13 @@ declare module "*/whatsapp-web/scripts/server.mjs" {
     init(): Promise<void>;
     requestPairingCode(phoneNumber: string): Promise<string>;
     sendText(jid: string, body: string): Promise<{ id: string | null }>;
+    sendMedia(jid: string, body: string, attachments?: unknown[]): Promise<{ id: string | null }>;
     status(): { paired: boolean; connected: boolean; connecting: boolean; phone: string | null };
     close(): Promise<void>;
   };
   export function createOutboxSender(connectionManager: {
     sendText(jid: string, body: string): Promise<unknown>;
+    sendMedia?(jid: string, body: string, attachments?: unknown[]): Promise<unknown>;
   }): (entry: any) => Promise<unknown>;
   export function createApp(opts: {
     connectionManager: {
@@ -114,6 +116,9 @@ declare module "*/whatsapp-web/scripts/server.mjs" {
     contactIndex: unknown;
     messageBus?: MessageBus;
     outbox?: unknown;
+    messagesAdapter?: unknown;
+    messagesBus?: MessageBus;
+    verifyMessagesWrite?: (request: http.IncomingMessage) => Promise<boolean>;
     port: number;
     host: string;
     log?: (...args: unknown[]) => void;
