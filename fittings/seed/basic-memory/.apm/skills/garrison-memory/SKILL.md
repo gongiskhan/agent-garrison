@@ -136,8 +136,10 @@ name and document type, then `garrison_archive_read` on the matching result.
 The read includes extracted text and fields from image/PDF sidecars; a sensitive
 search snippet being hidden does not prevent the explicitly requested read.
 Try short Portuguese/English terms if needed, verify the correct company and
-field, and cite the source. Never guess a missing number or save the answer to
-memory. These tools use the Archive's current local index, including attachments.
+field, and cite the source with a Markdown link to the returned `url`.
+Return only the requested fact; omit identifiers
+from other documents and unrelated fields. Never guess a missing number or
+save the answer to memory. These tools use the Archive's current local index, including attachments.
 If they are unavailable, use the configured Basic Memory search/read tools on
 project `main`, including `Archive/` and its derived attachment notes. This is
 knowledge retrieval, not task management; actionable work belongs in Kanban.

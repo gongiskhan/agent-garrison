@@ -24,6 +24,28 @@ it('moves an inbox source and sidecar together and preserves collisions on resto
 
 it('restores a colliding file with its extension and sidecar source intact',async()=>{const s=await scratch({seed:false});try{await s.write('Archive/Inbox/a.txt','First');await s.write('Archive/Inbox/a.txt.md','---\ngarrison: derived\nsource: a.txt\n---\n## Text\nFirst');const entry=(await s.request('file','DELETE',{path:'Archive/Inbox/a.txt'})).data.trashedTo;await s.write('Archive/Inbox/a.txt','Second');const result=(await s.request('trash/restore','POST',{entry})).data;expect(result.path).toBe('Archive/Inbox/a (2).txt');expect(await s.read(result.path+'.md')).toContain('source: a (2).txt');expect(await s.read('Archive/Inbox/a.txt')).toBe('Second');}finally{await s.close();}});
 
-it('duplicate uploads keep their extension and never replace an existing source or sidecar',async()=>{const s=await scratch({seed:false});try{await s.write('Archive/Inbox/photo.jpg','Original');await s.write('Archive/Inbox/photo (2).jpg.md','Authored collision');const form=new FormData();form.set('target','Archive/Inbox');form.append('files[]',new Blob(['New image']),'photo.jpg');const out=await s.request('upload','POST',form);expect(out.data.files[0].path).toBe('Archive/Inbox/photo (3).jpg');expect(await s.read('Archive/Inbox/photo.jpg')).toBe('Original');expect(await s.read('Archive/Inbox/photo (2).jpg.md')).toBe('Authored collision');}finally{await s.close();}});
+it('duplicate uploads keep their extension and never replace an existing source or sidecar',async()=>{const s=await scratch({seed:false});try{await s.request('card','POST',{list:'Archive',title:'Photos'});await s.write('Archive/Photos/photo.jpg','Original');await s.write('Archive/Photos/photo (2).jpg.md','Authored collision');const form=new FormData();form.set('target','Archive/Photos');form.append('files[]',new Blob(['New image']),'photo.jpg');const out=await s.request('upload','POST',form);expect(out.data.files[0].path).toBe('Archive/Photos/photo (3).jpg');expect(await s.read('Archive/Photos/photo.jpg')).toBe('Original');expect(await s.read('Archive/Photos/photo (2).jpg.md')).toBe('Authored collision');}finally{await s.close();}});
 
 it('accepts a multiline comment beyond a title-sized limit',async()=>{const s=await scratch();try{const content='A detailed fixture comment.\n'.repeat(30);const out=await s.request('card/comment','POST',{path:'Archive/House/House maintenance',text:content});expect(out.status).toBe(200);expect((await s.request('card?path=Archive%2FHouse%2FHouse%20maintenance')).data.comments[0].markdown).toContain(content.trim());}finally{await s.close();}});
+
+it('restores an empty folder on a fresh node where Git preserved only its trash metadata',async()=>{
+ const s=await scratch({seed:false});try{
+  // Existing folders made by external editors can have no metadata file.
+  const p='Archive/Empty reference folder';await fs.mkdir(path.join(s.vaultDir,p));
+  const removed=await s.request('list','DELETE',{path:p});expect(removed.status).toBe(200);
+  // Git does not preserve empty directories. Simulate a fresh node's checkout.
+  const entry=path.join(s.vaultDir,'Archive/.trash',removed.data.trashedTo);
+  await fs.rm(path.join(entry,'content'),{recursive:true});
+  const restored=await s.request('trash/restore','POST',{entry:removed.data.trashedTo});expect(restored.status).toBe(200);expect(restored.data.path).toBe(p);expect(await fs.readdir(path.join(s.vaultDir,p))).toEqual([]);
+ }finally{await s.close();}
+});
+
+it('keeps the recovery entry and reports a missing nonempty payload instead of restoring an empty document',async()=>{
+ const s=await scratch({seed:false});try{
+  const p=(await s.request('card','POST',{list:'Archive',title:'Retained document'})).data.path;
+  const removed=await s.request('card','DELETE',{path:p});const entry=path.join(s.vaultDir,'Archive/.trash',removed.data.trashedTo);
+  await fs.rm(path.join(entry,'content'),{recursive:true});
+  expect((await s.request('trash/restore','POST',{entry:removed.data.trashedTo})).status).toBe(404);
+  expect(await fs.stat(path.join(s.vaultDir,p)).catch(()=>null)).toBeNull();expect(await fs.stat(path.join(entry,'entry.json'))).toBeTruthy();
+ }finally{await s.close();}
+});

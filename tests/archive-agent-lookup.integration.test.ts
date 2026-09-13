@@ -35,6 +35,7 @@ it.skipIf(process.env.GARRISON_INTEGRATION !== '1')('Zeca finds the correct comp
       const result = await adapter.awaitResponse(session);
       expect(result.text).toContain('FIXTURE-7391-4826');
       expect(result.text).not.toContain('WRONG-COMPANY-1111');
+      expect(result.text).not.toContain('999999990');
       expect(result.text).toMatch(/archive\/card|garrison:\/\/archive/);
       expect(calls).toContain('mcp__garrison__garrison_archive_search');
       expect(calls).toContain('mcp__garrison__garrison_archive_read');

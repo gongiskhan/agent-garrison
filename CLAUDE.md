@@ -160,7 +160,7 @@ Never copy or paraphrase Archive content into memory, captures, briefs or eviden
 Use `garrison_archive_search` then `garrison_archive_read` for requested document facts;
 reads include image/PDF extracted text. Verify the company and field, cite the source.
 Archive is knowledge; actionable work belongs in Kanban.
-Link cards as `garrison://archive/Archive/<list>/<card>` and notes by their `.md` path.
+Link documents as `garrison://archive/Archive/<folder>/<document>` and notes/bookmarks by `.md` path.
 
 ## Core Improver and Nightly Sync
 

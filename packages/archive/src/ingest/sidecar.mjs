@@ -3,6 +3,14 @@ import path from 'node:path';
 import { parseFrontmatter, stringifyFrontmatter } from '../frontmatter.mjs';
 import { confine } from '../paths.mjs';
 import { maybeRead, sha, now } from '../io.mjs';
+import {readMetadata} from '../metadata.mjs';
+
+export async function sidecarSummary(ctx,relative){
+  let parsed;try{parsed=await readMetadata(ctx,relative+'.md');}catch(error){if(error.code==='ENOENT')return null;throw error;}
+  if(parsed.frontmatter.garrison!=='derived')return null;
+  const section=name=>new RegExp(`^## ${name}\\n([\\s\\S]*?)(?=^## |$(?![\\s\\S]))`,'m').exec(parsed.body)?.[1]?.trim()??'';
+  return {...parsed.frontmatter,lazy:true,sections:{what_it_is:section('What it is').slice(0,2000)},error:section('Error')||null};
+}
 
 export async function readSidecar(ctx,relative) {
   const raw=await maybeRead(confine(ctx.vaultDir,relative+'.md'));if(!raw)return null;

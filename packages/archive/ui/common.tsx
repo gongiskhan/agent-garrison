@@ -1,5 +1,5 @@
 "use client";
-import React,{createContext,useContext,useEffect,useRef,useState} from 'react';
+import React,{createContext,useContext,useEffect,useRef,useState,useCallback} from 'react';
 import Link from 'next/link';
 import {registerArchiveNavigationGuard} from './navigation';
 export {ARCHIVE_LABEL} from '../label.mjs';
@@ -12,33 +12,37 @@ export const noteRoute=(p:string)=>route('notes',p);
 export function relativeTime(value:string|null){if(!value)return 'never';const ms=Math.max(0,Date.now()-Date.parse(value));return ms<60000?'just now':ms<3600000?`${Math.floor(ms/60000)} min ago`:ms<86400000?`${Math.floor(ms/3600000)} hr ago`:`${Math.floor(ms/86400000)} days ago`;}
 export const sizeOf=(n:number)=>n<1024*1024?`${Math.round(n/1024)} KB`:`${(n/1024/1024).toFixed(1)} MB`;
 export async function api(url:string,method='GET',body?:unknown,signal?:AbortSignal){const res=await fetch('/api/archive/'+url,{method,signal,cache:'no-store',...(body!==undefined?{headers:body instanceof FormData?{}:{'content-type':'application/json'},body:body instanceof FormData?body:JSON.stringify(body)}:{})});const out=await res.json();if(!res.ok)throw Object.assign(new Error(out.error),{status:res.status,...out});return out;}
-export function useData(url:string|null,poll=0){const [data,setData]=useState<any>(null),[error,setError]=useState<any>(null),[loadedUrl,setLoadedUrl]=useState<string|null>(null),[version,setVersion]=useState(0);const latest=useRef(url);latest.current=url;
- const refresh=()=>setVersion(v=>v+1);
+export function useData(url:string|null,poll=0){
+ const [data,setData]=useState<any>(null),[error,setError]=useState<any>(null),[loadedUrl,setLoadedUrl]=useState<string|null>(null),[version,setVersion]=useState(0);
+ const refresh=useCallback(()=>setVersion(v=>v+1),[]);
  useEffect(()=>{
   if(!url)return;
-  let live=false,abort:AbortController,timer:ReturnType<typeof setInterval>|undefined;
+  let live=false,abort:AbortController,timer:ReturnType<typeof setTimeout>|undefined;
   const start=()=>{
-   if(live)return;
+   if(live||document.visibilityState==='hidden')return;
    live=true;abort=new AbortController();const signal=abort.signal;
-   const load=()=>api(url,'GET',undefined,signal).then(out=>{if(live&&!signal.aborted){setData(out);setLoadedUrl(url);setError(null);}}).catch(e=>{if(live&&!signal.aborted)setError(e);});
-   // Let an immediately cleaned-up StrictMode mount end before starting I/O.
-   queueMicrotask(()=>{if(!signal.aborted)void load();});if(poll)timer=setInterval(load,poll);
+   const load=async()=>{
+    try{const out=await api(url,'GET',undefined,signal);if(live&&!signal.aborted){setData(out);setLoadedUrl(url);setError(null);}}
+    catch(e){if(live&&!signal.aborted)setError(e);}
+    finally{if(live&&!signal.aborted&&poll)timer=setTimeout(()=>void load(),poll);}
+   };
+   // The next poll starts only after settlement. A slow server never builds an
+   // unbounded backlog, and an old generation cannot replace a newer response.
+   queueMicrotask(()=>{if(!signal.aborted)void load();});
   };
-  // A full navigation can suspend the document without unmounting React.
-  const stop=()=>{live=false;abort?.abort();if(timer)clearInterval(timer);timer=undefined;};
+  const stop=()=>{live=false;abort?.abort();if(timer)clearTimeout(timer);timer=undefined;};
   const restore=(event:PageTransitionEvent)=>{if(event.persisted)start();};
   const interact=()=>{if(document.visibilityState==='visible')start();};
-  // WebKit can reject a timer's fetch during a provisional navigation, before
-  // pagehide. Pause at beforeunload; a cancelled leave resumes on focus/input.
+  const visibility=()=>document.visibilityState==='hidden'?stop():start();
   start();window.addEventListener('beforeunload',stop);window.addEventListener('pagehide',stop);window.addEventListener('pageshow',restore);
-  window.addEventListener('focus',interact);window.addEventListener('pointerdown',interact);window.addEventListener('keydown',interact);
-  return()=>{stop();window.removeEventListener('beforeunload',stop);window.removeEventListener('pagehide',stop);window.removeEventListener('pageshow',restore);window.removeEventListener('focus',interact);window.removeEventListener('pointerdown',interact);window.removeEventListener('keydown',interact);};
+  document.addEventListener('visibilitychange',visibility);window.addEventListener('focus',interact);window.addEventListener('pointerdown',interact);window.addEventListener('keydown',interact);
+  return()=>{stop();document.removeEventListener('visibilitychange',visibility);window.removeEventListener('beforeunload',stop);window.removeEventListener('pagehide',stop);window.removeEventListener('pageshow',restore);window.removeEventListener('focus',interact);window.removeEventListener('pointerdown',interact);window.removeEventListener('keydown',interact);};
  },[url,poll,version]);
  useEffect(()=>{setData(null);setError(null);},[url]);return {data:loadedUrl===url?data:null,error,refresh,setData};
 }
 export function usePhone(){const [phone,setPhone]=useState(true);useEffect(()=>{const media=matchMedia('(max-width: 759px)');const update=()=>setPhone(media.matches);update();media.addEventListener('change',update);return()=>media.removeEventListener('change',update);},[]);return phone;}
 export function Skeleton(){return <div className="archive-skeleton" aria-label="Loading"><i/><i/><i/></div>;}
-export function ErrorMessage({error}:{error:any}){return error?<p className="archive-error" role="alert">{error.message??String(error)}</p>:null;}
+export function ErrorMessage({error,onRetry}:{error:any;onRetry?:()=>void}){return error?<div className="archive-error" role="alert"><p>{error.message??String(error)}</p>{onRetry&&<button className="btn ghost" onClick={onRetry}>Try again</button>}</div>:null;}
 type Bridge={Drawer:React.ComponentType<any>;Confirm:React.ComponentType<any>;render:(s:string)=>string};
 const BridgeContext=createContext<Bridge>(null as any);
 export function UiBridge({value,children}:{value:Bridge;children:React.ReactNode}){return <BridgeContext.Provider value={value}>{children}</BridgeContext.Provider>;}
@@ -61,5 +65,5 @@ export function useUnsaved(dirty:boolean){useEffect(()=>{
  return()=>{removeGuard();window.removeEventListener('beforeunload',unload);document.removeEventListener('click',click,true);};
  },[dirty]);}
 
-export function Conflict({onReload,onOverwrite}:{onReload:()=>void;onOverwrite:()=>void}){return <div className="archive-conflict" role="alert"><p>This changed elsewhere since you opened it.</p><div className="archive-actions"><button className="btn ghost" onClick={onReload}>Reload</button><button className="btn" onClick={onOverwrite}>Overwrite anyway</button></div></div>;}
-export function ChooseList({lists,onChoose,onClose}:{lists:any[];onChoose:(path:string)=>Promise<void>;onClose:()=>void}){const [error,setError]=useState<any>();return <Sheet title="Move to list…" onClose={onClose}><div className="archive-choice-list">{lists.map(list=><button className="btn ghost" key={list.path} onClick={()=>void onChoose(list.path).then(onClose).catch(setError)}>{list.title}</button>)}</div><ErrorMessage error={error}/></Sheet>;}
+export function Conflict({onReload,onOverwrite}:{onReload:()=>void;onOverwrite:()=>void}){return <div className="archive-conflict" role="alert"><p>This changed elsewhere since you opened it.</p><div className="archive-actions"><button type="button" className="btn ghost" onClick={onReload}>Reload</button><button type="button" className="btn" onClick={onOverwrite}>Overwrite anyway</button></div></div>;}
+export function ChooseList({lists,onChoose,onClose}:{lists:any[];onChoose:(path:string)=>Promise<void>;onClose:()=>void}){const [error,setError]=useState<any>();return <Sheet title="Move to folder…" onClose={onClose}><div className="archive-choice-list">{lists.map(list=><button className="btn ghost" key={list.path} onClick={()=>void onChoose(list.path).then(onClose).catch(setError)}>{list.title}</button>)}</div><ErrorMessage error={error}/></Sheet>;}

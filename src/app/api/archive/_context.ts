@@ -17,6 +17,8 @@ import { writeFileAtomic } from '@/lib/atomic-write';
 import { migrateLegacyDocuments } from '@/lib/archive-legacy';
 // @ts-ignore ESM core also runs independently of Next.
 import { createArchiveService } from '../../../../packages/archive/src/service.mjs';
+// @ts-ignore ESM process-local request coalescing.
+import {createServiceCache} from '../../../../packages/archive/src/service-cache.mjs';
 // @ts-ignore
 import { TrelloClient } from '../../../../packages/archive/src/trello/client.mjs';
 // @ts-ignore
@@ -50,9 +52,14 @@ export function routedLook(targets:RuntimeTarget[],home:string){
     }finally{if(timer)clearTimeout(timer);if(session)await adapter.teardown(session);await fs.rm(work,{recursive:true,force:true});}
   };
 }
-type Cache={key:string;service:any};
-const globals=globalThis as typeof globalThis & {archiveService?:Cache};
+const globals=globalThis as typeof globalThis & {archiveResolvers?:Map<string,()=>Promise<any>>};
 export async function archiveService(){
+  const home=garrisonDir(),resolvers=globals.archiveResolvers??=new Map();
+  let get=resolvers.get(home);
+  if(!get){get=createServiceCache({resolve:resolveArchiveConfig,create:createConfiguredService,onError:(error:Error)=>console.error('[archive config]',error.message)});resolvers.set(home,get!);}
+  return get!();
+}
+async function resolveArchiveConfig(){
   const home=garrisonDir();let composition:any;let fixture:any;
   if(process.env.ARCHIVE_TEST_MODE==='1'&&process.env.NODE_ENV!=='production'){
     // Test overrides are restricted to marked scratch homes and scratch vaults.
@@ -63,8 +70,9 @@ export async function archiveService(){
     composition=fixture.composition??{selections:{memory:[{id:'basic-memory',config:{vault_dir:fixture.vaultDir}}]},globalConfig:{archive:{}},targets:fixture.targets??[{id:'cc-sonnet',runtime:'agent-sdk',provider:'anthropic',model:'claude-sonnet-5'}]};
   }else{const active=await resolveActiveComposition();composition=await readComposition(active.id);}
   const vaultDir=vaultRoot(composition),config=composition.globalConfig?.archive??{},key=JSON.stringify({home,vaultDir,config,targets:composition.targets,fixture:!!fixture});
-  if(globals.archiveService?.key===key)return globals.archiveService.service;
-  await globals.archiveService?.service.close();
+  return {home,vaultDir,config,key,composition,fixture};
+}
+async function createConfiguredService({home,vaultDir,config,composition,fixture}:any){
   if(vaultDir&&!fixture)await migrateLegacyDocuments(vaultDir,home);
   const realInvoke=routedLook(composition.targets??[],home);
   const invoke=fixture&&process.env.ARCHIVE_FAKE_LOOK==='1'?async(input:ImageRequest)=>{if(input.prompt.includes('short rubric'))return realInvoke(input);await new Promise(r=>setTimeout(r,300));return {json:{what_it_is:'Synthetic Archive test certificate for Alex Example.',text:'TEST-48392017',fields:[{label:'Document type',value:'Archive test certificate'},{label:'Holder',value:'Alex Example'},{label:'Reference',value:'TEST-48392017'}],language:'en',confidence:1},target:input.target,model:'fixture'};}:realInvoke;
@@ -82,5 +90,5 @@ export async function archiveService(){
     authorizeInternal:(request:Request)=>verifyInternalToken(request.headers.get('x-garrison-internal')),
     runNow:fixture?async()=>{}:async(id:string)=>{await execute(process.execPath,[path.join(process.cwd(),'fittings/seed/scheduler/scripts/scheduler.mjs'),'run-now',id],{env:{...process.env,GARRISON_HOME:home},timeout:300_000,maxBuffer:1024*1024});},
     onError:(error:Error)=>console.error('[archive]',error.message)});
-  globals.archiveService={key,service};return service;
+  return service;
 }

@@ -22,7 +22,6 @@ Archive/House/Kitchen - repairs/
 Archive/House/Kitchen - repairs/index.md
 Archive/House/Kitchen - repairs/sample-document.jpg
 Archive/House/_list.md
-Archive/Inbox/
 Archive/Personal documents/
 Archive/Personal documents/Cartão de Cidadão/
 Archive/Personal documents/Cartão de Cidadão/index.md

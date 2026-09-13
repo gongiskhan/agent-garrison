@@ -20,18 +20,23 @@ import { syncStatus, triggerSync } from './sync.mjs';
 import { TrelloClient, parallel } from './trello/client.mjs';
 import { mapBoard } from './trello/mapper.mjs';
 import { importBoard } from './trello/importer.mjs';
+import {saveBookmark} from './bookmarks.mjs';
+import {fileHash} from './file-hash.mjs';
+import {readSidecar} from './ingest/sidecar.mjs';
 
 const p=z.string().min(1).max(2048),text=z.string().max(2_000_000),title=z.string().trim().min(1).max(500),base=z.string().min(1);
 const link=z.object({title:z.string().max(1000),url:z.string().url().refine(u=>/^https?:\/\//i.test(u),'Use an HTTP or HTTPS link')}).strict();
 const checklist=z.object({title,items:z.array(z.object({text:z.string().max(10000),done:z.boolean()}).strict())}).strict();
-const cardPatch=z.object({path:p,baseSha:base,title:title.optional(),description:text.optional(),details:z.array(z.object({label:title,value:text})).optional(),cover:z.string().optional(),tags:z.array(z.string().max(200)).optional(),sensitive:z.boolean().optional(),due:z.string().nullable().optional(),links:z.array(link).optional(),checklists:z.array(checklist).optional(),comments:z.array(z.object({at:z.string(),author:title,markdown:text})).optional(),order:z.number().finite().optional(),moveToList:p.optional()}).strict();
+const cardPatch=z.object({path:p,baseSha:base,title:title.optional(),description:text.optional(),details:z.array(z.object({label:title,value:text})).optional(),cover:z.string().optional(),tags:z.array(z.string().max(200)).optional(),sensitive:z.boolean().optional(),starred:z.boolean().optional(),due:z.string().nullable().optional(),links:z.array(link).optional(),checklists:z.array(checklist).optional(),comments:z.array(z.object({at:z.string(),author:title,markdown:text})).optional(),order:z.number().finite().optional(),moveToList:p.optional()}).strict();
 const boardInput=z.object({boardId:p,includeArchived:z.boolean().default(false),targetPrefix:z.string().max(80).optional()}).strict();
 const escape=s=>String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
 
 export function createArchiveService({vaultDir,home,config={},node='local',render,write=atomicWrite,look,invoke,runNow,credentials,clientFactory,authorizeInternal=async()=>false,watch=true,ingest=true,queueOptions={},onError=()=>{}}){
   if(!home)throw new Error('Archive requires an explicit GARRISON_HOME');
   const cfg=z.object({extract_target:title,max_file_mb:z.number().positive().max(1024),pdf_max_pages:z.number().int().min(1).max(1000),author:title}).parse({...DEFAULT_CONFIG,...config});
-  const ctx={vaultDir,home,dataDir:path.join(home,'archive'),config:cfg,node,write,render:render??(s=>`<p>${escape(s)}</p>`),onError};
+  let changedFiles;
+  const trackedWrite=async(file,...args)=>{await write(file,...args);if(changedFiles&&vaultDir){const relative=path.relative(vaultDir,file).split(path.sep).join('/');if(relative&&!relative.startsWith('../')&&!path.isAbsolute(relative)&&!relative.split('/').some(s=>s.startsWith('.')))changedFiles.add(relative);}};
+  const ctx={vaultDir,home,dataDir:path.join(home,'archive'),config:cfg,node,write:trackedWrite,render:render??(s=>`<p>${escape(s)}</p>`),onError};
   ctx.confine=relative=>confine(vaultDir,relative);
   ctx.look=look??createLook({invoke:invoke??(async()=>{throw new Error('Extraction target is unavailable');}),defaultTarget:cfg.extract_target});
   ctx.syncNow=()=>triggerSync(runNow);
@@ -46,25 +51,34 @@ export function createArchiveService({vaultDir,home,config={},node='local',rende
     while(await fs.stat(confine(vaultDir,target)).catch(()=>null))target=path.posix.join(parent,`${stem} (${n++}).jpg`);
     try{if(sips)await run(sips,['-s','format','jpeg',source,'--out',confine(vaultDir,target)]);else await run(heif,[source,confine(vaultDir,target)]);await fs.unlink(source);return target;}catch{await fs.rm(confine(vaultDir,target),{force:true});return relative;}
   };
-  const service={ctx,jobs,index,queue,ready:null,indexReady:null,handle,async close(){closed=true;queue.close();await watcher?.close();await queue.stopped();await mutation;await service.indexReady?.catch(()=>{});}};
+  const service={ctx,jobs,index,queue,ready:null,indexReady:null,backgroundReady:null,handle,async close(){closed=true;queue.close();await service.ready?.catch(()=>{});await service.backgroundReady?.catch(()=>{});await watcher?.close();await queue.stopped();await mutation;await service.indexReady?.catch(()=>{});await index.pending;}};
+  const updateIndex=paths=>service.indexReady.then(()=>index.updateMany(paths));
+  ctx.onFile=p=>updateIndex([p]);
   service.ready=(async()=>{
     if(!vaultDir)throw fail('no_vault',409);await fs.realpath(vaultDir);
     // Confine existing parents before creating the two lazy roots.
     await fs.mkdir(confine(vaultDir,'Archive'),{recursive:true});
-    await fs.mkdir(confine(vaultDir,'Archive/Inbox'),{recursive:true});
     await fs.mkdir(confine(vaultDir,'Archive/.trash',{trash:true}),{recursive:true});
     await fs.mkdir(ctx.dataDir,{recursive:true});await jobs.load();
-    const loaded=await index.load();
-    service.indexReady=loaded?Promise.resolve():rebuild();
+    service.indexReady=(async()=>{if(!await index.load()&&!closed)await rebuild();})();
     service.indexReady.catch(onError);
-    if(watch&&!closed){watcher=watchVault(ctx,index,queue);await watcher.ready;}
-    if(ingest&&!closed)await queue.init();
+    service.backgroundReady=(async()=>{
+      if(watch&&!closed){watcher=watchVault(ctx,{updateMany:updateIndex},queue);await watcher.ready;}
+      if(ingest&&!closed)await queue.init();
+    })();service.backgroundReady.catch(onError);
     for(const row of jobs.list('queued').filter(j=>j.kind==='import-trello'))void runImport(row).catch(onError);
   })();service.ready.catch(()=>{});
   async function rebuild(){const row=await jobs.create('index-rebuild',{}, {done:0,total:1,label:'Indexing…'});await jobs.update(row,{state:'running',startedAt:now()});try{const count=await index.build();await jobs.update(row,{state:'done',endedAt:now(),progress:{done:count,total:count,label:'Index ready'}});}catch(error){await jobs.update(row,{state:'failed',endedAt:now(),error:error.message});throw error;}}
   async function trello(log){const env=await credentials?.();if(!env?.TRELLO_KEY||!env?.TRELLO_TOKEN)throw fail('trello_not_connected',409);const client=clientFactory?clientFactory(env):new TrelloClient({key:env.TRELLO_KEY,token:env.TRELLO_TOKEN});if(log)client.log=log;return client;}
   async function runImport(row){let client;try{client=await trello(message=>jobs.log(row,message));}catch(e){if(!row.input.board)throw e;}return serial(()=>importBoard(ctx,jobs,row,{client}));}
-  async function mutate(fn){return serial(async()=>{await service.indexReady;const result=await ctx.serializeFiles(fn);await index.build();return result;});}
+  async function mutate(fn,removed=[]){return serial(async()=>{
+    const changed=new Set(removed);let result;
+    await ctx.serializeFiles(async()=>{changedFiles=changed;try{result=await fn();}finally{changedFiles=undefined;}});
+    if(result?.path)changed.add(result.path);
+    for(const file of result?.files??[])changed.add(file.path);
+    if(changed.size){const update=updateIndex([...changed]);if(index.state==='ready')await update;else void update.catch(onError);}
+    return result;
+  });}
   const json=(value,status=200)=>Response.json(value,{status,headers:{'cache-control':'no-store'}});
   async function handle(request,route){
     try{
@@ -78,25 +92,28 @@ export function createArchiveService({vaultDir,home,config={},node='local',rende
       switch(key){
         case 'GET status':{const roots=(await tree(ctx,'',0)).children.filter(c=>c.kind==='folder'&&c.name!=='Archive').map(c=>c.path);return json({vault:{path:vaultDir,name:path.basename(vaultDir)},node,areas:[{id:'yours',root:'Archive'},{id:'garrison',roots}],sync:await syncStatus(home),index:{state:index.state,docs:index.docs.size},ingest:queue.status(),jobs:{running:jobs.list('running').length}});}
         case 'GET tree':{const relative=url.searchParams.get('path')??'';const depth=z.coerce.number().int().min(0).max(20).parse(url.searchParams.get('depth')??2);return json(await tree(ctx,relative,depth));}
-        case 'GET card':return json(await cardView(ctx,queryPath()));
+        case 'GET card':return json(await cardView(ctx,queryPath(),{extracted:z.enum(['0','1']).parse(url.searchParams.get('extracted')??'1')==='1'}));
+        case 'GET extraction':{const relative=queryPath();if(relative.endsWith('.md')||!(await fs.stat(confine(vaultDir,relative))).isFile())throw fail('Choose a source attachment',400);return json(await readSidecar(ctx,relative));}
         case 'POST card':return json(await mutate(()=>body(z.object({list:p,title,description:text.optional()}).strict()).then(b=>ops.createCard(ctx,b))));
-        case 'PATCH card':{const b=await body(cardPatch);return json(await mutate(()=>ops.patchCard(ctx,b)));}
+        case 'PATCH card':{const b=await body(cardPatch);return json(await mutate(()=>ops.patchCard(ctx,b),[b.path]));}
         case 'POST card/comment':{const b=await body(z.object({path:p,text:text.trim().min(1)}).strict());return json(await mutate(()=>ops.addComment(ctx,b)));}
-        case 'DELETE card':{const b=await body(z.object({path:p}).strict());await cardView(ctx,b.path);return json(await mutate(()=>ops.trash(ctx,b.path)));}
+        case 'DELETE card':{const b=await body(z.object({path:p}).strict());await cardView(ctx,b.path);return json(await mutate(()=>ops.trash(ctx,b.path),[b.path]));}
         case 'POST card/reorder':{const b=await body(z.object({path:p,index:z.number().int().min(0)}).strict());return json(await mutate(async()=>{await reorderCard(ctx,b.path,b.index);return {ok:true};}));}
         case 'POST list':{const b=await body(z.object({title}).strict());return json(await mutate(()=>ops.createList(ctx,b.title)));}
-        case 'PATCH list':{const b=await body(z.object({path:p,title:title.optional(),order:z.number().finite().optional()}).strict());return json(await mutate(()=>ops.patchList(ctx,b)));}
-        case 'DELETE list':{const b=await body(z.object({path:p}).strict());ops.ownerPath(b.path);return json(await mutate(()=>ops.trash(ctx,b.path,{emptyList:true})));}
+        case 'PATCH list':{const b=await body(z.object({path:p,title:title.optional(),order:z.number().finite().optional()}).strict());return json(await mutate(()=>ops.patchList(ctx,b),[b.path]));}
+        case 'DELETE list':{const b=await body(z.object({path:p}).strict());ops.ownerPath(b.path);return json(await mutate(()=>ops.trash(ctx,b.path,{emptyList:true}),[b.path]));}
+        case 'POST bookmark':{const b=await body(z.object({folder:p.optional(),title,url:z.string().max(4096)}).strict());return json(await mutate(()=>saveBookmark(ctx,b)));}
+        case 'PATCH bookmark':{const b=await body(z.object({path:p,baseSha:base,title:title.optional(),url:z.string().max(4096).optional(),starred:z.boolean().optional()}).strict());return json(await mutate(()=>saveBookmark(ctx,b),[b.path]));}
         case 'GET note':return json(await readNote(ctx,queryPath()));
         case 'PUT note':{const b=await body(z.object({path:p,markdown:text,baseSha:base}).strict());return json(await mutate(()=>writeNote(ctx,b)));}
-        case 'POST note/move':{const b=await body(z.object({path:p,toFolder:z.string()}).strict());return json(await mutate(()=>ops.moveNote(ctx,b)));}
-        case 'DELETE note':{const b=await body(z.object({path:p}).strict());const note=await readNote(ctx,b.path);assertNoteEditable(b.path,parseFrontmatter(note.markdown));return json(await mutate(()=>ops.trash(ctx,b.path)));}
+        case 'POST note/move':{const b=await body(z.object({path:p,toFolder:z.string()}).strict());return json(await mutate(()=>ops.moveNote(ctx,b),[b.path]));}
+        case 'DELETE note':{const b=await body(z.object({path:p}).strict());const note=await readNote(ctx,b.path);assertNoteEditable(b.path,parseFrontmatter(note.markdown));return json(await mutate(()=>ops.trash(ctx,b.path),[b.path]));}
         case 'POST folder':{const b=await body(z.object({parent:z.string(),name:title}).strict());return json(await mutate(()=>ops.createFolder(ctx,b.parent,b.name)));}
         case 'POST upload':{const form=await request.formData();const target=p.parse(form.get('target'));const values=form.getAll('files[]');if(!values.length)throw fail('Choose files',400);const files=[];for(const f of values){if(typeof f==='string')throw fail('Invalid file upload',400);if(f.size>cfg.max_file_mb*1024*1024)throw fail(`${f.name} is ${Math.round(f.size/1024/1024)} MB. The limit is ${cfg.max_file_mb} MB, so it was not added. Large files can be linked instead.`,413);files.push({name:f.name,bytes:Buffer.from(await f.arrayBuffer())});}const out=await mutate(()=>ops.upload(ctx,target,files));if(ingest)for(const f of out.files)await queue.enqueue(f.path);return json(out);}
-        case 'POST inbox/file':{const b=await body(z.object({path:p,toCard:p.optional(),newCard:z.object({list:p,title}) .optional()}).strict().refine(b=>!!b.toCard!==!!b.newCard,'Choose one destination'));return json(await mutate(()=>ops.moveFile(ctx,b)));}
-        case 'GET file':{const relative=queryPath();let file=confine(vaultDir,relative);const stat=await fs.stat(file);if(!stat.isFile())throw fail('File not found',404);let mime=mimeOf(relative);if(url.searchParams.get('thumb')==='1'&&mime.startsWith('image/')){try{file=await thumbnail(ctx,relative,sha(await fs.readFile(file)));if(file.endsWith('.jpg'))mime='image/jpeg';}catch{/* The original remains a usable fallback. */}}const headers={'content-type':mime,'x-content-type-options':'nosniff','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox",'cache-control':'private, max-age=60'};if(mime==='application/octet-stream')headers['content-disposition']=`attachment; filename="${path.basename(relative).replace(/["\r\n]/g,'')}"`;return new Response(Readable.toWeb(createReadStream(file)),{headers});}
-        case 'DELETE file':{const b=await body(z.object({path:p}).strict());if(b.path.endsWith('.md'))throw fail('Use note controls',400);ops.ownerPath(b.path);return json(await mutate(()=>ops.trash(ctx,b.path)));}
-        case 'GET search':{const q=z.string().max(500).parse(url.searchParams.get('q')??'');const filters={};for(const name of ['area','list','kind','tag'])if(url.searchParams.has(name))filters[name]=url.searchParams.get(name);if(filters.area&&!['all','yours','garrison'].includes(filters.area))throw fail('Invalid area',400);if(filters.kind&&!['card','note','file'].includes(filters.kind))throw fail('Invalid kind',400);filters.limit=z.coerce.number().int().min(1).max(200).parse(url.searchParams.get('limit')??50);return json(index.query(q,filters));}
+        case 'POST inbox/file':{const b=await body(z.object({path:p,toCard:p.optional(),newCard:z.object({list:p,title}) .optional()}).strict().refine(b=>!!b.toCard!==!!b.newCard,'Choose one destination'));return json(await mutate(()=>ops.moveFile(ctx,b),[b.path]));}
+        case 'GET file':{const relative=queryPath();let file=confine(vaultDir,relative);const stat=await fs.stat(file);if(!stat.isFile())throw fail('File not found',404);let mime=mimeOf(relative);if(url.searchParams.get('thumb')==='1'&&mime.startsWith('image/')){try{file=await thumbnail(ctx,relative,await fileHash(ctx,relative,stat));if(file.endsWith('.jpg'))mime='image/jpeg';}catch{/* The original remains a usable fallback. */}}const headers={'content-type':mime,'x-content-type-options':'nosniff','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox",'cache-control':'private, max-age=60'};if(mime==='application/octet-stream')headers['content-disposition']=`attachment; filename="${path.basename(relative).replace(/["\r\n]/g,'')}"`;return new Response(Readable.toWeb(createReadStream(file)),{headers});}
+        case 'DELETE file':{const b=await body(z.object({path:p}).strict());if(b.path.endsWith('.md'))throw fail('Use note controls',400);ops.ownerPath(b.path);return json(await mutate(()=>ops.trash(ctx,b.path),[b.path]));}
+        case 'GET search':{const q=z.string().max(500).parse(url.searchParams.get('q')??'');const filters={};for(const name of ['area','list','kind','tag'])if(url.searchParams.has(name))filters[name]=url.searchParams.get(name);if(filters.area&&!['all','yours','garrison'].includes(filters.area))throw fail('Invalid area',400);if(filters.kind&&!['card','note','file','bookmark'].includes(filters.kind))throw fail('Invalid kind',400);filters.limit=z.coerce.number().int().min(1).max(200).parse(url.searchParams.get('limit')??50);await service.indexReady;return json(index.query(q,filters));}
         case 'POST ingest/regenerate':{const b=await body(z.object({path:p}).strict());ops.ownerPath(b.path);confine(vaultDir,b.path);if(b.path.endsWith('.md'))throw fail('Markdown is not ingested',400);return json({jobId:await queue.enqueue(b.path,{force:true})});}
         case 'POST ingest/retry-failed':return json(await queue.retryFailed());
         case 'GET jobs':return json({jobs:jobs.list(url.searchParams.get('state')??undefined).map(({input,...row})=>row)});

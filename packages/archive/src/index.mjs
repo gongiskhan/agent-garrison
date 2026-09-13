@@ -29,7 +29,7 @@ async function readDocument(ctx,relative) {
   const parsed=parseFrontmatter(raw,path.basename(relative,'.md'));return {raw,parsed};
 }
 export class ArchiveIndex {
-  constructor(ctx){this.ctx=ctx;this.docs=new Map();this.engine=new MiniSearch(options);this.state='building';this.pending=Promise.resolve();}
+  constructor(ctx){this.ctx=ctx;this.docs=new Map();this.engine=new MiniSearch(options);this.state='building';this.pending=Promise.resolve();this.revision=0;}
   async cardDocument(relative) {
     const data=await readDocument(this.ctx,path.posix.join(relative,'index.md'));if(!data)return null;const card=parseCard(data.raw,path.posix.basename(relative));const side=[],attachmentSources=[];let attachment=null;
     for(const e of await fs.readdir(confine(this.ctx.vaultDir,relative),{withFileTypes:true})){if(!e.isFile()||e.name==='index.md'||!e.name.endsWith('.md')||e.name.startsWith('.'))continue;let d;try{d=await readDocument(this.ctx,path.posix.join(relative,e.name));}catch{continue;}if(d?.parsed.frontmatter.garrison==='derived'){side.push(d.parsed.body);attachmentSources.push({name:d.parsed.frontmatter.source,body:d.parsed.body});attachment??=d.parsed.frontmatter.source;}}
@@ -42,13 +42,24 @@ export class ArchiveIndex {
     const side=await readDocument(this.ctx,relative+'.md');const body=side?.parsed.frontmatter.garrison==='derived'?side.parsed.body:'';
     return {path:relative,kind:'file',title:path.posix.basename(relative),tags:[],fields:body.split('## Fields')[1]??'',body,area:areaOf(relative),list:path.posix.basename(path.posix.dirname(relative)),updated:stat.mtime.toISOString(),sensitive:false};
   }
-  async noteDocument(relative){const d=await readDocument(this.ctx,relative);if(!d||d.parsed.frontmatter.garrison==='derived'||(areaOf(relative)==='yours'&&['_list.md','index.md'].includes(path.posix.basename(relative))))return null;return {path:relative,kind:'note',title:d.parsed.frontmatter.title??path.posix.basename(relative,'.md'),tags:d.parsed.frontmatter.tags??[],fields:'',body:d.parsed.body+'\n'+Object.values(d.parsed.frontmatter).flat().join(' '),area:areaOf(relative),list:null,updated:(await fs.stat(confine(this.ctx.vaultDir,relative))).mtime.toISOString(),sensitive:false};}
-  set(doc){if(!doc)return; if(this.docs.has(doc.path))this.engine.discard(doc.path);this.docs.set(doc.path,doc);this.engine.add(doc);}
-  remove(relative){for(const key of [...this.docs.keys()])if(!relative||key===relative||key.startsWith(relative+'/')){this.engine.discard(key);this.docs.delete(key);}}
+  async noteDocument(relative){const d=await readDocument(this.ctx,relative);if(!d||d.parsed.frontmatter.garrison==='derived'||(path.posix.basename(relative)==='_list.md'&&d.parsed.frontmatter.garrison==='list')||(areaOf(relative)==='yours'&&['_list.md','index.md'].includes(path.posix.basename(relative))))return null;return {path:relative,kind:d.parsed.frontmatter.garrison==='bookmark'?'bookmark':'note',title:d.parsed.frontmatter.title??path.posix.basename(relative,'.md'),tags:d.parsed.frontmatter.tags??[],fields:'',body:d.parsed.body+'\n'+Object.values(d.parsed.frontmatter).flat().join(' '),area:areaOf(relative),list:null,updated:(await fs.stat(confine(this.ctx.vaultDir,relative))).mtime.toISOString(),sensitive:false};}
+  set(doc){if(!doc)return; if(this.docs.has(doc.path))this.engine.discard(doc.path);this.docs.set(doc.path,doc);this.engine.add(doc);this.revision++;}
+  remove(relative){for(const key of [...this.docs.keys()])if(!relative||key===relative||key.startsWith(relative+'/')){this.engine.discard(key);this.docs.delete(key);this.revision++;}}
+  folderStats(){
+    if(this.statsRevision===this.revision)return this.stats;
+    const stats=new Map();
+    for(const d of this.docs.values())for(let parent=path.posix.dirname(d.path);parent&&parent!=='.';parent=path.posix.dirname(parent)){
+      const row=stats.get(parent)??{notes:0,documents:0,items:0,updated:null};
+      row.items++;if(d.kind==='note')row.notes++;if(d.kind==='card')row.documents++;
+      if(d.updated&&(!row.updated||Date.parse(d.updated)>Date.parse(row.updated)))row.updated=d.updated;
+      stats.set(parent,row);
+    }
+    this.statsRevision=this.revision;this.stats=stats;return stats;
+  }
   exclusive(fn){const task=this.pending.then(fn,fn);this.pending=task.catch(()=>{});return task;}
   build(){return this.exclusive(()=>this.buildNow());}
   async buildNow(){
-    this.state='building';const files=await walkVault(this.ctx);this.engine=new MiniSearch(options);this.docs.clear();
+    this.state='building';const files=await walkVault(this.ctx);this.engine=new MiniSearch(options);this.docs.clear();this.revision++;
     await this.addFiles(files);
     this.state='ready';await this.persist(fingerprint(files));return this.docs.size;
   }
@@ -56,9 +67,9 @@ export class ArchiveIndex {
     const cards=new Set(files.filter(f=>f.name==='index.md'&&areaOf(f.path)==='yours').map(f=>path.posix.dirname(f.path)));
     const work=[...cards].map(p=>()=>this.cardDocument(p));
     for(const f of files){if(areaOf(f.path)==='yours'&&(f.name==='index.md'||f.name==='_list.md'))continue;const parent=path.posix.dirname(f.path);if(cards.has(parent))continue;if(f.path.endsWith('.md'))work.push(()=>this.noteDocument(f.path));else if(areaOf(f.path)==='yours')work.push(()=>this.fileDocument(f.path));}
-    let cursor=0;await Promise.all(Array.from({length:Math.min(24,work.length)},async()=>{while(cursor<work.length){const task=work[cursor++];this.set(await task());}}));
+    let cursor=0;await Promise.all(Array.from({length:Math.min(24,work.length)},async()=>{while(cursor<work.length){const task=work[cursor++];try{this.set(await task());}catch(error){if(error.code!=='ENOENT')throw error;}}}));
   }
-  async load(){const files=await walkVault(this.ctx);const stamp=fingerprint(files);try{const meta=JSON.parse(await fs.readFile(path.join(this.ctx.dataDir,'index.meta.json'),'utf8'));if(JSON.stringify(meta)!==JSON.stringify(stamp))return false;const stored=JSON.parse(await fs.readFile(path.join(this.ctx.dataDir,'index.json'),'utf8'));this.engine=MiniSearch.loadJSON(JSON.stringify(stored.index),options);this.docs=new Map(stored.docs.map(d=>[d.path,d]));this.state='ready';return true;}catch{return false;}}
+  async load(){const files=await walkVault(this.ctx);const stamp=fingerprint(files);try{const meta=JSON.parse(await fs.readFile(path.join(this.ctx.dataDir,'index.meta.json'),'utf8'));if(JSON.stringify(meta)!==JSON.stringify(stamp))return false;const stored=JSON.parse(await fs.readFile(path.join(this.ctx.dataDir,'index.json'),'utf8'));this.engine=MiniSearch.loadJSON(JSON.stringify(stored.index),options);this.docs=new Map(stored.docs.map(d=>[d.path,d]));this.revision++;this.state='ready';return true;}catch{return false;}}
   update(relative){return this.updateMany([relative]);}
   updateMany(relatives){return this.exclusive(()=>this.updateManyNow(relatives));}
   async updateTarget(relative){

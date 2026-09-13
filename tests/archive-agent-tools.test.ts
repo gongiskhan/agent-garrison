@@ -71,7 +71,16 @@ it('reads notes and unfiled attachment text and returns usable source links',asy
  try{
   expect(await callArchiveRead({path:'Projects/Garrison/Memory/Architecture.md',kind:'note'},deps)).toMatchObject({url:'/archive/notes?path=Projects%2FGarrison%2FMemory%2FArchitecture.md'});
   const file=await callArchiveRead({path:'Archive/Inbox/sample-document.jpg',kind:'file'},deps);
-  expect(file.markdown).toContain('TEST-48392017');expect(file.url).toBe('/archive/inbox?highlight=Archive%2FInbox%2Fsample-document.jpg');
+  expect(file.markdown).toContain('TEST-48392017');expect(file.url).toBe('/api/archive/file?path=Archive%2FInbox%2Fsample-document.jpg');
   await expect(callArchiveRead({path:'Archive/Inbox/sample-document.jpg',kind:'note'},deps)).rejects.toThrow(/kind=file/);
+ }finally{await app.close();}
+});
+
+it('reads file-backed website bookmarks returned by agent search without modifying the vault',async()=>{
+ const app=await agentArchiveFixture(),deps={env:{GARRISON_APP_URL:app.base}};
+ try{
+  const created=await app.request('bookmark','POST',{title:'Synthetic company registry bookmark',url:'https://example.invalid/registry'});expect(created.status).toBe(200);const before=await app.snapshot();
+  const result=await callArchiveSearch({query:'registry bookmark'},deps),hit=result.hits.find((h:any)=>h.kind==='bookmark');expect(hit.path).toBe(created.data.path);
+  const read=await callArchiveRead({path:hit.path,kind:hit.kind},deps);expect(read.frontmatter.url).toBe('https://example.invalid/registry');expect(await app.snapshot()).toEqual(before);
  }finally{await app.close();}
 });

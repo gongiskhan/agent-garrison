@@ -1,6 +1,6 @@
 # Archive
 
-- Open `/archive`; board, cards, notes, search, Inbox, import, Trash and Jobs
+- Open `/archive`; folders, documents, notes, search, bookmarks, import, Trash and Jobs
   are under `/archive/*`. API: `/api/archive/*`; core: `packages/archive/`.
 - The active Basic Memory selection supplies `vault_dir` (project `main`).
   Yours is `Archive/`; every other visible vault folder is Garrison's area.
@@ -30,7 +30,7 @@ cards or a prefix. The earlier timeout-default board is no longer active.
 - Follow-up cleanup removed eight task lists / 175 cards to Trash: 321 active
   cards remain. Tag: `archive/pre-task-cleanup-2026-09-12T08-31-41-063Z`.
 - Re-imports keep trashed imported cards/lists removed until restored.
-- Inbox is for unfiled documents/photos; it is separate from task management.
+- Inbox is retired; upload files directly into a document.
 
 To reverse an import-only commit, use `git -C <vault> revert <commit>` and let
 vault-git-sync distribute the corrective commit. Here sync commits also contain
@@ -43,17 +43,17 @@ Retired Documents artifacts migrate to `Projects/Garrison/Documents` with origin
 
 - [Decision and final verification](docs/decisions/2026-09-11-archive.md).
 - [Fixture evidence and reproduction](evidence/archive/README.md).
-- [Narrated phone walkthrough](.walkthrough/runs/agent-garrison/archive/2026-09-12/phone/final.mp4),
-  63.2 seconds, seven narration beats. All images and documents are synthetic.
+- [Narrated phone walkthrough](.walkthrough/runs/agent-garrison/archive/2026-09-13/folder-browser/phone/final.mp4),
+  65.6 seconds, seven narration beats. All images and documents are synthetic.
 
 The earlier staging error in `954e3a0d` was corrected by `f948abb4`; do not
 deploy that intermediate commit. The decision document preserves the history.
 
-Follow-up source adds context-preserving Back, compact left thumbnails and
+Follow-up source adds fast folder lists, stars, bookmarks, reliable Back and
 `garrison_archive_search` / `garrison_archive_read` in working assistant sessions.
-Tool tests use a sensitive synthetic company certificate and verify its number
-and citation without vault changes. Real model acceptance/deployment remain
-pending account authorization and the independent Two Homes rollout hold.
+The real assistant test retrieves a sensitive synthetic company certificate,
+returns only its requested number with a clickable citation and leaves the vault
+unchanged. Guarded deployment awaits the independent Two Homes rollout.
 
 ## Needs the physical phone
 

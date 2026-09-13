@@ -5,7 +5,7 @@ test('visible Back restores search, survives reload, and browser Back/Forward do
   await goto(page, app);
   await page.getByPlaceholder('Search the Archive').fill('maintenance');
   await page.getByRole('button', { name: 'Yours', exact: true }).click();
-  await page.getByRole('button', { name: 'Cards', exact: true }).click();
+  await page.getByRole('button', { name: 'Documents', exact: true }).click();
   await page.locator('.archive-result').first().click();
   await expect(page.getByRole('heading', { name: 'House maintenance', exact: true })).toBeVisible();
   await page.reload();
@@ -13,7 +13,7 @@ test('visible Back restores search, survives reload, and browser Back/Forward do
   await expect(page.getByPlaceholder('Search the Archive')).toHaveValue('maintenance');
   await expect(page.locator('.archive-result').first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Yours', exact: true })).toHaveAttribute('aria-pressed','true');
-  await expect(page.getByRole('button', { name: 'Cards', exact: true })).toHaveAttribute('aria-pressed','true');
+  await expect(page.getByRole('button', { name: 'Documents', exact: true })).toHaveAttribute('aria-pressed','true');
   await page.goForward();
   await expect(page.getByRole('heading', { name: 'House maintenance', exact: true })).toBeVisible();
   await page.goBack();
@@ -29,8 +29,10 @@ test('note Back returns one folder and a direct card link has a useful list fall
   await page.evaluate(() => sessionStorage.removeItem('archive.navigation'));
   await goto(page, app, '/archive/card?path=Archive%2FHouse%2FHouse%20maintenance');
   await page.getByRole('link', { name: 'Back', exact: true }).click();
-  await expect(page).toHaveURL(/archive\/board\?path=Archive%2FHouse$/);
-  await expect(page.locator('[data-list="Archive/House"]')).toBeVisible();
+  await expect(page).toHaveURL(/archive\/notes\?path=Archive%2FHouse$/);
+  await expect(page.locator('[data-folder="Archive/House"]')).toBeVisible();
+  await page.getByRole('link', { name: 'Back', exact: true }).click();
+  await expect(page).toHaveURL(app.base+'/archive/notes?path=Archive');
   await page.getByRole('link', { name: 'Back', exact: true }).click();
   await expect(page).toHaveURL(app.base+'/archive');
 });

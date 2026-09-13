@@ -1,10 +1,15 @@
 # Archive — 2026-09-11
 
-Archive is now at `/archive`: a board for your documents, a notes lens for
+Archive is now at `/archive`: folder browsing for your documents and
 Garrison memory, content search, uploads and extraction, and a one-shot Trello
 import. It replaces the personal Trello document board and the retired Documents
 fitting. `Archive/` is yours: agents read it when asked, never write it, and
 nothing automatic feeds on it. Ingestion writes only derived sidecars.
+
+The 13 September follow-up adds list/thumbnail views, alphabetical or recent
+sorting, starred documents and browser-style website bookmarks. Upload files
+directly into documents; Inbox is retired. Folder and document loading is bounded
+and saves update only their affected search entries.
 
 # What's new — Workbench dissolution
 
