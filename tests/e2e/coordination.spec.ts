@@ -1,7 +1,6 @@
 import { test, expect } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
-import crypto from "node:crypto";
 import http, { type Server } from "node:http";
 import { GARRISON_SANDBOX } from "./sandbox";
 
@@ -9,39 +8,34 @@ import { GARRISON_SANDBOX } from "./sandbox";
 // GARRISON_HOME=GARRISON_SANDBOX (per playwright.config), so seeding coord state
 // here drives the real view deterministically without touching the live ~/.garrison.
 
-const DEMO_REPO = "/demo/acme-api";
-function slug(repo: string): string {
-  return crypto.createHash("sha1").update(path.resolve(repo)).digest("hex").slice(0, 16);
-}
-function lockDir(): string {
-  return path.join(GARRISON_SANDBOX, "coord", "plan-locks");
-}
+const DEMO_REPO = "fixture:coordination";
+const STATE_FILE = path.join(GARRISON_SANDBOX, "state.json");
+let stale = false;
 function agentMailStatusFile(): string {
   return path.join(GARRISON_SANDBOX, "ui-fittings", "coord-agentmail.json");
-}
-function seedStaleLock(): void {
-  fs.mkdirSync(lockDir(), { recursive: true });
-  const past = new Date(Date.now() - 20 * 60000).toISOString();
-  fs.writeFileSync(
-    path.join(lockDir(), `${slug(DEMO_REPO)}.json`),
-    JSON.stringify({ repo: DEMO_REPO, session: "sess-stuckheron", summary: "refactor the billing schema", startedAt: past, heartbeatAt: past, expiresAt: past, ttlMs: 900000 })
-  );
-}
-function clearLocks(): void {
-  fs.rmSync(lockDir(), { recursive: true, force: true });
 }
 
 test.describe("Coordination view", () => {
   let agentMail: Server | null = null;
+  let previousState: Buffer | null = null;
 
   test.beforeAll(async () => {
     // The post-Beads hero verdict correctly reports DOWN when agent_mail is
     // unavailable. Keep this UI scenario focused on the stale-lock branch by
     // giving the sandbox a real, reachable health endpoint.
     agentMail = http.createServer((req, res) => {
-      const status = req.url === "/api/health" ? 200 : 404;
-      res.writeHead(status, { "content-type": "application/json" });
-      res.end(JSON.stringify(status === 200 ? { ok: true } : { error: "not-found" }));
+      const url = new URL(req.url ?? "/", "http://fixture.invalid");
+      const past = new Date(Date.now() - 20 * 60000).toISOString();
+      const bodies: Record<string, unknown> = {
+        "/api/health": { ok: true },
+        "/v1/coord/intents": { intents: stale ? [{ seq: 1, repoKey: DEMO_REPO, session: "fixture-planner", area: "schema", files: [], reason: "Synthetic planning fixture", at: new Date().toISOString() }] : [] },
+        "/v1/coord/plans": { plans: [] }
+      };
+      const body = url.pathname.startsWith("/v1/leases/")
+        ? { lease: stale && decodeURIComponent(url.pathname.slice("/v1/leases/".length)) === `plan:${DEMO_REPO}` ? { holder: "fixture-planner", acquiredAt: past, expiresAt: past, expired: true, fence: 1, meta: { repoKey: DEMO_REPO, summary: "Synthetic planning fixture", startedAt: past } } : null }
+        : bodies[url.pathname];
+      res.writeHead(body ? 200 : 404, { "content-type": "application/json" });
+      res.end(JSON.stringify(body ?? { error: "not-found" }));
     });
     await new Promise<void>((resolve, reject) => {
       agentMail!.once("error", reject);
@@ -50,6 +44,8 @@ test.describe("Coordination view", () => {
     const address = agentMail.address();
     if (!address || typeof address === "string") throw new Error("agent_mail test server did not bind a TCP port");
     fs.mkdirSync(path.dirname(agentMailStatusFile()), { recursive: true });
+    previousState = fs.existsSync(STATE_FILE) ? fs.readFileSync(STATE_FILE) : null;
+    fs.writeFileSync(STATE_FILE, JSON.stringify({ url: `http://127.0.0.1:${address.port}`, token: "synthetic-coordination-token", node: "fixture-node" }));
     fs.writeFileSync(
       agentMailStatusFile(),
       JSON.stringify({
@@ -59,9 +55,11 @@ test.describe("Coordination view", () => {
     );
   });
 
-  test.beforeEach(() => clearLocks());
+  test.beforeEach(() => { stale = false; });
   test.afterAll(async () => {
-    clearLocks();
+    stale = false;
+    if (previousState) fs.writeFileSync(STATE_FILE, previousState);
+    else fs.rmSync(STATE_FILE, { force: true });
     fs.rmSync(agentMailStatusFile(), { force: true });
     if (agentMail) {
       await new Promise<void>((resolve, reject) => {
@@ -84,10 +82,10 @@ test.describe("Coordination view", () => {
   });
 
   test("a stale planning lock turns the hero verdict degraded + surfaces a guarded Release action", async ({ page }) => {
-    seedStaleLock();
+    stale = true;
     await page.goto("/coordination");
     const hero = page.getByTestId("hero-verdict");
-    // Degraded must dominate — a stale lock is unmissable.
+    // Degraded must dominate - a stale lock is unmissable.
     await expect(hero).toHaveAttribute("data-verdict", "degraded");
     await expect(hero).toContainText(/stale planning lock/i);
     // The planning gate shows the stale lock + a Release action.
@@ -98,7 +96,7 @@ test.describe("Coordination view", () => {
   test("Verify now runs the PTY-safe canary and shows a result", async ({ page }) => {
     await page.goto("/coordination");
     await page.getByRole("button", { name: "Verify now" }).click();
-    // A result banner appears (pass or fail) — the action ran end to end.
+    // A result banner appears (pass or fail) - the action ran end to end.
     await expect(page.locator(".banner").first()).toBeVisible({ timeout: 30000 });
   });
 });

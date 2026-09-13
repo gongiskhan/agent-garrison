@@ -33,8 +33,11 @@ test('slow polling requests never overlap and a failed folder request can be ret
  let held=0,release!:()=>void;const gate=new Promise<void>(r=>release=r);
  await page.route('**/api/archive/status',async route=>{held++;await gate;await route.continue().catch(()=>{});});
  try{await expect.poll(()=>held).toBe(1);await page.waitForTimeout(6500);expect(held).toBe(1);}finally{release();await page.unroute('**/api/archive/status');}
- let fail=true;await page.route('**/api/archive/tree?depth=0&path=Memory',async route=>{if(fail){fail=false;return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Temporary fixture read failure'})});}return route.continue();});
- await goto(page,app,'/archive/notes?path=Memory');await page.getByRole('button',{name:'Try again',exact:true}).click();await expect(page.locator('.archive-entries')).toContainText('Welcome');
+ // Hold recovery until the click so index-ready refreshes cannot erase the
+ // temporary error while Playwright is waiting for the retry control.
+ let fail=true,releaseRead!:()=>void;const readGate=new Promise<void>(r=>releaseRead=r);
+ await page.route('**/api/archive/tree?depth=0&path=Memory',async route=>{if(fail){fail=false;return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Temporary fixture read failure'})});}await readGate;return route.continue().catch(()=>{});});
+ try{await goto(page,app,'/archive/notes?path=Memory');await page.getByRole('button',{name:'Try again',exact:true}).click();releaseRead();await expect(page.locator('.archive-entries')).toContainText('Welcome');}finally{releaseRead();await page.unroute('**/api/archive/tree?depth=0&path=Memory');}
 });
 
 test('Archive toolbar stays clickable beside the shell controls in light and dark',async({page,app},info)=>{

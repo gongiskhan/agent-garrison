@@ -53,7 +53,9 @@ test("capture page: with the native bridge the controls render and the menu list
   await expect(page.getByText("The app discovers every node automatically", { exact: false })).toBeVisible();
   await expect(page.getByTestId("capture-fallback")).toHaveCount(0);
   await expect(page.getByTestId("capture-phase")).toHaveText("idle");
-  await expect(page.getByRole("button", { name: "Start listening" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Record screen audio" })).toBeVisible();
+  if (page.viewportSize()!.width <= 900) await expect(page.getByRole("button", { name: "Start listening" })).toBeVisible();
+  else await expect(page.getByTestId("listening-control")).toBeHidden();
   // Narrow viewports start with the menu drawer closed (the app bar opens it);
   // a collapsed desktop rail carries no rows either.
   const expand = page.getByRole("button", { name: /^(Open menu|Expand sidebar)$/ });
@@ -61,13 +63,14 @@ test("capture page: with the native bridge the controls render and the menu list
   await expect(page.locator('a[href="/capture"]')).not.toHaveCount(0);
 });
 
-// G5: the record button lives in the conversation composer only inside the app.
+// The record button lives in the standing Zeca conversation inside the app.
 // The stubbed GarrisonCapture records what `start` was called with, so the test
 // proves the conversation id travels with the recording request.
-test("conversation composer: the record button appears with the native bridge and passes the conversation id", async ({ page, request }) => {
-  const id = `e2e-rec-${Date.now().toString(36)}`;
-  const created = await request.post("/api/threads", { data: { id, title: "Record test", source: "e2e" } });
+test("Zeca composer: the record button appears with the native bridge and passes the conversation id", async ({ page, request }) => {
+  const created = await request.get("/api/zeca");
   expect(created.ok()).toBeTruthy();
+  const { conversationId: id } = await created.json();
+  expect(typeof id).toBe("string");
 
   await page.goto(`/talk/${id}`);
   await expect(page.locator(".cc-composer")).toBeVisible();
@@ -104,7 +107,7 @@ test("conversation composer: the record button appears with the native bridge an
     };
   });
   await page.goto(`/talk/${id}`);
-  const button = page.getByTestId("wc-rec-btn");
+  const button = page.getByTestId("wc-rec-btn").first();
   await expect(button).toBeVisible();
   await expect(button).toHaveAttribute("aria-label", "Record screen");
   await button.click();

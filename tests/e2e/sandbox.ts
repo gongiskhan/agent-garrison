@@ -25,7 +25,7 @@ export function seedSandbox(): void {
   );
 
   // settings.json with documented (typed) + bespoke (passthrough) keys, plus a
-  // hand-authored (untagged) hook group AND a fitting-owned (_garrison) one — so
+  // hand-authored (untagged) hook group AND a fitting-owned (_garrison) one - so
   // the Quarters Hooks surface can prove editable-vs-read-only.
   fs.writeFileSync(
     path.join(CLAUDE_SANDBOX, "settings.json"),
@@ -126,4 +126,7 @@ export function seedSandbox(): void {
   );
 
   fs.mkdirSync(GARRISON_SANDBOX, { recursive: true });
+  fs.writeFileSync(path.join(GARRISON_SANDBOX, "install-state.json"), JSON.stringify({
+    version: 1, installed: true, installedAt: "2026-09-13T00:00:00Z", backupDir: null
+  }));
 }

@@ -19,6 +19,9 @@ export function FolderBrowser({path:p,excludeArchive=false,controls=true,heading
  const router=useRouter(),folder=useData(bookmarks?null:'tree?depth=0&path='+encodeURIComponent(p)+(p===''?'&unified=1':'')),saved=useData(bookmarks?'bookmarks':null),read=bookmarks?saved:folder,{options}=useDisplay();
  const [creating,setCreating]=useState<'document'|'folder'|'note'|null>(null),[error,setError]=useState<any>(),[pending,setPending]=useState<string>(),[visible,setVisible]=useState(100),[folderMenu,setFolderMenu]=useState(false),[renamingFolder,setRenamingFolder]=useState(false),[deletingFolder,setDeletingFolder]=useState(false);
  const owner=!p||p==='Archive'||p.startsWith('Archive/'),target=p||'Archive';
+ // Server-rendered creation controls must wait for their click handlers.
+ const [interactive,setInteractive]=useState(false);
+ useEffect(()=>setInteractive(true),[]);
  useEffect(()=>{setVisible(100);},[p,options.sort]);
  useEffect(()=>{window.addEventListener('archive:changed',read.refresh);return()=>window.removeEventListener('archive:changed',read.refresh);},[read.refresh]);
  const changed=()=>{read.refresh();window.dispatchEvent(new Event('archive:changed'));};
@@ -27,7 +30,7 @@ export function FolderBrowser({path:p,excludeArchive=false,controls=true,heading
  return <section className="archive-folder-browser" data-folder={p}>
   {heading&&<div className="archive-page-tools"><h1>{bookmarks?'Bookmarks':read.data?.title||p.split('/').at(-1)||'All documents'}</h1>{owner&&p&&p!=='Archive'&&!bookmarks&&<button className="archive-icon" aria-label="Folder menu" onClick={()=>setFolderMenu(true)}><MoreHorizontal/></button>}</div>}
   {controls&&<DisplayControls/>}
-  {!bookmarks&&<div className="archive-folder-actions">{owner&&<button className="btn" onClick={()=>setCreating('document')}><Plus size={16}/>Document</button>}<button className="btn ghost" onClick={()=>setCreating('note')}><Plus size={16}/>Note</button><button className="btn ghost" onClick={()=>setCreating('folder')}><Plus size={16}/>Folder</button></div>}{read.data?.notes&&<Markdown text={read.data.notes}/>}
+  {!bookmarks&&<div className="archive-folder-actions">{owner&&<button className="btn" disabled={!interactive} onClick={()=>setCreating('document')}><Plus size={16}/>Document</button>}<button className="btn ghost" disabled={!interactive} onClick={()=>setCreating('note')}><Plus size={16}/>Note</button><button className="btn ghost" disabled={!interactive} onClick={()=>setCreating('folder')}><Plus size={16}/>Folder</button></div>}{read.data?.notes&&<Markdown text={read.data.notes}/>}
   <ErrorMessage error={error?.status===409?new Error('This changed elsewhere since you opened it.'):error} onRetry={()=>{setError(null);read.refresh();}}/><ErrorMessage error={read.error} onRetry={read.refresh}/>
   {!read.data&&!read.error?<Skeleton/>:<>{rows.length===0&&<p className="archive-empty">{bookmarks?'Bookmark a document or note to find it quickly here.':'No documents here yet. Create a document or note to get started.'}</p>}<ul className={'archive-entries '+options.view} aria-label={bookmarks?'Bookmarks':'Folder contents'}>{rows.slice(0,visible).map(row=>{
 

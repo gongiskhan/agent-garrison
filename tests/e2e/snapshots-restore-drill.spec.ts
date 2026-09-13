@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+test.use({ timezoneId: 'UTC' });
 const fixture = { at: '2026-09-15T05:00:12Z', ok: true, state: { ageHours: 2, restored: { cards: 1412, cardDocs: 3906 }, live: { cards: 1412, cardDocs: 3907 } }, restic: { ageHours: 2.1, conversations: { restored: 318, live: 319 } }, failures: [] as string[] };
 for (const state of ['never', 'ok', 'failed'] as const) {
   test(`restore drill ${state}`, async ({ page }, info) => {

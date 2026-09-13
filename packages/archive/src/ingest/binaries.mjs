@@ -12,9 +12,32 @@ export async function run(command,args,options={}){
 }
 export function binary(name){for(const dir of [...(process.env.PATH??'').split(path.delimiter),'/opt/homebrew/bin','/usr/local/bin']){const p=path.join(dir,name);try{fs.accessSync(p,fs.constants.X_OK);return p;}catch{}}return null;}
 export function pdfHint(){return process.platform==='darwin'?'Install with: brew install poppler':'Install with: sudo apt-get install poppler-utils';}
-export async function thumbnail(ctx,relative,hash){const source=ctx.confine(relative),dir=path.join(ctx.dataDir,'thumbs'),root=fs.realpathSync(ctx.home);
-if(fs.realpathSync(ctx.dataDir)!==path.join(root,'archive'))throw new Error('Invalid thumbnail cache');
-fs.mkdirSync(dir,{recursive:true});const file=path.join(dir,hash+'.jpg'),actual=fs.realpathSync(dir);if(actual!==path.join(root,'archive','thumbs')||SENSITIVE.test(actual+'/'))throw new Error('Invalid thumbnail cache');
-const st=fs.lstatSync(file,{throwIfNoEntry:false});if(st){if(!st.isFile()||st.isSymbolicLink()||!within(actual,fs.realpathSync(file)))throw new Error('Invalid cached thumbnail');return file;}const sips=binary('sips'),convert=binary('convert');if(sips)await run(sips,['-s','format','jpeg','-Z','512',source,'--out',file]);else if(convert)await run(convert,[source+'[0]','-thumbnail','512x512>','-quality','82',file]);else return source;return file;}
+export async function thumbnail(ctx,relative,hash,{find=binary,execute=run}={}){
+  const source=ctx.confine(relative),dir=path.join(ctx.dataDir,'thumbs'),root=fs.realpathSync(ctx.home);
+  if(fs.realpathSync(ctx.dataDir)!==path.join(root,'archive'))throw new Error('Invalid thumbnail cache');
+  fs.mkdirSync(dir,{recursive:true});
+  const file=path.join(dir,hash+'.jpg'),actual=fs.realpathSync(dir);
+  if(actual!==path.join(root,'archive','thumbs')||SENSITIVE.test(actual+'/'))throw new Error('Invalid thumbnail cache');
+  const st=fs.lstatSync(file,{throwIfNoEntry:false});
+  if(st){if(!st.isFile()||st.isSymbolicLink()||!within(actual,fs.realpathSync(file)))throw new Error('Invalid cached thumbnail');return file;}
+  const pending=ctx.thumbnailTasks??=new Map();
+  if(pending.has(hash))return pending.get(hash);
+  const sips=find('sips'),convert=find('convert');
+  if(!sips&&!convert)return source;
+  // Identical attachments share a hash. A converter must never rewrite a
+  // thumbnail another response has already started reading.
+  const task=(async()=>{
+    const temp=fs.mkdtempSync(path.join(dir,'.thumbnail-')),output=path.join(temp,'image.jpg');
+    try{
+      if(sips)await execute(sips,['-s','format','jpeg','-Z','512',source,'--out',output]);
+      else await execute(convert,[source+'[0]','-thumbnail','512x512>','-quality','82',output]);
+      if(fs.realpathSync(dir)!==actual||!fs.lstatSync(output).isFile())throw new Error('Invalid thumbnail cache');
+      fs.renameSync(output,file);
+      return file;
+    }finally{fs.rmSync(temp,{recursive:true,force:true});}
+  })();
+  pending.set(hash,task);
+  try{return await task;}finally{pending.delete(hash);}
+}
 export async function imageForModel(source,temp,{find=binary,execute=run}={}){const convert=find('convert'),sips=find('sips');if(/\.hei[cf]$/i.test(source)){const heif=find('heif-convert');if(!sips&&!heif)throw new Error('heic conversion unavailable on this node');const jpeg=path.join(temp,'converted.jpg');if(sips)await execute(sips,['-s','format','jpeg',source,'--out',jpeg]);else await execute(heif,[source,jpeg]);source=jpeg;}if(convert){const out=path.join(temp,'scaled.jpg');const identify=find('identify');if(identify){const {stdout}=await execute(identify,['-format','%w %h',source+'[0]']);if(Math.max(...stdout.trim().split(' ').map(Number))<=4000)return source;}await execute(convert,[source+'[0]','-resize','2000x2000>','-quality','90',out]);return out;}if(sips){const {stdout}=await execute(sips,['-g','pixelWidth','-g','pixelHeight',source]);const sizes=[...stdout.matchAll(/pixel(?:Width|Height): (\d+)/g)].map(m=>+m[1]);if(Math.max(...sizes)>4000){const out=path.join(temp,'scaled.jpg');await execute(sips,['-Z','2000',source,'--out',out]);return out;}}return source;}
 export const tempDir=()=>fs.mkdtempSync(path.join(os.tmpdir(),'archive-extract-'));

@@ -6,6 +6,7 @@ import { type AddressInfo } from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { waitExit } from "./helpers/wait-exit";
+import { assertPortsFree } from "./helpers/port-free";
 
 // Authoring surface server endpoints (Phase 3): open/reuse a tab per
 // (pageId, viewport), pick an element, resolve stored anchors. Drives both
@@ -193,6 +194,7 @@ async function waitHealthy(base: string, ms: number) {
 }
 
 beforeAll(async () => {
+  await assertPortsFree([BROWSER_PORT, DRILL_PORT]);
   fixtureSrv = fixtureServer();
   fixtureBase = await listenEphemeral(fixtureSrv);
 
@@ -221,7 +223,7 @@ beforeAll(async () => {
 
   // Point the Drill Book's app at a fixture page served as a data: URL is not
   // possible via new URL(path, base) with a data: base, so point at a real
-  // fixture served by browser-default's own devtools-agnostic static host —
+  // fixture served by browser-default's own devtools-agnostic static host -
   // simplest: use about:blank as base and rely on the page's own path being a
   // full data: URL when needed. Here we set app.url to a data: page directly.
   await fetch(`${DRILL_BASE}/api/drillbook`, {

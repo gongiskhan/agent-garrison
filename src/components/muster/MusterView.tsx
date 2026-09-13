@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import clsx from "clsx";
 import { dutyEfforts } from "@/lib/types";
@@ -225,7 +226,7 @@ function TargetEditor({
   );
   const [error, setError] = useState<string | null>(null);
 
-  return (
+  return createPortal(
     <div className={styles.modalBackdrop} data-testid="target-editor" onMouseDown={(e) => {
       if (e.target === e.currentTarget && !saving) onClose();
     }}>
@@ -354,7 +355,8 @@ function TargetEditor({
           </button>
         </div>
       </form>
-    </div>
+    </div>,
+    document.body
   );
 }
 
