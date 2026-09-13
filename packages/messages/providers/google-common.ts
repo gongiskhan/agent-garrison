@@ -5,7 +5,7 @@ import { attachmentId, baseAttachment, baseConversation, baseMessage, decodeBase
 export const GOOGLE_MESSAGES_SCOPES = ["https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/drive.readonly"];
 export function googleDescriptor(accounts: Account[], setupHint: string | null = null): ProviderDescriptor {
   return { id: "google", kind: "mail", label: "Gmail", badge: { text: "Gmail", color: "#b45309", glyph: "Mail" }, accounts,
-    capabilities: { read: true, send: true, reply: true, markRead: true, archive: true, delete: true,
+    capabilities: { read: true, send: true, reply: true, markRead: true, archive: true, delete: true, labels: true,
       groups: false, threads: true, attachments: true, audioReceive: true, audioSend: true,
       markdown: true, code: true, reactionsRead: false, openInProvider: true },
     sync: { mode: "poll", intervalSeconds: 120 }, setupHint,

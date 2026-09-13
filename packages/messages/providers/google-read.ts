@@ -8,7 +8,7 @@ function gmailReadTransport({ token, fetchImpl = fetch }: TransportOptions) {
   if (!token) throw new Error("Google needs setup: reconnect with mail read scope");
   return async (path: string, options: RequestInit = {}): Promise<JsonRecord> => {
     if (options.method && options.method !== "GET") throw new Error("Google ingest is read only");
-    if (!/^(?:profile|messages(?:[/?]|$)|threads(?:[/?]|$)|history\?)/.test(path)) throw new Error("Unsupported Google read endpoint");
+    if (!/^(?:profile|labels$|messages(?:[/?]|$)|threads(?:[/?]|$)|history\?)/.test(path)) throw new Error("Unsupported Google read endpoint");
     const response = await fetchImpl(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`, {
       method: "GET", headers: { authorization: `Bearer ${token}`, "content-type": "application/json",  },
       signal: options.signal ?? AbortSignal.timeout(30_000)
@@ -65,6 +65,12 @@ export function createGoogleReadAdapter(options: GoogleReadOptions) {
     return { messages, conversations: [...conversations.values()], cursor, deletedExternalIds: [...new Set(deleted)] };
   }
   return {
+    async listLabels(): Promise<{ id: string; name: string; type: "system" | "user" }[]> {
+      const result = await request("labels");
+      return (Array.isArray(result.labels) ? result.labels : []).filter((label: JsonRecord) => typeof label.id === "string" && typeof label.name === "string")
+        .map((label: JsonRecord) => ({ id: label.id, name: label.name, type: label.type === "user" ? "user" as const : "system" as const }))
+        .sort((a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name));
+    },
     async fetchMessages(account: string, cursor: GoogleCursor | null): Promise<GoogleSyncResult> {
       if (!cursor?.historyId) return backfill(account);
       const ids: string[] = [], deleted: string[] = [];

@@ -1,0 +1,8 @@
+{
+  "history": [
+    { "id": "101", "messagesAdded": [{ "message": { "id": "mail-001", "threadId": "thread-001" } }] },
+    { "id": "102", "labelsRemoved": [{ "message": { "id": "mail-001", "threadId": "thread-001" }, "labelIds": ["UNREAD"] }] },
+    { "id": "103", "messagesDeleted": [{ "message": { "id": "mail-deleted", "threadId": "thread-deleted" } }] }
+  ],
+  "historyId": "103"
+}

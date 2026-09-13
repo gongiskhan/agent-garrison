@@ -1,7 +1,7 @@
 export async function request<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(`/api/messages${path}`, body === undefined ? { cache: 'no-store' } : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+  if (!response.ok) throw Object.assign(new Error(data.error || `Request failed (${response.status})`), { status: response.status });
   return data as T;
 }
 export const categories: Record<string, string> = { 'card.done': 'Done', 'card.needs-input': 'Needs you', 'improver.decision': 'Improver', 'job.failed': 'Job failed', 'system.error': 'Error', 'system.warning': 'Warning', convergence: 'Convergence', 'rules.applied': 'Rules' };

@@ -1,0 +1,18 @@
+{
+  "id": "mail-001", "threadId": "thread-001", "historyId": "100", "internalDate": "1789300800000",
+  "labelIds": ["INBOX", "UNREAD", "STARRED", "Label_clients"], "snippet": "A fixture project update.",
+  "payload": {
+    "mimeType": "multipart/mixed",
+    "headers": [
+      { "name": "From", "value": "Example Client <client@example.test>" },
+      { "name": "To", "value": "Owner <owner@example.test>" },
+      { "name": "Cc", "value": "Review <review@example.test>" },
+      { "name": "Subject", "value": "Project update" },
+      { "name": "Message-ID", "value": "<mail-001@example.test>" }
+    ],
+    "parts": [
+      { "mimeType": "text/plain", "partId": "0", "body": { "size": 25, "data": "QSBmaXh0dXJlIHByb2plY3QgdXBkYXRlLg" } },
+      { "mimeType": "image/png", "filename": "diagram.png", "partId": "1", "body": { "attachmentId": "att-001", "size": 4096 } }
+    ]
+  }
+}

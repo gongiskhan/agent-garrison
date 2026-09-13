@@ -32,7 +32,7 @@ export interface Message {
   severity: 'info' | 'warning' | 'error' | null; action: SystemAction | null;
   cardId: string | null; conversationRef: string | null; triage: null; rawPath: string | null;
   suppressNotification?: boolean; reactions?: { name: string; count: number; users?: string[] }[];
-  deepLink?: string; ownerNode?: string; htmlOwnerNode?: string; rawOwnerNode?: string; sourceLink?: string; mirrorTargets?: string[]; sendStatus?: OutboxItem['status'];
+  deepLink?: string; ownerNode?: string; htmlOwnerNode?: string; rawOwnerNode?: string; sourceLink?: string; mirrorTargets?: string[]; mirrorContext?: { priority?: 'routine'|'interactive'; webFallback?: boolean; tag?: string }; sendStatus?: OutboxItem['status'];
 }
 export interface Filter {
   text?: string; providers?: string[]; accounts?: string[]; kinds?: ProviderKind[];
@@ -55,16 +55,18 @@ export interface OutboxItem {
   body: { markdown: string }; attachments: { path: string; name: string; mime: string; asVoiceNote?: boolean }[];
   replyToExternalId: string | null; origin: 'user' | 'agent'; holdUntil: string;
   status: 'held' | 'sending' | 'sent' | 'failed' | 'cancelled'; error: string | null;
-  externalReceipt?: {id:string;executeAt?:string};
+  externalReceipt?: {id:string;executeAt?:string;retryOutboxId?:string};
+  ownerNode?: string;
 }
 export interface ProviderDescriptor {
   id: string; kind: ProviderKind; label: string; badge: { text: string; color: string; glyph: string };
-  accounts: { id: string; label: string; address?: string }[];
+  accounts: { id: string; label: string; address?: string; setupHint?: string | null }[];
   capabilities: { read: true; send: boolean; reply: boolean; markRead: boolean; archive: boolean;
     delete: boolean; groups: boolean; threads: boolean; attachments: boolean; audioReceive: boolean;
-    audioSend: boolean; markdown: boolean; code: boolean; reactionsRead: boolean; openInProvider: boolean };
+    audioSend: boolean; markdown: boolean; code: boolean; reactionsRead: boolean; openInProvider: boolean; labels?: boolean };
   sync: { mode: 'poll' | 'stream'; intervalSeconds?: number }; setupHint: string | null;
   callbackBaseUrl?: string; ownerNode?: string; lastSync?: string; health?: { ok: boolean; reason?: string };
+  accountHealth?: Record<string, {ok:boolean;reason?:string}>;
   retentionDays?: number; sendReadReceipts?: boolean; holdSeconds?: number; deleteWindowSeconds?: number;
   managesAgentHold?: boolean;
   inboundStateFields?: ('read'|'archived'|'deleted'|'starred'|'labels')[];

@@ -39,3 +39,20 @@ Audio is not part of Phase 2. Physical iOS keyboard and acoustic acceptance are 
 | [p1/api-journey-desktop.png](p1/api-journey-desktop.png) | Pass | The same API evidence is readable without clipping or horizontal overflow. |
 
 These are API journey reports. Inbox styling and interaction checks are recorded under Phase 2.
+
+## Phase 3 and 4, lead visual check, 13 September 2026
+
+- p3/mail-thread-iphone.png: PASS. Provider and account badge visible; timestamp readable; mail or chat actions and fenced code fit; composer stays within the viewport; no clipped controls or overlap. Conversation content scrolls inside its pane.
+- p3/mail-thread-desktop.png: PASS. Provider and account badge visible; timestamp readable; mail or chat actions and fenced code fit; composer stays within the viewport; no clipped controls or overlap. Conversation content scrolls inside its pane.
+- p3/mail-replied-iphone.png: PASS. Provider and account badge visible; timestamp readable; mail or chat actions and fenced code fit; composer stays within the viewport; no clipped controls or overlap. Conversation content scrolls inside its pane.
+- p3/mail-replied-desktop.png: PASS. Provider and account badge visible; timestamp readable; mail or chat actions and fenced code fit; composer stays within the viewport; no clipped controls or overlap. Conversation content scrolls inside its pane.
+- p3/reply-all-iphone.png: PASS. Provider and account badge visible; timestamp readable; mail or chat actions and fenced code fit; composer stays within the viewport; no clipped controls or overlap. Conversation content scrolls inside its pane.
+- p3/reply-all-desktop.png: PASS. Provider and account badge visible; timestamp readable; mail or chat actions and fenced code fit; composer stays within the viewport; no clipped controls or overlap. Conversation content scrolls inside its pane.
+- p3/new-mail-iphone.png: PASS. Provider and account badge visible; timestamp readable; mail or chat actions and fenced code fit; composer stays within the viewport; no clipped controls or overlap. Conversation content scrolls inside its pane.
+- p3/new-mail-desktop.png: PASS. Provider and account badge visible; timestamp readable; mail or chat actions and fenced code fit; composer stays within the viewport; no clipped controls or overlap. Conversation content scrolls inside its pane.
+- p4/slack-thread-iphone.png: PASS. Provider and account badge visible; timestamp readable; mail or chat actions and fenced code fit; composer stays within the viewport; no clipped controls or overlap. Conversation content scrolls inside its pane.
+- p4/slack-thread-desktop.png: PASS. Provider and account badge visible; timestamp readable; mail or chat actions and fenced code fit; composer stays within the viewport; no clipped controls or overlap. Conversation content scrolls inside its pane.
+- p4/slack-replied-iphone.png: PASS. Provider and account badge visible; timestamp readable; mail or chat actions and fenced code fit; composer stays within the viewport; no clipped controls or overlap. Conversation content scrolls inside its pane.
+- p4/slack-replied-desktop.png: PASS. Provider and account badge visible; timestamp readable; mail or chat actions and fenced code fit; composer stays within the viewport; no clipped controls or overlap. Conversation content scrolls inside its pane.
+
+The initial raw filter chip and copied outgoing Slack reactions were corrected, recaptured and checked. Mail remote-image placeholders are deliberate until Load images is selected.
