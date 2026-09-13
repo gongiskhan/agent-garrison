@@ -48,6 +48,15 @@ import type { CapabilityKind, Composition, FacultyId, LibraryEntry } from "@/lib
 
 export function Sidebar() {
   const pathname = usePathname() ?? "/";
+  const [messagesUnread, setMessagesUnread] = useState(0);
+  useEffect(() => {
+    const refresh = () => void fetch('/api/messages/counts').then(response => response.ok ? response.json() : null).then(data => { if (data?.counts) setMessagesUnread(data.counts.all || 0); }).catch(() => {});
+    const receive = (event: Event) => setMessagesUnread((event as CustomEvent).detail?.all || 0);
+    refresh();
+    const timer = setInterval(refresh, 30000);
+    window.addEventListener('messages.counts', receive);
+    return () => { clearInterval(timer); window.removeEventListener('messages.counts', receive); };
+  }, []);
   const {
     composition,
     library,
@@ -194,7 +203,7 @@ export function Sidebar() {
           library={library}
           pathname={pathname}
           viewStatuses={viewStatuses}
-          commandBadges={{ "nav:composition": `${stationedCount}/${totalFaculties}` }}
+          commandBadges={{ "nav:composition": `${stationedCount}/${totalFaculties}`, "nav:messages": messagesUnread ? String(messagesUnread) : '' }}
         />
       </nav>
 
@@ -435,6 +444,7 @@ export interface CommandItem {
 export const HOME_ITEM_ID = "nav:garrison";
 
 export const COMMAND_ITEMS: CommandItem[] = [
+  { id: "nav:messages", href: "/messages", label: "Messages", Icon: MessagesSquare, isActive: (p) => p === "/messages" || p.startsWith("/messages/") },
   { id: "nav:improver", href: "/improver", label: "Improver", Icon: Sparkles, isActive: (p) => p === "/improver" || p.startsWith("/improver/") },
   {
     id: "nav:accounts",

@@ -956,7 +956,7 @@
         {
           "id": "m2",
           "text": "Phone inbox, desktop conversation panes and inline system actions. Evidence: evidence/messages/p2/; docs/messages/README.md.",
-          "done": false,
+          "done": true,
           "sentToKanban": null,
           "noteRef": null
         },
