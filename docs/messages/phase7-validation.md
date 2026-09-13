@@ -1,0 +1,11 @@
+# Phase 7: filters, views and rules
+
+Saved filters share the inbox filter model and support ordering, rename and deletion while built-in tabs remain protected. Rules use deterministic ordered matches, idempotent effects, stop processing, test counts and apply-to-existing jobs. Provider settings expose discovered accounts, setup and health, sync, retention and supported read-receipt settings.
+
+Eight unique browser cases passed. Both profiles are covered: iPhone 390 by 844, device scale factor 3 and touch, and desktop 1440 by 900. Six cover saved views, rule label and mute effects, notification suppression, Test rule, Apply to existing, and creating a card from a matching Gmail message. Two cover provider health and settings. The final focused run rechecked the rule journey and the complete tested-match row on both profiles.
+
+The lead viewed all 22 final screenshots in `evidence/messages/p7`. Each of these stems has an `-iphone.png` and `-desktop.png` capture: `save-view`, `clients-view`, `views-management`, `rule-editor-filters`, `rule-editor-test`, `rule-tested-matches`, `apply-rule-confirm`, `rules-list`, `message-created-card`, `providers`, `provider-settings`. The additional rule captures cover both the editor's top and filter area and the full matching row above the sticky action bar. The card-message capture includes the phone shell header and composer. The complete filename inventory is [ui-screenshot-inventory.json](../../evidence/messages/p8/ui-screenshot-inventory.json), and the final browser receipts are [ui-test-results.json](../../evidence/messages/p8/ui-test-results.json).
+
+The phase batch recorded 20 passing relational-store rules and views tests, a real message-to-card journey including the quoted data boundary, and three registry checks. The full Messages browser run passed 56 cases; the final focused run passed 12 cases, including two additional recording cases, for 58 unique cases across phases.
+
+Final screenshot verdicts are recorded in [vision-checklist.md](../../evidence/messages/vision-checklist.md). Earlier available-provider live gates remain open as described in Phases 5 and 6; their completion and ordered acceptance sentinels are recorded by the lead.

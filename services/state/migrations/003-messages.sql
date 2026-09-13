@@ -19,7 +19,7 @@ CREATE TABLE messages (
   deleted INTEGER NOT NULL DEFAULT 0, starred INTEGER NOT NULL DEFAULT 0, labels TEXT NOT NULL DEFAULT '[]',
   category TEXT, severity TEXT, action TEXT, cardId TEXT, conversationRef TEXT, triage TEXT, rawPath TEXT,
   suppressNotification INTEGER NOT NULL DEFAULT 0, reactions TEXT NOT NULL DEFAULT '[]', deepLink TEXT,
-  ownerNode TEXT NOT NULL, htmlOwnerNode TEXT, rawOwnerNode TEXT, sourceLink TEXT, mirrorTargets TEXT, providerHash TEXT, localState TEXT NOT NULL DEFAULT '{}', revision INTEGER NOT NULL DEFAULT 1,
+  ownerNode TEXT NOT NULL, htmlOwnerNode TEXT, rawOwnerNode TEXT, sourceLink TEXT, mirrorTargets TEXT, mirrorContext TEXT, providerHash TEXT, localState TEXT NOT NULL DEFAULT '{}', revision INTEGER NOT NULL DEFAULT 1,
   UNIQUE(provider,account,externalId)
 );
 CREATE INDEX messages_time ON messages(ts DESC,id DESC);

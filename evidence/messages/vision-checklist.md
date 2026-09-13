@@ -82,3 +82,45 @@ The initial raw filter chip and copied outgoing Slack reactions were corrected, 
 - p6/voice-player-iphone.png: PASS. Audio duration, playback progress, speed control and transcript render completely; actual playback advancement is asserted by the journey.
 - p6/voice-preview-desktop.png: PASS. Media controls, attachment preview and applicable transcript are legible; composer remains docked; no overlapping controls.
 - p6/voice-preview-iphone.png: PASS. Media controls, attachment preview and applicable transcript are legible; composer remains docked; no overlapping controls.
+
+## Final setup, rules and ship screenshots, lead check, 13 September 2026
+
+- p4/slack-account-connected-desktop.png: PASS. Labels, input fields and applicable action buttons fit without clipping or overlapping controls.
+- p4/slack-account-connected-iphone.png: PASS. Labels, input fields and applicable action buttons fit without clipping or overlapping controls.
+- p4/slack-account-setup-desktop.png: PASS. Labels, input fields and applicable action buttons fit without clipping or overlapping controls.
+- p4/slack-account-setup-iphone.png: PASS. Labels, input fields and applicable action buttons fit without clipping or overlapping controls.
+- p7/apply-rule-confirm-desktop.png: PASS. Rule fields, actions or test results are legible; the sticky action bar does not cover the matching result.
+- p7/apply-rule-confirm-iphone.png: PASS. Rule fields, actions or test results are legible; the sticky action bar does not cover the matching result.
+- p7/clients-view-desktop.png: PASS. Labels, input fields and applicable action buttons fit without clipping or overlapping controls.
+- p7/clients-view-iphone.png: PASS. Labels, input fields and applicable action buttons fit without clipping or overlapping controls.
+- p7/message-created-card-desktop.png: PASS. Labels, input fields and applicable action buttons fit without clipping or overlapping controls.
+- p7/message-created-card-iphone.png: PASS. Labels, input fields and applicable action buttons fit without clipping or overlapping controls.
+- p7/provider-settings-desktop.png: PASS. Provider badges, connection state, accounts and settings are legible; controls remain reachable.
+- p7/provider-settings-iphone.png: PASS. Provider badges, connection state, accounts and settings are legible; controls remain reachable.
+- p7/providers-desktop.png: PASS. Provider badges, connection state, accounts and settings are legible; controls remain reachable.
+- p7/providers-iphone.png: PASS. Provider badges, connection state, accounts and settings are legible; controls remain reachable.
+- p7/rule-editor-filters-desktop.png: PASS. Rule fields, actions or test results are legible; the sticky action bar does not cover the matching result.
+- p7/rule-editor-filters-iphone.png: PASS. Rule fields, actions or test results are legible; the sticky action bar does not cover the matching result.
+- p7/rule-editor-test-desktop.png: PASS. Rule fields, actions or test results are legible; the sticky action bar does not cover the matching result.
+- p7/rule-editor-test-iphone.png: PASS. Rule fields, actions or test results are legible; the sticky action bar does not cover the matching result.
+- p7/rule-tested-matches-desktop.png: PASS. Rule fields, actions or test results are legible; the sticky action bar does not cover the matching result.
+- p7/rule-tested-matches-iphone.png: PASS. Rule fields, actions or test results are legible; the sticky action bar does not cover the matching result.
+- p7/rules-list-desktop.png: PASS. Rule fields, actions or test results are legible; the sticky action bar does not cover the matching result.
+- p7/rules-list-iphone.png: PASS. Rule fields, actions or test results are legible; the sticky action bar does not cover the matching result.
+- p7/save-view-desktop.png: PASS. Labels, input fields and applicable action buttons fit without clipping or overlapping controls.
+- p7/save-view-iphone.png: PASS. Labels, input fields and applicable action buttons fit without clipping or overlapping controls.
+- p7/views-management-desktop.png: PASS. Labels, input fields and applicable action buttons fit without clipping or overlapping controls.
+- p7/views-management-iphone.png: PASS. Labels, input fields and applicable action buttons fit without clipping or overlapping controls.
+- p8/failed-send-desktop.png: PASS. Failure copy and Retry are visible beside the outgoing message.
+- p8/failed-send-iphone.png: PASS. Failure copy and Retry are visible beside the outgoing message.
+- p8/keyboard-composer-desktop.png: PASS. Composer stays inside the reduced keyboard viewport, with reachable attach and send controls.
+- p8/keyboard-composer-iphone.png: PASS. Composer stays inside the reduced keyboard viewport, with reachable attach and send controls.
+- p8/offline-pending-desktop.png: PASS. Both queued actions and Cancel controls are visible; no toast covers the sheet.
+- p8/offline-pending-iphone.png: PASS. Both queued actions and Cancel controls are visible; no toast covers the sheet.
+- p8/offline-replayed-desktop.png: PASS. The queued message shows Sent once and stale queued copy is absent.
+- p8/offline-replayed-iphone.png: PASS. The queued message shows Sent once and stale queued copy is absent.
+- p8/performance-list-desktop.png: PASS. Provider badges, unread dots and timestamps are visible on virtual rows; shell and list headers remain fixed. The verified phone copy confirms the final pixels.
+- p8/performance-list-iphone-verified.png: PASS. Provider badges, unread dots and timestamps are visible on virtual rows; shell and list headers remain fixed. The verified phone copy confirms the final pixels.
+- p8/performance-list-iphone.png: PASS. Provider badges, unread dots and timestamps are visible on virtual rows; shell and list headers remain fixed. The verified phone copy confirms the final pixels.
+
+The phone checks use browser emulation. The lead checked the images directly. Earlier toast overlap, stale replay copy and document-scroll defects were fixed before the final captures.

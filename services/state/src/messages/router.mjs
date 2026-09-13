@@ -13,10 +13,13 @@ export function messagesRoute(db,actor,method,path,url,body={}) {
   if (p[0]==='providers') {
     if (method==='GET') { s.ensureSystem(db); return {providers:s.listProviders(db)}; }
     if (method==='POST' && p[1]==='register') return s.registerProvider(db,node,body);
+    if (method==='POST' && p[2]==='health') return s.setProviderHealth(db,node,p[1],body);
     if (method==='POST' && p.length===2) {
       const old=s.listProviders(db).find(v=>v.id===p[1]); if (!old) throw new s.MessagesError(404,'Provider not found');
       const allowed=['retentionDays','sendReadReceipts','holdSeconds']; if (Object.keys(body).some(k=>!allowed.includes(k))) throw new s.MessagesError(422,'Invalid provider settings');
-      return s.registerProvider(db,node,{descriptor:{...old,...body},callbackBaseUrl:old.callbackBaseUrl});
+      for(const key of ['retentionDays','holdSeconds'])if(body[key]!=null&&(!Number.isInteger(body[key])||body[key]<(key==='retentionDays'?1:0)||body[key]>3650))throw new s.MessagesError(422,'Invalid provider setting');
+      if(body.sendReadReceipts!=null&&typeof body.sendReadReceipts!=='boolean')throw new s.MessagesError(422,'Invalid read receipt setting');
+      return s.registerProvider(db,old.ownerNode,{descriptor:{...old,...body},callbackBaseUrl:old.callbackBaseUrl,settingsUpdate:true});
     }
   }
   if (p[0]==='sync') {
@@ -49,11 +52,12 @@ export function messagesRoute(db,actor,method,path,url,body={}) {
     if (method==='GET') return s.listOutbox(db);
     if (method==='POST' && p.length===1) return s.enqueueOutbox(db,node,body);
     if (method==='POST' && p[2]==='cancel') return s.cancelOutbox(db,node,p[1]);
-    if (method==='POST' && p[2]==='retry') { db.prepare("UPDATE messages_outbox SET status='held',holdUntil=?,error=NULL WHERE id=? AND status='failed'").run(new Date().toISOString(),p[1]); return {ok:true}; }
+    if (method==='POST' && p[2]==='retry') return s.retryOutbox(db,node,p[1]);
   }
   if (p[0]==='work' && method==='POST') {
     if (p[2]==='claim') return s.claimWork(db,node,p[1]);
     if (p[3]==='finish') return s.finishWork(db,node,p[1],p[2],body);
+    if (p[3]==='renew') return s.renewWork(db,node,p[1],p[2],body);
   }
   if (p[0]==='retention' && method==='POST') return s.pruneMessages(db,node);
   if (method==='GET' && p.length===0) return s.listMessages(db,decode(url.searchParams.get('filter')),url.searchParams.get('cursor'),url.searchParams.get('limit'));
