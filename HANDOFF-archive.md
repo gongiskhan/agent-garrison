@@ -49,7 +49,7 @@ Retired Documents artifacts migrate to `Projects/Garrison/Documents` with origin
 The earlier staging error in `954e3a0d` was corrected by `f948abb4`; do not
 deploy that intermediate commit. The decision document preserves the history.
 
-One library now has fast folder lists, stars, document bookmarks, reliable Back and
+One library has folder lists, stars, bookmarks, safe-area attachment dialogs and
 `garrison_archive_search` / `garrison_archive_read` in working assistant sessions.
 The real assistant test retrieves a sensitive synthetic company certificate,
 returns only its requested number with a clickable citation and leaves the vault
