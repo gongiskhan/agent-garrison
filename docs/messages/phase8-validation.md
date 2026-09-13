@@ -45,3 +45,7 @@ The Phase 8 stems `offline-pending`, `offline-replayed`, `performance-list`, `ke
 - Final process-boundary review receipt and any resulting checks: recorded by the lead in the separate final review document.
 
 This record does not claim that the build, deployment, live smokes or final acceptance sentinel have completed. The lead will update those entries from their receipts.
+
+## Deployment migration correction
+
+The first app rollouts showed that the shared authority still held a retired gateway flag. The normal `up()` materialization restored it into the local manifest and caused the mandatory pretest guard to fail. The composition sync now removes only that obsolete field through the existing revision-checked update, preserves concurrent edits and unrelated settings, and also refreshes a first-contact local manifest. The scanner allows only the exact deletion statement, while assignment or the same statement in another source file still fails. All 14 focused composition-sync and scanner tests pass with the mandatory pretest clean, and type checking passes. Generated-only manifest differences are backed up on their owner and compared semantically before cleanup. Receipt: `evidence/messages/p8/composition-sync-rollout.log`.

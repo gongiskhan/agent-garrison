@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Runtime source cannot restore the retired stretch home or bypass the launcher.
-// Historical prose/evidence is retained. Two exact runner compatibility lines
-// report old persisted configuration without implementing it.
+// Historical prose/evidence is retained. Exact compatibility lines only report
+// or delete old persisted configuration without implementing it.
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -21,7 +21,8 @@ export function inspectHomeSource(file, source) {
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index];
     if (/^\s*(?:#|\/\/|\*|<!--)/.test(line)) continue;
-    if (retired.test(line) && !(file === 'src/lib/runner.ts' && compatibilityLines.includes(line.trim()))) failures.push(`${file}:${index + 1}: retired stretch home`);
+    const deletesRetiredFlag = file === 'src/lib/composition-sync.ts' && line.trim() === 'if (isMap(config)) changed = config.delete("stretch_claude_home") || changed;';
+    if (retired.test(line) && !deletesRetiredFlag && !(file === 'src/lib/runner.ts' && compatibilityLines.includes(line.trim()))) failures.push(`${file}:${index + 1}: retired stretch home`);
     if (!file.startsWith('fittings/') || !literalHome.test(line)) continue;
     // Some JS helpers store the override in a local before a ternary fallback.
     const context = lines.slice(Math.max(0, index - 4), index + 1).join('\n');

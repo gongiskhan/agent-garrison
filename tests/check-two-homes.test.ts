@@ -8,3 +8,9 @@ it("rejects retired runtime overrides and bare user-home writes", () => {
   expect(inspectHomeSource("fittings/demo/scripts/setup.sh", 'SETTINGS="${GARRISON_CLAUDE_HOME:-$HOME/.claude}/settings.json"')).toEqual([]);
 });
 it("keeps the active tree free of retired runtime paths", () => { expect(checkTwoHomes()).toEqual([]); });
+it("allows only the exact deletion migration, never a restored flag or a different writer", () => {
+  const deletion = 'if (isMap(config)) changed = config.delete("stretch_claude_home") || changed;';
+  expect(inspectHomeSource("src/lib/composition-sync.ts", deletion)).toEqual([]);
+  expect(inspectHomeSource("src/lib/composition-sync.ts", 'config.set("stretch_claude_home", true);')).toHaveLength(1);
+  expect(inspectHomeSource("src/lib/other.ts", deletion)).toHaveLength(1);
+});

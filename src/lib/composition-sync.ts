@@ -21,6 +21,7 @@ import { createHash } from "node:crypto";
 import { stateClient, StateUnavailableError } from "./state-client";
 import { discoverStateConfig } from "@garrison/state-client";
 import { readFileSync } from "node:fs";
+import { isMap, isSeq, parseDocument } from "yaml";
 // @ts-ignore — shared migration also runs in the release CLI.
 import { migrateImproverManifest } from "../../packages/improver/src/composition.mjs";
 
@@ -57,6 +58,19 @@ export interface CompositionSyncResult {
   refreshedFiles: string[];
 }
 
+function migrateSharedManifest(raw: string): { manifestYaml: string; changed: boolean } {
+  const previous = migrateImproverManifest(raw);
+  const document = parseDocument(previous.manifestYaml);
+  if (document.errors.length) throw new Error("Cannot migrate an invalid composition manifest");
+  const gateways = document.getIn(["x-garrison", "composition", "selections", "gateway"]);
+  let changed = false;
+  if (isSeq(gateways)) for (const gateway of gateways.items) {
+    const config = isMap(gateway) ? gateway.get("config") : null;
+    if (isMap(config)) changed = config.delete("stretch_claude_home") || changed;
+  }
+  return { changed: previous.changed || changed, manifestYaml: changed ? document.toString() : previous.manifestYaml };
+}
+
 // Materialise the composition's shared files from the service into the
 // working tree. When the service has never seen this composition, the local
 // tree SEEDS it (a composition created on this node becomes shared) — the
@@ -72,13 +86,15 @@ export async function syncCompositionFromState(
 
   if (!comp) {
     // First contact: push the local tree up.
-    const manifestYaml = migrateImproverManifest(await readFile(manifestPath, "utf8")).manifestYaml;
+    const migration = migrateSharedManifest(await readFile(manifestPath, "utf8"));
+    const manifestYaml = migration.manifestYaml;
     await client.putComposition(compositionId, manifestYaml, { ifMatchRev: 0 });
-    return { source: "seeded-to-service", refreshedFiles: [] };
+    const refreshed = migration.changed && await writeIfChanged(manifestPath, manifestYaml);
+    return { source: "seeded-to-service", refreshedFiles: refreshed ? ["apm.yml"] : [] };
   }
 
   for(let attempt=0;attempt<4;attempt++) {
-    const migration=migrateImproverManifest(comp.manifestYaml);
+    const migration=migrateSharedManifest(comp.manifestYaml);
     if(!migration.changed)break;
     try {
       await client.putComposition(compositionId,migration.manifestYaml,{ifMatchRev:comp.rev});

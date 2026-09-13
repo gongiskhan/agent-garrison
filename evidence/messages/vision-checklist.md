@@ -131,3 +131,8 @@ The phone checks use browser emulation. The lead checked the images directly. Ea
 - `live/air-messages-public-desktop.png`: PASS. The lead viewed the deployed HTTPS page at 1440 by 900. The 360 px list pane and conversation placeholder align, filters and counts fit, and the shell reports runner 40/40 and fittings 15/15. No overlap or clipped page content is present.
 - `live/air-messages-public-iphone-verified.png`: PASS. Final capture uses a short search value so both the search chip and Clear fit visibly. The lead viewed this distinct image path; header, counts, empty state and phone geometry remain correct.
 - `live/air-messages-public-desktop-verified.png`: PASS. Final capture shows the settled running status, 40/40 checks and 15/15 views. The lead viewed this distinct image path; both panes and search controls fit without overlap.
+
+## Public Pro deployment
+
+- `live/pro-messages-public-iphone.png`: PASS. The lead viewed the deployed HTTPS screen at 390 by 844. Header, tabs and counts are visible, the short search chip and Clear fit, the empty state is legible and the page has no horizontal overflow or overlap.
+- `live/pro-messages-public-desktop.png`: PASS. The lead viewed the deployed HTTPS screen at 1440 by 900. The list and conversation panes align, search controls fit and the shell reports 40/40 checks and 15/15 views. No unrelated message content is captured.
