@@ -52,6 +52,8 @@ State release `messages-state-receipts-20260913-fdb39494` is live at schema 3, w
 
 The shared manifest's retired gateway flag was removed through revision-checked normal migration. Owner-local generated files were backed up and compared semantically before cleanup. Startup on all three nodes no longer regenerates the tracked difference. Mini's concurrent work is preserved and its rollout is deferred. CSG is unavailable and is not claimed deployed.
 
+The final metadata check found 19 tracked changes and 8 untracked entries on Mini, with no active Conversation markers or gateway turns. Its public endpoint responds but reports 14/15 views, with `remote-shell-runtime` degraded. CSG's current registry route returns HTTP 502. Neither node was changed. Receipt: `evidence/messages/live/deferred-nodes-final.json`.
+
 Pending actions for Gonçalo:
 
 - Reconnect Google with mail read scope in Connectors.
