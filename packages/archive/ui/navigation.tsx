@@ -23,6 +23,9 @@ function remember(){
  try{sessionStorage.setItem(storage,JSON.stringify(all.slice(-100)));}catch{}
  window.dispatchEvent(new Event('archive:navigation'));
 }
+// Let Next copy its private router state so search hooks observe the new URL.
+// Carry only our visit identity; passing __NA would bypass Next's update.
+export function replaceArchiveUrl(url:URL){history.replaceState({archiveEntry:history.state?.archiveEntry},'',url);}
 export function ArchiveBack({fallback='/archive',label='Back',className='archive-back'}:{fallback?:string;label?:string;className?:string}){
  const router=useRouter(),[previous,setPrevious]=useState<string>();
  useLayoutEffect(()=>{const update=()=>{const all=entries(),entry=all.find(e=>e.id===history.state?.archiveEntry),prior=all.find(e=>e.id===entry?.previous);setPrevious(prior&&isArchive(prior.href)?prior.href:undefined);};update();window.addEventListener('archive:navigation',update);return()=>window.removeEventListener('archive:navigation',update);},[]);

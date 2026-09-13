@@ -4,7 +4,7 @@ import { edit } from './editor';
 test('visible Back restores search, survives reload, and browser Back/Forward does not loop', async ({ page, app }) => {
   await goto(page, app);
   await page.getByPlaceholder('Search the Archive').fill('maintenance');
-  await page.getByRole('button', { name: 'Yours', exact: true }).click();
+  await page.getByLabel('Search folder').selectOption('Archive/House');
   await page.getByRole('button', { name: 'Documents', exact: true }).click();
   await page.locator('.archive-result').first().click();
   await expect(page.getByRole('heading', { name: 'House maintenance', exact: true })).toBeVisible();
@@ -12,7 +12,7 @@ test('visible Back restores search, survives reload, and browser Back/Forward do
   await page.getByRole('link', { name: 'Back', exact: true }).click();
   await expect(page.getByPlaceholder('Search the Archive')).toHaveValue('maintenance');
   await expect(page.locator('.archive-result').first()).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Yours', exact: true })).toHaveAttribute('aria-pressed','true');
+  await expect(page.getByLabel('Search folder')).toHaveValue('Archive/House');
   await expect(page.getByRole('button', { name: 'Documents', exact: true })).toHaveAttribute('aria-pressed','true');
   await page.goForward();
   await expect(page.getByRole('heading', { name: 'House maintenance', exact: true })).toBeVisible();

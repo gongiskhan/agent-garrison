@@ -157,10 +157,9 @@ The rest of the Basic Memory vault is Garrison's; the owner can edit or prune it
 Basic Memory's PreToolUse hook blocks writes, edits, moves and deletes in `Archive/`;
 the Agent SDK installs the same guard even when user settings are omitted.
 Never copy or paraphrase Archive content into memory, captures, briefs or evidence.
-Use `garrison_archive_search` then `garrison_archive_read` for requested document facts;
-reads include image/PDF extracted text. Verify the company and field, cite the source.
-Archive is knowledge; actionable work belongs in Kanban.
-Link documents as `garrison://archive/Archive/<folder>/<document>` and notes/bookmarks by `.md` path.
+Use `garrison_archive_search` then `garrison_archive_read`, including extracted text; verify the company and field, cite the source.
+Search covers all folders; bookmarks save documents and stars control ordering. Tasks belong in Kanban.
+Link documents as `garrison://archive/Archive/<folder>/<document>` and notes by `.md` path.
 
 ## Core Improver and Nightly Sync
 

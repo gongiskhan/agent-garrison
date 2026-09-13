@@ -84,3 +84,13 @@ it('reads file-backed website bookmarks returned by agent search without modifyi
   const read=await callArchiveRead({path:hit.path,kind:hit.kind},deps);expect(read.frontmatter.url).toBe('https://example.invalid/registry');expect(await app.snapshot()).toEqual(before);
  }finally{await app.close();}
 });
+
+it('agent search includes all folders by default and honors document, folder and saved filters',async()=>{
+ const app=await agentArchiveFixture(),deps={env:{GARRISON_APP_URL:app.base}};
+ try{
+  const result=await callArchiveSearch({query:'Architecture'},deps);expect(result.hits.some((h:any)=>h.path==='Projects/Garrison/Memory/Architecture.md')).toBe(true);
+  await app.request('bookmark','POST',{path:app.source,bookmarked:true});
+  const found=await callArchiveSearch({query:'Example Orchard',bookmarked:true,kind:'card',folder:'Archive'},deps);expect(found.hits.map((h:any)=>h.path)).toEqual([app.source]);
+  await expect(callArchiveSearch({query:'fixture',folder:'../'},deps)).rejects.toThrow();await expect(callArchiveSearch({query:'fixture',bookmarked:'yes'},deps)).rejects.toThrow();
+ }finally{await app.close();}
+});

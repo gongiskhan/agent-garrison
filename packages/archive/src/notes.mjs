@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { confine, fail, isMirror, areaOf } from './paths.mjs';
-import { parseFrontmatter } from './frontmatter.mjs';
+import { parseFrontmatter,stringifyFrontmatter } from './frontmatter.mjs';
 import { maybeRead, sha, lockedWrite } from './io.mjs';
 
 export function assertNoteEditable(relative, parsed) {
@@ -22,4 +22,10 @@ export async function writeNote(ctx,{path:relative,markdown,baseSha}) {
   assertNoteEditable(relative,parseFrontmatter(markdown));const file=confine(ctx.vaultDir,relative);const before=await maybeRead(file);
   if(before!==null)assertNoteEditable(relative,parseFrontmatter(before));
   return {sha:await lockedWrite(ctx,file,markdown,baseSha)};
+}
+
+export async function starNote(ctx,{path:relative,baseSha,starred}){
+  const before=await readNote(ctx,relative),parsed=parseFrontmatter(before.markdown);
+  assertNoteEditable(relative,parsed);
+  return writeNote(ctx,{path:relative,baseSha,markdown:stringifyFrontmatter({...parsed.frontmatter,starred},parsed.body,parsed)});
 }

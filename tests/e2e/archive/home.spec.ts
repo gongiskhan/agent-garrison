@@ -1,8 +1,8 @@
 import {test,expect,goto,checkpoint} from './fixture';
-test('home shows both areas as folders, with no Inbox and shared display controls',async({page,app},info)=>{
+test('home combines every folder, with no Inbox and shared display controls',async({page,app},info)=>{
  await goto(page,app);await expect(page.getByPlaceholder('Search the Archive')).toBeVisible();await expect(page.locator('.archive-status')).toContainText('fixture-node · synced');
- const yours=page.locator('.archive-yours .archive-entry strong');await expect(yours).toHaveText(['Finance','House','Personal documents']);
- await expect(page.locator('.archive-garrison')).toContainText('Projects');await expect(page.getByRole('link',{name:'Inbox',exact:true})).toHaveCount(0);
+ const yours=page.locator('.archive-library-home .archive-entry strong');await expect(yours).toHaveText(['Finance','House','Memory','Personal documents','Projects']);
+ await expect(page.locator('.archive-library-home')).toContainText('Projects');await expect(page.getByRole('link',{name:'Inbox',exact:true})).toHaveCount(0);
  await expect(page.getByRole('button',{name:'List view',exact:true})).toHaveAttribute('aria-pressed','true');await checkpoint(page,info,'home',app);
  await page.getByRole('button',{name:'Thumbnail view',exact:true}).click();await page.getByLabel('Sort by').selectOption('updated');await page.reload();
  await expect(page.getByRole('button',{name:'Thumbnail view',exact:true})).toHaveAttribute('aria-pressed','true');await expect(page.getByLabel('Sort by')).toHaveValue('updated');
@@ -38,7 +38,7 @@ test('slow polling requests never overlap and a failed folder request can be ret
 });
 
 test('Archive toolbar stays clickable beside the shell controls in light and dark',async({page,app},info)=>{
- await goto(page,app);await expect(page.locator('.archive-yours .archive-entry')).toHaveCount(3);
+ await goto(page,app);await expect(page.locator('.archive-library-home .archive-entry')).toHaveCount(5);
  const unobstructed=()=>page.locator('.archive-toolbar nav a').evaluateAll(links=>links.every(link=>{const r=link.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return !!hit&&(hit===link||link.contains(hit));}));
  expect(await unobstructed()).toBe(true);await page.emulateMedia({colorScheme:'dark'});expect(await unobstructed()).toBe(true);
  // WebKit paints native controls separately: dark text colours also require a

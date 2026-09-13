@@ -8,6 +8,7 @@ import { now, sha, maybeRead } from './io.mjs';
 import { IMAGE } from './tree.mjs';
 import { assertNoteEditable } from './notes.mjs';
 import { parseFrontmatter } from './frontmatter.mjs';
+import {relocateSaved} from './saved.mjs';
 
 export function ownerPath(p){if(areaOf(p)!=='yours'||p==='Archive'||p.startsWith('Archive/.'))throw fail('Choose a list or card in Yours',400);}
 export async function createList(ctx,title,parent='Archive'){
@@ -32,14 +33,14 @@ export async function patchCard(ctx,input){
   if(input.moveToList){ownerPath(input.moveToList);const target=confine(ctx.vaultDir,input.moveToList);if(!(await fs.stat(target)).isDirectory()||await maybeRead(path.join(target,'index.md'))!==null)throw fail('Choose a list',400);card.frontmatter.order=await nextOrder(ctx,input.moveToList);destination=path.posix.join(input.moveToList,uniqueName(target,card.frontmatter.title));}
   else if(input.title!==undefined){const parent=path.posix.dirname(relative);destination=path.posix.join(parent,uniqueName(confine(ctx.vaultDir,parent),input.title,path.posix.basename(relative)));}
   card.frontmatter.updated=now();const updatedSha=await writeCard(ctx,relative,card,input.baseSha);
-  if(destination!==relative){await fs.rename(confine(ctx.vaultDir,relative),confine(ctx.vaultDir,destination));relative=destination;}
+  if(destination!==relative){await fs.rename(confine(ctx.vaultDir,relative),confine(ctx.vaultDir,destination));await relocateSaved(ctx,relative,destination);relative=destination;}
   return {path:relative,sha:updatedSha};
 }
 export async function addComment(ctx,{path:relative,text}){const card=await readCard(ctx,relative);card.comments.unshift({at:now(),author:ctx.config.author,markdown:text});card.frontmatter.updated=now();return {sha:await writeCard(ctx,relative,card,card.sha)};}
 export async function patchList(ctx,{path:relative,title,order}){
   ownerPath(relative);
   await writeList(ctx,relative,{...(title!==undefined?{title}:{}),...(order!==undefined?{order}:{})});
-  if(title!==undefined){const parent=path.posix.dirname(relative);const next=path.posix.join(parent,uniqueName(confine(ctx.vaultDir,parent),title,path.posix.basename(relative)));if(next!==relative)await fs.rename(confine(ctx.vaultDir,relative),confine(ctx.vaultDir,next));relative=next;}
+  if(title!==undefined){const parent=path.posix.dirname(relative);const next=path.posix.join(parent,uniqueName(confine(ctx.vaultDir,parent),title,path.posix.basename(relative)));if(next!==relative){await fs.rename(confine(ctx.vaultDir,relative),confine(ctx.vaultDir,next));await relocateSaved(ctx,relative,next);}relative=next;}
   return {path:relative};
 }
 export async function trash(ctx,relative,{emptyList=false}={}){
@@ -72,7 +73,7 @@ export async function restore(ctx,entry){
   await fs.mkdir(path.dirname(original),{recursive:true});let name=uniqueName(path.dirname(original),path.basename(original));if(!meta.isDirectory){const ext=path.extname(original),stem=path.basename(original,ext);name=path.basename(original);let n=2;while(await fs.stat(path.join(path.dirname(original),name)).catch(()=>null)||await fs.stat(path.join(path.dirname(original),name+'.md')).catch(()=>null))name=`${stem} (${n++})${ext}`;}const result=path.posix.join(path.posix.dirname(meta.original),name);
   await fs.rename(source,confine(ctx.vaultDir,result));const side=await maybeRead(confine(ctx.vaultDir,path.posix.join(relative,meta.stored+'.md'),{trash:true}));
   if(side!==null){const {stringifyFrontmatter}=await import('./frontmatter.mjs');const parsed=parseFrontmatter(side);parsed.frontmatter.source=name;await ctx.write(confine(ctx.vaultDir,result+'.md'),stringifyFrontmatter(parsed.frontmatter,parsed.body,parsed));await fs.unlink(source+'.md');}
-  await fs.rm(root,{recursive:true});return {path:result};
+  await relocateSaved(ctx,meta.original,result);await fs.rm(root,{recursive:true});return {path:result};
 }
 export async function moveFile(ctx,{path:relative,toCard,newCard}){
   ownerPath(relative);if(newCard)toCard=(await createCard(ctx,newCard)).path;
@@ -103,5 +104,5 @@ export async function moveNote(ctx,{path:relative,toFolder}){
   assertNoteEditable(relative,parseFrontmatter(await fs.readFile(confine(ctx.vaultDir,relative),'utf8')));if(isMirror(toFolder))throw fail('Generated mirror. Edit the source note instead.',403);
   const folder=confine(ctx.vaultDir,toFolder);if(!(await fs.stat(folder)).isDirectory())throw fail('Choose a folder',400);
   const ext='.md',stem=path.basename(relative,ext);let name=stem+ext,n=2;while(await fs.stat(path.join(folder,name)).catch(()=>null))name=`${stem} (${n++})${ext}`;
-  const result=path.posix.join(toFolder,name);await fs.rename(confine(ctx.vaultDir,relative),confine(ctx.vaultDir,result));return {path:result};
+  const result=path.posix.join(toFolder,name);await fs.rename(confine(ctx.vaultDir,relative),confine(ctx.vaultDir,result));await relocateSaved(ctx,relative,result);return {path:result};
 }

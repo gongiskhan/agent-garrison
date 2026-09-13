@@ -27,11 +27,15 @@ const fileUrl = path => '/api/archive/file?path=' + encodeURIComponent(path);
 
 export async function callArchiveSearch(input = {}, deps = {}) {
   const q = string(input.query, 'query', 500);
-  const area = input.area ?? 'yours';
+  const area = input.area ?? 'all';
   if (!['yours', 'garrison', 'all'].includes(area)) throw new Error('Invalid area');
   const limit = input.limit ?? 10;
   if (!Number.isInteger(limit) || limit < 1 || limit > 50) throw new Error('Invalid limit');
-  const result = await request('search', { q, area, limit: String(limit) }, deps);
+  const filters={};
+  if(input.folder!==undefined)filters.folder=string(input.folder,'folder');
+  if(input.kind!==undefined){if(!['card','note','file'].includes(input.kind))throw new Error('Invalid kind');filters.kind=input.kind;}
+  if(input.bookmarked!==undefined){if(typeof input.bookmarked!=='boolean')throw new Error('Invalid bookmarked filter');filters.bookmarked=input.bookmarked?'1':'0';}
+  const result = await request('search', { q, area, ...filters, limit: String(limit) }, deps);
   return { ...result, hits: result.hits.map(hit => ({ ...hit,
     url: hit.kind === 'file' ? fileUrl(hit.path) : sourceUrl(hit.kind, hit.path) })), guidance };
 }
@@ -57,8 +61,8 @@ export async function callArchiveRead(input = {}, deps = {}) {
 }
 
 export const ARCHIVE_TOOL_DEFINITIONS = [
-  { name: 'garrison_archive_search', description: 'Search Archive knowledge and personal documents when the user asks for a fact: company commercial certificate, policy or identity number, image, PDF, note, website bookmark or saved reference. Searches extracted attachment text too. Use short identifying terms; try Portuguese synonyms (certidão, certificado, registo comercial). Sensitive results hide snippets; open the matching source with garrison_archive_read. Tasks belong in Kanban. ' + guidance,
-    inputSchema: { type: 'object', properties: { query: { type: 'string' }, area: { type: 'string', enum: ['yours', 'garrison', 'all'] }, limit: { type: 'integer', minimum: 1, maximum: 50 } }, required: ['query'], additionalProperties: false }, annotations: { readOnlyHint: true } },
+  { name: 'garrison_archive_search', description: 'Search Archive knowledge and personal documents when the user asks for a fact: company commercial certificate, policy or identity number, image, PDF, note or bookmarked document. Searches all folders and extracted attachment text by default. Filter by folder, kind or bookmarked status when useful. Use short identifying terms; try Portuguese synonyms (certidão, certificado, registo comercial). Sensitive results hide snippets; open the matching source with garrison_archive_read. Tasks belong in Kanban. ' + guidance,
+    inputSchema: { type: 'object', properties: { query: { type: 'string' }, folder: { type: 'string' }, kind: { type: 'string', enum: ['card','note','file'] }, bookmarked: {type:'boolean'}, area: { type: 'string', enum: ['yours', 'garrison', 'all'] }, limit: { type: 'integer', minimum: 1, maximum: 50 } }, required: ['query'], additionalProperties: false }, annotations: { readOnlyHint: true } },
   { name: 'garrison_archive_read', description: 'Read an Archive search result by its exact path and kind. A document (kind=card for compatibility) includes its description, structured details and every attachment’s extracted text/fields, including sensitive documents explicitly requested by the user. Return the requested value with a source link; never guess a missing number. ' + guidance,
     inputSchema: { type: 'object', properties: { path: { type: 'string' }, kind: { type: 'string', enum: ['card', 'note', 'file', 'bookmark'] } }, required: ['path'], additionalProperties: false }, annotations: { readOnlyHint: true } },
 ];

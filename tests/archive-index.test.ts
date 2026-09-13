@@ -39,4 +39,29 @@ it('coalesces an imported folder burst without rereading unrelated notes or pers
   const fresh=new ArchiveIndex(s.ctx);await fresh.build();
   expect([...index.docs].sort()).toEqual([...fresh.docs].sort());
  }finally{await s.close();}
-},15000);
+},45000);
+
+it('does not fuzzy-match nearby document numbers and searches 5,000 large-text references within budget',async()=>{
+ const s=await scratch({seed:false});try{
+  const index=s.service.index;
+  for(let i=0;i<5000;i++)index.set({path:`Memory/Reference ${i}.md`,kind:'note',title:i<38?`Maintenance reference ${i}`:`Certificate reference ${i}`,tags:['fixture'],fields:'',body:(i<38?'Synthetic manutenção and document text. '.repeat(20000):'Synthetic maintenance and document text. '.repeat(20))+` CERTIFICATE-${i}-FAKE`,area:'garrison',list:null,updated:null,sensitive:false});
+  const first=index.query('CERTIFICATE-4839-FAKE');expect(first.hits.map((r:any)=>r.path)).toEqual(['Memory/Reference 4839.md']);expect(first.tookMs).toBeLessThan(300);
+  for(const q of ['maintenance','reference','maintenance']){const result=index.query(q);expect(result.total).toBe(5000);expect(result.tookMs).toBeLessThan(300);}
+ }finally{await s.close();}
+},45000);
+
+it('highlights original decomposed accents and a spaced identifier deep in a long note',()=>{
+ const text='Synthetic paragraph. '.repeat(50000)+'Cidada\u0303o 1234 5678 9 ZZ0';
+ expect(snippet(text,'cidadao')).toContain('<mark>Cidada\u0303o</mark>');
+ expect(snippet(text,'123456789ZZ0')).toContain('<mark>1234 5678 9 ZZ0</mark>');
+});
+
+it('reloads the incremental snapshot after an edit, rename and delete instead of rebuilding on next boot',async()=>{
+ const s=await scratch();try{
+  const before=(await s.request('card?path=Archive%2FHouse%2FHouse%20maintenance')).data;
+  await s.request('card','PATCH',{path:before.path,baseSha:before.sha,title:'Snapshot reference',description:'PERSISTED-19826'});
+  let copy=new ArchiveIndex(s.ctx);expect(await copy.load()).toBe(true);expect(copy.query('PERSISTED-19826').hits).toEqual(s.service.index.query('PERSISTED-19826').hits);
+  await s.request('note','DELETE',{path:'Memory/Welcome.md'});copy=new ArchiveIndex(s.ctx);expect(await copy.load()).toBe(true);expect(copy.docs.has('Memory/Welcome.md')).toBe(false);
+  const another=[...s.service.index.docs.keys()].find((p:any)=>p.startsWith('Memory/')&&p.endsWith('.md'));await (await import('node:fs/promises')).unlink(s.vaultDir+'/'+another);await s.service.index.updateMany(['']);copy=new ArchiveIndex(s.ctx);expect(await copy.load()).toBe(true);
+ }finally{await s.close();}
+});

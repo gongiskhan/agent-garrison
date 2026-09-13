@@ -183,6 +183,9 @@ field, and cite the source with a Markdown link to the returned `url`.
 Return only the requested fact; omit identifiers
 from other documents and unrelated fields. Never guess a missing number or
 save the answer to memory. These tools use the Archive's current local index, including attachments.
+Search covers all folders by default. Optional folder, kind and bookmarked
+filters narrow results; bookmarks are saved document shortcuts, not web links.
+Unified browsing does not change the personal-document ownership rule above.
 If they are unavailable, use the configured Basic Memory search/read tools on
 project `main`, including `Archive/` and its derived attachment notes. This is
 knowledge retrieval, not task management; actionable work belongs in Kanban.

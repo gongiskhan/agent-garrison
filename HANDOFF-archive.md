@@ -3,12 +3,12 @@
 - Open `/archive`; folders, documents, notes, search, bookmarks, import, Trash and Jobs
   are under `/archive/*`. API: `/api/archive/*`; core: `packages/archive/`.
 - The active Basic Memory selection supplies `vault_dir` (project `main`).
-  Yours is `Archive/`; every other visible vault folder is Garrison's area.
+  One library combines all folders; existing paths and ownership stay intact.
 - Derived local data: `$GARRISON_HOME/archive/` (index, jobs, ingestion ledger,
   thumbnails, legacy redirects). Deleting it rebuilds from files; it is not synced.
 - Schema-4 `global_config.archive`: `extract_target: cc-sonnet`,
   `max_file_mb: 25`, `pdf_max_pages: 30`, `author: Gonçalo`.
-- Agents read Yours only when asked and never write there. Claude Code and
+- Agents read personal documents only when asked and never write there. Claude Code and
   Agent SDK enforce the Basic Memory ownership hook; Codex/Gemini use the rule.
   Automatic capture, mirrors, startup and improvement inputs exclude Archive.
 
@@ -43,8 +43,8 @@ Retired Documents artifacts migrate to `Projects/Garrison/Documents` with origin
 
 - [Decision and final verification](docs/decisions/2026-09-11-archive.md).
 - [Fixture evidence and reproduction](evidence/archive/README.md).
-- [Narrated phone walkthrough](.walkthrough/runs/agent-garrison/archive/2026-09-13/folder-browser/phone/final.mp4),
-  65.6 seconds, seven narration beats. All images and documents are synthetic.
+- [Narrated phone walkthrough](.walkthrough/runs/agent-garrison/archive/2026-09-13/unified-library/phone/final.mp4),
+  62.6 seconds, seven narration beats. All images and documents are synthetic.
 
 The earlier staging error in `954e3a0d` was corrected by `f948abb4`; do not
 deploy that intermediate commit. The decision document preserves the history.
@@ -53,7 +53,7 @@ Follow-up source adds fast folder lists, stars, bookmarks, reliable Back and
 `garrison_archive_search` / `garrison_archive_read` in working assistant sessions.
 The real assistant test retrieves a sensitive synthetic company certificate,
 returns only its requested number with a clickable citation and leaves the vault
-unchanged. Guarded deployment awaits the independent Two Homes rollout.
+unchanged. The prior release is live on Madrid, Pro, Mini and Air; CSG remains offline.
 
 ## Needs the physical phone
 
@@ -73,7 +73,7 @@ HEIC from an actual iPhone photo. These cannot be accepted through emulation.
 ## Later
 
 None from the scoped review. All five crucial findings were fixed and tested.
-The independent Two Homes activation remains unfinished; automatic deployments
-stay paused. Original Archive acceptance/deployment is complete; this follow-up
-requires a later guarded deployment without bypassing the migration hold.
-Archive does not activate that migration or resume its rollout.
+Automatic deployments remain paused for the independent CSG rollout gate.
+Use normal Conversation and healthy-peer guards for any manual deployment.
+Bookmarks live in `Archive/_bookmarks.md`; stars remain document frontmatter.
+External editor renames may leave a missing bookmark; remove it and save the new path.

@@ -5,8 +5,8 @@ import path from 'node:path';
 import { z } from 'zod';
 import { confine, DEFAULT_CONFIG, fail, isMirror } from './paths.mjs';
 import { atomicWrite, now, sha } from './io.mjs';
-import { tree, cardView, mimeOf } from './tree.mjs';
-import { readNote, writeNote, assertNoteEditable } from './notes.mjs';
+import { tree, libraryTree, savedTree, cardView, mimeOf } from './tree.mjs';
+import { readNote, writeNote, starNote, assertNoteEditable } from './notes.mjs';
 import { parseFrontmatter } from './frontmatter.mjs';
 import * as ops from './ops.mjs';
 import { reorderCard } from './list.mjs';
@@ -21,6 +21,7 @@ import { TrelloClient, parallel } from './trello/client.mjs';
 import { mapBoard } from './trello/mapper.mjs';
 import { importBoard } from './trello/importer.mjs';
 import {saveBookmark} from './bookmarks.mjs';
+import {setSaved,readSaved} from './saved.mjs';
 import {fileHash} from './file-hash.mjs';
 import {readSidecar} from './ingest/sidecar.mjs';
 
@@ -91,7 +92,7 @@ export function createArchiveService({vaultDir,home,config={},node='local',rende
       const key=method+' '+route;
       switch(key){
         case 'GET status':{const roots=(await tree(ctx,'',0)).children.filter(c=>c.kind==='folder'&&c.name!=='Archive').map(c=>c.path);return json({vault:{path:vaultDir,name:path.basename(vaultDir)},node,areas:[{id:'yours',root:'Archive'},{id:'garrison',roots}],sync:await syncStatus(home),index:{state:index.state,docs:index.docs.size},ingest:queue.status(),jobs:{running:jobs.list('running').length}});}
-        case 'GET tree':{const relative=url.searchParams.get('path')??'';const depth=z.coerce.number().int().min(0).max(20).parse(url.searchParams.get('depth')??2);return json(await tree(ctx,relative,depth));}
+        case 'GET tree':{const relative=url.searchParams.get('path')??'';const depth=z.coerce.number().int().min(0).max(20).parse(url.searchParams.get('depth')??2);const unified=z.enum(['0','1']).parse(url.searchParams.get('unified')??'0');if(unified==='1'&&relative)throw fail('The combined view starts at the root',400);return json(unified==='1'?await libraryTree(ctx):await tree(ctx,relative,depth));}
         case 'GET card':return json(await cardView(ctx,queryPath(),{extracted:z.enum(['0','1']).parse(url.searchParams.get('extracted')??'1')==='1'}));
         case 'GET extraction':{const relative=queryPath();if(relative.endsWith('.md')||!(await fs.stat(confine(vaultDir,relative))).isFile())throw fail('Choose a source attachment',400);return json(await readSidecar(ctx,relative));}
         case 'POST card':return json(await mutate(()=>body(z.object({list:p,title,description:text.optional()}).strict()).then(b=>ops.createCard(ctx,b))));
@@ -102,9 +103,11 @@ export function createArchiveService({vaultDir,home,config={},node='local',rende
         case 'POST list':{const b=await body(z.object({title}).strict());return json(await mutate(()=>ops.createList(ctx,b.title)));}
         case 'PATCH list':{const b=await body(z.object({path:p,title:title.optional(),order:z.number().finite().optional()}).strict());return json(await mutate(()=>ops.patchList(ctx,b),[b.path]));}
         case 'DELETE list':{const b=await body(z.object({path:p}).strict());ops.ownerPath(b.path);return json(await mutate(()=>ops.trash(ctx,b.path,{emptyList:true}),[b.path]));}
-        case 'POST bookmark':{const b=await body(z.object({folder:p.optional(),title,url:z.string().max(4096)}).strict());return json(await mutate(()=>saveBookmark(ctx,b)));}
+        case 'GET bookmarks':{const paths=(await readSaved(ctx)).paths;return json(z.enum(['0','1']).parse(url.searchParams.get('paths')??'0')==='1'?{paths}:await savedTree(ctx,paths));}
+        case 'POST bookmark':{const b=await body(z.union([z.object({path:p,bookmarked:z.boolean()}).strict(),z.object({folder:p.optional(),title,url:z.string().max(4096)}).strict()]));return json('bookmarked' in b?await serial(()=>ctx.serializeFiles(()=>setSaved(ctx,b))):await mutate(()=>saveBookmark(ctx,b)));}
         case 'PATCH bookmark':{const b=await body(z.object({path:p,baseSha:base,title:title.optional(),url:z.string().max(4096).optional(),starred:z.boolean().optional()}).strict());return json(await mutate(()=>saveBookmark(ctx,b),[b.path]));}
         case 'GET note':return json(await readNote(ctx,queryPath()));
+        case 'PATCH note':{const b=await body(z.object({path:p,baseSha:base,starred:z.boolean()}).strict());return json(await mutate(()=>starNote(ctx,b),[b.path]));}
         case 'PUT note':{const b=await body(z.object({path:p,markdown:text,baseSha:base}).strict());return json(await mutate(()=>writeNote(ctx,b)));}
         case 'POST note/move':{const b=await body(z.object({path:p,toFolder:z.string()}).strict());return json(await mutate(()=>ops.moveNote(ctx,b),[b.path]));}
         case 'DELETE note':{const b=await body(z.object({path:p}).strict());const note=await readNote(ctx,b.path);assertNoteEditable(b.path,parseFrontmatter(note.markdown));return json(await mutate(()=>ops.trash(ctx,b.path),[b.path]));}
@@ -113,7 +116,7 @@ export function createArchiveService({vaultDir,home,config={},node='local',rende
         case 'POST inbox/file':{const b=await body(z.object({path:p,toCard:p.optional(),newCard:z.object({list:p,title}) .optional()}).strict().refine(b=>!!b.toCard!==!!b.newCard,'Choose one destination'));return json(await mutate(()=>ops.moveFile(ctx,b),[b.path]));}
         case 'GET file':{const relative=queryPath();let file=confine(vaultDir,relative);const stat=await fs.stat(file);if(!stat.isFile())throw fail('File not found',404);let mime=mimeOf(relative);if(url.searchParams.get('thumb')==='1'&&mime.startsWith('image/')){try{file=await thumbnail(ctx,relative,await fileHash(ctx,relative,stat));if(file.endsWith('.jpg'))mime='image/jpeg';}catch{/* The original remains a usable fallback. */}}const headers={'content-type':mime,'x-content-type-options':'nosniff','content-security-policy':"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox",'cache-control':'private, max-age=60'};if(mime==='application/octet-stream')headers['content-disposition']=`attachment; filename="${path.basename(relative).replace(/["\r\n]/g,'')}"`;return new Response(Readable.toWeb(createReadStream(file)),{headers});}
         case 'DELETE file':{const b=await body(z.object({path:p}).strict());if(b.path.endsWith('.md'))throw fail('Use note controls',400);ops.ownerPath(b.path);return json(await mutate(()=>ops.trash(ctx,b.path),[b.path]));}
-        case 'GET search':{const q=z.string().max(500).parse(url.searchParams.get('q')??'');const filters={};for(const name of ['area','list','kind','tag'])if(url.searchParams.has(name))filters[name]=url.searchParams.get(name);if(filters.area&&!['all','yours','garrison'].includes(filters.area))throw fail('Invalid area',400);if(filters.kind&&!['card','note','file','bookmark'].includes(filters.kind))throw fail('Invalid kind',400);filters.limit=z.coerce.number().int().min(1).max(200).parse(url.searchParams.get('limit')??50);await service.indexReady;return json(index.query(q,filters));}
+        case 'GET search':{const q=z.string().max(500).parse(url.searchParams.get('q')??'');const filters={};for(const name of ['area','list','kind','tag','folder'])if(url.searchParams.has(name))filters[name]=url.searchParams.get(name);if(filters.area&&!['all','yours','garrison'].includes(filters.area))throw fail('Invalid area',400);if(filters.kind&&!['card','note','file','bookmark'].includes(filters.kind))throw fail('Invalid kind',400);if(filters.folder)confine(vaultDir,filters.folder);if(url.searchParams.has('bookmarked')){const saved=z.enum(['0','1']).parse(url.searchParams.get('bookmarked'));if(saved==='1')filters.paths=new Set((await readSaved(ctx)).paths);}filters.limit=z.coerce.number().int().min(1).max(200).parse(url.searchParams.get('limit')??50);await service.indexReady;return json(index.query(q,filters));}
         case 'POST ingest/regenerate':{const b=await body(z.object({path:p}).strict());ops.ownerPath(b.path);confine(vaultDir,b.path);if(b.path.endsWith('.md'))throw fail('Markdown is not ingested',400);return json({jobId:await queue.enqueue(b.path,{force:true})});}
         case 'POST ingest/retry-failed':return json(await queue.retryFailed());
         case 'GET jobs':return json({jobs:jobs.list(url.searchParams.get('state')??undefined).map(({input,...row})=>row)});

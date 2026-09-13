@@ -134,3 +134,42 @@ existing/integration-gated cases across 12 suites. Typecheck, lint and the
 isolated production build passed.
 The consolidated [verification receipt](../../.walkthrough/runs/agent-garrison/archive/2026-09-13/folder-browser/receipt.json)
 records the source, test boundaries, model calls, walkthrough and rollout status.
+
+
+## Unified library and document bookmarks — 13 September
+
+Bookmarks now save existing documents and notes. Home combines all folders;
+search offers folder, kind, tag and bookmarked filters for humans and agents.
+Existing files and personal-document ownership remain intact. Source decisions
+are D60–D62 in the decision document.
+
+The synthetic 5,000-document / 36.9 MB benchmark reproduces the long-note delay:
+1.4–1.5 seconds on the prior source, 6–52 ms with the corrected snippet matcher.
+Ripgrep returns matching paths in 30–33 ms; no extra model is needed for UI search.
+Exact identifiers avoid fuzzy matches to other document numbers.
+
+- [Synthetic benchmark](../../.walkthrough/runs/agent-garrison/archive/2026-09-13/unified-library/archive-unified-benchmark-final.json)
+- [Focused phone/desktop report](../../.walkthrough/runs/agent-garrison/archive/2026-09-13/unified-library/focused-report/index.html)
+- [Full real browser report](../../.walkthrough/runs/agent-garrison/archive/2026-09-13/unified-library/real-report/index.html)
+- [Verification and deployment receipt](../../.walkthrough/runs/agent-garrison/archive/2026-09-13/unified-library/receipt.json)
+
+All documents, images and screenshot judgments in these artifacts use scratch
+vaults. The real assistant fixture verifies the matching company certificate,
+precise requested field, clickable source and unchanged files. The live probe
+retained aggregate timings/counts only. Earlier failed timing/benchmark attempts
+are retained beside the accepted runs.
+
+The accepted follow-up browser runs cover 61 full-suite journeys, four HTTPS/
+missing-bookmark cases, ten note/bookmark cases and twelve search/Back cases.
+The latter assert actual filtered titles and preserved query state. All 23 real
+screenshot judgments passed across the accepted runs. The earlier failed mobile
+filter screenshot is retained in `search-initial-artifacts`.
+
+- [Updated phone walkthrough](../../.walkthrough/runs/agent-garrison/archive/2026-09-13/unified-library/phone/final.mp4) — 62.6 seconds, seven narration beats.
+- [Final search and Back report](../../.walkthrough/runs/agent-garrison/archive/2026-09-13/unified-library/search-report/index.html)
+- [Accepted screenshot judgments](../../.walkthrough/runs/agent-garrison/archive/2026-09-13/unified-library/accepted-vision-receipt.json)
+
+Final source acceptance: 8,710 tests passed across 763 suites, with 29 normal
+existing/gated cases in 12 suites. Typecheck, lint and the isolated production
+build passed. The complete suite ran without another verification workload;
+the 30 ms hook threshold passed unchanged. All four real integrations passed.

@@ -1,14 +1,15 @@
 # Archive — 2026-09-11
 
 Archive is now at `/archive`: folder browsing for your documents and
-Garrison memory, content search, uploads and extraction, and a one-shot Trello
+Garrison memory in one combined library, content search, uploads and extraction, and a one-shot Trello
 import. It replaces the personal Trello document board and the retired Documents
 fitting. `Archive/` is yours: agents read it when asked, never write it, and
 nothing automatic feeds on it. Ingestion writes only derived sidecars.
 
 The 13 September follow-up adds list/thumbnail views, alphabetical or recent
-sorting, starred documents and browser-style website bookmarks. Upload files
-directly into documents; Inbox is retired. Folder and document loading is bounded
+sorting, starred documents and bookmarks for documents and notes. Upload files
+directly into documents; Inbox is retired. Search filters by folder, type and
+bookmarked status, with exact identifier matching. Folder and document loading is bounded
 and saves update only their affected search entries.
 
 # What's new — Workbench dissolution
