@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomBytes } from 'node:crypto';
+export {transcribeAttachment} from './transcription.mjs';
 const execute=promisify(execFile);
 const MAX_BYTES=25*1024*1024;
 const segment=value=>encodeURIComponent(String(value)).replace(/\./g,'%2E');
@@ -34,7 +35,7 @@ export async function normalizeAudio(root,relative,{voice=false,ffmpeg='ffmpeg',
   const output=await confinedPath(root,outputRelative,{mustExist:false});
   const temporary=output+`.${randomBytes(6).toString('hex')}.${voice?'ogg':'m4a'}`;
   try {
-    await run(ffmpeg,['-nostdin','-hide_banner','-loglevel','error','-threads','1','-i',input,'-vn','-c:a',voice?'libopus':'aac','-b:a','64k',...(voice?['-application','voip']:['-movflags','+faststart']),'-y',temporary],{timeout:60_000,maxBuffer:1024*1024});
+    await run(ffmpeg,['-nostdin','-hide_banner','-loglevel','error','-threads','1','-protocol_whitelist','file,pipe','-format_whitelist','aac,aiff,amr,flac,matroska,webm,mov,mp3,ogg,wav','-i',input,'-vn','-c:a',voice?'libopus':'aac','-b:a','64k',...(voice?['-application','voip']:['-movflags','+faststart']),'-y',temporary],{timeout:60_000,maxBuffer:1024*1024});
     const probe=await run(ffprobe,['-v','error','-show_entries','format=duration','-of','json',temporary],{timeout:15_000,maxBuffer:1024*1024});
     const durationMs=Math.round(Number(JSON.parse(probe.stdout).format.duration)*1000);
     if(!Number.isFinite(durationMs)||durationMs<=0) throw new Error('Audio has no measurable duration');
@@ -48,13 +49,4 @@ export async function thumbnail(root,relative) {
   const output=await confinedPath(root,outputRelative,{mustExist:false});
   await sharp(input,{limitInputPixels:40_000_000}).rotate().resize({width:320,height:320,fit:'inside',withoutEnlargement:true}).webp({quality:80}).toFile(output);
   await fs.chmod(output,0o600); return outputRelative;
-}
-export async function transcribeAttachment(attachment,transcribe,{onState=async()=>{}}={}) {
-  const pending={...attachment,transcriptStatus:'pending'}; await onState(pending);
-  let reason='Transcription unavailable';
-  for(let attempt=0;attempt<3;attempt++) {
-    try { const result=await transcribe(pending,{model:'nova-2',language:'pt',detect_language:true}); const complete={...pending,transcriptStatus:'done',transcript:String(result.transcript??''),transcriptError:undefined}; await onState(complete); return complete; }
-    catch(error) { reason=error instanceof Error?error.message:String(error); }
-  }
-  const failed={...pending,transcriptStatus:'failed',transcript:null,transcriptError:reason.slice(0,300)}; await onState(failed); return failed;
 }

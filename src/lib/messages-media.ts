@@ -5,7 +5,9 @@ import { garrisonDir } from './claude-home';
 import { messagesRequest } from './messages';
 import { readNodeIdentity } from './node-identity';
 import { fork } from 'node:child_process';
-import { attachmentRelativePath, confinedPath, saveBytes, normalizeAudio, thumbnail, transcribeAttachment } from '../../packages/messages/media.mjs';
+import {build} from 'esbuild';
+import {createTranscriptionBroker,prepareMessageAttachments,transcriptionEnvironment,transcriptionPermissions} from '../../packages/messages/media-broker.mjs';
+import { attachmentRelativePath, confinedPath, saveBytes, normalizeAudio, thumbnail } from '../../packages/messages/media.mjs';
 import { sanitizeMailHtml } from '../../packages/messages/providers/mail-html';
 import type { Attachment, Message } from '../../packages/messages/types';
 
@@ -65,13 +67,26 @@ export async function serveMessageFile(request:Request,id:string,attachmentId:st
 export async function processMessageMedia(message:Message,{captureUrl,captureToken}:{captureUrl?:string;captureToken?:string}={}) {
   const worker=path.join(process.cwd(),'packages/messages/media-worker.mjs');
   const root=messagesRoot(); await fs.mkdir(root,{recursive:true,mode:0o700});
+  const prepared=await prepareMessageAttachments(root,message.attachments);
+  const runtimeRoot=path.join(garrisonDir(),'runtime-workers','messages');await fs.mkdir(runtimeRoot,{recursive:true,mode:0o700});
+  const bundle=path.join(runtimeRoot,'transcription.cjs');
+  await build({entryPoints:[worker],outfile:bundle,bundle:true,platform:'node',target:'node20',format:'cjs',logLevel:'silent'});
+  const transcribe=createTranscriptionBroker(root,prepared,{captureUrl,captureToken});
   const attachments=await new Promise<Attachment[]>((resolve,reject)=>{
-    const child=fork(worker,[],{execArgv:[],env:{NODE_ENV:process.env.NODE_ENV??'production',PATH:process.env.PATH??'/usr/bin:/bin',TMPDIR:process.env.TMPDIR??'/tmp'},stdio:['ignore','ignore','pipe','ipc']});
+    const child=fork(bundle,[],{execArgv:transcriptionPermissions(bundle,root),env:transcriptionEnvironment(root),cwd:root,stdio:['ignore','ignore','pipe','ipc']});
     const timer=setTimeout(()=>{child.kill();reject(new Error('Media processing timed out'));},240_000);
-    child.once('message',(result:unknown)=>{clearTimeout(timer);const value=result as {attachments?:Attachment[];error?:string};if(value.error)reject(new Error(value.error));else resolve(value.attachments??[]);});
+    child.on('message',async(result:unknown)=>{
+      const value=result as {type?:string;requestId?:string;attachments?:Attachment[];error?:string};
+      if(value.type!=='complete') {
+        try {const transcript=await transcribe(result);if(child.connected)child.send({type:'transcription-result',requestId:value.requestId,...transcript});}
+        catch(error){if(child.connected)child.send({type:'transcription-result',requestId:value.requestId,error:error instanceof Error?error.message:String(error)});}
+        return;
+      }
+      clearTimeout(timer);if(value.error)reject(new Error(value.error));else resolve(value.attachments??[]);
+    });
     child.once('error',error=>{clearTimeout(timer);reject(error);});
     child.once('exit',code=>{clearTimeout(timer);if(code)reject(new Error(`Media worker exited ${code}`));});
-    child.send({root,attachments:message.attachments,captureUrl,captureToken});
+    child.send({attachments:prepared});
   });
   for(const attachment of attachments) await messagesRequest('POST',`/${message.id}/media`,{attachment});
 }

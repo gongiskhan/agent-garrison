@@ -24,6 +24,10 @@ describe('Messages media',()=>{
     try {
       await run('ffmpeg',['-nostdin','-hide_banner','-loglevel','error','-f','lavfi','-i','sine=frequency=440:duration=0.3','-c:a','libopus',path.join(root,'tone.webm')]);
       const playback=await normalizeAudio(root,'tone.webm'); expect(playback.path).toBe('tone.m4a'); expect(playback.durationMs).toBeGreaterThan(250);
+      const original=await fs.readFile(path.join(root,playback.path));
+      const nativePlayback=await normalizeAudio(root,playback.path);
+      expect(nativePlayback.path).toBe('tone.playback.m4a');
+      expect(await fs.readFile(path.join(root,playback.path))).toEqual(original);
       const voice=await normalizeAudio(root,'tone.webm',{voice:true}); expect(voice.ptt).toBe(true); expect(voice.path).toBe('tone.voice.ogg');
       const probe=await run('ffprobe',['-v','error','-show_entries','stream=codec_name','-of','json',path.join(root,voice.path)]); expect(JSON.parse(probe.stdout).streams[0].codec_name).toBe('opus');
     } finally {await fs.rm(root,{recursive:true,force:true});}
