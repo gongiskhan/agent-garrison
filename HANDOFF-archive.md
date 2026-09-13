@@ -53,12 +53,12 @@ One library has folder lists, stars, bookmarks, safe-area attachment dialogs and
 `garrison_archive_search` / `garrison_archive_read` in working assistant sessions.
 The real assistant test retrieves a sensitive synthetic company certificate,
 returns only its requested number with a clickable citation and leaves the vault
-unchanged. Release `8a06644c` is live on Madrid, Pro, Mini and Air (40/40 checks).
+unchanged. Mobile fix `eaefb36d` is live on Madrid/Air; Pro/Mini await their active work.
 
 ## Needs the physical phone
 
 Camera upload inside the iOS webview (`capture="environment"`), pinch zoom, and
-HEIC from an actual iPhone photo. These cannot be accepted through emulation.
+HEIC and attachment safe areas on an actual iPhone. Emulation is not device acceptance.
 
 ## Node binaries
 

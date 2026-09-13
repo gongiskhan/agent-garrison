@@ -198,3 +198,8 @@ in 396.73 seconds (29 existing/gated cases skipped). Deployment is recorded in
 [the owner-local evidence](../../.walkthrough/runs/agent-garrison/archive/2026-09-13/mobile-attachment-viewer/receipt.json).
 All artifacts use scratch vaults and synthetic files; the supplied personal
 screenshot is not copied into evidence. Decision D64 records the cause and fix.
+
+Runtime `eaefb36d` is live on Madrid and Air: 40/40 fitting checks, 15/15 healthy
+views, zero home leaks, and the corrected styles served over each HTTPS origin.
+Pro and Mini have fetched the fix; active unrelated work defers their deployment.
+Physical iPhone verification remains separate from the simulated safe-area checks.
