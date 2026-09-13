@@ -141,7 +141,7 @@ records the source, test boundaries, model calls, walkthrough and rollout status
 Bookmarks now save existing documents and notes. Home combines all folders;
 search offers folder, kind, tag and bookmarked filters for humans and agents.
 Existing files and personal-document ownership remain intact. Source decisions
-are D60–D62 in the decision document.
+are D60–D63 in the decision document.
 
 The synthetic 5,000-document / 36.9 MB benchmark reproduces the long-note delay:
 1.4–1.5 seconds on the prior source, 6–52 ms with the corrected snippet matcher.
@@ -169,7 +169,15 @@ filter screenshot is retained in `search-initial-artifacts`.
 - [Final search and Back report](../../.walkthrough/runs/agent-garrison/archive/2026-09-13/unified-library/search-report/index.html)
 - [Accepted screenshot judgments](../../.walkthrough/runs/agent-garrison/archive/2026-09-13/unified-library/accepted-vision-receipt.json)
 
-Final source acceptance: 8,710 tests passed across 763 suites, with 29 normal
+Final source acceptance on `8a06644c`: 8,732 tests passed across 764 suites, with 29 normal
 existing/gated cases in 12 suites. Typecheck, lint and the isolated production
-build passed. The complete suite ran without another verification workload;
-the 30 ms hook threshold passed unchanged. All four real integrations passed.
+build passed. The complete suite took 417.55 seconds; the 30 ms hook threshold
+passed unchanged. All four real integrations passed. The final sync portability
+change also passed 38 focused cases, including 21 real-Git/derived-merge checks.
+
+Madrid, Mini, Pro and Air run the matching production build with 40/40 fitting
+checks, 15/15 healthy HTTPS views and zero home leaks. Normal full vault sync
+succeeded on each. The receipt preserves original failures, aggregate recovery
+proof, source/build/installed-helper hashes and final timings. The completed
+merge decision `010879AD02E469EB546810B306` contains metadata only. CSG and the
+physical iPhone gates remain outside this acceptance; automatic rollout stays paused.

@@ -49,11 +49,11 @@ Retired Documents artifacts migrate to `Projects/Garrison/Documents` with origin
 The earlier staging error in `954e3a0d` was corrected by `f948abb4`; do not
 deploy that intermediate commit. The decision document preserves the history.
 
-Follow-up source adds fast folder lists, stars, bookmarks, reliable Back and
+One library now has fast folder lists, stars, document bookmarks, reliable Back and
 `garrison_archive_search` / `garrison_archive_read` in working assistant sessions.
 The real assistant test retrieves a sensitive synthetic company certificate,
 returns only its requested number with a clickable citation and leaves the vault
-unchanged. The prior release is live on Madrid, Pro, Mini and Air; CSG remains offline.
+unchanged. Release `8a06644c` is live on Madrid, Pro, Mini and Air (40/40 checks).
 
 ## Needs the physical phone
 
@@ -74,6 +74,6 @@ HEIC from an actual iPhone photo. These cannot be accepted through emulation.
 
 None from the scoped review. All five crucial findings were fixed and tested.
 Automatic deployments remain paused for the independent CSG rollout gate.
-Use normal Conversation and healthy-peer guards for any manual deployment.
+Full normal sync passes on all four; D63 records preserved derived-file recovery.
 Bookmarks live in `Archive/_bookmarks.md`; stars remain document frontmatter.
 External editor renames may leave a missing bookmark; remove it and save the new path.
