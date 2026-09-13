@@ -96,3 +96,6 @@
 .archive-viewer-file-details p{margin:0;overflow-wrap:anywhere}
 .archive-viewer-file-details span{color:var(--mute)}
 .archive-viewer-file .archive-viewer-actions a{flex:1}
+/* Legacy --paper resolves at the light shell root; code uses Archive's paired theme tokens. */
+.markdown-body.archive-markdown code{background:var(--surface-sunken);color:var(--ink)}
+.markdown-body.archive-markdown pre code{background:none}

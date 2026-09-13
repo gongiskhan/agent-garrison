@@ -12,7 +12,8 @@ directly into documents; Inbox is retired. Search filters by folder, type and
 bookmarked status, with exact identifier matching. Folder and document loading is bounded
 and saves update only their affected search entries. Attachment dialogs now clear
 iPhone safe areas, with compact PDF/file actions and image controls that fit
-portrait and landscape.
+portrait and landscape. Code-formatted text in notes stays readable in both
+light and dark themes.
 
 # What's new — Workbench dissolution
 

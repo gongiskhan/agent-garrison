@@ -203,3 +203,15 @@ Runtime `eaefb36d` is live on Madrid and Air: 40/40 fitting checks, 15/15 health
 views, zero home leaks, and the corrected styles served over each HTTPS origin.
 Pro and Mini have fetched the fix; active unrelated work defers their deployment.
 Physical iPhone verification remains separate from the simulated safe-area checks.
+
+## Code contrast — 13 September
+
+Inline code inherited light text on a light shell-root background in Archive's
+dark theme. The synthetic regression measured 1.014:1 contrast. The scoped fix
+uses Archive's paired theme tokens for code, retaining plain fenced-code panels.
+Two phone/desktop journeys pass 32 contrast checks and four real screenshot
+judgments. Typecheck and lint pass (four existing Messages lint warnings).
+Retina captures preserve small desktop glyphs for the judge; failed captures
+remain beside the accepted run. No personal screenshot or document is copied.
+
+[Owner-local evidence and deployment receipt](../../.walkthrough/runs/agent-garrison/archive/2026-09-13/code-contrast/receipt.json).
