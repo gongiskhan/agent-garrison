@@ -229,6 +229,7 @@ it.each(["one-shot", "standing", "cancel"])("waits for delayed MCP tools before 
     input.close();
     try { client?.close?.(); } catch {}
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    fs.rmSync(root, { recursive: true, force: true });
+    // SDK shutdown may finish a final config write after its iterator closes.
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 }, 30_000);

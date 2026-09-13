@@ -36,8 +36,20 @@ async function selector(){
   if(path.dirname(root)===root)throw new Error('Archive package is unavailable');
  }
 }
+function sharedSource(cwd,file){
+ if(!file.startsWith('Archive/')||file.split('/').some(p=>!p||p.startsWith('.'))||!file.endsWith('.md'))return;
+ const source=file.slice(0,-3);
+ try{
+  const head=git(cwd,'rev-parse','HEAD');let other;
+  for(const ref of ['REBASE_HEAD','MERGE_HEAD','CHERRY_PICK_HEAD','ORIG_HEAD']){try{const oid=git(cwd,'rev-parse','--verify',ref+'^{commit}');if(oid!==head){other=oid;break;}}catch{}}
+  if(!other||git(cwd,'rev-parse',head+':'+source)!==git(cwd,'rev-parse',other+':'+source))return;
+  return execFileSync('git',['show',head+':'+source],{cwd,maxBuffer:32*1024*1024,stdio:['ignore','pipe','pipe']});
+ }catch{return;}
+}
 export async function runDerivedMerge([base,ours,theirs,marker,file],cwd=process.cwd()){
- const choose=await selector(),decision=choose({base:fs.readFileSync(base,'utf8'),ours:fs.readFileSync(ours,'utf8'),theirs:fs.readFileSync(theirs,'utf8'),file});
+ const choose=await selector(),input={base:fs.readFileSync(base,'utf8'),ours:fs.readFileSync(ours,'utf8'),theirs:fs.readFileSync(theirs,'utf8'),file};
+ let decision=choose(input);
+ if(decision.kind==='conflict'){const sourceBytes=sharedSource(cwd,file);if(sourceBytes)decision=choose({...input,sourceBytes});}
  if(decision.kind==='derived'){preserveRefs(cwd);fs.writeFileSync(ours,decision.content);return 0;}
  if(decision.kind==='conflict')return 1;
  return spawnSync('git',['merge-file','--marker-size='+marker,ours,base,theirs],{cwd,stdio:'ignore'}).status??1;

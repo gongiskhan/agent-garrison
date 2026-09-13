@@ -1,4 +1,4 @@
-import { it,expect } from 'vitest';import fs from 'node:fs/promises';import path from 'node:path';import { scratch,fixture } from './archive-test-helpers';
+import { it,expect } from 'vitest';import {createHash} from 'node:crypto';import fs from 'node:fs/promises';import path from 'node:path';import { scratch,fixture } from './archive-test-helpers';
 // @ts-ignore
 import { IngestQueue,RETRY_DELAYS } from '../packages/archive/src/ingest/queue.mjs';
 // @ts-ignore
@@ -23,3 +23,10 @@ it('charges invalid JSON retries and pauses before a 101st model call',async()=>
 it('manual regenerate resumes a delayed retry immediately and clears a failed file count',async()=>{const s=await scratch({seed:false,look:good});try{
  const queue=new IngestQueue(s.ctx,s.service.jobs);queue.closed=true;await s.write('Archive/Inbox/manual.jpg',await fs.readFile(path.join(fixture,'sample-document.jpg')));const id=await queue.enqueue('Archive/Inbox/manual.jpg');const row=s.service.jobs.get(id);await s.service.jobs.update(row,{retryAt:Date.now()+600000,attempts:2,error:'Broken target'});expect(await queue.enqueue(row.input.path,{force:true})).toBe(id);expect(row.retryAt).toBeNull();queue.closed=false;await queue.drain();expect(row.state).toBe('done');await s.service.jobs.update(row,{state:'failed',attempts:4});queue.closed=true;expect(queue.status().failed).toBe(1);expect(await queue.enqueue(row.input.path,{force:true})).toBe(id);queue.closed=false;await queue.drain();expect(queue.status().failed).toBe(0);queue.close();
 }finally{await s.close();}});
+
+it('does not re-extract newline-only copies received from another node, but queues a real text change',async()=>{
+ const s=await scratch({seed:false,look:async()=>{throw new Error('Text must not call a model');}});try{
+  s.service.queue.close();const p='Archive/Fixture/portable.txt',text='Synthetic first line\nSynthetic second line\n',hash=createHash('sha256').update(text.replace(/\n/g,'\r\n')).digest('hex');await s.write(p,text);await s.write(p+'.md',`---\ngarrison: derived\nsource: portable.txt\nsha256: ${hash}\nkind: text\nstatus: ok\ngenerated: 2026-09-13 10:00:00.123000+00:00\n---\n## What it is\nSynthetic text\n\n## Text\n${text}\n## Fields\n`);
+  const before=await s.read(p+'.md');expect(await s.service.queue.scan()).toBe(0);expect(await s.service.queue.enqueue(p)).toBeNull();expect(await s.read(p+'.md')).toBe(before);await s.write(p,text+'A real fixture change.');expect(await s.service.queue.scan()).toBe(1);
+ }finally{await s.close();}
+});
