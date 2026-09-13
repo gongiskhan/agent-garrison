@@ -26,6 +26,7 @@
 // terminal side effects exactly once).
 
 import { pendingConversationQuestion } from "@garrison/claude-pty/conversation-question.mjs";
+import { emitSystemMessage } from "@garrison/messages/system";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -1486,11 +1487,12 @@ export function approvalState(store) {
   const tail = store.tail(400, { kinds: ["user-message", "approval-requested"] });
   let lastAsk = -1;
   let lastMsg = -1;
+  let lastDecision = null;
   for (const e of tail) {
     if (e.kind === "approval-requested") lastAsk = e.index;
-    else lastMsg = e.index;
+    else { lastMsg = e.index; lastDecision = e.payload?.approvalDecision ?? null; }
   }
-  return { asked: lastAsk >= 0, approved: lastAsk >= 0 && lastMsg > lastAsk };
+  return { asked: lastAsk >= 0, approved: lastAsk >= 0 && lastMsg > lastAsk && lastDecision !== "reject" };
 }
 
 function nextDutyFor(store, selectedDuties) {
@@ -1800,6 +1802,13 @@ export async function runConversation(gateway, {
             logFn: (e) => gateway.logFn?.(e),
           });
           onFrame("approval-requested", { next: duty });
+          const approval = store.tail(1, { kinds: ["approval-requested"] })[0];
+          await emitSystemMessage({ category: "card.needs-input", severity: "info", title: card.title || "Plan approval",
+            body: lastHandoff?.summary || "The plan is ready for approval.", cardId: card.id, conversationRef: conversationId,
+            externalId: `approval:${conversationId}:${approval.index}`, action: { kind: "approval", prompt: "Approve the plan and continue?",
+              options: ["approve", "reject"], answeredAt: null, answer: null, revertUntil: null,
+              target: { ownerNode: env.GARRISON_NODE_NAME, conversationId, cardId: card.id, approvalId: `approval-${approval.index}` } },
+          }, { env }).catch((error) => gateway.logFn?.({ kind: "messages-error", error: error.message }));
           terminal = "awaiting-approval";
           break;
         }
@@ -2379,6 +2388,15 @@ export async function runConversation(gateway, {
         logFn: (e) => gateway.logFn?.(e),
       });
     }
+    if (terminal === "needs-input") {
+      const question = pendingConversationQuestion(store);
+      if (question) await emitSystemMessage({ category: "card.needs-input", severity: "info", title: card?.title || "Conversation needs you",
+        body: question.question, cardId: card?.id ?? null, conversationRef: conversationId,
+        externalId: `question:${conversationId}:${question.id}`, action: { kind: "question", prompt: question.question,
+          options: question.options.map((option) => option.label), answeredAt: null, answer: null, revertUntil: null,
+          target: { ownerNode: env.GARRISON_NODE_NAME, conversationId, cardId: card?.id ?? null, questionId: question.id } },
+      }, { env }).catch((error) => gateway.logFn?.({ kind: "messages-error", error: error.message }));
+    }
     onFrame("done", { terminal, stretches });
     return { stretches, terminal };
     } catch (err) {
@@ -2401,7 +2419,7 @@ export async function runConversation(gateway, {
 /** Record a user message in the store; a running stretch picks it up at its
  *  next brief, and when nothing is running the caller kicks an advance so a
  *  responder stretch answers from L1. */
-export function recordUserMessage(store, { text, origin = "web", threadId = null, context = null, routing = null, delivery = null, steered = false, clientRequestId = null, questionId = null }) {
+export function recordUserMessage(store, { text, origin = "web", threadId = null, context = null, routing = null, delivery = null, steered = false, clientRequestId = null, questionId = null, approvalDecision = null, approvalId = null }) {
   const requestId = typeof clientRequestId === "string" && clientRequestId.trim() ? clientRequestId.trim().slice(0, 200) : null;
   const fullText = String(text ?? "");
   const normalizedText = fullText.slice(0, 32_000);
@@ -2424,6 +2442,13 @@ export function recordUserMessage(store, { text, origin = "web", threadId = null
   if (questionId != null && pendingConversationQuestion(store)?.id !== questionId) {
     return { ok: false, conflict: true, error: "This question has already been answered or is no longer active. Refresh the conversation." };
   }
+  if (approvalDecision != null) {
+    const records = store.tail(400, { kinds: ["approval-requested", "user-message"] });
+    const asked = [...records].reverse().find((entry) => entry.kind === "approval-requested");
+    if (!["approve", "reject"].includes(approvalDecision) || !asked || approvalId !== `approval-${asked.index}` || records.some((entry) => entry.kind === "user-message" && entry.index > asked.index)) {
+      return { ok: false, conflict: true, error: "This approval has already been answered or is no longer active." };
+    }
+  }
   const running = store.currentStretch();
   return store.append({
     kind: "user-message",
@@ -2432,6 +2457,7 @@ export function recordUserMessage(store, { text, origin = "web", threadId = null
       ...(fullText.length > normalizedText.length ? { textRef: store.spillPayload(fullText).ref } : {}),
       ...(requestId ? { clientRequestId: requestId } : {}),
       ...(questionId ? { questionId } : {}),
+      ...(approvalDecision ? { approvalDecision, approvalId } : {}),
       origin,
       threadId,
       arrivedDuringStretch: running,

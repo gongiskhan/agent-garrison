@@ -15,6 +15,7 @@ import { writeJsonAtomic } from "./atomic-write";
 import { stateClient, stateEnrolled } from "./state-client";
 import { readNodeIdentity } from "./node-identity";
 import type { Composition } from "./types";
+import { emitSystemMessage } from "../../packages/messages/system.mjs";
 
 export interface HomesState {
   version: 2;
@@ -44,8 +45,8 @@ async function notifyMigration(state: HomesState) {
   const count = new Set(Object.values(state.report.shared).flat()).size;
   const title = `Two homes: Garrison now runs from its own Claude home on ${node}. ${state.report.moved} items moved out of your Claude Code into quarantine, ${count} fittings shared. Details in Mesh › ${node}.`;
   const client = stateClient();
-  const notification = await client.createNotification({ kind: "system", body: { title, body: title, href: "/mesh" } });
-  await client.putConfig(`improver.notice.${notification.id}`, "global", { id: notification.id, title, text: title, at: state.migratedAt, link: "/mesh", source: "homes-migration" }, { ifMatchRev: 0 });
+  await emitSystemMessage({ category: "system.info", severity: "info", title, body: title,
+    externalId: `homes-migration:${node}:${state.migratedAt}`, sourceLink: "/mesh" }, { client });
 }
 let migrationQueue: Promise<unknown> = Promise.resolve();
 export function reconcileHomes(composition: Composition, options: SharedReconcileOptions & { notify?: (state: HomesState) => Promise<void> } = {}): Promise<HomesState> {

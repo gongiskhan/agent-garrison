@@ -68,7 +68,16 @@ async function putIntent(node, body) {
       },
       body: JSON.stringify({ ...(current?.body ?? {}), ...body, updatedAtStep: new Date().toISOString() })
     });
-    if (res.ok) return;
+    if (res.ok) {
+      if (body.terminal) {
+        const { emitSystemMessage } = await import("../packages/messages/system.mjs");
+        await emitSystemMessage({ category: "convergence", severity: ["failed", "revert-unhealthy"].includes(body.state) ? "error" : "info",
+          title: `Convergence ${body.state}: ${node}`, body: body.error || `Convergence on ${node} finished with ${body.state}.`,
+          externalId: `convergence:${node}:${current?.body?.id ?? current?.body?.at ?? current?.body?.requestedAt ?? current?.rev}:${body.state}`,
+        }, { env: { ...process.env, GARRISON_HOME: HOME } });
+      }
+      return;
+    }
     if (res.status !== 409) throw new Error(`intent PUT ${res.status}`);
   }
   throw new Error("intent PUT lost the CAS twice");

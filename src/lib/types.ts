@@ -314,6 +314,7 @@ export interface ConnectorSetupHelp {
 }
 
 export interface ConnectorSpec {
+  messaging?: import("../../packages/messages/types").ProviderDescriptor;
   managed?: boolean;
   setup_help?: ConnectorSetupHelp;
   auth: "oauth2" | "api_key" | "none";

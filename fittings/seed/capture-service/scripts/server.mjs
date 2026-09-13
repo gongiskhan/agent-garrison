@@ -393,7 +393,7 @@ export function makeRequestHandler(ctx) {
         const language = (url.searchParams.get("language") ?? "").trim() || null;
         const startedAt = Date.now();
         try {
-          const result = await transcribeClip({ cfg, bytes, contentType, language, fetchImpl: cfg.fetchImpl ?? null });
+          const result = await transcribeClip({ cfg, bytes, contentType, language, fetchImpl: cfg.fetchImpl ?? null, messagesLane: url.searchParams.get("lane") === "messages" });
           counters.bump("stt_rest_transcribed");
           counters.observe("stt_rest_ms", Date.now() - startedAt);
           return json(res, 200, result);
@@ -813,6 +813,8 @@ export function makeRequestHandler(ctx) {
         }
         const tag = typeof parsed.tag === "string" ? parsed.tag : "relay";
         const receipts = await ctx.notifier.deliver({
+          _messagesMirror: parsed._messagesMirror ?? null,
+          idempotencyKey,
           title: String(parsed.title ?? "Garrison").slice(0, 120),
           body: link && !text.includes(link) ? `${text}\n${link}` : text,
           link,

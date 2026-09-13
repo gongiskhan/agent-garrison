@@ -1,4 +1,5 @@
 // Notifications from the capture triage job to the Garrison phone.
+import { emitSystemMessage, systemInputFromNotification } from "@garrison/messages/system";
 import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -70,34 +71,15 @@ export class CompanionRelayNotifier {
   }
 
   async send({ template, params = {} }) {
-    const means = "companion-push";
-    const title = params.title ?? "";
-    const text = renderTemplate(template, params);
-    const base = statusFileUrl("capture-service", this.env);
-    if (!base) {
-      this.counters?.bump("companion_notify_skipped_down");
-      return [{ means, ok: false, skipped: "capture-service not running" }];
-    }
     try {
-      const res = await this.fetchImpl(`${base}/notify`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title, text, link: params.cardUrl ?? null, tag: template }),
-        signal: AbortSignal.timeout(8_000)
-      });
-      if (res.status === 404) {
-        this.counters?.bump("companion_notify_skipped_no_sink");
-        return [{ means, ok: false, skipped: "capture-service /notify not implemented" }];
-      }
-      const receipt = await res.json().catch(() => null);
-      if (!res.ok || typeof receipt !== "object" || receipt === null) {
-        this.counters?.bump("companion_notify_failed");
-        return [{ means, ok: false, error: `relay HTTP ${res.status}` }];
-      }
-      return Array.isArray(receipt) ? receipt : [receipt];
-    } catch (err) {
+      const message = await emitSystemMessage(systemInputFromNotification({
+        title: params.title || "Garrison", text: renderTemplate(template, params), link: params.cardUrl,
+        idempotencyKey: params.idempotencyKey, cardId: params.cardId,
+      }, "capture"), { env: this.env, fetchImpl: this.fetchImpl });
+      return [{ means: "messages", ok: true, queued: true, messageId: message.id }];
+    } catch (error) {
       this.counters?.bump("companion_notify_failed");
-      return [{ means, ok: false, error: `relay: ${err?.message ?? err}` }];
+      return [{ means: "messages", ok: false, error: error.message }];
     }
   }
   async drainTips() {

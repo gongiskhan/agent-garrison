@@ -10,6 +10,8 @@
 // tokenless route and returns nothing but liveness + versions.
 
 import http from "node:http";
+import { messagesRoute } from "./messages/router.mjs";
+import { authenticateIngest, MessagesError } from "./messages/store.mjs";
 import { openDb, binarySchemaVersion, schemaMeta, resolveDbPath } from "./db.mjs";
 import {
   StoreError,
@@ -137,7 +139,7 @@ const server = http.createServer(async (req, res) => {
     // ── auth ──
     const auth = req.headers.authorization ?? "";
     const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : null;
-    const node = authenticateToken(db, token);
+    const node = authenticateIngest(db, token) ?? authenticateToken(db, token);
     if (!node) throw new StoreError(401, "unauthenticated", "a registered node bearer token is required");
 
     // A behind node reads freely; its writes refuse until it converges.
@@ -147,6 +149,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     const body = isWrite ? await readBody(req) : undefined;
+    if (node.scope === "messages-ingest" && p[0] !== "messages") throw new MessagesError(403, "Ingest credentials cannot access other state areas");
+    if (p[0] === "messages") {
+      const result = messagesRoute(db, node, req.method, p.slice(1), url, body);
+      if (isWrite) signalChange();
+      return send(res, 200, result);
+    }
 
     // ── hello ──
     if (req.method === "POST" && p[0] === "hello" && p.length === 1) {
@@ -442,7 +450,7 @@ const server = http.createServer(async (req, res) => {
 
     throw new StoreError(404, "not-found", `no route for ${req.method} ${url.pathname}`);
   } catch (err) {
-    if (err instanceof StoreError) {
+    if (err instanceof StoreError || err instanceof MessagesError) {
       return send(res, err.status, err.body);
     }
     console.error(`[state] unhandled error on ${req.method} ${req.url}:`, err);

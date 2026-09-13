@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-09-13T11:32:37.264Z",
+  "updatedAt": "2026-09-13T19:46:05.212538Z",
   "categories": [
     {
       "id": "c1",
@@ -935,6 +935,69 @@
         {
           "id": "c14.4",
           "text": "Phase 4: Mesh install/uninstall and enrollment, sandbox and real-node round trips, scoped Drill sweep and the single final review.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        }
+      ]
+    },
+    {
+      "id": "messages",
+      "title": "Messages",
+      "noteRef": null,
+      "items": [
+        {
+          "id": "m1",
+          "text": "Shared store, provider discovery, fenced ingest lease and system messages. Evidence: evidence/messages/p1/; docs/messages/README.md.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "m2",
+          "text": "Phone inbox, desktop conversation panes and inline system actions. Evidence: evidence/messages/p2/; docs/messages/README.md.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "m3",
+          "text": "Gmail account grants, incremental mail sync, HTML and mail actions. Evidence: evidence/messages/p3/; docs/messages/README.md.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "m4",
+          "text": "Slack user accounts, conversations, threads and files. Evidence: evidence/messages/p4/; docs/messages/README.md.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "m5",
+          "text": "Existing WhatsApp connection, events, media and held sends. Evidence: evidence/messages/p5/; docs/messages/README.md.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "m6",
+          "text": "Shared composer, attachments, Drive, audio playback and transcripts. Evidence: evidence/messages/p6/; docs/messages/README.md.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "m7",
+          "text": "Saved views, deterministic rules and provider settings. Evidence: evidence/messages/p7/; docs/messages/README.md.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "m8",
+          "text": "Performance, offline behavior, retention, rollout and acceptance. Evidence: evidence/messages/p8/; docs/messages/README.md.",
           "done": false,
           "sentToKanban": null,
           "noteRef": null

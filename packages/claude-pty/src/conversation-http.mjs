@@ -500,7 +500,7 @@ async function handleMessage(req, res, { store, conversationId, forwardMessage }
     sendJson(res, err?.code === "BODY_TOO_LARGE" ? 413 : 400, { error: err?.message ?? "unreadable body" });
     return;
   }
-  const allowed = new Set(["message", "clientRequestId", "origin", "context", "routing", "delivery", "questionId"]);
+  const allowed = new Set(["message", "clientRequestId", "origin", "context", "routing", "delivery", "questionId", "approvalDecision", "approvalId"]);
   const unknown = Object.keys(body ?? {}).filter((key) => !allowed.has(key));
   if (unknown.length) {
     sendJson(res, 400, { error: `unknown fields: ${unknown.join(", ")}` });
@@ -537,6 +537,10 @@ async function handleMessage(req, res, { store, conversationId, forwardMessage }
     sendJson(res, 400, { error: "invalid questionId" });
     return;
   }
+  if (body.approvalDecision !== undefined && (!["approve", "reject"].includes(body.approvalDecision) || !/^approval-\d+$/.test(body.approvalId ?? ""))) {
+    sendJson(res, 400, { error: "An approval decision requires its exact approval id" });
+    return;
+  }
 
   let forwarded;
   try {
@@ -549,6 +553,7 @@ async function handleMessage(req, res, { store, conversationId, forwardMessage }
       routing,
       ...(delivery ? { delivery } : {}),
       ...(body.questionId ? { questionId: body.questionId } : {}),
+      ...(body.approvalDecision ? { approvalDecision: body.approvalDecision, approvalId: body.approvalId } : {}),
     });
   } catch (err) {
     forwarded = { ok: false, error: err?.message ?? String(err) };
@@ -606,7 +611,7 @@ async function handleMessage(req, res, { store, conversationId, forwardMessage }
  * the message in the transcript twice.
  */
 export function gatewayMessageForwarder(gatewayUrl) {
-  return async ({ conversationId, message, origin, clientRequestId = null, context = null, routing = null, delivery = null, questionId = null }) => {
+  return async ({ conversationId, message, origin, clientRequestId = null, context = null, routing = null, delivery = null, questionId = null, approvalDecision = null, approvalId = null }) => {
     if (!gatewayUrl) return { ok: false, error: "this mount has no gateway URL" };
     try {
       const response = await fetch(new URL("/conversation/message", gatewayUrl), {
@@ -621,6 +626,7 @@ export function gatewayMessageForwarder(gatewayUrl) {
           ...(routing ? { routing } : {}),
           ...(delivery ? { delivery } : {}),
           ...(questionId ? { questionId } : {}),
+          ...(approvalDecision ? { approvalDecision, approvalId } : {}),
         }),
         signal: AbortSignal.timeout(10_000),
       });
