@@ -1,0 +1,9 @@
+{
+  "ok": true,
+  "messages": [
+    { "type": "message", "user": "UCLIENT", "text": "Root", "ts": "1789300800.000100", "reply_count": 1 },
+    { "type": "message", "user": "UOWNER", "text": "_Thanks_\n```\nconsole.log(answer);\n```", "ts": "1789300801.000200", "thread_ts": "1789300800.000100" }
+  ],
+  "has_more": false,
+  "response_metadata": { "next_cursor": "" }
+}
