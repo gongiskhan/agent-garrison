@@ -10,7 +10,9 @@ The 13 September follow-up adds list/thumbnail views, alphabetical or recent
 sorting, starred documents and bookmarks for documents and notes. Upload files
 directly into documents; Inbox is retired. Search filters by folder, type and
 bookmarked status, with exact identifier matching. Folder and document loading is bounded
-and saves update only their affected search entries.
+and saves update only their affected search entries. Attachment dialogs now clear
+iPhone safe areas, with compact PDF/file actions and image controls that fit
+portrait and landscape.
 
 # What's new — Workbench dissolution
 

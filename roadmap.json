@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-09-13T20:13:59.461Z",
+  "updatedAt": "2026-09-13T20:47:56.909Z",
   "categories": [
     {
       "id": "c1",
@@ -905,6 +905,13 @@
         {
           "id": "c13.10",
           "text": "Unified Archive: bookmark documents and notes, browse all folders together, filter human and agent search, and fix long-note search latency; verify and deploy through normal guards.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c13.11",
+          "text": "Mobile attachment viewer: respect iPhone safe areas, compact PDF/file actions, usable image controls in portrait and landscape, and tested close/delete navigation.",
           "done": true,
           "sentToKanban": null,
           "noteRef": null
