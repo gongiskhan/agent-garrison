@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures/shell";
 
 // The switch-gating proof intercepts its POST; keep a PWA service worker from
 // bypassing Playwright's page routing for that request.

@@ -72,6 +72,8 @@ export default defineConfig({
       GARRISON_STATE_PATH: TEST_STATE_FILE,
       GARRISON_CLAUDE_HOME: CLAUDE_SANDBOX,
       GARRISON_HOME: GARRISON_SANDBOX,
+      GARRISON_DISABLE_HOST_DAEMONS: "1",
+      GARRISON_MESSAGES_DISABLE_WORKERS: "1",
       // Two `next dev` processes sharing one .next/ poison each other's route
       // cache (the live launchd server owns .next/), so the e2e sandbox server
       // gets its own dist dir. next.config.mjs reads this env var.

@@ -6,12 +6,12 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 // @ts-ignore Existing durable conversation store.
 import { openConversation } from '../../../packages/claude-pty/src/conversation-store.mjs';
 // @ts-ignore Existing question reader.
 import { pendingConversationQuestion } from '../../../packages/claude-pty/src/conversation-question.mjs';
-// @ts-ignore Existing structured signal writer.
-import { recordUserMessage } from '../../../fittings/seed/http-gateway/scripts/lib/stretch.mjs';
 
 test('real store API journey answers the durable card question',async({page,request},info)=>{
   const state=await startStateService(),home=await fs.mkdtemp(path.join(os.tmpdir(),'messages-p1-'));
@@ -22,8 +22,13 @@ test('real store API journey answers the durable card question',async({page,requ
   const question=pendingConversationQuestion(conversation);
   const shell=http.createServer(async(req,res)=>{
     let raw='';for await(const chunk of req)raw+=chunk;
-    const input=JSON.parse(raw),result=recordUserMessage(conversation,{...input,text:input.message});
-    res.writeHead(result.ok?200:409,{'content-type':'application/json'}).end(JSON.stringify(result));
+    try{
+      // A separate Node process keeps the production ESM runtime graph out
+      // of Playwright's CommonJS module cache while using the real writer.
+      const {stdout}=await promisify(execFile)(process.execPath,[path.join(process.cwd(),'tests/e2e/fixtures/record-user-message.mjs'),home,raw],{timeout:10000,maxBuffer:65536,env:{...process.env,NODE_OPTIONS:undefined}});
+      const result=JSON.parse(stdout);
+      res.writeHead(result.ok?200:409,{'content-type':'application/json'}).end(JSON.stringify(result));
+    }catch(error){res.writeHead(500,{'content-type':'application/json'}).end(JSON.stringify({error:String(error)}));}
   });
   await new Promise<void>(resolve=>shell.listen(0,'127.0.0.1',resolve));
   Object.assign(process.env,{GARRISON_STATE_URL:state.url,GARRISON_STATE_TOKEN:state.token,GARRISON_NODE_NAME:'test-node',GARRISON_APP_URL:`http://127.0.0.1:${(shell.address() as any).port}`});resetStateClient();
