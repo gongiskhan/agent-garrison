@@ -37,8 +37,8 @@ The Phase 8 stems `offline-pending`, `offline-replayed`, `performance-list`, `ke
 
 ## Acceptance entries still to close
 
-- Full repository test suite: pending the lead's final consolidated result.
-- Production build and deployment: pending the lead's build receipt and guarded rollout.
+- Full repository unit project: 8,666 passed and 45 skipped across 754 passing files and 13 skipped files. The serial browser fixture project passed 302 tests, with one existing Archive latency failure under local machine load. The unchanged Archive timing group passed all eight tests on Madrid, closing that failure. One browser fixture is opt-in and skipped. Local gateway continuity also passed all eight tests. Receipts preserve the initial failure and the successful isolated result.
+- Production build: passed compilation, type checking and static generation under the isolated codex profile. Receipt: `evidence/messages/p8/build.log`. Pinned state schema 3 is deployed with a fresh snapshot. Guarded app rollout is in progress.
 - Gmail live self-only smoke: pending the required mail consent.
 - Slack text and voice live self-only smokes: pending the user grant.
 - WhatsApp image and voice live self-only smokes: pending deployment and execution against the paired account.

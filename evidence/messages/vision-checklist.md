@@ -124,3 +124,10 @@ The initial raw filter chip and copied outgoing Slack reactions were corrected, 
 - p8/performance-list-iphone.png: PASS. Provider badges, unread dots and timestamps are visible on virtual rows; shell and list headers remain fixed. The verified phone copy confirms the final pixels.
 
 The phone checks use browser emulation. The lead checked the images directly. Earlier toast overlap, stale replay copy and document-scroll defects were fixed before the final captures.
+
+## Public Air deployment
+
+- `live/air-messages-public-iphone.png`: PASS. The lead viewed the deployed HTTPS page at 390 by 844. Header and tabs stay visible, search and the horizontally scrollable chip row remain usable, the empty-state copy fits, and no page overflow or overlap is present. This deliberately empty search captures no unrelated message content.
+- `live/air-messages-public-desktop.png`: PASS. The lead viewed the deployed HTTPS page at 1440 by 900. The 360 px list pane and conversation placeholder align, filters and counts fit, and the shell reports runner 40/40 and fittings 15/15. No overlap or clipped page content is present.
+- `live/air-messages-public-iphone-verified.png`: PASS. Final capture uses a short search value so both the search chip and Clear fit visibly. The lead viewed this distinct image path; header, counts, empty state and phone geometry remain correct.
+- `live/air-messages-public-desktop-verified.png`: PASS. Final capture shows the settled running status, 40/40 checks and 15/15 views. The lead viewed this distinct image path; both panes and search controls fit without overlap.
