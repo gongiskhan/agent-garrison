@@ -49,6 +49,10 @@ describe("peer proxy allow-list", () => {
     ["GET", ["mesh", "self"]],
     ["GET", ["sessions"]],
     ["GET", ["sessions", "sess-1", "stream"]],
+    ["GET", ["messages", "outbox", "send-1", "attachments", "file-1"]],
+    ["GET", ["messages", "attachments", "message-1", "file-1"]],
+    ["GET", ["messages", "message-1", "html"]],
+    ...(["setRead", "archive", "delete", "send", "outboxStatus", "cancelSend"] as const).map(action => ["POST", ["messages", "providers", "provider-1", "adapter", action]] as [string, string[]]),
     ...(["runtimes","projects","sessions"] as const).map(p => ["GET", ["remote-shell",p]] as [string,string[]]),
     ["POST", ["remote-shell","sessions"]],
     ["GET", ["remote-shell","sessions","s-1"]],
@@ -82,7 +86,14 @@ describe("peer proxy allow-list", () => {
     ]);
     expect(allowListDescription()).toContain("GET|POST install");
     expect(allowListDescription()).toContain("GET install/leaks");
-    expect(allowListDescription()).toHaveLength(33);
+    expect(allowListDescription().filter(entry => entry.includes("messages/"))).toEqual([
+      "GET messages/outbox/:id/attachments/:id",
+      "POST messages/providers/:id/adapter/setRead", "POST messages/providers/:id/adapter/archive",
+      "POST messages/providers/:id/adapter/delete", "POST messages/providers/:id/adapter/send",
+      "POST messages/providers/:id/adapter/outboxStatus", "POST messages/providers/:id/adapter/cancelSend",
+      "GET messages/attachments/:id/:id", "GET messages/:id/html",
+    ]);
+    expect(allowListDescription()).toHaveLength(42);
   });
 
   // These are the paths a generic passthrough WOULD have exposed. The web
@@ -103,7 +114,9 @@ describe("peer proxy allow-list", () => {
     ["POST", ["threads", "t-1", "messages"]],
     ["GET", ["threads", "t-1", "..", "..", "vault"]],
     ["GET", ["mesh", "nodes"]],
-    ["GET", ["secrets"]]
+    ["GET", ["secrets"]],
+    ["POST", ["messages", "providers", "provider-1", "adapter", "exec"]],
+    ["GET", ["messages", "attachments", "message-1", ".."]]
   ] as const;
 
   it.each(refused)("refuses %s /%s", (method, segments) => {

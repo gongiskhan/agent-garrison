@@ -181,3 +181,37 @@ succeeded on each. The receipt preserves original failures, aggregate recovery
 proof, source/build/installed-helper hashes and final timings. The completed
 merge decision `010879AD02E469EB546810B306` contains metadata only. CSG and the
 physical iPhone gates remain outside this acceptance; automatic rollout stays paused.
+
+## Mobile attachment viewer — 13 September
+
+The owner's phone report is reproduced with a synthetic PDF: Close started at
+16.5 px inside a simulated 59 px top safe area. Native attachment dialogs now
+clear device insets, show compact file details with adjacent actions, and keep
+image controls usable after rotation. Delete confirmations and cancelled-dialog
+focus restoration are exercised through the actual UI.
+
+Eight attachment/card journeys passed across phone and desktop. Four additional
+real-model journeys passed all six screenshot checks (file, image and landscape
+on each project). Tests also exercise 320×568 and same-origin PDF delivery.
+Typecheck and lint passed. The full suite passed 8,732 tests across 764 suites
+in 396.73 seconds (29 existing/gated cases skipped). Deployment is recorded in
+[the owner-local evidence](../../.walkthrough/runs/agent-garrison/archive/2026-09-13/mobile-attachment-viewer/receipt.json).
+All artifacts use scratch vaults and synthetic files; the supplied personal
+screenshot is not copied into evidence. Decision D64 records the cause and fix.
+
+Runtime `eaefb36d` is live on Madrid and Air: 40/40 fitting checks, 15/15 healthy
+views, zero home leaks, and the corrected styles served over each HTTPS origin.
+Pro and Mini have fetched the fix; active unrelated work defers their deployment.
+Physical iPhone verification remains separate from the simulated safe-area checks.
+
+## Code contrast — 13 September
+
+Inline code inherited light text on a light shell-root background in Archive's
+dark theme. The synthetic regression measured 1.014:1 contrast. The scoped fix
+uses Archive's paired theme tokens for code, retaining plain fenced-code panels.
+Two phone/desktop journeys pass 32 contrast checks and four real screenshot
+judgments. Typecheck and lint pass (four existing Messages lint warnings).
+Retina captures preserve small desktop glyphs for the judge; failed captures
+remain beside the accepted run. No personal screenshot or document is copied.
+
+[Owner-local evidence and deployment receipt](../../.walkthrough/runs/agent-garrison/archive/2026-09-13/code-contrast/receipt.json).

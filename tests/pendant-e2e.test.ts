@@ -1,3 +1,4 @@
+import { captureMessagesFixture } from "./messages-capture-fixture";
 // Pendant Direct — the end-to-end loop (npm run e2e:pendant).
 //
 // A sandboxed capture service boots with every pendant flag on and all
@@ -174,7 +175,9 @@ describe("e2e:pendant - the full loop from a clean sandbox", () => {
       wsFactory: () => new WebSocket(mock.url),
       ...overrides
     });
+    const messagesFixture = captureMessagesFixture((handle as any).notifier);
     cleanups.push(() => {
+      messagesFixture.close();
       handle.ingress.close();
       handle.server.close();
       mock.wss.close();

@@ -38,8 +38,33 @@ x-garrison:
         (C...), a DM id (D...), or the operator's user id (U..., delivered as a DM). Unset
         means POST /notify reports "no notify_channel configured" rather than delivering.
   connector:
+    messaging:
+      id: slack
+      kind: chat
+      label: Slack
+      badge: { text: Slack, color: "#611f69", glyph: Hash }
+      accounts: []
+      capabilities:
+        read: true
+        send: true
+        reply: true
+        markRead: true
+        archive: false
+        delete: true
+        groups: true
+        threads: true
+        attachments: true
+        audioReceive: true
+        audioSend: true
+        markdown: true
+        code: true
+        reactionsRead: true
+        openInProvider: true
+      sync: { mode: poll, intervalSeconds: 60 }
+      setupHint: "Reinstall Slack with user scopes, then add SLACK_USER_TOKEN in Vault."
     setup_help:
       steps:
+        - "For Messages, add User Token Scopes: channels:history, groups:history, im:history, mpim:history, channels:read, groups:read, im:read, mpim:read, users:read, chat:write, files:write, files:read, reactions:read, channels:write, groups:write, im:write, mpim:write. Reinstall the Slack app and save its User OAuth Token as SLACK_USER_TOKEN in Vault. Existing bot delivery remains separate."
         - "Create or open your Slack app. Under OAuth & Permissions, add the bot scopes needed for messaging and channel access, then install the app in your workspace."
         - "Copy the Bot User OAuth Token into SLACK_BOT_TOKEN. Under Basic Information, copy Signing Secret into SLACK_SIGNING_SECRET."
         - "Invite the bot to the channels it should use. Configure event subscriptions in the Slack fitting to receive messages."
@@ -49,6 +74,9 @@ x-garrison:
         - label: "Slack token setup"
           url: "https://api.slack.com/authentication/quickstart"
     auth: api_key
+    secrets:
+      - SLACK_BOT_TOKEN
+      - SLACK_SIGNING_SECRET
     actions:
       - name: send_message
         args:
@@ -71,6 +99,7 @@ x-garrison:
         description: Inbound app_mention events routed through the Gateway.
   secret_scope:
     - SLACK_BOT_TOKEN
+    - SLACK_USER_TOKEN
     # The adapter refuses to start without it (inbound signature verification),
     # so it belongs in the scope the Vault materialises and the Connectors view
     # reports readiness from.

@@ -10,6 +10,7 @@
 // dev-env fitting; the /io WS speaks the same protocol as dev-env's so the
 // shared TerminalPane component works against either server unchanged.
 
+import { emitSystemMessage, systemInputFromNotification } from "@garrison/messages/system";
 import { readFileSync } from "node:fs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import http from "node:http";
@@ -68,34 +69,7 @@ function underTestRunner() {
 }
 
 async function notifyChannels(notifyFittings, payload) {
-  if (underTestRunner()) return;
-  let names = [];
-  try {
-    names = (await import("node:fs")).readdirSync(STATUS_ROOT).filter((n) => n.endsWith(".json"));
-  } catch {
-    return;
-  }
-  for (const name of names) {
-    const fittingId = name.slice(0, -".json".length);
-    if (fittingId === FITTING_ID) continue;
-    if (notifyFittings.length > 0 && !notifyFittings.includes(fittingId)) continue;
-    try {
-      const status = JSON.parse(readFileSync(path.join(STATUS_ROOT, name), "utf8"));
-      if (!status?.url) continue;
-      const res = await fetch(`${status.url}/notify`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(8000)
-      });
-      // 404 = not a notify-capable channel; anything else is a real outcome.
-      if (res.status !== 404 && !res.ok) {
-        console.warn(`[remote-shell] ${fittingId}/notify -> ${res.status}`);
-      }
-    } catch (err) {
-      console.warn(`[remote-shell] notify ${fittingId} failed: ${err.message}`);
-    }
-  }
+  return emitSystemMessage({ ...systemInputFromNotification(payload, "remote-shell"), mirrorTargets: notifyFittings });
 }
 
 // ── HTTP helpers ────────────────────────────────────────────────────────────

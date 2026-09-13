@@ -393,7 +393,7 @@ export function makeRequestHandler(ctx) {
         const language = (url.searchParams.get("language") ?? "").trim() || null;
         const startedAt = Date.now();
         try {
-          const result = await transcribeClip({ cfg, bytes, contentType, language, fetchImpl: cfg.fetchImpl ?? null });
+          const result = await transcribeClip({ cfg, bytes, contentType, language, fetchImpl: cfg.fetchImpl ?? null, messagesLane: url.searchParams.get("lane") === "messages" });
           counters.bump("stt_rest_transcribed");
           counters.observe("stt_rest_ms", Date.now() - startedAt);
           return json(res, 200, result);
@@ -813,6 +813,8 @@ export function makeRequestHandler(ctx) {
         }
         const tag = typeof parsed.tag === "string" ? parsed.tag : "relay";
         const receipts = await ctx.notifier.deliver({
+          _messagesMirror: parsed._messagesMirror ?? null,
+          idempotencyKey,
           title: String(parsed.title ?? "Garrison").slice(0, 120),
           body: link && !text.includes(link) ? `${text}\n${link}` : text,
           link,
@@ -823,7 +825,8 @@ export function makeRequestHandler(ctx) {
           // A relayed confirmation/ask answers something the user did, so it
           // draws on the interactive budget too — otherwise the fan-out's
           // routine chatter silences it exactly as it did on 2026-08-15.
-          priority: priorityForTag(tag)
+          priority: parsed._messagesMirror && ["routine","interactive"].includes(parsed.priority) ? parsed.priority : priorityForTag(tag),
+          webFallback: parsed._messagesMirror ? parsed.webFallback !== false : true
         });
         if (receipts.some((r) => r.ok)) ctx.notifier.markDelivered(idempotencyKey);
         return json(res, 200, receipts);

@@ -1,5 +1,6 @@
 import * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ComposerAttachmentChips, SharedComposerInput, SharedComposerFileInput, readComposerUpload } from "./SharedComposer";
 import { Marked } from "marked";
 import hljs from "highlight.js/lib/core";
 import typescript from "highlight.js/lib/languages/typescript";
@@ -1406,23 +1407,10 @@ export function ClaudeChat({ transport, composerAdornment, composerHeader, title
       const id = nextId();
       const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : null;
       setAttachments((prev) => [...prev, { id, name: file.name || "pasted-image.png", path: null, uploading: true, error: null, previewUrl }]);
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = String(reader.result ?? "");
-        const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
-        transport
-          .uploadFile!({ name: file.name || "pasted-image.png", mime: file.type || "application/octet-stream", base64 })
-          .then((up) => {
-            setAttachments((prev) => prev.map((a) => (a.id === id ? { ...a, path: up.path, uploading: false } : a)));
-          })
-          .catch((err) => {
-            setAttachments((prev) => prev.map((a) => (a.id === id ? { ...a, uploading: false, error: err?.message ?? "upload failed" } : a)));
-          });
-      };
-      reader.onerror = () => {
-        setAttachments((prev) => prev.map((a) => (a.id === id ? { ...a, uploading: false, error: "read failed" } : a)));
-      };
-      reader.readAsDataURL(file);
+      readComposerUpload(file)
+        .then((payload) => transport.uploadFile!(payload))
+        .then((up) => setAttachments((prev) => prev.map((a) => a.id === id ? { ...a, path: up.path, uploading: false } : a)))
+        .catch((err) => setAttachments((prev) => prev.map((a) => a.id === id ? { ...a, uploading: false, error: err?.message ?? "upload failed" } : a)));
     },
     [transport]
   );
@@ -1442,26 +1430,6 @@ export function ClaudeChat({ transport, composerAdornment, composerHeader, title
       return prev.filter((a) => a.id !== id);
     });
   }, []);
-
-  const onComposerPaste = useCallback(
-    (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-      if (!canAttach) return;
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      const files: File[] = [];
-      for (const item of Array.from(items)) {
-        if (item.kind === "file") {
-          const f = item.getAsFile();
-          if (f) files.push(f);
-        }
-      }
-      if (files.length) {
-        e.preventDefault();
-        handleFiles(files);
-      }
-    },
-    [canAttach, handleFiles]
-  );
 
   const onComposerDrop = useCallback(
     (e: React.DragEvent) => {
@@ -3511,32 +3479,7 @@ export function ClaudeChat({ transport, composerAdornment, composerHeader, title
             </button>
           </div>
         )}
-        {attachments.length > 0 && (
-          <div className="cc-attachments">
-            {attachments.map((a) => (
-              <div key={a.id} className={`cc-attachment-chip${a.error ? " cc-attachment-chip-error" : ""}`} title={a.error ?? a.name}>
-                {a.previewUrl ? (
-                  <img src={a.previewUrl} alt="" className="cc-attachment-thumb" />
-                ) : (
-                  <svg className="cc-attachment-icon" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
-                    <path d="M4 2h6l3 3v9H4z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
-                  </svg>
-                )}
-                <span className="cc-attachment-name">{a.name}</span>
-                {a.uploading && <span className="cc-mic-spin" aria-hidden="true" />}
-                {a.error && <span className="cc-attachment-err" aria-hidden="true">!</span>}
-                <button
-                  type="button"
-                  className="cc-attachment-x"
-                  aria-label={`Remove ${a.name}`}
-                  onClick={() => removeAttachment(a.id)}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+        <ComposerAttachmentChips attachments={attachments} onRemove={removeAttachment} />
         <div
           className={`cc-composerrow${dragOver ? " cc-composerrow-dragover" : ""}`}
           onDragOver={(e) => { if (canAttach) { e.preventDefault(); setDragOver(true); } }}
@@ -3546,7 +3489,7 @@ export function ClaudeChat({ transport, composerAdornment, composerHeader, title
           {/* The box sits on a row of its own so what is typed (or dictated)
               can be read; the controls, labelled now that they have the width,
               share the row beneath it. */}
-          <textarea
+          <SharedComposerInput
             ref={taRef}
             className="cc-input"
             value={input}
@@ -3555,7 +3498,8 @@ export function ClaudeChat({ transport, composerAdornment, composerHeader, title
             rows={1}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
-            onPaste={onComposerPaste}
+            attachmentsEnabled={canAttach}
+            onFiles={handleFiles}
           />
           <div className="cc-composertools">
           {railOn && generatedMode && (
@@ -3590,15 +3534,11 @@ export function ClaudeChat({ transport, composerAdornment, composerHeader, title
             : composerAdornment}
           {hasAttachmentTransport && (
             <>
-              <input
+              <SharedComposerFileInput
                 ref={fileInputRef}
-                type="file"
                 multiple
                 className="cc-hidden-file-input"
-                onChange={(e) => {
-                  if (e.target.files?.length) handleFiles(e.target.files);
-                  e.target.value = "";
-                }}
+                onFiles={handleFiles}
               />
               <button
                 type="button"

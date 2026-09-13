@@ -1,3 +1,4 @@
+import { emitSystemMessage } from "@garrison/messages/system";
 import { isArchivePath, hasArchiveReference, automationVaultRoot } from "../../archive/src/paths.mjs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -26,45 +27,11 @@ function delivered(notice) {
     Array.isArray(notice.delivery?.native) && notice.delivery.native.some((r) => r.means === "companion-push" && r.ok)));
 }
 export async function notify(store, context, id, title, text, link = "/improver") {
-  let claimed = false;
-  const notice = await store.update("notice", id, (current) => {
-    claimed = false;
-    if (delivered(current)) return null;
-    if (!context.forwardedNotice && Date.parse(current?.deliveryLeaseUntil) > Date.now()) return null;
-    claimed = true;
-    return { ...(current ?? { id, title, text, link, at: new Date().toISOString() }),
-      lastAttemptAt: new Date().toISOString(), deliveryLeaseUntil: new Date(Date.now() + 90_000).toISOString() };
-  });
-  if (!claimed) return notice;
-  const request = (url, body, timeoutMs) => requestJson(url, body, { timeoutMs, fetchImpl: context.fetchImpl ?? fetch });
-  const receipt = { pushed: 0, native: [] };
-  try { Object.assign(receipt, await request(`${context.appUrl}/api/notify`, {title,text,link,tag:`improver:${id}`}, 5_000)); }
-  catch (error) { receipt.reason = error.message; }
-  try {
-    const capture = JSON.parse(await fs.readFile(path.join(context.home,"ui-fittings/capture-service.json"),"utf8"));
-    if (capture.url) {
-      const result = await request(`${capture.url}/notify`, {title,text,link,path:link,tag:`improver:${id}`,idempotencyKey:`improver:${id}`}, 8_000);
-      receipt.native = Array.isArray(result) ? result : [];
-    }
-  } catch (error) { receipt.nativeError = error.code === "ENOENT" ? "No native push provider on this node" : error.message; }
-  if (receipt.pushed > 0 || receipt.native.some((r) => r.means === "companion-push" && r.ok))
-    return store.update("notice", id, (current) => delivered(current) ? null :
-      {...current,deliveredAt:new Date().toISOString(),delivery:receipt,deliveryError:null,deliveryLeaseUntil:null});
-  // The phone may be registered on another node. Forward only this existing
-  // durable notice; a forwarded delivery cannot recurse around the mesh.
-  if (!context.forwardedNotice) {
-    for (const node of (await store.client.listNodes().catch(() => [])).filter((n) => n.name !== context.node).slice(0,4)) {
-      const origin = node.health?.node?.appOrigin ?? (node.tailnetHost ? `https://${node.tailnetHost}` : null);
-      if (!origin) continue;
-      try {
-        const out = await request(`${origin}/api/improver`, {action:"deliver-notice",id}, 10_000);
-        if (delivered(out)) return out;
-      } catch { /* Keep the notice visible and retry after the peer recovers. */ }
-    }
-  }
-  return store.update("notice", id, (current) => delivered(current) ? null :
-    {...current,deliveredAt:null,deliveryLeaseUntil:null,delivery:receipt,
-      deliveryError:[receipt.reason,...receipt.native.map((r) => r.skipped ?? r.error).filter(Boolean),receipt.nativeError].filter(Boolean).join("; ") || "No registered device received this notice"});
+  const message = await emitSystemMessage({
+    category: "improver.decision", severity: /failed|interrupted|recovery/i.test(title) ? "warning" : "info",
+    title, body: text, externalId: `improver:${id}`, sourceLink: link,
+  }, { client: store.client, env: { ...process.env, GARRISON_HOME: context.home }, fetchImpl: context.fetchImpl });
+  return { id, messageId: message.id, title, text, link: `/messages/${message.id}`, at: message.ts, queued: true };
 }
 export async function retryPendingNotice(store, context) {
   const pending = (await store.list("notice")).filter((n) => !delivered(n) &&

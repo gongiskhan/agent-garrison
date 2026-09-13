@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "channels": [
+    { "id": "CDEMO", "name": "project", "is_channel": true, "last_read": "1789300000.000100", "is_archived": false },
+    { "id": "DSELF", "is_im": true, "user": "UOWNER", "last_read": "1789300000.000100" }
+  ],
+  "response_metadata": { "next_cursor": "" }
+}

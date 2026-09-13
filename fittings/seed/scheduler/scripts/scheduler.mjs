@@ -260,6 +260,16 @@ async function tick(now = new Date(), { dryRun = false } = {}) {
 
     const result = await runJob(job, built.command);
     await jobs.recordRunEnd(job, currentMinute, result.exit);
+    if (result.exit !== 0) {
+      try {
+        const { emitSystemMessage } = await import("@garrison/messages/system");
+        await emitSystemMessage({ category: "job.failed", severity: "error", title: `Scheduled job failed: ${job.id}`,
+          body: `Job ${job.id} on ${jobs.self} exited with status ${result.exit}. Open the scheduler run for details.`,
+          externalId: `scheduler:${jobs.self}:${job.id}:${currentMinute}` });
+      } catch (error) {
+        await appendLog(`[messages] Scheduler failure notification was not stored: ${error.message}`);
+      }
+    }
     ran.push({ id: job.id, exit: result.exit });
   }
 

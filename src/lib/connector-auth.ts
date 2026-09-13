@@ -130,3 +130,53 @@ export async function oauthHealth(): Promise<OAuthHealth[]> {
     });
   });
 }
+
+export interface ConnectorAccountMetadata {
+  id: string;
+  label: string;
+  address?: string;
+  scopes: string[];
+  status: "valid" | "expired" | "revoked";
+  grantId: string;
+}
+type AccountGrant = OAuthGrant & { account?: { id: string; label: string; address?: string } };
+
+/** Metadata only. This is the account discovery boundary used by Messages. */
+export async function listConnectorAccounts(connector: string): Promise<ConnectorAccountMetadata[]> {
+  if (!/^[a-z][a-z0-9-]*$/.test(connector)) throw new Error("Invalid connector id");
+  if (!stateEnrolled()) {
+    const health = (await local.oauthHealth()).find(entry => entry.connector === connector);
+    return health ? [{ id: "default", label: connector, scopes: [], status: health.status === "revoked" ? "revoked" : health.status === "expired" ? "expired" : "valid", grantId: connector }] : [];
+  }
+  return withState(async client => {
+    const keys = (await client.listSecretKeys()).map(entry => entry.key).filter(key => key.startsWith(grantPrefix));
+    const candidates = keys.map(key => ({ key, id: Buffer.from(key.slice(grantPrefix.length), "hex").toString("utf8") }))
+      .filter(entry => entry.id === connector || entry.id.startsWith(`${connector}:`));
+    if (!candidates.length) return [];
+    const values = (await client.resolveSecrets(candidates.map(entry => entry.key))).values;
+    const accounts = candidates.filter(entry => values[entry.key]).map(entry => {
+      const grant = JSON.parse(values[entry.key]) as AccountGrant;
+      return { id: grant.account?.id ?? "default", label: grant.account?.label ?? connector,
+        ...(grant.account?.address ? { address: grant.account.address } : {}), scopes: grant.scopes ?? [],
+        status: grant.status === "revoked" ? "revoked" as const : expired(grant, 0) && !grant.refreshToken ? "expired" as const : "valid" as const,
+        grantId: entry.id };
+    });
+    return [...new Map(accounts.sort((a, b) => Number(a.grantId === connector) - Number(b.grantId === connector)).map(account => [account.id, account])).values()];
+  });
+}
+
+export async function getConnectorAccountToken(connector: string, accountId: string): Promise<string> {
+  const account = (await listConnectorAccounts(connector)).find(entry => entry.id === accountId);
+  if (!account || account.status === "revoked") throw new Error("Connector account is not connected");
+  return getAccessToken(account.grantId);
+}
+
+export async function setConnectorOAuthAccount(connector: string, account: { id: string; label: string; address?: string }, grant: OAuthGrant): Promise<void> {
+  if (!/^[a-z][a-z0-9-]*$/.test(connector) || !account.id || account.id.length > 320) throw new Error("Invalid connector account");
+  const value: AccountGrant = { ...grant, account };
+  await setOAuthGrant(`${connector}:${account.id}`, value);
+  // The existing connector call contract keeps its default account. A reconnect
+  // upgrades that grant while additional accounts get their own independent key.
+  const current = (await listConnectorAccounts(connector)).find(entry => entry.grantId === connector);
+  if (!current || current.id === "default" || current.id === account.id) await setOAuthGrant(connector, value);
+}

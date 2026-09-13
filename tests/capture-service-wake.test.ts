@@ -1,3 +1,4 @@
+import { captureMessagesFixture } from "./messages-capture-fixture";
 // Capture service — M3 wake gate over companion live segments.
 //
 // The full path under test: audio frames -> (mock) Deepgram finals -> echo
@@ -177,7 +178,9 @@ describe("capture-service wake gate", () => {
       wsFactory: () => new WebSocket(mock.url),
       ...overrides
     });
+    const messagesFixture = captureMessagesFixture((handle as any).notifier);
     cleanups.push(() => {
+      messagesFixture.close();
       handle.ingress.close();
       const transcriber = handle.transcriber;
       if (transcriber && typeof transcriber === "object" && "close" in transcriber && typeof transcriber.close === "function") {
@@ -254,6 +257,7 @@ describe("capture-service wake gate", () => {
 
     // Exactly one wake_command capture_event, companion-shaped (I2).
     const eventsDir = path.join(home, "capture", "events");
+    await waitFor(() => existsSync(eventsDir) && readdirSync(eventsDir).length === 1);
     const events = readdirSync(eventsDir).map((f) => JSON.parse(readFileSync(path.join(eventsDir, f), "utf8")));
     expect(events.length).toBe(1);
     expect(events[0]).toMatchObject({

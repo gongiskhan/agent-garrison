@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "messages": [
+    { "type": "message", "user": "UCLIENT", "text": "*Update* from <@UOWNER>\n```\nconst answer = 42;\n```", "ts": "1789300800.000100", "reply_count": 1,
+      "reactions": [{ "name": "eyes", "count": 2, "users": ["UCLIENT", "UOWNER"] }],
+      "files": [{ "id": "FDEMO", "name": "diagram.png", "mimetype": "image/png", "size": 4096, "original_w": 320, "original_h": 240 }] }
+  ],
+  "has_more": false,
+  "response_metadata": { "next_cursor": "" }
+}

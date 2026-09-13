@@ -98,7 +98,24 @@ const connectorOAuthSchema = z
     clientSecretSecret: o.client_secret_secret
   }));
 
+const messagingCapabilitySchema = z.object({
+  read: z.literal(true), send: z.boolean(), reply: z.boolean(), markRead: z.boolean(),
+  archive: z.boolean(), delete: z.boolean(), groups: z.boolean(), threads: z.boolean(),
+  attachments: z.boolean(), audioReceive: z.boolean(), audioSend: z.boolean(),
+  markdown: z.boolean(), code: z.boolean(), reactionsRead: z.boolean(), openInProvider: z.boolean(), labels: z.boolean().optional()
+});
+export const messagingDescriptorSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9-]*$/), kind: z.enum(["mail", "chat"]), label: z.string().min(1),
+  badge: z.object({ text: z.string().min(1), color: z.string().regex(/^#[0-9a-fA-F]{6}$/), glyph: z.string().regex(/^[A-Za-z][A-Za-z0-9]*$/) }),
+  accounts: z.array(z.object({ id: z.string().min(1), label: z.string().min(1), address: z.string().optional() })).default([]),
+  capabilities: messagingCapabilitySchema,
+  inboundStateFields: z.array(z.enum(["read", "archived", "deleted", "starred", "labels"])).optional(),
+  sync: z.object({ mode: z.enum(["poll", "stream"]), intervalSeconds: z.number().int().min(30).optional() }),
+  setupHint: z.string().nullable().default(null)
+});
+
 const connectorSpecSchema = z.object({
+  messaging: messagingDescriptorSchema.optional(),
   managed: z.boolean().optional(),
   setup_help: z.object({
     steps: z.array(z.string().min(1)).min(1),

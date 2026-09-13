@@ -187,11 +187,10 @@ export async function runDrill({ env = process.env, log = console.log, notify = 
       const client = createStateClient({ env: { ...env, GARRISON_HOME: garrison }, readFileSync: fs.readFileSync });
       const title = report.ok ? `Restore drill ok: ${report.state.restored.cards} cards, ${report.restic.conversations.restored} conversations` : `Restore drill failed on ${client.node || 'dev-madrid'}`;
       const body = markdownReport(report);
-      const notification = await client.createNotification({ kind: 'system', body: { title, body, href: '/fitting/snapshots-default' } });
-      // Core Improver's durable notice list is the existing shell notice UI.
-      // The state notification table has no browser consumer of its own.
-      await client.putConfig(`improver.notice.${notification.id}`, 'global', { id: notification.id, title, text: body, at: report.at, link: '/fitting/snapshots-default', source: 'restore-drill' }, { ifMatchRev: 0 });
-      log('Posted restore drill notification and shell notice');
+      const { emitSystemMessage } = await import('../packages/messages/system.mjs');
+      await emitSystemMessage({ category: report.ok ? 'system.info' : 'system.error', severity: report.ok ? 'info' : 'error',
+        title, body, externalId: `restore-drill:${client.node}:${report.at}`, sourceLink: '/fitting/snapshots-default' }, { client });
+      log('Stored restore drill message');
     } catch (error) { fail(`notification: ${error.message}`); report.ok = false; write(); }
   }
   return report;

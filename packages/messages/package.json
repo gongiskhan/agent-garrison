@@ -1,0 +1,4 @@
+{
+  "name": "@garrison/messages", "version": "0.1.0", "private": true, "type": "module",
+  "exports": { "./system": "./system.mjs", "./system-actions": "./system-actions.mjs", "./types": "./types.ts" }
+}

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { readLibrary } from "@/lib/library";
-import { scopedSecrets, setOAuthGrant } from "@/lib/connector-auth";
+import { scopedSecrets, setOAuthGrant, setConnectorOAuthAccount } from "@/lib/connector-auth";
 import { connectorIdOf } from "@/lib/connectors-view";
 import { consumeOAuthState } from "@/lib/oauth-state";
 import { publicOrigin } from "@/lib/public-origin";
@@ -56,19 +56,31 @@ export async function GET(request: Request, { params }: { params: { id: string }
       })
     });
     if (!res.ok) return back(origin, `connect_error=token_exchange_${res.status}`);
-    const tok = (await res.json()) as { access_token?: string; refresh_token?: string; expires_in?: number };
+    const tok = (await res.json()) as { access_token?: string; refresh_token?: string; expires_in?: number; scope?: string };
     if (!tok.access_token) return back(origin, "connect_error=no_access_token");
 
-    await setOAuthGrant(id, {
+    const grant = {
       accessToken: tok.access_token,
       refreshToken: tok.refresh_token,
       expiresAt: tok.expires_in ? new Date(Date.now() + tok.expires_in * 1000).toISOString() : undefined,
       tokenUrl: oauth.tokenUrl,
       clientId,
       clientSecretKey: oauth.clientSecretSecret,
-      scopes: oauth.scopes,
-      status: "valid"
-    });
+      scopes: typeof tok.scope === "string" ? tok.scope.split(/\s+/).filter(Boolean) : oauth.scopes,
+      status: "valid" as const
+    };
+    if (id === "google") {
+      const profile = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
+        headers: { authorization: `Bearer ${tok.access_token}` }, signal: AbortSignal.timeout(10_000)
+      });
+      if (profile.ok) {
+        const identity = await profile.json() as { emailAddress?: string };
+        if (identity.emailAddress) {
+          const address = identity.emailAddress.toLowerCase();
+          await setConnectorOAuthAccount(id, { id: address, label: address, address }, grant);
+        } else await setOAuthGrant(id, grant);
+      } else await setOAuthGrant(id, grant);
+    } else await setOAuthGrant(id, grant);
 
     return back(origin, `connected=${encodeURIComponent(id)}`);
   } catch {

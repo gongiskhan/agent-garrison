@@ -1,3 +1,4 @@
+import { captureMirrorSink } from "./messages-capture-fixture";
 // Capture service — M5b, the spoken-acknowledgement sink.
 //
 // POST /ack registers the echo fingerprint FIRST, then forwards
@@ -107,6 +108,7 @@ describe("capture-service ack sink", () => {
       wsFactory: () => new WebSocket(mock.url),
       ...overrides
     });
+    captureMirrorSink((handle as any).notifier);
     (handle as any).notifier.apns = new ApnsSender({ cfg: handle.cfg, connectFn: fakeHttp2(pushes) });
     atomicWriteJSON((handle.store as any).devicesFile, {
       tokens: [{ token: "ab".repeat(16), device_name: "t", registered_at: "2026-08-13T00:00:00Z" }]

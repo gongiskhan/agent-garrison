@@ -22,6 +22,7 @@
 // route for that reason.
 
 import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { emitSystemMessage, isMessageMirror, systemInputFromNotification } from "@garrison/messages/system";
 import { meshThreads } from "./mesh-threads.mjs";
 import { localSessionForStream, localSessionsStatus, meshSessions } from "./mesh-sessions.mjs";
 import { readCursorDesktopTranscript } from "./cursor-desktop-transcript.mjs";
@@ -3503,6 +3504,10 @@ async function handleNotify(req, res, opts) {
   const text = typeof body?.text === "string" ? body.text.trim() : "";
   const title = typeof body?.title === "string" && body.title.trim() ? body.title.trim() : "Garrison";
   if (!text) return jsonRes(res, 400, { error: "text required" });
+  if (!isMessageMirror(body)) {
+    const message = await emitSystemMessage(systemInputFromNotification(body, "web"));
+    return jsonRes(res, 202, { ok: true, queued: true, messageId: message.id });
+  }
   // Actions render as real buttons where the transport supports them; the
   // service worker caps at two, which is a browser limit, not ours.
   const actions = Array.isArray(body?.actions)

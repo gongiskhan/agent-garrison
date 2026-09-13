@@ -1,0 +1,8 @@
+{
+  "files": [
+    { "id": "file_small", "name": "Fixture report.txt", "mimeType": "text/plain", "size": "12", "modifiedTime": "2026-09-13T12:00:00Z", "webViewLink": "https://drive.google.com/file/d/file_small/view", "capabilities": { "canDownload": true } },
+    { "id": "file_large", "name": "Fixture archive.zip", "mimeType": "application/zip", "size": "31457280", "webViewLink": "https://drive.google.com/file/d/file_large/view", "capabilities": { "canDownload": true } },
+    { "id": "file_doc", "name": "Fixture notes", "mimeType": "application/vnd.google-apps.document", "webViewLink": "https://docs.google.com/document/d/file_doc/edit", "capabilities": { "canDownload": true } }
+  ],
+  "nextPageToken": "next-page"
+}

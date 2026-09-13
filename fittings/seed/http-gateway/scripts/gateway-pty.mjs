@@ -4886,6 +4886,8 @@ const server = http.createServer(async (request, response) => {
           text: message,
           clientRequestId: body.clientRequestId,
           questionId: body.questionId,
+          approvalDecision: body.approvalDecision,
+          approvalId: body.approvalId,
           origin: typeof body.origin === "string" ? body.origin : "web",
           threadId: typeof body.threadId === "string" ? body.threadId : null,
           context: typeof body.context === "string" ? body.context : null,
@@ -4901,6 +4903,9 @@ const server = http.createServer(async (request, response) => {
           // The first admission owns the work, including a completed or
           // stopped response. A retry must never start or steer a second one.
           return sendJson(response, 202, { accepted: true, duplicate: true, seq: rec.seq, pickedUpBy: "existing-message" });
+        }
+        if (body.approvalDecision === "reject") {
+          return sendJson(response, 202, { accepted: true, seq: rec.seq, pickedUpBy: "approval-rejected" });
         }
         if (steerable) {
           // Recorded FIRST, interrupted second: the loop's next brief reads the

@@ -285,6 +285,7 @@ export class AckSink {
     // whole daily push budget by mid-afternoon (69 pushes), which then
     // starved the pushes answering the user's own spoken commands. When a
     // session is live they are still SPOKEN (lane 2, above).
+    if (ack._messagesStored) return { ok: true, stored: true };
     const burstReason = ack.severity === "error" ? this.burstVerdict(ack) : null;
     const wantsPush = ack.severity === "error" && !burstReason;
     const receipts = ack.idempotencyKey && this.notifier.alreadyDelivered(ack.idempotencyKey)

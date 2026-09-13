@@ -1,0 +1,27 @@
+export function acquireIngestLease(db: unknown,node:string,options?:{at?:number}): {granted:boolean;holderNode:string;expiresAt:string;token?:string;fence?:number};
+export function authenticateIngest(db:unknown,token:string|undefined,at?:number): {name:string;scope:string;fence:number;tokenHash:string}|null;
+export function registerProvider(db: unknown, node: string, input: any): { provider: any; changed: boolean };
+export function ingestBatch(db: unknown, actor: { name: string }, input: any): { ids: string[]; changed: number; cursor: unknown };
+export function getMessage(db: unknown, id: string): any;
+export function upsertMessage(db: unknown, node: string, input: any, options?: { rules?: boolean }): { message: any; changed: boolean };
+export function emitSystem(db: unknown, node: string, input: any): { message: any; changed: boolean };
+export function getConversation(db: unknown, id: string): { conversation: any; messages: any[] };
+export function listMessages(db: unknown, filter?: any, cursor?: string | null, limit?: number): { messages: any[]; nextCursor: string | null };
+export function listRules(db: unknown): any[];
+export function saveRule(db: unknown, node: string, input: any): { rule: any };
+export function testRule(db: unknown, input: any): { count: number; messages: any[] };
+export function applyRule(db: unknown, node: string, id: string): { count: number };
+export function listViews(db: unknown): any[];
+export function saveView(db: unknown, node: string, input: any): { view: any };
+export function deleteView(db: unknown, node: string, id: string): { deleted: boolean };
+export function counts(db: unknown): { counts: Record<string, number> };
+export function pruneMessages(db: unknown, node: string, input?: { at?: number }): { removed: number };
+export function claimWork(db: unknown, node: string, kind: string): { item: any; claimToken?: string };
+export function finishWork(db: unknown, node: string, kind: string, id: string, input: any): { ok: boolean; pending?: boolean };
+export function renewWork(db: unknown, node: string, kind: string, id: string, input: any): { renewed: boolean; claimUntil: string };
+export function enqueueOutbox(db: unknown, node: string, input: any): { item: any };
+export function cancelOutbox(db: unknown, node: string, id: string): { item: any };
+export function retryOutbox(db: unknown, node: string, id: string): { item: any };
+
+export function patchMessage(db: unknown, node: string, id: string, patch: any, options?: any): any;
+export function updateMedia(db: unknown, node: string, id: string, attachment: any): any;
