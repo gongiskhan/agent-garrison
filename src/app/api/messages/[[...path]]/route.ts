@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { messagesRequest, answerMessage, messagesEvents } from '@/lib/messages';
 import { stateClient } from '@/lib/state-client';
 import { uploadMessageAttachment, serveMessageFile } from '@/lib/messages-media';
-import { ensureMessagesRuntime, cancelMessageOutbox, invokeMessageProviderAction } from '@/lib/messages-runtime';
+import { ensureMessagesRuntime, cancelMessageOutbox, invokeMessageProviderAction, serveMessageOutboxAttachment } from '@/lib/messages-runtime';
 import { crossSiteBlocked } from '@/lib/mesh/peer-auth';
 import { emitSystemMessage } from '../../../../../packages/messages/system.mjs';
 
@@ -21,12 +21,13 @@ async function handle(request:NextRequest,{params}:Context) {
     const parts=params.path??[],method=request.method;
     const blocked=crossSiteBlocked(request);if(blocked)return blocked;
     if(method!=='GET' && !sameOrigin(request)) return NextResponse.json({error:'Cross-origin changes are not allowed'},{status:403});
-    const internal=['work','lease','ingest','retention'].includes(parts[0]??'') || parts[1]==='media' || (parts[1]==='answer'&&parts.length>2) || (parts[0]==='rules'&&parts[2]==='run');
+    const internal=['work','lease','ingest','retention'].includes(parts[0]??'') || parts[1]==='media' || (parts[0]==='providers'&&parts[2]==='health') || (parts[1]==='answer'&&parts.length>2) || (parts[0]==='rules'&&parts[2]==='run');
     if(internal) return NextResponse.json({error:'Internal Messages route'},{status:403});
     if(method==='POST' && (parts[0]==='system' || (parts[0]==='providers' && parts[1]==='register')) && !meshAuthenticated(request)) return NextResponse.json({error:'Mesh authentication is required'},{status:401});
     if(parts.some(p=>p.includes('/')||p==='..')) return NextResponse.json({error:'Invalid path'},{status:400});
     if(process.env.GARRISON_MESSAGES_DISABLE_WORKERS!=='1') void ensureMessagesRuntime().catch(error=>console.error('[messages] runtime:',error instanceof Error?error.message:String(error)));
     if(method==='GET' && parts[0]==='events') return messagesEvents(request.signal);
+    if(method==='GET' && parts[0]==='outbox' && parts[2]==='attachments' && parts.length===4) return serveMessageOutboxAttachment(parts[1],Number(parts[3]));
     if(method==='GET' && parts[0]==='attachments' && parts.length===3) return serveMessageFile(request,parts[1],parts[2],new URL(request.url).searchParams.get('variant')??'original');
     if(method==='GET' && parts.length===2 && parts[1]==='html') return serveMessageFile(request,parts[0],null);
     const body=method==='GET'||method==='DELETE'?undefined:await request.json();

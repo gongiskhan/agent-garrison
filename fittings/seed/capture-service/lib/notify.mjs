@@ -305,7 +305,7 @@ export class CompanionNotifier {
   // every means attempted, in delivery order.
   async deliver({ title, body, link, path = null, tag, priority = "routine", webFallback = true, _messagesMirror = null, idempotencyKey = null }) {
     if (!isMessageMirror({ _messagesMirror })) {
-      const message = await emitSystemMessage(systemInputFromNotification({ title, body, link, path, tag, idempotencyKey }, "capture"), { env: this.env, fetchImpl: this.fetchImpl });
+      const message = await emitSystemMessage(systemInputFromNotification({ title, body, link, path, tag, idempotencyKey, mirrorContext: {priority,webFallback,...(tag?{tag}:{})} }, "capture"), { env: this.env, fetchImpl: this.fetchImpl });
       return [{ means: "messages", ok: true, queued: true, messageId: message.id }];
     }
     const push = await this.sendPush({ title, body, link, path, tag, priority });
@@ -366,7 +366,7 @@ export class CompanionNotifier {
   // /api/* paths are served by both hosts conversationsBaseUrl can name.
   async sendWebChannelFallback(message, _messagesMirror = null) {
     if (!isMessageMirror({ _messagesMirror })) {
-      const stored = await emitSystemMessage(systemInputFromNotification({ title: "Garrison", text: message }, "capture"), { env: this.env, fetchImpl: this.fetchImpl });
+      const stored = await emitSystemMessage({...systemInputFromNotification({ title: "Garrison", text: message }, "capture"), mirrorTargets:["web-channel-default"]}, { env: this.env, fetchImpl: this.fetchImpl });
       return { means: "messages", ok: true, queued: true, messageId: stored.id };
     }
     const means = "web-channel";

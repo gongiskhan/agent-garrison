@@ -471,7 +471,12 @@ export function finishWork(db,node,kind,id,input) {
               } else rollback[key]=payload.before[key];
             } else if(!next && provider?.inboundStateFields?.includes(key)) delete local[key];
           }
-          if(input.error && Object.keys(rollback).length) patchMessage(db,node,row.messageId,rollback,{queue:false});
+          if(input.error && Object.keys(rollback).length) {
+            patchMessage(db,node,row.messageId,rollback,{queue:false});
+            const revertedLocal=JSON.parse(db.prepare('SELECT localState FROM messages WHERE id=?').get(row.messageId).localState);
+            for(const key of Object.keys(rollback)) if(provider?.inboundStateFields?.includes(key)) delete revertedLocal[key];
+            db.prepare('UPDATE messages SET localState=?,providerHash=NULL WHERE id=?').run(JSON.stringify(revertedLocal),row.messageId);
+          }
           if(!input.error) db.prepare('UPDATE messages SET localState=?,providerHash=NULL WHERE id=?').run(JSON.stringify(local),row.messageId);
         }
       }

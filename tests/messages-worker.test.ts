@@ -101,10 +101,10 @@ describe("Messages restricted ingest lane", () => {
     expect(JSON.stringify(writes)).not.toContain("fixture-provider-token");
     expect(JSON.stringify(writes)).not.toContain("contentBase64");
   });
-  it("does not commit a cursor after failed provider reads and backs off", async () => {
+  it.each([false,true])("does not commit a cursor after failed reads and preserves backoff with sync requested=%s", async (requested) => {
     const transport = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.endsWith("/sync")) return response({ sync: [{ provider: "google", account: "fixture", cursor: { historyId: "99" } }] });
+      if (url.endsWith("/sync")) return response({ sync: [{ provider: "google", account: "fixture", requested, cursor: { historyId: "99" } }] });
       return response({ error: "unavailable" }, 503);
     });
     const report = vi.fn();
@@ -150,7 +150,7 @@ describe("Messages restricted ingest lane", () => {
     await worker.tick();
     controller!.enqueue(new TextEncoder().encode(`event: message\ndata: ${JSON.stringify({ message, conversation })}\n\n`));
     await vi.waitFor(() => expect(batches).toHaveLength(2));
-    expect(batches[1]).toMatchObject({ fence: 9, messages: [{ externalId: "event-one", bodyText: "Stream data" }] });
+    expect(batches[1]).toMatchObject({ fence: 9, advanceCursor: false, messages: [{ externalId: "event-one", bodyText: "Stream data" }] });
     worker.stop(); controller!.close();
   });
   it("rejects a provider path outside the Messages store", () => {
@@ -188,6 +188,7 @@ describe("Messages privileged structured worker", () => {
     const worker: any = runtime(); worker.providers = [callbackProvider()];
     const adapter = { send: vi.fn(async (_item: OutboxItem) => ({ queued: true, id: "external-1", executeAt: "2026-09-13T10:01:00Z" })), outboxStatus: vi.fn(async (_id: string) => ({ status: "pending" })) };
     worker.writeAdapter = vi.fn(async () => adapter);
+    worker.invokeProviderSend = (_provider: ProviderDescriptor, item: OutboxItem) => adapter.send(item);
     const pending = await worker.executeWork("outbox", outbox());
     expect(pending).toEqual({ pending: true, externalReceipt: { id: "external-1", executeAt: "2026-09-13T10:01:00Z" }, nextAttemptAt: "2026-09-13T10:01:00Z" });
     expect(adapter.send.mock.calls[0][0].origin).toBe("agent");
@@ -242,5 +243,34 @@ describe("Messages privileged structured worker", () => {
     const invoke = vi.fn(); worker.invokeCallback = invoke;
     await expect(worker.invokeProviderAction("future-chat", "send", { item: { id: "send-1" } })).rejects.toThrow("hold has not ended");
     expect(invoke).not.toHaveBeenCalled();
+  });
+  it("copies a send attachment from its exact owner endpoint and removes the copy after provider confirmation", async () => {
+    const stored = { ...outbox(), status: "sending", ownerNode: "origin", attachments: [{ path: "attachments/future-chat/fixture/2026-09/file.txt", name: "file.txt", mime: "text/plain" }] };
+    const request = vi.fn(async (_method: string, route: string) => route.endsWith("/providers") ? { providers: [callbackProvider()] } : { items: [stored] });
+    const transport = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response("fixture attachment", { headers: { "content-length": "18" } }));
+    const worker: any = new MessagesRuntime({ client: { request, node: "owner", getNode: async () => ({ name: "origin", tailnetHost: "origin.example" }) } as any,
+      env: { NODE_ENV: "test", GARRISON_HOME: root, GARRISON_NODE_NAME: "owner" }, fetchImpl: transport });
+    let copied = "";
+    worker.invokeCallback = vi.fn(async (_provider: ProviderDescriptor, method: string, body: any) => {
+      if (method === "send") { copied = body.item.attachments[0].path; expect(await fs.readFile(copied, "utf8")).toBe("fixture attachment"); return { queued: true, id: "external-1" }; }
+      return { status: "sent", externalId: "sent-one" };
+    });
+    await worker.invokeProviderAction("future-chat", "send", { item: { id: stored.id } });
+    expect(transport.mock.calls[0][0]).toBe("https://origin.example/api/messages/outbox/send-1/attachments/0");
+    expect(transport.mock.calls[0][1]).not.toHaveProperty("headers");
+    Object.assign(stored, { externalReceipt: { id: "external-1" } });
+    await worker.invokeProviderAction("future-chat", "outboxStatus", { id: "external-1" });
+    await expect(fs.stat(copied)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+  it("serves only an attachment recorded in this node's durable outbox", async () => {
+    const relative = "attachments/future-chat/fixture/2026-09/file.txt";
+    const stored = { ...outbox(), ownerNode: "owner", attachments: [{ path: relative, name: "file.txt", mime: "text/plain" }] };
+    const worker: any = runtime(vi.fn(async () => ({ items: [stored] })));
+    await fs.mkdir(path.dirname(path.join(root, "messages", relative)), { recursive: true });
+    await fs.writeFile(path.join(root, "messages", relative), "fixture");
+    expect(await (await worker.outboxAttachment(stored.id, 0)).text()).toBe("fixture");
+    await expect(worker.outboxAttachment(stored.id, 1)).rejects.toThrow("not owned");
+    await expect(worker.outboxAttachment(stored.id, -1)).rejects.toThrow("Invalid attachment index");
+    stored.ownerNode = "peer"; await expect(worker.outboxAttachment(stored.id, 0)).rejects.toThrow("not owned");
   });
 });

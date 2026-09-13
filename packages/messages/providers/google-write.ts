@@ -4,6 +4,7 @@ import { attachmentId, baseAttachment, baseConversation, baseMessage, decodeBase
   type SendOptions, type TransportOptions } from "./shared";
 import { marked } from "marked";
 import { sanitizeMailHtml } from "./mail-html";
+import { fetchGoogleReplyHeaders } from "./google-read";
 function gmailTransport({ token, fetchImpl = fetch }: TransportOptions) {
   if (!token) throw new Error("Google needs setup: reconnect with mail read scope");
   return async (path: string, options: RequestInit = {}): Promise<JsonRecord> => {
@@ -17,6 +18,7 @@ function gmailTransport({ token, fetchImpl = fetch }: TransportOptions) {
 }
 export function createGoogleActionAdapter(options: TransportOptions) {
   const request = gmailTransport(options);
+  let knownLabels: Set<string> | null = null;
   const modify = async (ids: string[], addLabelIds: string[], removeLabelIds: string[]) => {
     for (let start = 0; start < ids.length; start += 1000) await request("messages/batchModify", {
       method: "POST", body: JSON.stringify({ ids: ids.slice(start, start + 1000), addLabelIds, removeLabelIds })
@@ -30,7 +32,11 @@ export function createGoogleActionAdapter(options: TransportOptions) {
     async setLabels(_account: string, ids: string[], add: string[], remove: string[] = []) {
       if (remove.includes("TRASH")) for (const id of ids) await request(`messages/${encodeURIComponent(id)}/untrash`, { method: "POST" });
       if (add.includes("TRASH")) for (const id of ids) await request(`messages/${encodeURIComponent(id)}/trash`, { method: "POST" });
-      const addLabels = add.filter(label => label !== "TRASH"), removeLabels = remove.filter(label => label !== "TRASH");
+      if (!knownLabels && [...add, ...remove].some(label => label !== "TRASH")) {
+        const catalog = await request("labels");
+        knownLabels = new Set((catalog.labels ?? []).filter((label: JsonRecord) => typeof label.id === "string").map((label: JsonRecord) => label.id));
+      }
+      const addLabels = add.filter(label => label !== "TRASH" && knownLabels?.has(label)), removeLabels = remove.filter(label => label !== "TRASH" && knownLabels?.has(label));
       if (addLabels.length || removeLabels.length) await modify(ids, addLabels, removeLabels);
     }
   };
@@ -72,9 +78,10 @@ export function createGoogleSendAdapter(options: SendOptions) {
   return {
     toProviderText: (markdown: string) => markdownToMail(markdown).html,
     async send(item: MailSendItem) {
-      const raw = await buildGoogleMime(item, options.readFile);
-      const sent = await request("messages/send", { method: "POST", body: JSON.stringify({ raw: encodeBase64(raw), ...(item.mail?.threadId ? { threadId: item.mail.threadId } : {}) }) });
-      return { externalId: String(sent.id), conversationExternalId: String(sent.threadId ?? item.mail?.threadId ?? sent.id) };
+      const prepared = item.replyToExternalId ? { ...item, mail: { ...item.mail, ...await fetchGoogleReplyHeaders(options, item.replyToExternalId) } } : item;
+      const raw = await buildGoogleMime(prepared, options.readFile);
+      const sent = await request("messages/send", { method: "POST", body: JSON.stringify({ raw: encodeBase64(raw), ...(prepared.mail?.threadId ? { threadId: prepared.mail.threadId } : {}) }) });
+      return { externalId: String(sent.id), conversationExternalId: String(sent.threadId ?? prepared.mail?.threadId ?? sent.id) };
     }
   };
 }

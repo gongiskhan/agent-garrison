@@ -73,11 +73,11 @@ describe("model/docs parity", () => {
   });
 
   it("no doc claims an alias rewrite onto a parked (rejected) faculty id", () => {
-    // Regression guard for the 2026-07-01 Codex finding: CLAUDE.md claimed
+    // Regression guard for the 2026-07-01 finding: AGENTS.md claimed
     // `faculty: testing-framework` rewrites to `faculty: skills`, but parked ids
     // (skills/classifier/soul/knowledge-base) are rejected, never alias targets.
     const parkedClaim = /(?:->|→|rewritten to|folds? into)[\s\S]{0,40}`?faculty: (?:skills|classifier|soul|knowledge-base)`?/;
-    for (const doc of ["CLAUDE.md", "docs/METADATA.md", "docs/FACULTIES.md"]) {
+    for (const doc of ["AGENTS.md", "docs/METADATA.md", "docs/FACULTIES.md"]) {
       expect(readDoc(doc), `${doc} claims an alias onto a parked faculty id`).not.toMatch(
         parkedClaim
       );

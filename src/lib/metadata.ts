@@ -102,7 +102,7 @@ const messagingCapabilitySchema = z.object({
   read: z.literal(true), send: z.boolean(), reply: z.boolean(), markRead: z.boolean(),
   archive: z.boolean(), delete: z.boolean(), groups: z.boolean(), threads: z.boolean(),
   attachments: z.boolean(), audioReceive: z.boolean(), audioSend: z.boolean(),
-  markdown: z.boolean(), code: z.boolean(), reactionsRead: z.boolean(), openInProvider: z.boolean()
+  markdown: z.boolean(), code: z.boolean(), reactionsRead: z.boolean(), openInProvider: z.boolean(), labels: z.boolean().optional()
 });
 export const messagingDescriptorSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9-]*$/), kind: z.enum(["mail", "chat"]), label: z.string().min(1),

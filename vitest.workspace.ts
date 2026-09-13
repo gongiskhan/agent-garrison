@@ -65,7 +65,7 @@ const BROWSER_FIXTURE_SUITES = [
 // End-to-end latency budgets need the same quiet worker as browser fixtures.
 // Measuring a 30 ms process while dozens of forks compete measures scheduling,
 // rather than the hook. Assertions and thresholds remain unchanged.
-const ARCHIVE_TIMING_SUITES = ["tests/archive-guard.test.ts", "tests/archive-boot.test.ts", "tests/archive-watcher.test.ts"];
+const ISOLATED_TIMING_SUITES = ["tests/archive-guard.test.ts", "tests/archive-boot.test.ts", "tests/archive-watcher.test.ts", "tests/gateway-stretch-continuity.test.ts"];
 
 export default defineWorkspace([
   {
@@ -73,14 +73,14 @@ export default defineWorkspace([
     test: {
       name: "unit",
       include: ["tests/**/*.test.ts"],
-      exclude: [...configDefaults.exclude, ...BROWSER_FIXTURE_SUITES, ...ARCHIVE_TIMING_SUITES]
+      exclude: [...configDefaults.exclude, ...BROWSER_FIXTURE_SUITES, ...ISOLATED_TIMING_SUITES]
     }
   },
   {
     extends: "./vitest.config.ts",
     test: {
       name: "browser-fixtures",
-      include: [...BROWSER_FIXTURE_SUITES, ...ARCHIVE_TIMING_SUITES],
+      include: [...BROWSER_FIXTURE_SUITES, ...ISOLATED_TIMING_SUITES],
       // Appended to the base setupFiles by `extends` (arrays concatenate), so
       // this runs after tests/setup.ts for every file in the project.
       setupFiles: ["./tests/setup-single-fork.ts"],

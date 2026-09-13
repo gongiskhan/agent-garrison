@@ -94,25 +94,66 @@ export function createSlackReadAdapter(options: SlackOptions) {
     },
     async fetchMessages(account: string, previous: SlackCursor | null) {
       await users();
-      const cursor: Required<SlackCursor> = { ...previous, channels: { ...previous?.channels }, threads: { ...previous?.threads } };
+      const cursor: Required<SlackCursor> = { ...previous, channels: { ...previous?.channels }, threads: { ...previous?.threads },
+        rootScans: { ...previous?.rootScans }, rootIndex: previous?.rootIndex ?? 0,
+        pendingThreads: [...(previous?.pendingThreads?.length ? previous.pendingThreads : Object.keys(previous?.threads ?? {}))] };
       const messages = new Map<string, Message>(), conversations = new Map<string, Conversation>();
       const now = options.now?.() ?? new Date();
-      for (const channel of await channels()) {
-        const rawMessages = await messagePages("conversations.history", { channel: channel.id, oldest: cursor.channels[channel.id] ?? String(Math.floor(now.getTime() / 1000) - 30 * 86400), inclusive: false });
+      const availableChannels = await channels();
+      const rootChannel = availableChannels[cursor.rootIndex % Math.max(1, availableChannels.length)]?.id;
+      let retryAfterMs = 0, threadBudget = 5;
+      for (const channel of availableChannels) {
+        const retainedSince = String(Math.floor(now.getTime() / 1000) - Math.max(1, options.retentionDays ?? 90) * 86400);
+        const previousLatest = cursor.channels[channel.id];
+        const rawMessages = await messagePages("conversations.history", { channel: channel.id, oldest: previousLatest ?? retainedSince, inclusive: false });
+        // One resumable old-root page per account tick finds late replies without an age exception.
+        if (channel.id === rootChannel) {
+          const scan = cursor.rootScans[channel.id] ?? { latest: previousLatest ?? retainedSince };
+          try {
+            const page = await request("conversations.history", { channel: channel.id, latest: scan.latest, cursor: scan.cursor, inclusive: true, limit: 100 });
+            rawMessages.push(...(page.messages ?? []));
+            const next = page.response_metadata?.next_cursor;
+            if (next) cursor.rootScans[channel.id] = { ...scan, cursor: next };
+            else if (page.has_more && page.messages?.length) cursor.rootScans[channel.id] = { latest: String(page.messages.at(-1).ts) };
+            else delete cursor.rootScans[channel.id];
+            cursor.rootIndex = (cursor.rootIndex + 1) % Math.max(1, availableChannels.length);
+          } catch (error) {
+            if (!(error instanceof ProviderHttpError) || error.status !== 429) throw error;
+            retryAfterMs = Math.max(retryAfterMs, error.retryAfterMs || 60_000);
+          }
+        }
         let latest = cursor.channels[channel.id] ?? "0";
         for (const raw of rawMessages) {
           if (Number(raw.ts) > Number(latest)) latest = String(raw.ts);
-          if (raw.reply_count > 0) cursor.threads[`${channel.id}:${raw.ts}`] ??= "0";
+          if (raw.reply_count > 0) {
+            const thread = `${channel.id}:${raw.ts}`;
+            cursor.threads[thread] ??= "0";
+            if ((!raw.latest_reply || Number(raw.latest_reply) > Number(cursor.threads[thread])) && !cursor.pendingThreads.includes(thread)) cursor.pendingThreads.push(thread);
+          }
         }
-        for (const [thread, lastReply] of Object.entries(cursor.threads)) {
+        for (const thread of [...cursor.pendingThreads]) {
           if (!thread.startsWith(`${channel.id}:`)) continue;
+          if (threadBudget-- <= 0 || retryAfterMs) break;
+          const lastReply = cursor.threads[thread] ?? "0";
           const rootTs = thread.slice(channel.id.length + 1);
-          const replies = await messagePages("conversations.replies", { channel: channel.id, ts: rootTs, ...(lastReply !== "0" ? { oldest: lastReply, inclusive: false } : {}) });
-          rawMessages.push(...replies.filter(raw => raw.ts !== rootTs));
-          cursor.threads[thread] = replies.reduce((max, raw) => Number(raw.ts) > Number(max) ? String(raw.ts) : max, lastReply);
+          const root = rawMessages.find(raw => raw.ts === rootTs);
+          if (root?.latest_reply && Number(root.latest_reply) <= Number(lastReply)) { cursor.pendingThreads = cursor.pendingThreads.filter(value => value !== thread); continue; }
+          try {
+            const page = await request("conversations.replies", { channel: channel.id, ts: rootTs, oldest: String(Math.max(Number(lastReply), Number(retainedSince))), inclusive: false, limit: 100 });
+            const replies: JsonRecord[] = page.messages ?? [];
+            rawMessages.push(...replies.filter(raw => raw.ts !== rootTs));
+            cursor.threads[thread] = replies.reduce((max, raw) => Number(raw.ts) > Number(max) ? String(raw.ts) : max, lastReply);
+            if (!page.has_more && !page.response_metadata?.next_cursor) cursor.pendingThreads = cursor.pendingThreads.filter(value => value !== thread);
+          } catch (error) {
+            if (error instanceof ProviderHttpError && /thread_not_found/.test(error.message)) {
+              delete cursor.threads[thread]; cursor.pendingThreads = cursor.pendingThreads.filter(value => value !== thread); continue;
+            }
+            if (!(error instanceof ProviderHttpError) || error.status !== 429) throw error;
+            retryAfterMs = Math.max(retryAfterMs, error.retryAfterMs || 60_000);
+          }
         }
         for (const raw of rawMessages) {
-          if (!raw.ts || raw.subtype === "message_deleted") continue;
+          if (!raw.ts || raw.subtype === "message_deleted" || Number(raw.ts) < Number(retainedSince)) continue;
           const normalized = normalizeSlackMessage(raw.message ?? raw, channel, account, names, ownUserId, now.toISOString());
           messages.set(normalized.message.id, normalized.message);
           for (const conversation of [normalized.parent, normalized.conversation]) {
@@ -121,8 +162,9 @@ export function createSlackReadAdapter(options: SlackOptions) {
           }
         }
         cursor.channels[channel.id] = latest;
+        if (retryAfterMs) break;
       }
-      return { messages: [...messages.values()], conversations: [...conversations.values()], cursor };
+      return { messages: [...messages.values()], conversations: [...conversations.values()], cursor, ...(retryAfterMs ? { retryAfterMs } : {}) };
     },
     async downloadAttachment(_account: string, ref: string, destination: string) {
       if (!options.writeFile) throw new Error("Attachment storage is unavailable");

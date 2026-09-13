@@ -1,4 +1,4 @@
-import { stateClient, withState } from './state-client';
+import { stateClient, withState, StateApiError } from './state-client';
 import { dispatchSystemAnswer } from '../../packages/messages/system-actions.mjs';
 import type { Message, ProviderDescriptor } from '../../packages/messages/types';
 
@@ -33,7 +33,19 @@ export function messagesEvents(signal:AbortSignal) {
           if(ids.length) send('messages.changed',{ids:[...new Set(ids)]});
           if(result.changes.some(c=>c.entity==='providers.changed')) send('providers.changed',{});
           send('heartbeat',{});
-        } catch(error) { send('error',{error:error instanceof Error?error.message:String(error)}); await new Promise(resolve=>setTimeout(resolve,3000)); }
+        } catch(error) {
+          if(error instanceof StateApiError && error.status===410) {
+            const latest=Number((error.body as {seq?:number})?.seq);
+            if(Number.isSafeInteger(latest) && latest>=0) {
+              cursor=latest;
+              send('messages.changed',{ids:[],resync:true});
+              send('providers.changed',{});
+              continue;
+            }
+          }
+          send('error',{error:error instanceof Error?error.message:String(error)});
+          await new Promise(resolve=>setTimeout(resolve,3000));
+        }
       }
       if(!cancelled) controller.close();
     },

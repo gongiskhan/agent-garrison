@@ -15,12 +15,17 @@ export async function emitSystemMessage(input, deps = {}) {
   if(attachments?.length) {
     const env=deps.env??process.env,root=path.join(env.GARRISON_HOME||path.join(os.homedir(),'.garrison'),'messages');
     const {attachmentRelativePath,confinedPath,saveBytes}=await import('./media.mjs');
-    attachments=await Promise.all(attachments.map(async attachment=>{
+    attachments=await Promise.all(attachments.map(async (attachment,index)=>{
       if(!attachment.path) throw new Error('System attachments require a local file');
-      const id=attachment.id??randomUUID(),mime=attachment.mime||'application/octet-stream';
+      const mime=attachment.mime||'application/octet-stream';
       const source=path.isAbsolute(attachment.path)?attachment.path:await confinedPath(root,attachment.path);
-      const relative=attachmentRelativePath('system','default',id,mime);
-      const bytes=await fs.readFile(source);await saveBytes(root,relative,bytes);
+      const stat=await fs.stat(source);if(!stat.isFile()||stat.size>25*1024*1024) throw new Error('Attachments are limited to 25 MB');
+      const bytes=await fs.readFile(source),identity=input.idempotencyKey??input.externalId;
+      const id=attachment.id??(identity?createHash('sha256').update(String(identity)).update(`:${index}:`).update(bytes).digest('hex'):randomUUID());
+      const receivedAt=input.receivedTs??input.ts;
+      const at=receivedAt&&!Number.isNaN(Date.parse(receivedAt))?new Date(receivedAt):new Date();
+      const relative=attachmentRelativePath('system','default',id,mime,at);
+      await saveBytes(root,relative,bytes);
       return {id,kind:mime.startsWith('image/')?'image':mime.startsWith('audio/')?'audio':'file',name:attachment.name||path.basename(source),mime,size:bytes.length,path:relative,thumbPath:null,playbackPath:null,durationMs:null,transcript:null,transcriptStatus:mime.startsWith('audio/')?'pending':'none'};
     }));
   }
@@ -47,6 +52,7 @@ export function systemInputFromNotification(payload, source = "notification") {
     ...(payload.action ? { action: payload.action } : {}),
     source,
     sourceLink: payload.link ?? payload.path ?? null,
+    ...(payload.mirrorContext?{mirrorContext:payload.mirrorContext}:{}),
   };
 }
 
@@ -76,15 +82,26 @@ function discoverMirrorTargets(env) {
 
 // Called by the leased delivery worker, after ingest rules and durable storage.
 // Each sink retains its existing subscription, account and per-channel gates.
-export async function deliverMessageMirrors(message, { env = process.env, fetchImpl = fetch, targets, deliveredTargets = [] } = {}) {
+export async function deliverMessageMirrors(message, { env = process.env, fetchImpl = fetch, targets, deliveredTargets = [], serveMap = new Map(), publicAppUrl = null } = {}) {
   if (!message?.id) throw new Error("A stored message is required for delivery");
   if (message.suppressNotification || message.direction === "out") return [];
-  const link = `/messages/${encodeURIComponent(message.id)}`;
+  const localPath = `/messages/${encodeURIComponent(message.id)}`;
+  let publicBase = null;
+  try { const url = new URL(publicAppUrl); if (url.protocol === "https:" && !url.username && !url.password) publicBase = url.origin; } catch { /* Local fixture delivery can use a relative link. */ }
+  const link = publicBase ? `${publicBase}${localPath}` : localPath;
+  const body = String(message.bodyText || "").replace(/https?:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::(\d+))?(?=[/?#)\]\s]|$)/gi, (origin, port) => {
+    const mapped = serveMap.get(Number(port));
+    if (mapped?.startsWith("https://")) return mapped.replace(/\/+$/, "");
+    try { if (publicBase && new URL(env.GARRISON_APP_URL).origin === origin) return publicBase; } catch { /* Unmapped provider text remains data. */ }
+    return origin;
+  });
   const payload = {
     title: message.subject || message.title || message.sender?.name || "Garrison",
-    text: message.bodyText,
-    link, path: link, cardId: message.cardId ?? null,
-    tag: `message:${message.id}`, idempotencyKey: `message:${message.id}`,
+    text: body,
+    link, path: localPath, cardId: message.cardId ?? null,
+    tag: message.mirrorContext?.tag || `message:${message.id}`, idempotencyKey: `message:${message.id}`,
+    priority: message.mirrorContext?.priority ?? (message.action ? "interactive" : "routine"),
+    webFallback: message.mirrorContext?.webFallback !== false,
     _messagesMirror: { id: message.id },
     actions: [{ label: "Open message", url: link }],
   };

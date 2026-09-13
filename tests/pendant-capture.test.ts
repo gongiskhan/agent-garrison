@@ -1,3 +1,4 @@
+import { captureMessagesFixture } from "./messages-capture-fixture";
 // Pendant Direct — capture policy, pendant identity, and feedback loop
 // (ADR D5-D8 in docs/adr-pendant-direct.md).
 //
@@ -174,7 +175,9 @@ describe("pendant capture path", () => {
       wsFactory: () => new WebSocket(mock.url),
       ...overrides
     });
+    const messagesFixture = captureMessagesFixture((handle as any).notifier);
     cleanups.push(() => {
+      messagesFixture.close();
       handle.ingress.close();
       handle.server.close();
       mock.wss.close();

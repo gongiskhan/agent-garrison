@@ -12,8 +12,12 @@ export function slackDescriptor(accounts: Account[], setupHint: string | null = 
       groups: true, threads: true, attachments: true, audioReceive: true, audioSend: true,
       markdown: true, code: true, reactionsRead: true, openInProvider: true }, sync: { mode: "poll", intervalSeconds: 60 }, setupHint };
 }
-export interface SlackOptions extends TransportOptions { sleep?: (ms: number) => Promise<void>; ownUserId?: string; workspaceId?: string; }
-export interface SlackCursor extends Record<string, unknown> { channels?: Record<string, string>; threads?: Record<string, string>; }
+export interface SlackOptions extends TransportOptions { sleep?: (ms: number) => Promise<void>; ownUserId?: string; workspaceId?: string; retentionDays?: number; }
+export interface SlackCursor extends Record<string, unknown> {
+  channels?: Record<string, string>; threads?: Record<string, string>;
+  rootScans?: Record<string, { cursor?: string; latest: string }>;
+  rootIndex?: number; pendingThreads?: string[];
+}
 
 function escapeSlack(text: string) { return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 function slackTokens(tokens: Token[]): string {

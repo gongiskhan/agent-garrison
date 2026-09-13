@@ -41,6 +41,9 @@ const pkg = require("../package.json");
 
 const db = openDb();
 const SCHEMA_VERSION = binarySchemaVersion();
+// Migration 003 adds isolated Messages tables and preserves the schema 002 API.
+// Keep that explicit compatibility floor only for this additive migration.
+const MIN_COMPATIBLE_SCHEMA = SCHEMA_VERSION === 3 ? 2 : SCHEMA_VERSION;
 const META = schemaMeta(db);
 const SERVICE_VERSION = process.env.GARRISON_STATE_VERSION?.trim() || pkg.version;
 
@@ -158,11 +161,12 @@ const server = http.createServer(async (req, res) => {
 
     // ── hello ──
     if (req.method === "POST" && p[0] === "hello" && p.length === 1) {
-      const { behind } = mutate(() => hello(db, node, body, SCHEMA_VERSION));
+      const { behind } = mutate(() => hello(db, node, body, SCHEMA_VERSION, MIN_COMPATIBLE_SCHEMA));
       return send(res, 200, {
         node: node.name,
         behind,
         schemaVersion: SCHEMA_VERSION,
+        minCompatibleSchema: MIN_COMPATIBLE_SCHEMA,
         serviceVersion: SERVICE_VERSION,
         meshId: META.mesh_id,
         serverTime: new Date().toISOString()

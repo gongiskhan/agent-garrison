@@ -60,6 +60,7 @@ describe("the menu is two flat alphabetical groups", () => {
       "/coordination",
       "/improver",
       "/mesh",
+      "/messages",
       "/quarters",
       "/talk",
       "/vault"

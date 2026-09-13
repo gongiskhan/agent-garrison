@@ -39,10 +39,11 @@ it('verifies and boots the restored DB, matches ledgers, writes both reports and
   expect(run.code, run.stdout + run.stderr).toBe(0);
   expect(report()).toMatchObject({ ok: true, state: { integrity: 'ok', restored: { cards: 3, cardDocs: 3 }, live: { cards: 3, cardDocs: 3 }, delta: { cards: 0, cardDocs: 0 } }, restic: { snapshotId: 'fixture-restic', conversations: { restored: 1, live: 1 }, meshConversations: { 'mac-mini': 1 } }, boot: { stateService: 'ok' }, tolerances: { cards: 5, cardDocs: 20, conversations: 5, maxAgeHours: 30 }, failures: [] });
   expect(fs.readFileSync(`${home}/.garrison/snapshots/restore-drill.md`, 'utf8')).toContain('Cards 3 (live 3)');
-  const notifications = await service.client.pendingNotifications();
-  expect(notifications.at(-1)?.body.title).toBe('Restore drill ok: 3 cards, 1 conversations');
-  expect(notifications.at(-1)?.body.body).toBe(fs.readFileSync(`${home}/.garrison/snapshots/restore-drill.md`, 'utf8'));
-  expect((await service.client.getConfig(`improver.notice.${notifications.at(-1)?.id}`, 'global'))?.body.source).toBe('restore-drill');
+  const {messages} = await service.client.request('GET','/v1/messages');
+  const notice = messages.find((message:any)=>message.subject==='Restore drill ok: 3 cards, 1 conversations');
+  expect(notice.bodyText).toBe(fs.readFileSync(`${home}/.garrison/snapshots/restore-drill.md`, 'utf8'));
+  expect(notice.provider).toBe('system');
+  expect(await service.client.pendingNotifications()).toHaveLength(0);
   const counts = await command('scripts/restore-drill.mjs', ['--counts-only']);
   expect(counts.code).toBe(0);
   expect(JSON.parse(counts.stdout)).toMatchObject({ cards: 3, cardDocs: 3, conversations: 1, shared: null });

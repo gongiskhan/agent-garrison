@@ -31,7 +31,7 @@ import { assertValidJid, isValidJid } from "../lib/jid.mjs";
 import { Outbox } from "../lib/outbox.mjs";
 import { SendQueue } from "../lib/pacing.mjs";
 import { MessageStore } from "../lib/store.mjs";
-import { WhatsAppMessagesStore, normalizeWhatsAppMessage, whatsappDescriptor, createWhatsAppMessagesAdapter } from "../lib/messages.mjs";
+import { WhatsAppMessagesStore, normalizeWhatsAppMessage, whatsappDescriptor, createWhatsAppMessagesAdapter, messagesModeRequired, rememberMessagesMode } from "../lib/messages.mjs";
 
 // Mirrors garrisonDir() in src/lib/claude-home.ts.
 function garrisonDir() {
@@ -1160,7 +1160,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
   const messagesBus = createMessageBus();
   const messagesRoot = path.join(garrisonDir(), "messages");
   const messagesStore = new WhatsAppMessagesStore(messagesRoot);
-  let messagesActive = false;
+  let messagesActive = messagesModeRequired(garrisonDir());
   const connectionManager = buildConnectionManager({
     sessionDir: opts.sessionDir,
     gatewayUrl: opts.gatewayUrl,
@@ -1235,7 +1235,12 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
         callbackBaseUrl: `http://${opts.host}:${port}/messages-adapter` };
       const response = await fetch(`${appUrl.replace(/\/$/, "")}/api/messages/providers/register`, { method: "POST",
         headers: { "content-type": "application/json", "x-garrison-internal": internal, authorization: `Bearer ${stateToken}` }, body: JSON.stringify({ descriptor, callbackBaseUrl: descriptor.callbackBaseUrl }), signal: AbortSignal.timeout(10_000) });
-      if (response.ok) messagesActive = true;
+      if (response.ok) {
+        messagesActive = true;
+        rememberMessagesMode(garrisonDir());
+        const registered = await response.json();
+        messagesStore.setRetentionDays(registered.provider?.retentionDays);
+      }
     } catch (error) { log(`Messages registration unavailable: ${error.message}`); }
   }
   await registerMessages();

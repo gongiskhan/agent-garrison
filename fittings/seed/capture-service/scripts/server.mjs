@@ -825,7 +825,8 @@ export function makeRequestHandler(ctx) {
           // A relayed confirmation/ask answers something the user did, so it
           // draws on the interactive budget too — otherwise the fan-out's
           // routine chatter silences it exactly as it did on 2026-08-15.
-          priority: priorityForTag(tag)
+          priority: parsed._messagesMirror && ["routine","interactive"].includes(parsed.priority) ? parsed.priority : priorityForTag(tag),
+          webFallback: parsed._messagesMirror ? parsed.webFallback !== false : true
         });
         if (receipts.some((r) => r.ok)) ctx.notifier.markDelivered(idempotencyKey);
         return json(res, 200, receipts);

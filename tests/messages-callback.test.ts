@@ -82,7 +82,7 @@ describe("Messages callback discovery and lease handover", () => {
     await request("POST", "sync", { providers: ["demo"] }); await second.tick();
     expect((await request("GET", "") as any).messages).toHaveLength(2);
     const firstMirror: any = await request("POST", "work/mirrors/claim", {});
-    const secondMirror: any = await request("POST", "work/mirrors/claim", {});
+    const secondMirror: any = await secondClient.request("POST", "/v1/messages/work/mirrors/claim", { body: {} });
     expect(new Set([firstMirror.item.messageId, secondMirror.item.messageId]).size).toBe(2);
     expect(await request("POST", "work/mirrors/claim", {})).toMatchObject({ item: null });
     first.stop(); second.stop();

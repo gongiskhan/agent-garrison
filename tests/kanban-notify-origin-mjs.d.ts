@@ -3,6 +3,8 @@ declare module "*/kanban-loop/lib/notify-origin.mjs" {
     id: string;
     status: number;
     ok: boolean;
+    messageId?: string;
+    queued?: boolean;
   }
 
   export function fanOutNotification(
@@ -12,6 +14,7 @@ declare module "*/kanban-loop/lib/notify-origin.mjs" {
       actions?: unknown[];
       link?: string | null;
       tag?: string | null;
+      idempotencyKey?: string | null;
     },
     options?: {
       skipFittingIds?: string[];

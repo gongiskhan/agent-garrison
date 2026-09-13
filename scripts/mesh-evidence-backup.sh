@@ -21,7 +21,10 @@ TARGET="${1:?usage: mesh-evidence-backup.sh <ssh-target> <node-name> [--dry-run]
 NODE="${2:?node name required}"
 [[ "$NODE" =~ ^[a-z][a-z0-9-]{1,63}$ ]] || { echo "invalid node name" >&2; exit 2; }
 DRY=()
-for arg in "$@"; do [ "$arg" = "--dry-run" ] && DRY=(--dry-run -v); done
+dry_run=0
+for arg in "$@"; do
+  if [ "$arg" = "--dry-run" ]; then DRY=(--dry-run -v); dry_run=1; fi
+done
 
 SINK="${GARRISON_HOME:-$HOME/.garrison}/mesh-evidence/$NODE"
 CONVERSATIONS_SINK="${GARRISON_HOME:-$HOME/.garrison}/mesh-conversations/$NODE"
@@ -30,7 +33,7 @@ if [ -n "${RSYNC_TARGET_OVERRIDE:-}" ]; then SOURCE="${RSYNC_TARGET_OVERRIDE%/}/
 mkdir -p "$SINK/garrison" "$SINK/walkthrough"
 
 # Root 1: ~/.garrison — runs/ (plans, decisions, gates, evidence) + results/
-rsync -a "${DRY[@]}" --prune-empty-dirs \
+rsync -a ${DRY[@]+"${DRY[@]}"} --prune-empty-dirs \
   --include='runs/' \
   --include='runs/**/' \
   --include='runs/**/FLOW_PLAN.md' \
@@ -49,7 +52,7 @@ rsync -a "${DRY[@]}" --prune-empty-dirs \
   || echo "[evidence-backup] $NODE: ~/.garrison pull incomplete (dir may not exist yet)"
 
 # Root 2: ~/.walkthrough/runs — the finished artifacts, never the work dirs.
-rsync -a "${DRY[@]}" --prune-empty-dirs \
+rsync -a ${DRY[@]+"${DRY[@]}"} --prune-empty-dirs \
   --include='*/' \
   --include='final.mp4' \
   --include='manifest.json' \
@@ -64,7 +67,7 @@ rsync -a "${DRY[@]}" --prune-empty-dirs \
 # Conversation ledgers have no rolling prune. A failed pull must fail the job:
 # a silently stale conversation backup cannot satisfy the restore drill.
 mkdir -p "$CONVERSATIONS_SINK"
-if rsync -a "${DRY[@]}" --exclude='**/work/**' --exclude='*.part' \
+if rsync -a ${DRY[@]+"${DRY[@]}"} --exclude='**/work/**' --exclude='*.part' \
   -e "ssh -o BatchMode=yes" \
   "${SOURCE}.garrison/conversations/" "$CONVERSATIONS_SINK/"; then
   :
@@ -87,7 +90,7 @@ else
 fi
 
 # Sink-side rolling prune applies ONLY to evidence; dry-run never prunes.
-if [ "${#DRY[@]}" -eq 0 ]; then
+if [ "$dry_run" -eq 0 ]; then
   find "$SINK" -type f -mtime +7 -delete 2>/dev/null || true
   find "$SINK" -type d -empty -delete 2>/dev/null || true
 fi

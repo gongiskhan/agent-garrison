@@ -9,7 +9,7 @@ export interface IngestAccount {
   token?: string; callbackBaseUrl?: string;
 }
 export interface IngestStart { stateUrl: string; token: string; fence: number; diskRoot: string; accounts: IngestAccount[] }
-type Batch = { messages: Message[]; conversations: any[]; cursor: SyncCursor; deletedExternalIds?: string[] };
+type Batch = { messages: Message[]; conversations: any[]; cursor: SyncCursor; deletedExternalIds?: string[]; retryAfterMs?: number };
 const segment = (value: string) => encodeURIComponent(value).replace(/\./g, "%2E");
 
 const GOOGLE_READ_PATH = /^\/gmail\/v1\/users\/me\/(?:profile|history|threads(?:\/[^/]+)?|messages(?:\/[^/]+(?:\/attachments\/[^/]+)?)?)$/;
@@ -57,6 +57,7 @@ async function writeData(root: string, relative: string, bytes: Uint8Array | str
 function readAdapter(entry: IngestAccount, root: string, fetchImpl: typeof fetch) {
   const guarded = readOnlyProviderFetch(entry.provider.id, fetchImpl, entry.callbackBaseUrl);
   const options = { token: entry.token || "", fetchImpl: guarded, accountAddress: entry.account.address,
+    retentionDays: entry.provider.retentionDays,
     writeFile: async (destination: string, bytes: Uint8Array) => { await writeData(root, destination, bytes); },
     storeHtml: async (id: string, html: string, remoteImages: string[] = []) => {
       await writeData(root, `html/${id}.images.json`, JSON.stringify(remoteImages));
@@ -162,7 +163,7 @@ export class MessagesIngestWorker {
             if (!event.message || !event.conversation || event.message.account !== entry.account.id) continue;
             await this.prepareMessages(entry, [event.message], laneFetch);
             await this.state("POST", "ingest", { provider: entry.provider.id, account: entry.account.id, fence: this.config.fence,
-              messages: [event.message], conversations: [event.conversation], cursor: event.cursor ?? { receivedTs: event.message.receivedTs } });
+              messages: [event.message], conversations: [event.conversation], advanceCursor: false });
           }
         }
       } finally { await reader.cancel().catch(() => {}); }
@@ -179,7 +180,7 @@ export class MessagesIngestWorker {
       await Promise.all(this.config.accounts.map(async (entry) => {
         const key = `${entry.provider.id}/${entry.account.id}`;
         const saved = sync.find((row: any) => row.provider === entry.provider.id && row.account === entry.account.id);
-        if (!saved?.requested && (this.next.get(key) || 0) > Date.now()) return;
+        if ((this.next.get(key) || 0) > Date.now() && (!saved?.requested || (this.failures.get(key) || 0) > 0)) return;
         try {
           const laneFetch: typeof fetch = (input, init = {}) => this.fetchImpl(input, { ...init,
             signal: AbortSignal.any([this.abort.signal, ...(init.signal ? [init.signal] : [])]) });
@@ -197,7 +198,7 @@ export class MessagesIngestWorker {
           await this.prepareMessages(entry, batch.messages, laneFetch);
           await this.state("POST", "ingest", { ...batch, provider: entry.provider.id, account: entry.account.id, fence: this.config.fence });
           this.failures.delete(key);
-          this.next.set(key, Date.now() + (entry.provider.sync.intervalSeconds || 30) * 1000);
+          this.next.set(key, Date.now() + Math.max((entry.provider.sync.intervalSeconds || 30) * 1000, batch.retryAfterMs || 0));
           this.report({ type: "synced", provider: entry.provider.id, account: entry.account.id, count: batch.messages.length });
           this.startStream(entry);
         } catch (error: any) {

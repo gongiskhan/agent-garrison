@@ -3,5 +3,5 @@ export function emitSystemMessage(input: Record<string, any>, deps?: SystemDepen
 export function systemEventKey(source: string, identity: unknown): string;
 export function systemInputFromNotification(payload: Record<string, any>, source?: string): Record<string, any>;
 export function isMessageMirror(payload: unknown): boolean;
-export function deliverMessageMirrors(message: any, deps?: SystemDependencies & { targets?: { id: string; url: string }[]; deliveredTargets?: string[] }): Promise<any[]>;
+export function deliverMessageMirrors(message: any, deps?: SystemDependencies & { targets?: { id: string; url: string }[]; deliveredTargets?: string[]; serveMap?: Map<number,string>; publicAppUrl?: string|null }): Promise<any[]>;
 export function cardEventSystemInput(card: any, event: any, options?: { ownerNode?: string | null }): Record<string, any>;

@@ -65,6 +65,7 @@ export function createGoogleReadAdapter(options: GoogleReadOptions) {
     return { messages, conversations: [...conversations.values()], cursor, deletedExternalIds: [...new Set(deleted)] };
   }
   return {
+    getReplyHeaders(_account: string, externalId: string) { return fetchGoogleReplyHeaders(options, externalId); },
     async listLabels(): Promise<{ id: string; name: string; type: "system" | "user" }[]> {
       const result = await request("labels");
       return (Array.isArray(result.labels) ? result.labels : []).filter((label: JsonRecord) => typeof label.id === "string" && typeof label.name === "string")
@@ -145,4 +146,15 @@ export function createGoogleReadAdapter(options: GoogleReadOptions) {
 export async function fetchGoogleMailHtml(options: GoogleReadOptions, messageExternalId: string, loadImages = false) {
   const raw = await gmailReadTransport(options)(`messages/${encodeURIComponent(messageExternalId)}?format=full`);
   return sanitizeMailHtml(normalizeGoogleMessage(raw, "read", options.accountAddress).html, loadImages);
+}
+
+export async function fetchGoogleReplyHeaders(options: TransportOptions, externalId: string): Promise<{ messageId: string; references: string; subject: string; threadId: string }> {
+  if (!externalId) throw new Error("A reply message reference is required");
+  const query = new URLSearchParams({ format: "metadata", fields: "id,threadId,payload/headers" });
+  for (const name of ["Message-ID", "References", "Subject"]) query.append("metadataHeaders", name);
+  const raw = await gmailReadTransport(options)(`messages/${encodeURIComponent(externalId)}?${query}`);
+  const headers = new Map<string, string>((raw.payload?.headers ?? []).map((header: JsonRecord) => [String(header.name).toLowerCase(), headerText(String(header.value))]));
+  const messageId = headers.get("message-id") ?? "";
+  if (!messageId || !raw.threadId) throw new Error("Gmail reply headers are unavailable");
+  return { messageId, references: headers.get("references") ?? "", subject: headers.get("subject") ?? "", threadId: String(raw.threadId) };
 }

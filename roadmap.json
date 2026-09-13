@@ -223,14 +223,16 @@
           "text": "The Attention queue widget. One list of everything that needs Gonçalo, nearest deadline first, with the action inline: approve or cancel a send; answer a question or a permission prompt; confirm or correct a routing decision with the correction fields; resume or move a Needs input card; acknowledge a failed schedule or a skipped convergence; open the conversation. Each row shows source, node, age and deadline when known. The empty state is one line, never an empty panel.",
           "done": false,
           "sentToKanban": null,
-          "noteRef": "n-cc-queue"
+          "noteRef": "n-cc-queue",
+          "note": "Messages now exposes /api/messages/needs-me over actionable unanswered system messages. No separate Attention storage was found or added; Command Center integration remains open."
         },
         {
           "id": "c3.4",
           "text": "The attention read model. A single aggregator endpoint that unions producers into one item shape (id, kind, source, node, title, detail, deadline, actions, href) with a small enumerated action set that posts back to the owning producer. This is the only new server piece; it caches per producer, stays quiet when one is down, and never becomes a queue of its own.",
           "done": false,
           "sentToKanban": null,
-          "noteRef": "n-cc-queue"
+          "noteRef": "n-cc-queue",
+          "note": "Messages now exposes /api/messages/needs-me over actionable unanswered system messages. No separate Attention storage was found or added; Command Center integration remains open."
         },
         {
           "id": "c3.5",
@@ -300,21 +302,24 @@
           "text": "Communications inbox, phase 1: triage only. One channel first (the Ekoa mailbox, then his own Gmail), deterministic fetch every fifteen minutes, one batched cheap model call over what is new and none when nothing changed, every item classified into ignore, card, memory or needs reply, every classification logged and correctable from the Attention queue. No drafting, no sending. Two weeks of corpus and cost curve before phase 2.",
           "done": false,
           "sentToKanban": null,
-          "noteRef": "n-cc-inbox"
+          "noteRef": "n-cc-inbox",
+          "note": "Messages provides the shared store and structured outbox substrate. Model triage, drafting and autonomous sending remain separate work."
         },
         {
           "id": "c3.15",
           "text": "Communications inbox, phase 2: drafting. For needs-reply items, three or four suggested replies in his voice, learned from what he picks and how he edits; choosing or editing is the signal; sending is still by hand.",
           "done": false,
           "sentToKanban": null,
-          "noteRef": null
+          "noteRef": null,
+          "note": "Messages provides the shared store and structured outbox substrate. Model triage, drafting and autonomous sending remain separate work."
         },
         {
           "id": "c3.16",
           "text": "Communications inbox, phase 3: sending through hold windows. Sends go through the outbox with a hold window (zero for himself, ten minutes for collaborators, always ask for money, dates, commitments and first contacts). The middle autonomy band for an irreversible action is the hold window, not a binary switch.",
           "done": false,
           "sentToKanban": null,
-          "noteRef": null
+          "noteRef": null,
+          "note": "Messages provides the shared store and structured outbox substrate. Model triage, drafting and autonomous sending remain separate work."
         },
         {
           "id": "c3.17",

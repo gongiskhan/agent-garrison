@@ -2,7 +2,7 @@
 
 Date: 2026-09-13. Evidence owner: goncalos-macbook-pro.
 
-The state migration adds relational Messages tables and FTS5 without changing existing state APIs. Existing node heartbeats omit a maximum schema version, so the additive migration does not mark those clients behind. The ingestion token is scoped to its 90-second lease and fenced on every atomic message/cursor batch.
+The state migration adds relational Messages tables and FTS5 without changing existing state APIs. The client schema maximum advances to 3. Schema 3 explicitly retains a compatibility floor of 2, allowing existing schema-2 nodes to read and write during the sequential rollout. Tests exercise old and new client writes and reject incompatible clients. The ingestion token is scoped to its 90-second lease and fenced on every atomic message/cursor batch.
 
 The foundation test run passed 78 tests across six files: store 12, system producers and actions 33, real answer journey 1, restricted worker 26, callback discovery and handover 2, media 4. The real API journey also passed in both Playwright profiles. It emits a question, queries Needs me, delivers the answer through the existing HTTP conversation path, and checks exactly one durable user signal. Browser reports are in evidence/messages/p1; the lead visual verdicts are in evidence/messages/vision-checklist.md.
 

@@ -1,9 +1,17 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync, realpathSync, lstatSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync, realpathSync, lstatSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { assertValidJid } from "./jid.mjs";
 
 const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+export function messagesModeRequired(home) {
+  return existsSync(path.join(home, "state.json")) || existsSync(path.join(home, "messages", "provider-journal", "enabled.json"));
+}
+export function rememberMessagesMode(home) {
+  const file = path.join(home, "messages", "provider-journal", "enabled.json");
+  mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  writeFileSync(file, JSON.stringify({ enabled: true }), { mode: 0o600 });
+}
 function idFor(account, external, timestamp = 0) {
   let time = Math.max(0, Math.floor(timestamp));
   let prefix = "";
@@ -73,9 +81,10 @@ export function normalizeWhatsAppMessage(raw, { account = "default", contactName
 
 /** Full message reconciliation is separate from the bounded legacy HUD history. */
 export class WhatsAppMessagesStore {
-  constructor(root, { now = () => Date.now() } = {}) {
+  constructor(root, { now = () => Date.now(), retentionDays = 90 } = {}) {
     this.root = root;
     this.now = now;
+    this.retentionDays = retentionDays;
     this.file = path.join(root, "provider-journal", "whatsapp-web.json");
     try { this.entries = JSON.parse(readFileSync(this.file, "utf8")); } catch { this.entries = []; }
   }
@@ -88,13 +97,14 @@ export class WhatsAppMessagesStore {
     mkdirSync(path.dirname(rawPath), { recursive: true, mode: 0o700 });
     writeFileSync(rawPath, JSON.stringify(raw, (_key, value) => typeof value === "bigint" ? value.toString() : value), { mode: 0o600 });
     normalized.message.rawPath = rawPath;
-    this.entries = this.entries.filter(entry => entry.message.id !== normalized.message.id && Date.parse(entry.message.ts) >= this.now() - 24 * 3600_000);
+    this.entries = this.entries.filter(entry => !(entry.message.externalId === normalized.message.externalId && entry.message.account === normalized.message.account) && Date.parse(entry.message.ts) >= this.now() - this.retentionDays * 86400_000);
     this.entries.push(normalized);
     mkdirSync(path.dirname(this.file), { recursive: true, mode: 0o700 });
     writeFileSync(`${this.file}.tmp`, JSON.stringify(this.entries), { mode: 0o600 });
     renameSync(`${this.file}.tmp`, this.file);
     return true;
   }
+  setRetentionDays(days) { if (Number.isInteger(days) && days >= 1 && days <= 3650) this.retentionDays = days; }
   fetch(account, cursor = null) {
     const since = Math.max(this.now() - 24 * 3600_000, cursor?.receivedTs ? Date.parse(cursor.receivedTs) - 1000 : 0);
     const entries = this.entries.filter(entry => entry.message.account === account && Date.parse(entry.message.receivedTs) >= since);
@@ -110,9 +120,23 @@ export class WhatsAppMessagesStore {
     if (rawPath && (rawPath.startsWith("../") || path.isAbsolute(rawPath))) throw new Error("Raw message path is outside Messages storage");
     return { ...entry, message: { ...entry.message, rawPath } };
   }
-  get(externalId) { return this.entries.find(entry => entry.message.externalId === externalId); }
-  raw(externalId) {
-    const entry = this.get(externalId);
+  get(externalId, account) {
+    const entry = this.entries.find(entry => entry.message.externalId === externalId && (!account || entry.message.account === account));
+    if (entry || !account) return entry;
+    // Starred or card-linked messages can outlive the bounded journal while state retains their raw file.
+    const directory = path.join(this.root, "raw", "whatsapp-web", encodeURIComponent(account));
+    const suffix = `${idFor(account, externalId).slice(10)}.json`;
+    let files = []; try { files = readdirSync(directory); } catch { return undefined; }
+    for (const name of files.filter(name => name.endsWith(suffix))) {
+      const rawPath = path.join(directory, name);
+      const raw = JSON.parse(readFileSync(rawPath, "utf8"));
+      const normalized = normalizeWhatsAppMessage(raw, { account, now: this.now });
+      if (normalized?.message.externalId === externalId) return { ...normalized, message: { ...normalized.message, rawPath } };
+    }
+    return undefined;
+  }
+  raw(externalId, account) {
+    const entry = this.get(externalId, account);
     if (!entry?.message.rawPath || !existsSync(entry.message.rawPath)) throw new Error("WhatsApp message is no longer available on its owner");
     return JSON.parse(readFileSync(entry.message.rawPath, "utf8"), (_key, value) => value?.type === "Buffer" && Array.isArray(value.data) ? Buffer.from(value.data) : value);
   }
@@ -135,9 +159,9 @@ export function createWhatsAppMessagesAdapter({ connectionManager, messagesStore
     listConversations: ({ account }) => messagesStore.fetch(account).conversations,
     health: () => ({ ok: connectionManager.status().connected, reason: connectionManager.status().connected ? undefined : "Pair WhatsApp in its fitting" }),
     async downloadAttachment({ account, ref, dest }) {
-      const entry = messagesStore.get(ref);
+      const entry = messagesStore.get(ref, account);
       if (!entry || entry.message.account !== account) throw new Error("Unknown WhatsApp attachment");
-      const bytes = await connectionManager.downloadMedia(messagesStore.raw(ref));
+      const bytes = await connectionManager.downloadMedia(messagesStore.raw(ref, account));
       if (!dest) return { mime: entry.message.attachments[0]?.mime ?? "application/octet-stream", size: bytes.length, contentBase64: Buffer.from(bytes).toString("base64") };
       const output = destination(dest);
       mkdirSync(path.dirname(output), { recursive: true, mode: 0o700 });
@@ -146,15 +170,16 @@ export function createWhatsAppMessagesAdapter({ connectionManager, messagesStore
     },
     async setRead({ account, messageExternalIds = [], ids = messageExternalIds, read = true, sendReadReceipts = true }) {
       if (!read || !sendReadReceipts) return { ok: true };
-      const records = ids.map(id => messagesStore.get(id)).filter(record => record?.message.account === account);
-      await connectionManager.readMessages(records.map(record => messagesStore.raw(record.message.externalId).key));
+      const records = ids.map(id => messagesStore.get(id, account));
+      if (records.some(record => !record || record.message.account !== account)) throw new Error("WhatsApp read receipt is unavailable for a missing message");
+      await connectionManager.readMessages(records.map(record => messagesStore.raw(record.message.externalId, account).key));
       return { ok: true };
     },
     async delete({ account, messageExternalId, externalId = messageExternalId }) {
-      const record = messagesStore.get(externalId);
+      const record = messagesStore.get(externalId, account);
       if (!record || record.message.account !== account || record.message.direction !== "out") throw new Error("Only your own WhatsApp messages can be deleted");
       if (now() - Date.parse(record.message.ts) > 48 * 3600_000) throw new Error("WhatsApp delete window has expired");
-      await connectionManager.deleteMessage(messagesStore.raw(externalId).key);
+      await connectionManager.deleteMessage(messagesStore.raw(externalId, account).key);
       return { ok: true };
     },
     async send({ item }) {

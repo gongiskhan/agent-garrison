@@ -146,26 +146,19 @@ it("Zeca failures and new activity never rotate away unreviewed work",async()=>{
   expect(result.rotated).toBeNull();expect(result.reason).toContain("New activity");expect(rotated).toBe(0);
 });
 
-it("zero-recipient HTTP success stays pending, and a native receipt makes delivery idempotent",async()=>{
-  const captureDir=path.join(home,"ui-fittings");await fs.mkdir(captureDir,{recursive:true});
-  await fs.writeFile(path.join(captureDir,"capture-service.json"),JSON.stringify({url:"http://capture"}));
-  const fetchImpl=vi.fn(async()=>Response.json({ok:true,pushed:0,reason:"no VAPID keys"}));
-  const failed=await notify(store,{...context,forwardedNotice:true,fetchImpl},"delivery-test","Review ready","One decision");
-  expect(failed.deliveredAt).toBeNull();expect(failed.deliveryError).toContain("no VAPID");
-  fetchImpl.mockImplementation(async(url)=>Response.json(url.startsWith("http://capture")?[{means:"companion-push",ok:true,target:"1/1 devices"}]:{ok:true,pushed:0}));
-  const success=await notify(store,{...context,forwardedNotice:true,fetchImpl},"delivery-test","Review ready","One decision");
-  expect(success.deliveredAt).toBeTruthy();expect(success.delivery.native[0].target).toBe("1/1 devices");
-  fetchImpl.mockClear();await notify(store,{...context,fetchImpl},"delivery-test","Review ready","One decision");
+it("persists an improver notice once and queues delivery without calling external channels",async()=>{
+  const fetchImpl=vi.fn();
+  const first=await notify(store,{...context,fetchImpl},"delivery-test","Review ready","One decision");
+  const repeated=await notify(store,{...context,fetchImpl},"delivery-test","Review ready","One decision");
+  expect(first).toMatchObject({queued:true,messageId:repeated.messageId});
+  const {messages}=await harness.client.request("GET","/v1/messages?categories=improver.decision");
+  expect(messages.filter(message=>message.externalId==="improver:delivery-test")).toHaveLength(1);
   expect(fetchImpl).not.toHaveBeenCalled();
-  await fs.rm(path.join(captureDir,"capture-service.json"));
 });
-it("a failed delivery cannot overwrite a concurrent successful receipt",async()=>{
-  const fetchImpl=async()=>{
-    await store.update("notice","delivery-race",n=>({...n,deliveredAt:new Date().toISOString(),delivery:{pushed:1},deliveryError:null}));
-    return Response.json({ok:true,pushed:0});
-  };
-  const result=await notify(store,{...context,forwardedNotice:true,fetchImpl},"delivery-race","Ready","Review");
-  expect(result.delivery.pushed).toBe(1);expect(result.deliveredAt).toBeTruthy();
+it("concurrent notification producers converge on the same durable system message",async()=>{
+  const results=await Promise.all([1,2].map(()=>notify(store,context,"delivery-race","Ready","Review")));
+  expect(results[0].messageId).toBe(results[1].messageId);
+  expect((await harness.client.request("GET",`/v1/messages/${results[0].messageId}`)).message).toMatchObject({category:"improver.decision",bodyText:"Review"});
 });
 it("review authentication falls back to sealed accounts, without overriding explicit pins",async()=>{
   const {callImproverInference}=await import("../fittings/seed/http-gateway/scripts/lib/improver-inference.mjs");

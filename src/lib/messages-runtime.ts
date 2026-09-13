@@ -9,6 +9,7 @@ import { readLibrary } from "./library";
 import { readNodeIdentity } from "./node-identity";
 import { getInternalToken } from "./internal-token";
 import { peerAppBase, forwardToPeer } from "./mesh/peer-proxy";
+import { getTailnetServeMap } from "./tailnet-serve";
 import { getConnectorAccountToken, listConnectorAccounts, scopedSecrets } from "./connector-auth";
 import { createGoogleActionAdapter, createGoogleSendAdapter } from "../../packages/messages/providers/google-write";
 import { createSlackActionAdapter, createSlackSendAdapter } from "../../packages/messages/providers/slack-write";
@@ -22,6 +23,21 @@ import type { ProviderDescriptor, OutboxItem, Message, Attachment } from "../../
 
 type Descriptor = ProviderDescriptor & { ownerNode?: string; callbackBaseUrl?: string };
 type RuntimeDependencies = { client?: StateClient; env?: NodeJS.ProcessEnv; fetchImpl?: typeof fetch; log?: Pick<Console, "error"> };
+
+export function connectorMessagingAccounts(provider: string, grants: Awaited<ReturnType<typeof listConnectorAccounts>>) {
+  const required = provider === "google" ? GOOGLE_MESSAGES_SCOPES : provider === "slack" ? SLACK_MESSAGES_SCOPES : [];
+  const missing = provider === "google" ? "Reconnect Google with mail read scope in Connectors" : "Reinstall Slack with user scopes";
+  const accounts = grants.filter(account => account.status !== "revoked").map(({id,label,address,scopes}) => ({id,label,address,
+    setupHint: required.some(scope => !scopes.includes(scope)) ? missing : null}));
+  if (!accounts.length && provider === "slack") accounts.push({id:"default",label:"Slack",address:undefined,setupHint:missing});
+  const setupHint = !accounts.length ? "Connect this account in Connectors" : accounts.every(account => account.setupHint) ? accounts[0].setupHint : null;
+  return {accounts,setupHint};
+}
+
+export function messageAccountAvailable(provider: ProviderDescriptor, account: string) {
+  const metadata = provider.accounts.find(entry => entry.id === account);
+  return Boolean(metadata && !provider.setupHint && !metadata.setupHint && (provider.accountHealth?.[account]?.ok ?? provider.health?.ok ?? true));
+}
 
 export function ingestEnvironment(diskRoot: string, modules?: string): NodeJS.ProcessEnv {
   return { NODE_ENV: "production", GARRISON_MESSAGES_INGEST_CHILD: "1", HOME: diskRoot, TMPDIR: path.join(diskRoot, "tmp"), TZ: "UTC", LANG: "C.UTF-8",
@@ -58,6 +74,17 @@ async function confinedRead(root: string, file: string): Promise<Uint8Array> {
   const stat = await fs.stat(resolved);
   if (!stat.isFile() || stat.size > 25 * 1024 * 1024) throw new Error("Attachment exceeds 25 MB");
   return fs.readFile(resolved);
+}
+async function boundedBytes(response: Response): Promise<Uint8Array> {
+  const limit = 25 * 1024 * 1024;
+  if (!response.body || Number(response.headers.get("content-length") || 0) > limit) throw new Error("Attachment exceeds 25 MB or has no content");
+  const reader = response.body.getReader(), parts: Uint8Array[] = []; let length = 0;
+  try {
+    while (true) { const chunk = await reader.read(); if (chunk.done) break; length += chunk.value.length;
+      if (length > limit) throw new Error("Attachment exceeds 25 MB"); parts.push(chunk.value); }
+  } finally { await reader.cancel().catch(() => {}); }
+  const result = new Uint8Array(length); let offset = 0;
+  for (const part of parts) { result.set(part, offset); offset += part.length; } return result;
 }
 
 export async function applyProviderState(adapter: any, message: Message, payload: any, provider: Descriptor, conversation: any): Promise<void> {
@@ -140,17 +167,10 @@ export class MessagesRuntime {
       if (!declared) continue;
       try {
       const accounts = await listConnectorAccounts(declared.id);
-      let hint: string | null = null;
-      let publicAccounts = accounts.filter(account => account.status !== "revoked").map(({ id, label, address }) => ({ id, label, address }));
-      if (declared.id === "slack" && publicAccounts.length === 0) {
-        publicAccounts = [{ id: "default", label: "Slack", address: undefined }];
-        hint = "Reinstall Slack with user scopes";
-      } else if (!publicAccounts.length) hint = "Connect this account in Connectors";
-      if (declared.id === "google" && accounts.some(account => account.status !== "revoked" && GOOGLE_MESSAGES_SCOPES.some(scope => !account.scopes.includes(scope)))) hint = "Reconnect Google with mail read scope in Connectors";
-      if (declared.id === "slack" && accounts.some(account => account.status !== "revoked" && SLACK_MESSAGES_SCOPES.some(scope => !account.scopes.includes(scope)))) hint = "Reinstall Slack with user scopes";
+      const {accounts:publicAccounts,setupHint:hint} = connectorMessagingAccounts(declared.id, accounts);
       await this.request("POST", "providers/register", { descriptor: { ...declared, accounts: publicAccounts, setupHint: hint, health: { ok: !hint, ...(hint ? { reason: hint } : {}) } } });
-      if (hint) await emitSystemMessage({ category: "system.warning", severity: "warning", title: `${declared.label} needs setup`, body: hint,
-        idempotencyKey: `messages:setup:${declared.id}:${hint}` }, { client: this.client });
+      for (const setupHint of new Set([hint,...publicAccounts.map(account=>account.setupHint)].filter(Boolean))) await emitSystemMessage({ category: "system.warning", severity: "warning", title: `${declared.label} needs setup`, body: setupHint!,
+        idempotencyKey: `messages:setup:${declared.id}:${setupHint}` }, { client: this.client });
       } catch (error: any) { this.log.error(`[messages] ${declared.id} discovery failed: ${error.message}`); }
     }
     this.providers = (await this.request("GET", "providers")).providers;
@@ -160,8 +180,9 @@ export class MessagesRuntime {
     const accounts: IngestAccount[] = [];
     for (const provider of this.providers) {
       const demoEnabled = process.env.NODE_ENV !== "production" && this.env.GARRISON_MESSAGES_FIXTURES === "1";
-      if (provider.id === "system" || (provider.id === "demo" && !demoEnabled) || provider.setupHint || provider.health?.ok === false) continue;
+      if (provider.id === "system" || (provider.id === "demo" && !demoEnabled) || provider.setupHint) continue;
       for (const account of provider.accounts) {
+        if (account.setupHint) continue;
         try {
           if (provider.callbackBaseUrl) accounts.push({ provider, account, callbackBaseUrl: await this.callback(provider) });
           else {
@@ -170,10 +191,17 @@ export class MessagesRuntime {
           }
         } catch (error: any) {
           this.log.error(`[messages] ${provider.id} account unavailable: ${error.message}`);
+          await this.syncHealth({type:"provider-error",provider:provider.id,account:account.id,error:error.message});
         }
       }
     }
     return accounts;
+  }
+  private async syncHealth(event: any) {
+    if (!["synced", "provider-error"].includes(event?.type)) return;
+    try { await this.request("POST", `providers/${encodeURIComponent(event.provider)}/health`, { ok: event.type === "synced", account: event.account,
+      ...(event.type === "provider-error" ? { reason: String(event.error || "Provider sync failed").slice(0, 300) } : {}) }); }
+    catch { this.log.error("[messages] Could not update provider sync health"); }
   }
   private async spawnReadWorker(): Promise<ChildProcess> {
     await fs.mkdir(path.join(this.diskRoot, "tmp"), { recursive: true, mode: 0o700 });
@@ -200,6 +228,7 @@ export class MessagesRuntime {
     child.on("exit", () => { if (this.child === child) this.child = null; });
     child.on("message", (event: any) => {
       if (event?.type === "provider-error") this.log.error(`[messages] ${event.provider} sync failed: ${event.error}`);
+      void this.syncHealth(event);
     });
     child.send({ type: "start", config: { stateUrl: this.client.url, token: lease.token, fence: lease.fence, diskRoot: this.diskRoot, accounts } });
   }
@@ -263,18 +292,64 @@ export class MessagesRuntime {
     if (!response.ok) throw new Error(result.error || `Provider ${method} failed`);
     return result;
   }
+  private transferPath(item: OutboxItem, index: number): string {
+    const segment = (value: string) => encodeURIComponent(value).replace(/\./g, "%2E");
+    const attachment = item.attachments[index], ext = attachment.name.split(".").at(-1)?.replace(/[^a-z0-9]/gi, "").slice(0, 12) || "bin";
+    return `attachments/${segment(item.provider)}/${segment(item.account)}/${String((item as any).createdAt || item.holdUntil).slice(0, 7)}/transfer-${segment(item.id)}-${index}.${ext}`;
+  }
+  private async copyOutboxAttachment(item: OutboxItem, index: number): Promise<string> {
+    if (!item.ownerNode || item.ownerNode === this.node) {
+      await confinedRead(this.diskRoot, item.attachments[index].path); return item.attachments[index].path;
+    }
+    const result = await this.client.getNode(item.ownerNode), owner = (result as any).node ?? result;
+    const base = peerAppBase(owner.tailnetHost, owner.health?.node?.appOrigin);
+    if (!base) throw new Error("The attachment owner is unavailable");
+    const response = await this.fetchImpl(`${base}/api/messages/outbox/${encodeURIComponent(item.id)}/attachments/${index}`, { redirect: "error", signal: AbortSignal.timeout(60_000) });
+    if (!response.ok) throw new Error(`The attachment owner refused the file (${response.status})`);
+    const { saveBytes } = await import("../../packages/messages/media.mjs");
+    return saveBytes(this.diskRoot, this.transferPath(item, index), await boundedBytes(response));
+  }
+  private async clearTransferredAttachments(item: OutboxItem) {
+    if (!item.ownerNode || item.ownerNode === this.node) return;
+    for (let index = 0; index < item.attachments.length; index++) {
+      const relative = this.transferPath(item, index);
+      for (const file of [relative, relative.replace(/\.[^/.]+$/, ".voice.ogg"), relative.replace(/\.[^/.]+$/, ".m4a")]) {
+        await fs.unlink(path.join(this.diskRoot, file)).catch(() => {});
+      }
+    }
+  }
+  private async prepareVoice(item: OutboxItem, provider: Descriptor): Promise<OutboxItem> {
+    const updated = structuredClone(item);
+    for (const attachment of updated.attachments) {
+      if (!attachment.asVoiceNote) continue;
+      const { normalizeAudio } = await import("../../packages/messages/media.mjs");
+      const converted = await normalizeAudio(this.diskRoot, attachment.path, { voice: provider.id === "whatsapp-web" });
+      attachment.path = converted.path; attachment.mime = converted.mime;
+      attachment.name = attachment.name.replace(/\.[^/.]+$/, "") + (converted.mime === "audio/ogg" ? ".ogg" : ".m4a");
+    }
+    return updated;
+  }
+  async outboxAttachment(id: string, index: number): Promise<Response> {
+    if (!Number.isInteger(index) || index < 0) throw new Error("Invalid attachment index");
+    const { items } = await this.request("GET", "outbox");
+    const item: OutboxItem | undefined = items.find((entry: OutboxItem) => entry.id === id);
+    if (!item || item.ownerNode !== this.node || !item.attachments[index]) throw new Error("Attachment is not owned by this node");
+    const attachment = item.attachments[index], bytes = await confinedRead(this.diskRoot, attachment.path);
+    return new Response(bytes as BodyInit, { headers: { "content-type": attachment.mime, "content-length": String(bytes.length), "cache-control": "no-store", "x-content-type-options": "nosniff" } });
+  }
   async invokeProviderAction(providerId: string, method: string, input: any) {
     const { providers } = await this.request("GET", "providers");
     const provider: Descriptor | undefined = providers.find((entry: Descriptor) => entry.id === providerId);
     if (!provider || provider.ownerNode !== this.node || !provider.callbackBaseUrl) throw new Error("This node does not own the provider");
     if (!["setRead", "archive", "delete", "send", "outboxStatus", "cancelSend"].includes(method)) throw new Error("Provider operation is not permitted");
-    let body = input;
+    let body = input, storedItem: OutboxItem | undefined;
     if (method === "send") {
       const id = input?.item?.id;
       const { items } = await this.request("GET", "outbox");
       const stored: OutboxItem | undefined = items.find((entry: OutboxItem) => entry.id === id && entry.provider === providerId);
       if (!stored || stored.status !== "sending" || Date.parse(stored.holdUntil) > Date.now()) throw new Error("Send is not claimed or its hold has not ended");
-      const item = structuredClone(stored);
+      storedItem = stored;
+      let item = structuredClone(stored);
       if (item.to.conversationId) {
         const { conversation } = await this.request("GET", `conversations/${encodeURIComponent(item.to.conversationId)}`);
         if (provider.id === "whatsapp-web") item.to.jid = conversation.externalId;
@@ -284,14 +359,14 @@ export class MessagesRuntime {
           if (rootTs) item.replyToExternalId = `${channel}:${rootTs}`;
         }
       }
-      for (const attachment of item.attachments) {
-        await confinedRead(this.diskRoot, attachment.path);
-        attachment.path = path.resolve(this.diskRoot, attachment.path);
-      }
+      for (let index = 0; index < item.attachments.length; index++) item.attachments[index].path = await this.copyOutboxAttachment(stored, index);
+      item = await this.prepareVoice(item, provider);
+      for (const attachment of item.attachments) attachment.path = path.resolve(this.diskRoot, attachment.path);
       body = { item };
     } else if (method === "outboxStatus" || method === "cancelSend") {
       const { items } = await this.request("GET", "outbox");
-      if (!items.some((item: OutboxItem) => item.provider === providerId && item.externalReceipt?.id === input?.id)) throw new Error("Unknown delegated send");
+      storedItem = items.find((item: OutboxItem) => item.provider === providerId && item.externalReceipt?.id === input?.id);
+      if (!storedItem) throw new Error("Unknown delegated send");
       body = { id: input.id };
     } else {
       if (!provider.accounts.some(account => account.id === input?.account)) throw new Error("Unknown provider account");
@@ -304,11 +379,16 @@ export class MessagesRuntime {
         body = { account: input.account, [key]: input[key] };
       }
     }
-    return this.invokeCallback(provider, method, body);
+    const result = await this.invokeCallback(provider, method, body);
+    if (storedItem && ((method === "send" && result.externalId) || method === "cancelSend" || ["sent", "failed", "cancelled"].includes(result.status))) await this.clearTransferredAttachments(storedItem);
+    return result;
   }
   private async executeWork(kind: string, item: any): Promise<Record<string, unknown>> {
     if (kind === "mirrors") {
-      const receipt = await deliverMessageMirrors(item.message, { env: this.env, fetchImpl: this.fetchImpl });
+      let previous: any[] = []; try { const value = typeof item.receipt === "string" ? JSON.parse(item.receipt) : item.receipt; if (Array.isArray(value)) previous = value; } catch { /* An old empty receipt has no successful targets. */ }
+      const identity = readNodeIdentity();
+      const publicAppUrl = peerAppBase(identity.tailnetHost, identity.appOrigin);
+      const receipt = await deliverMessageMirrors(item.message, { env: this.env, fetchImpl: this.fetchImpl, publicAppUrl, serveMap: await getTailnetServeMap(), deliveredTargets: previous.filter(target => target.ok).map(target => target.id) });
       return { receipt, ...(receipt.some(row => !row.ok) ? { error: "One or more notification mirrors failed" } : {}) };
     }
     if (kind === "effects" && item.kind === "applyRule") return this.request("POST", `rules/${encodeURIComponent(item.payload.ruleId)}/run`);
@@ -330,7 +410,7 @@ export class MessagesRuntime {
       await this.processMedia({ ...message, attachments }); return {};
     }
     const provider = this.providers.find(provider => provider.id === (message?.provider ?? item.provider));
-    if (!provider || provider.setupHint || provider.health?.ok === false) throw new Error("Provider needs setup in Connectors");
+    if (!provider || !messageAccountAvailable(provider, message?.account ?? item.account)) throw new Error("Provider account needs setup in Connectors");
     if (kind === "effects" && item.kind === "downloadAttachment") {
       const attachment = message.attachments.find((attachment: Attachment) => attachment.id === item.payload.attachmentId);
       if (!attachment) throw new Error("Attachment not found");
@@ -346,7 +426,7 @@ export class MessagesRuntime {
       return {};
     }
     if (kind === "outbox") {
-      const sentItem: OutboxItem & { mail?: any } = structuredClone(item);
+      let sentItem: OutboxItem & { mail?: any } = structuredClone(item);
       let conversation;
       if (sentItem.to.conversationId) {
         ({ conversation } = await this.request("GET", `conversations/${encodeURIComponent(sentItem.to.conversationId)}`));
@@ -368,11 +448,8 @@ export class MessagesRuntime {
         if (sent.status === "failed" || sent.status === "cancelled") throw new Error(sent.error || "Provider send was cancelled");
         if (!sent.externalId) return { pending: true, externalReceipt: item.externalReceipt, nextAttemptAt: new Date(Date.now() + 5_000).toISOString() };
       } else {
-        if (provider.callbackBaseUrl) {
-          if (provider.ownerNode !== this.node && sentItem.attachments.length) throw new Error("Attachments must be sent through the provider owner node");
-          sentItem.attachments = sentItem.attachments.map(attachment => ({ ...attachment, path: path.resolve(this.diskRoot, attachment.path) }));
-        }
-        sent = await adapter.send(sentItem);
+        if (provider.callbackBaseUrl) sent = await this.invokeProviderSend(provider, sentItem);
+        else { sentItem = await this.prepareVoice(sentItem, provider); sent = await adapter.send(sentItem); }
         if (sent.queued) {
           if (!provider.managesAgentHold || !sent.id) throw new Error("Provider returned an unsupported send receipt");
           return { pending: true, externalReceipt: { id: sent.id, executeAt: sent.executeAt }, nextAttemptAt: sent.executeAt || new Date(Date.now() + 5_000).toISOString() };
@@ -385,10 +462,16 @@ export class MessagesRuntime {
         provider.kind === "mail" ? "mail-thread" : "dm", sentItem.to.subject || sentItem.to.address || provider.label, timestamp);
       const record = baseMessage(provider.id, item.account, sent.externalId, conversation.id, timestamp, timestamp);
       Object.assign(record, { direction: "out", bodyText: item.body.markdown, bodyMarkdown: item.body.markdown, subject: sentItem.to.subject || null,
-        sender: { id: account?.address || item.account, name: account?.label || "Me", address: account?.address, isMe: true }, read: true });
+        sender: { id: account?.address || item.account, name: account?.label || "Me", address: account?.address, isMe: true }, read: true,
+        attachments: await Promise.all(item.attachments.map(async (attachment: any, index: number) => ({ ...attachment, id: `${item.id}-${index}`, kind: attachment.mime.startsWith("image/") ? "image" : attachment.mime.startsWith("audio/") ? "audio" : "file",
+          size: (await confinedRead(this.diskRoot, attachment.path)).length, ownerNode: item.ownerNode ?? this.node, thumbPath: null, playbackPath: null, durationMs: null, transcript: null, transcriptStatus: "none" }))) });
       return { externalId: sent.externalId, message: record, conversation };
     }
     throw new Error("Unknown Messages work item");
+  }
+  private async invokeProviderSend(provider: Descriptor, item: OutboxItem): Promise<any> {
+    if (provider.ownerNode === this.node) return this.invokeProviderAction(provider.id, "send", { item: { id: item.id } });
+    return this.invokeCallback(provider, "send", { item: { id: item.id } });
   }
   async cancelOutbox(id: string) {
     const { items } = await this.request("GET", "outbox");
@@ -408,10 +491,14 @@ export class MessagesRuntime {
     for (let count = 0; count < 10 && !this.stopped; count++) {
       const claim = await this.request("POST", `work/${kind}/claim`);
       if (!claim.item) return;
+      const id = kind === "mirrors" ? claim.item.messageId : claim.item.id;
+      const renewal = setInterval(() => void this.request("POST", `work/${kind}/${encodeURIComponent(id)}/renew`, { claimToken: claim.claimToken })
+        .catch(() => this.log.error("[messages] Work claim renewal unavailable")), 20_000);
+      renewal.unref();
       let result;
       try { result = await this.executeWork(kind, claim.item); }
       catch (error: any) { result = { error: String(error.message).slice(0, 500) }; }
-      const id = kind === "mirrors" ? claim.item.messageId : claim.item.id;
+      finally { clearInterval(renewal); }
       await this.request("POST", `work/${kind}/${encodeURIComponent(id)}/finish`, { ...result, claimToken: claim.claimToken });
     }
   }
@@ -440,6 +527,10 @@ export async function cancelMessageOutbox(id: string) {
 export async function invokeMessageProviderAction(providerId: string, method: string, input: unknown) {
   const runtime = runtimeGlobal.__garrisonMessagesRuntime ?? new MessagesRuntime();
   return runtime.invokeProviderAction(providerId, method, input);
+}
+export async function serveMessageOutboxAttachment(id: string, index: number) {
+  const runtime = runtimeGlobal.__garrisonMessagesRuntime ?? new MessagesRuntime();
+  return runtime.outboxAttachment(id, index);
 }
 export async function ensureMessagesRuntime(): Promise<void> {
   if (!stateEnrolled() || process.env.NODE_ENV === "test" || process.env.GARRISON_MESSAGES_DISABLE_RUNTIME === "1") return;

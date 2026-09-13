@@ -48,3 +48,17 @@ it('propagates a failed baseline through consecutive failed optimistic changes',
     expect(getMessage(f.db,m.id)).toMatchObject({read:false,starred:false});
   } finally { f.close(); }
 });
+
+it('returns failed Gmail fields to provider authority on the next native sync',()=>{
+  const f=messagesDbFixture();
+  try {
+    const m=f.ingest('native-after-failure');
+    patchMessage(f.db,f.node,m.id,{read:true});
+    const claim=claimWork(f.db,f.node,'effects');
+    finish(f,claim,'Provider rejected read');
+    expect(getMessage(f.db,m.id).read).toBe(false);
+    expect(JSON.parse(f.db.prepare('SELECT localState FROM messages WHERE id=?').get(m.id).localState)).not.toHaveProperty('read');
+    f.ingest('native-after-failure',{read:true});
+    expect(getMessage(f.db,m.id).read).toBe(true);
+  } finally { f.close(); }
+});

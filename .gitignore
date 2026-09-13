@@ -149,3 +149,10 @@ bench/prefix-2026-08-29/capture/req-*.json
 # Archive scratch browser outputs (evidence remains on its owner node)
 /test-results/archive-*/
 /test-results/.last-run.json
+
+# Machine-local runtime instructions and configuration
+/CLAUDE.md
+/.claude/
+/test-results/messages-*/
+
+/.next-messages-check/

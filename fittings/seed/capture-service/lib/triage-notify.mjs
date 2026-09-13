@@ -75,6 +75,7 @@ export class CompanionRelayNotifier {
       const message = await emitSystemMessage(systemInputFromNotification({
         title: params.title || "Garrison", text: renderTemplate(template, params), link: params.cardUrl,
         idempotencyKey: params.idempotencyKey, cardId: params.cardId,
+        mirrorContext:{tag:template,priority:template==="wake_confirmation"?"interactive":"routine"},
       }, "capture"), { env: this.env, fetchImpl: this.fetchImpl });
       return [{ means: "messages", ok: true, queued: true, messageId: message.id }];
     } catch (error) {

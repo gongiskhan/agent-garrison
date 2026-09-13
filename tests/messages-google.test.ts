@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import raw from "../test/fixtures/messages/google/message.json";
 import history from "../test/fixtures/messages/google/history.json";
+import labelCatalog from "../test/fixtures/messages/google/labels.json";
+import replyHeaders from "../test/fixtures/messages/google/reply-headers.json";
 import { buildGoogleMime, createGoogleActionAdapter, createGoogleReadAdapter, createGoogleSendAdapter,
   googleDescriptor, markdownToMail, normalizeGoogleMessage, parseMailParticipants } from "../packages/messages/providers/google";
 import { sanitizeMailHtml } from "../packages/messages/providers/mail-html";
@@ -12,8 +14,28 @@ const item: OutboxItem = { id: "mail-send", provider: "google", account: "owner@
   body: { markdown: "**Hello**\n\n```js\nconst a = 1;\n```" }, attachments: [], replyToExternalId: null, origin: "user", holdUntil: now().toISOString(), status: "held", error: null };
 
 describe("Messages Google adapter", () => {
+  it("sends a Gmail thread reply with structured RFC headers without fetching the original body", async () => {
+    const fetchImpl = vi.fn(async (url: URL | RequestInfo) => response(String(url).includes("format=metadata") ? replyHeaders : { id: "sent-reply", threadId: "thread-001" })) as typeof fetch;
+    await createGoogleSendAdapter({ token: "fixture", fetchImpl }).send({ ...item, replyToExternalId: "mail-001" });
+    const calls = vi.mocked(fetchImpl).mock.calls;
+    expect(calls).toHaveLength(2);
+    const metadata = new URL(String(calls[0][0]));
+    expect(metadata.searchParams.get("fields")).toBe("id,threadId,payload/headers");
+    expect(metadata.searchParams.getAll("metadataHeaders")).toEqual(["Message-ID", "References", "Subject"]);
+    const payload = JSON.parse(String(calls[1][1]?.body));
+    expect(payload.threadId).toBe("thread-001");
+    const mime = Buffer.from(payload.raw, "base64url").toString();
+    expect(mime).toContain("In-Reply-To: <fixture-message@example.test>");
+    expect(mime).toContain("References: <fixture-root@example.test> <fixture-message@example.test>");
+    expect(mime).toContain(Buffer.from("Fixture project update").toString("base64"));
+  });
+  it("does not send an incorrectly threaded reply when provider headers cannot be loaded", async () => {
+    const fetchImpl = vi.fn(async () => response({ id: "mail-001", threadId: "thread-001", payload: { headers: [] } })) as typeof fetch;
+    await expect(createGoogleSendAdapter({ token: "fixture", fetchImpl }).send({ ...item, replyToExternalId: "mail-001" })).rejects.toThrow("reply headers");
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
   it("lists existing label ids and names without fetching message content", async () => {
-    const fetchImpl = vi.fn(async () => response({ labels: [{ id: "Label_1", name: "Clients", type: "user" }, { id: "INBOX", name: "Inbox", type: "system" }, { id: "malformed" }] })) as typeof fetch;
+    const fetchImpl = vi.fn(async () => response({ labels: [...labelCatalog.labels, { id: "malformed" }] })) as typeof fetch;
     const labels = await createGoogleReadAdapter({ token: "fixture", fetchImpl }).listLabels();
     expect(labels).toEqual([{ id: "Label_1", name: "Clients", type: "user" }, { id: "INBOX", name: "Inbox", type: "system" }]);
     expect(fetchImpl).toHaveBeenCalledOnce();
@@ -100,6 +122,13 @@ describe("Messages Google adapter", () => {
     expect(JSON.parse(String(calls[0][1]?.body))).toEqual({ ids: ["a"], addLabelIds: [], removeLabelIds: ["UNREAD"] });
     expect(String(calls[3][0])).toContain("threads/thread/modify");
     expect(String(calls[4][0])).toContain("messages/a/trash");
+  });
+  it("applies only native ids from this account catalog and leaves Garrison labels local", async () => {
+    const fetchImpl = vi.fn(async (url: URL | RequestInfo) => response(String(url).endsWith("/labels") ? labelCatalog : {})) as typeof fetch;
+    await createGoogleActionAdapter({ token: "fixture", fetchImpl }).setLabels("owner", ["mail-001"], ["Label_1", "Clients", "Local client"], ["Unknown local"]);
+    const calls = vi.mocked(fetchImpl).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(JSON.parse(String(calls[1][1]?.body))).toEqual({ ids: ["mail-001"], addLabelIds: ["Label_1"], removeLabelIds: [] });
   });
   it("sanitizes scripts, forms, CSS fetches and remote images", () => {
     const clean = sanitizeMailHtml('<script>alert(1)</script><form><input value="secret"></form><p style="background:url(https://tracker.test/a)">Hello</p><img src="https://tracker.test/pixel"><img srcset="https://tracker.test/2"><a href="javascript:alert(1)">bad</a>');

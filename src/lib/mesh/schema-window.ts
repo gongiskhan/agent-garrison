@@ -11,7 +11,7 @@
 // `min` only when a compatibility floor is genuinely dropped. Widening the
 // window silently is how a node keeps writing against a schema it no longer
 // understands.
-export const CLIENT_SCHEMA = { min: 1, max: 2 } as const;
+export const CLIENT_SCHEMA = { min: 1, max: 3 } as const;
 
 // Reported to the registry so `/mesh` can show which build a peer is running.
 export const CLIENT_VERSION = "garrison-node/1";

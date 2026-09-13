@@ -54,15 +54,21 @@ export function createSlackSendAdapter(options: SlackOptions & SendOptions) {
   return {
     toProviderText: markdownToSlack,
     async send(item: OutboxItem) {
-      const channel = item.to.channel;
+      let channel = item.to.channel;
       if (!channel || !/^[A-Z0-9]+$/.test(channel)) throw new Error("A Slack channel is required");
       const text = markdownToSlack(item.body.markdown);
       const threadTs = item.replyToExternalId ? externalParts(item.replyToExternalId).ts : undefined;
       if (!item.attachments.length) {
         const sent = await request("chat.postMessage", { channel, text, thread_ts: threadTs, client_msg_id: item.id, unfurl_links: false, unfurl_media: false }, true);
-        return { externalId: `${channel}:${sent.ts}` };
+        const sentChannel = typeof sent.channel === "string" && /^[A-Z0-9]+$/.test(sent.channel) ? sent.channel : channel;
+        return { externalId: `${sentChannel}:${sent.ts}`, conversationExternalId: sentChannel };
       }
       if (!options.readFile) throw new Error("Attachment storage is unavailable");
+      if (/^[UW]/.test(channel)) {
+        const opened = await request("conversations.open", { users: channel }, true);
+        if (typeof opened.channel?.id !== "string" || !/^D[A-Z0-9]+$/.test(opened.channel.id)) throw new Error("Slack did not return the direct message channel");
+        channel = String(opened.channel.id);
+      }
       const uploaded: { id: string; title: string }[] = [];
       for (const file of item.attachments) {
         const bytes = await options.readFile(file.path);
@@ -75,12 +81,12 @@ export function createSlackSendAdapter(options: SlackOptions & SendOptions) {
       const result = await request("files.completeUploadExternal", { files: uploaded, channel_id: channel, initial_comment: text, thread_ts: threadTs }, true);
       const file = result.files?.[0];
       const shareTs = file?.shares?.private?.[channel]?.[0]?.ts ?? file?.shares?.public?.[channel]?.[0]?.ts;
-      if (shareTs) return { externalId: `${channel}:${shareTs}` };
+      if (shareTs) return { externalId: `${channel}:${shareTs}`, conversationExternalId: channel };
       // Completion can omit the share timestamp. Query the uploaded file metadata before reporting it.
       const detail = await request("files.info", { file: uploaded[0].id });
       const verifiedTs = detail.file?.shares?.private?.[channel]?.[0]?.ts ?? detail.file?.shares?.public?.[channel]?.[0]?.ts;
       if (!verifiedTs) throw new Error("Slack uploaded the file but has not returned its message timestamp; check the conversation before retrying");
-      return { externalId: `${channel}:${verifiedTs}` };
+      return { externalId: `${channel}:${verifiedTs}`, conversationExternalId: channel };
     }
   };
 }

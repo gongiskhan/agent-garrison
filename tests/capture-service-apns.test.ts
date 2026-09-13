@@ -1,3 +1,4 @@
+import { captureMirrorSink } from "./messages-capture-fixture";
 // Capture service — M5 APNs transport, no network anywhere.
 //
 // JWT: generated with a throwaway P-256 key and verified cryptographically
@@ -178,6 +179,7 @@ describe("companion notifier", () => {
         sleeps.push(ms);
       }
     });
+    captureMirrorSink(notifier);
     return { notifier, store, counters, sleeps, calls, home, cfg };
   }
 
@@ -414,6 +416,7 @@ describe("the /notify sink", () => {
       APNS_P8: P8_PEM
     });
     const handle = await startServer({ ...cfg, port: 0, notifyEnabled: true });
+    captureMirrorSink((handle as any).notifier);
     cleanups.push(() => {
       handle.ingress.close();
       handle.server.close();

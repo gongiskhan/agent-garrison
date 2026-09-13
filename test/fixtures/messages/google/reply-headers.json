@@ -1,0 +1,11 @@
+{
+  "id": "mail-001",
+  "threadId": "thread-001",
+  "payload": {
+    "headers": [
+      { "name": "Message-ID", "value": "<fixture-message@example.test>" },
+      { "name": "References", "value": "<fixture-root@example.test>" },
+      { "name": "Subject", "value": "Fixture project update" }
+    ]
+  }
+}
