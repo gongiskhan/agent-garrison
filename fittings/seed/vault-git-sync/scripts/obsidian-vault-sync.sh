@@ -97,6 +97,15 @@ fi
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
 
+# Install only repository-local Git metadata. Original documents retain Git's
+# normal merge behavior; identical-source extractions converge as whole files.
+if [ -f "$SYNC_SCRIPT_DIR/git-derived-merge.mjs" ]; then
+  if ! node "$SYNC_SCRIPT_DIR/git-derived-merge.mjs" install "$VAULT" >>"$LOG" 2>&1; then
+    write_status error "Archive derived merge setup failed; no sync performed."
+    exit 1
+  fi
+fi
+
 # 0. Mirror Claude's native Garrison project memory into the vault (ported from
 #    the retired ~/.claude/tools copy, which the systemd timer used to run).
 #    FAIL CLOSED when the mirror exists: a vault commit must not silently omit
