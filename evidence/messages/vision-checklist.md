@@ -136,3 +136,8 @@ The phone checks use browser emulation. The lead checked the images directly. Ea
 
 - `live/pro-messages-public-iphone.png`: PASS. The lead viewed the deployed HTTPS screen at 390 by 844. Header, tabs and counts are visible, the short search chip and Clear fit, the empty state is legible and the page has no horizontal overflow or overlap.
 - `live/pro-messages-public-desktop.png`: PASS. The lead viewed the deployed HTTPS screen at 1440 by 900. The list and conversation panes align, search controls fit and the shell reports 40/40 checks and 15/15 views. No unrelated message content is captured.
+
+## Public Madrid deployment
+
+- `live/madrid-messages-public-iphone.png`: PASS. The lead viewed the HTTPS screen at 390 by 844. Header, tabs, counts, short search chip and Clear fit without clipping or overlap. The empty state is legible.
+- `live/madrid-messages-public-desktop.png`: PASS. The lead viewed the HTTPS screen at 1440 by 900. Both panes and filter controls align, and the shell reports 40/40 checks and 15/15 views. No unrelated message content is captured.

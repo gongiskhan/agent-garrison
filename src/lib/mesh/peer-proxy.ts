@@ -319,8 +319,8 @@ export async function forwardToPeer(input: ForwardInput): Promise<Response> {
   }
 
   try {
-    const text = await upstream.text();
-    return new Response(text, {
+    const body = await upstream.arrayBuffer();
+    return new Response(body, {
       status: upstream.status,
       headers: {
         "content-type": upstreamType || "application/json",
