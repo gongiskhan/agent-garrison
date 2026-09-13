@@ -1,6 +1,6 @@
 # Final Messages review
 
-This is the single end-of-implementation review required by the brief. Its scope is limited to the four properties below. The findings below were corrected and checked with focused regressions. Available-provider live acceptance and the full production validation remain separate gates.
+This is the single end-of-implementation review required by the brief. Its scope is limited to the four properties below. The findings below were corrected and checked with focused regressions. Available-provider live acceptance and full production validation were checked separately and are now recorded in the acceptance report.
 
 ## Ingestion and message data
 
@@ -18,4 +18,4 @@ A later stream event previously advanced the durable polling cursor, potentially
 
 The lead viewed the phone and desktop journeys. The review found a pending-action sheet covered by a toast, stale queued copy after successful replay, and an older performance capture with the shell scrolled away. These were corrected and recaptured. The lead viewed the final captures, including a fresh-path copy of the phone performance screenshot to avoid a reused image path. Conversation headers, inline system actions, mail controls, image viewer, audio player and transcript, shared composer, filter controls, saved views, provider settings and rule actions otherwise fit their phone layouts.
 
-Final production build, complete suite and available-provider live acceptance remain required. Browser viewport validation does not claim physical-phone or acoustic acceptance.
+Final production builds and the complete suite pass. The final self-only WhatsApp run confirms provider acknowledgments, transcription, search and full image/audio decoding; browser playback at 1.5x passes on both profiles. Google and Slack remain pending consent. Browser viewport validation does not claim physical-phone or acoustic acceptance. The later binary proxy correction was a bounded transport fix covered by 77 focused tests and real playback, without another broad review.

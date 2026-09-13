@@ -111,3 +111,5 @@ node fittings/seed/roadmaps/scripts/roadmap.mjs validate roadmap.json
 ```
 
 Owner-local evidence is in `evidence/messages/p1` through `p8`, live self-send evidence in `evidence/messages/live`, and individual visual verdicts in `evidence/messages/vision-checklist.md`. Phase 0 findings record adjusted assumptions and pending provider consent. Browser emulation is distinct from physical-phone acceptance.
+
+The completed rollout, per-phase counts, live results and consent-pending providers are recorded in [acceptance-report.md](acceptance-report.md).

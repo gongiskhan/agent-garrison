@@ -8,4 +8,4 @@ The lead viewed all 22 final screenshots in `evidence/messages/p7`. Each of thes
 
 The phase batch recorded 20 passing relational-store rules and views tests, a real message-to-card journey including the quoted data boundary, and three registry checks. The full Messages browser run passed 56 cases; the final focused run passed 12 cases, including two additional recording cases, for 58 unique cases across phases.
 
-Final screenshot verdicts are recorded in [vision-checklist.md](../../evidence/messages/vision-checklist.md). Earlier available-provider live gates remain open as described in Phases 5 and 6; their completion and ordered acceptance sentinels are recorded by the lead.
+Final screenshot verdicts are recorded in [vision-checklist.md](../../evidence/messages/vision-checklist.md). The available-provider gates in Phases 5 and 6 are closed by real provider acknowledgments, transcription and browser media playback. Google and Slack remain pending consent, with their fixture journeys complete. Phase 8 records the repeated final live smoke and rollout acceptance.
