@@ -8,7 +8,7 @@
 // cleanly elsewhere.
 
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -255,10 +255,11 @@ describe("hook-driven lifecycle", () => {
 
 const KEY = path.join(os.homedir(), ".ssh", "garrison-remote-shell");
 const sshSelfOk = (() => {
+  if (!existsSync(KEY)) return false;
   const r = spawnSync("ssh", [
     "-i", KEY, "-o", "BatchMode=yes", "-o", "ConnectTimeout=3",
     "-o", "StrictHostKeyChecking=accept-new",
-    `${os.userInfo().username}@127.0.0.1`, "true"
+    `${os.userInfo().username}@127.0.0.1`, "command -v tmux >/dev/null"
   ], { timeout: 8000 });
   if (r.status !== 0) return false;
   return spawnSync("tmux", ["-V"], { timeout: 3000 }).status === 0;

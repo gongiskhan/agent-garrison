@@ -37,6 +37,7 @@
     ".next-build/types/**/*.ts",
     ".next-repro/types/**/*.ts",
     ".next-e2e/types/**/*.ts",
+    ".next-e2e-archive/types/**/*.ts",
     ".next-prod/types/**/*.ts"
   ],
   "exclude": [

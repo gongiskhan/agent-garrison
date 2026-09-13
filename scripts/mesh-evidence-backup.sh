@@ -30,7 +30,7 @@ if [ -n "${RSYNC_TARGET_OVERRIDE:-}" ]; then SOURCE="${RSYNC_TARGET_OVERRIDE%/}/
 mkdir -p "$SINK/garrison" "$SINK/walkthrough"
 
 # Root 1: ~/.garrison — runs/ (plans, decisions, gates, evidence) + results/
-rsync -a "${DRY[@]}" --prune-empty-dirs \
+rsync -a ${DRY[@]+"${DRY[@]}"} --prune-empty-dirs \
   --include='runs/' \
   --include='runs/**/' \
   --include='runs/**/FLOW_PLAN.md' \
@@ -49,7 +49,7 @@ rsync -a "${DRY[@]}" --prune-empty-dirs \
   || echo "[evidence-backup] $NODE: ~/.garrison pull incomplete (dir may not exist yet)"
 
 # Root 2: ~/.walkthrough/runs — the finished artifacts, never the work dirs.
-rsync -a "${DRY[@]}" --prune-empty-dirs \
+rsync -a ${DRY[@]+"${DRY[@]}"} --prune-empty-dirs \
   --include='*/' \
   --include='final.mp4' \
   --include='manifest.json' \
@@ -64,7 +64,7 @@ rsync -a "${DRY[@]}" --prune-empty-dirs \
 # Conversation ledgers have no rolling prune. A failed pull must fail the job:
 # a silently stale conversation backup cannot satisfy the restore drill.
 mkdir -p "$CONVERSATIONS_SINK"
-if rsync -a "${DRY[@]}" --exclude='**/work/**' --exclude='*.part' \
+if rsync -a ${DRY[@]+"${DRY[@]}"} --exclude='**/work/**' --exclude='*.part' \
   -e "ssh -o BatchMode=yes" \
   "${SOURCE}.garrison/conversations/" "$CONVERSATIONS_SINK/"; then
   :
