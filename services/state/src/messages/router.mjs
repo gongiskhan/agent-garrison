@@ -61,6 +61,7 @@ export function messagesRoute(db,actor,method,path,url,body={}) {
   }
   if (p[0]==='retention' && method==='POST') return s.pruneMessages(db,node);
   if (method==='GET' && p.length===0) return s.listMessages(db,decode(url.searchParams.get('filter')),url.searchParams.get('cursor'),url.searchParams.get('limit'));
+  if (method==='GET' && p.length===2 && p[1]==='effects') return s.listProviderStateEffects(db,p[0]);
   if (method==='GET' && p.length===1) { const message=s.getMessage(db,p[0]); if (!message) throw new s.MessagesError(404,'Message not found'); return {message}; }
   if (method==='POST' && p[1]==='download') { const message=s.getMessage(db,p[0]); if(!message?.attachments.some(a=>a.id===body.attachmentId)) throw new s.MessagesError(404,'Attachment not found'); const id=`download:${p[0]}:${body.attachmentId}`; db.prepare("INSERT OR IGNORE INTO messages_effects(id,messageId,kind,payload,createdAt) VALUES (?,?,'downloadAttachment',?,?)").run(id,p[0],JSON.stringify({attachmentId:body.attachmentId,ownerNode:message.attachments.find(a=>a.id===body.attachmentId).ownerNode??message.ownerNode}),new Date().toISOString()); return {jobId:id}; }
   if (method==='POST' && p[1]==='media') return s.updateMedia(db,node,p[0],body.attachment);
