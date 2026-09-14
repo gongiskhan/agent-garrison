@@ -1,3 +1,16 @@
+# Projects - 2026-09-13
+
+Projects brings files and git into Garrison's sidebar. Browse repositories on
+this node or a peer, inspect changes and commits, and fetch, commit and push,
+pull from others or file merge cards. Project trees stay read-only.
+
+Garrison files remains the place for documents, recordings, runs and uploads.
+You can edit those artifacts on their owning node. Projects and its merge pump
+remain available while a composition is down, and healthy remote-shell
+transports appear as read-only machines. The layout supports phone and desktop
+in both themes.
+
+
 # Archive — 2026-09-11
 
 Archive is now at `/archive`: folder browsing for your documents and
