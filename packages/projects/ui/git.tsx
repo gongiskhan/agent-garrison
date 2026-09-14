@@ -3,7 +3,7 @@ import Link from 'next/link';
 import {useSearchParams} from 'next/navigation';
 import {ChevronLeft, LoaderCircle, RefreshCw} from 'lucide-react';
 import {projectsUrl} from '../src/urls.mjs';
-import {ApiError, Banner, Sheet, Skeleton, request, type NodeRef, type ProjectRef} from './common';
+import {ApiError, Banner, Sheet, Skeleton, failureMessage, request, type NodeRef, type ProjectRef} from './common';
 import {Diff, type GitDiff} from './diff';
 import {commitSentence, pullRows, pushRows, relativeTime, STATE_UNAVAILABLE, type CommitPushResult, type PullResult, type PushResult, type ResultRow} from './git-results';
 
@@ -42,7 +42,7 @@ export function Git({reference, node, base, stateUnavailable = false}: {referenc
   useEffect(() => {if (stateUnavailable) setUnavailable(true);}, [stateUnavailable]);
   const reportError = useCallback((failure: unknown) => {
     if (failure instanceof ApiError && failure.status === 503) {setUnavailable(true); setError(STATE_UNAVAILABLE);}
-    else setError(failure instanceof Error ? failure.message : `${node.name} did not answer.`);
+    else setError(failureMessage(failure, node.name));
   }, [node.name]);
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const [nextStatus, nextLog] = await Promise.all([request<GitStatus>(statusUrl, {signal}), request<GitLog>(logUrl, {signal})]);
@@ -66,7 +66,7 @@ export function Git({reference, node, base, stateUnavailable = false}: {referenc
     void request<GitDiff>(diffUrl, {signal: controller.signal}).then(setDiff).catch(failure => {
       if (controller.signal.aborted) return;
       if (failure instanceof ApiError && failure.status === 415) setBinary(true);
-      else setDiffError(failure instanceof Error ? failure.message : `${node.name} did not answer.`);
+      else setDiffError(failureMessage(failure, node.name));
     }).finally(() => {if (!controller.signal.aborted) setDiffLoading(false);});
     return () => controller.abort();
   }, [diffUrl, diffPath, diffRevision, node.name]);

@@ -13,8 +13,9 @@ async function safeArea(page:Page,landscape=false){
 async function insideSafeArea(page:Page,landscape=false){
  const insets=landscape?{top:0,bottom:21,left:59,right:59}:{top:59,bottom:34,left:0,right:0};
  const bounds=await page.locator('.archive-viewer button,.archive-viewer a').evaluateAll(elements=>elements.map(el=>{const r=el.getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right,width:r.width,height:r.height};}));
+ // DOM rectangles can carry floating point noise below one browser layout unit.
  const viewport=page.viewportSize()!;
- for(const b of bounds){expect(b.top).toBeGreaterThanOrEqual(insets.top);expect(b.bottom).toBeLessThanOrEqual(viewport.height-insets.bottom);expect(b.left).toBeGreaterThanOrEqual(insets.left);expect(b.right).toBeLessThanOrEqual(viewport.width-insets.right);expect(b.height).toBeGreaterThanOrEqual(44);expect(b.width).toBeGreaterThanOrEqual(44);}
+ for(const b of bounds){expect(b.top).toBeGreaterThanOrEqual(insets.top);expect(b.bottom).toBeLessThanOrEqual(viewport.height-insets.bottom);expect(b.left).toBeGreaterThanOrEqual(insets.left);expect(b.right).toBeLessThanOrEqual(viewport.width-insets.right);expect(Math.round(b.height*64)/64).toBeGreaterThanOrEqual(44);expect(Math.round(b.width*64)/64).toBeGreaterThanOrEqual(44);}
  await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 }
 async function screenshot(page:Page,app:ArchiveApp,info:TestInfo,name:string){

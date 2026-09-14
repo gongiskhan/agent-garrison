@@ -55,6 +55,21 @@ interface AllowRule {
 // Exactly the endpoints cross-node watch / steer / stop / answer need. Adding a
 // row here widens what every node in the mesh may do to every other node.
 const ALLOW: readonly AllowRule[] = [
+  { shape: ["projects"], methods: ["GET"], upstream: "app" },
+  { shape: ["projects", ID, "summary"], methods: ["GET"], upstream: "app" },
+  { shape: ["projects", ID, "tree"], methods: ["GET"], upstream: "app" },
+  { shape: ["projects", ID, "file"], methods: ["GET"], upstream: "app" },
+  { shape: ["projects", ID, "git", "status"], methods: ["GET"], upstream: "app" },
+  { shape: ["projects", ID, "git", "diff"], methods: ["GET"], upstream: "app" },
+  { shape: ["projects", ID, "git", "log"], methods: ["GET"], upstream: "app" },
+  { shape: ["projects", ID, "git", "fetch"], methods: ["POST"], upstream: "app" },
+  { shape: ["projects", ID, "git", "commit-push"], methods: ["POST"], upstream: "app" },
+  { shape: ["projects", ID, "git", "pull-from-others"], methods: ["POST"], upstream: "app" },
+  { shape: ["projects", ID, "git", "push-to-others"], methods: ["POST"], upstream: "app" },
+  { shape: ["projects", "machines", ID, "tree"], methods: ["GET"], upstream: "app" },
+  { shape: ["projects", "machines", ID, "file"], methods: ["GET"], upstream: "app" },
+  { shape: ["workspace", "tree"], methods: ["GET"], upstream: "app" },
+  { shape: ["workspace", "file"], methods: ["GET"], upstream: "app" },
   { shape: ['messages','outbox',ID,'attachments',ID], methods: ['GET'], upstream: 'app' },
   ...['setRead','archive','delete','send','outboxStatus','cancelSend'].map((action): AllowRule => ({ shape: ['messages','providers',ID,'adapter',action], methods: ['POST'], upstream: 'app' })),
   { shape: ["messages", "attachments", ID, ID], methods: ["GET"], upstream: "app" },
@@ -158,6 +173,14 @@ export function allowListDescription(): string[] {
     const path = rule.shape.map((s) => (s === ID ? ":id" : s)).join("/");
     return `${rule.methods.join("|")} ${path}${rule.sse ? " (SSE)" : ""}`;
   });
+}
+
+/** The route applies these budgets only after allow-list classification. */
+export function projectsPeerTimeout(method: string, route: PeerRoute): number | undefined {
+  if (method !== "POST" || route.upstream !== "app") return undefined;
+  if (/^\/api\/projects\/[^/]+\/git\/fetch$/.test(route.path)) return 60_000;
+  if (/^\/api\/projects\/[^/]+\/git\/(commit-push|pull-from-others|push-to-others)$/.test(route.path)) return 180_000;
+  return undefined;
 }
 
 // ── Where the peer is ───────────────────────────────────────────────────────

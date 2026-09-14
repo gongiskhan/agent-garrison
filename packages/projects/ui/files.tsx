@@ -12,7 +12,7 @@ import xml from 'highlight.js/lib/languages/xml';
 import yaml from 'highlight.js/lib/languages/yaml';
 import bash from 'highlight.js/lib/languages/bash';
 import {projectsUrl, workspaceUrl} from '../src/urls.mjs';
-import {ApiError, Banner, Sheet, Skeleton, request, sizeLabel, type Bridge, type ProjectRef} from './common';
+import {ApiError, Banner, Sheet, Skeleton, failureMessage, request, sizeLabel, type Bridge, type ProjectRef} from './common';
 
 for (const [name, language] of Object.entries({javascript, typescript, json, python, css, xml, yaml, bash})) hljs.registerLanguage(name, language);
 const languages: Record<string, string> = {js: 'javascript', jsx: 'javascript', mjs: 'javascript', ts: 'typescript', tsx: 'typescript', json: 'json', py: 'python', css: 'css', html: 'xml', xml: 'xml', yml: 'yaml', yaml: 'yaml', sh: 'bash'};
@@ -29,7 +29,7 @@ function Code({file}: {file: FileBody}) {
   return <div className="projects-code-scroll"><pre className="projects-code"><span className="projects-line-numbers" aria-hidden="true">{file.content.split('\n').map((_, index) => <span key={index}>{index + 1}</span>)}</span><code dangerouslySetInnerHTML={{__html: html}}/></pre></div>;
 }
 
-export function Files({reference, writable, title, base, bridge, dirtyPaths = []}: {reference: ProjectRef; writable: boolean; title: string; base: string; bridge: Bridge; dirtyPaths?: string[]}) {
+export function Files({reference, writable, title, base, bridge, dirtyPaths = [], nodeName = reference.node}: {reference: ProjectRef; writable: boolean; title: string; base: string; bridge: Bridge; dirtyPaths?: string[]; nodeName?: string}) {
   const path = useSearchParams().get('path') || '';
   const [tree, setTree] = useState<Tree | null>(null), [file, setFile] = useState<FileBody | null>(null);
   const [error, setError] = useState(''), [loading, setLoading] = useState(true), [revision, refresh] = useState(0);
@@ -55,11 +55,11 @@ export function Files({reference, writable, title, base, bridge, dirtyPaths = []
       } catch (failure) {
         if (controller.signal.aborted) return;
         setError(failure instanceof ApiError && failure.status === 413 ? `This file is too large to open here (${sizeLabel(failure.body.size || 0)}).`
-          : failure instanceof ApiError && failure.status === 404 && path ? 'This file is no longer here.' : (failure as Error).message);
+          : failure instanceof ApiError && failure.status === 404 && path ? 'This file is no longer here.' : failureMessage(failure, nodeName));
       } finally {if (!controller.signal.aborted) setLoading(false);}
     })();
     return () => controller.abort();
-  }, [treeUrl, fileUrl, parentUrl, path, revision]);
+  }, [treeUrl, fileUrl, parentUrl, path, revision, nodeName]);
   useEffect(() => {currentCrumb.current?.scrollIntoView({block: 'nearest', inline: 'end'});}, [tree?.path]);
   useEffect(() => {if (!toast) return; const timer = setTimeout(() => setToast(''), 2500); return () => clearTimeout(timer);}, [toast]);
   const items = tree?.items.filter(entry => entry.name.toLowerCase().includes(filter.toLowerCase())) || [];

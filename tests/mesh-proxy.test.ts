@@ -93,7 +93,7 @@ describe("peer proxy allow-list", () => {
       "POST messages/providers/:id/adapter/outboxStatus", "POST messages/providers/:id/adapter/cancelSend",
       "GET messages/attachments/:id/:id", "GET messages/:id/html",
     ]);
-    expect(allowListDescription()).toHaveLength(42);
+    expect(allowListDescription()).toHaveLength(57);
   });
 
   // These are the paths a generic passthrough WOULD have exposed. The web

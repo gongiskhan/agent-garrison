@@ -1,14 +1,22 @@
-import {useEffect, useRef, type CSSProperties, type ReactNode} from 'react';
+import {useEffect, useRef, type ComponentType, type CSSProperties, type ReactNode} from 'react';
 import {X} from 'lucide-react';
+import {STATE_UNAVAILABLE} from './git-results';
 
 export type NodeRef = {id: string; name: string; accentColor: string; isSelf: boolean; state: 'online' | 'offline' | 'unknown'};
 export type ProjectRef = {node: string; project: string};
 export type ProjectRow = {project: string; root: string; isSelfCheckout: boolean};
 export type ProjectSummary = {project: string; branch: string | null; head: string | null; upstream: string | null; ahead: number; behind: number; dirtyCount: number; stash: number; mergeInProgress: boolean; lastCommitAt: string | null};
 export type ProjectList = {node: NodeRef; devRoot: string; projects: ProjectRow[]; workspace: {root: string; writable: boolean}; machines: {transport: string; label: string; root: string}[]};
-export type Bridge = {render: (source: string) => string};
+export type Bridge = {render: (source: string) => string; NodeChip: ComponentType<{node: NodeRef}>};
 export class ApiError extends Error {
   constructor(public status: number, public body: {error?: string; size?: number}) {super(body.error || 'Request failed');}
+}
+export function failureMessage(failure: unknown, node: string) {
+  if (failure instanceof ApiError) {
+    if (failure.status === 503) return STATE_UNAVAILABLE;
+    if (!failure.body.error || ['peer-unreachable', 'peer-unaddressable', 'peer-read-failed'].includes(failure.body.error)) return `${node} did not answer.`;
+  }
+  return failure instanceof Error ? failure.message : `${node} did not answer.`;
 }
 export async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, {cache: 'no-store', ...options});
@@ -18,10 +26,6 @@ export async function request<T>(url: string, options?: RequestInit): Promise<T>
 }
 export function nodeStyle(node: NodeRef): CSSProperties {
   return {'--node-accent': node.accentColor} as CSSProperties;
-}
-export function NodeChip({node}: {node: NodeRef}) {
-  const letters = node.name.split(/[\s._-]+/).filter(Boolean).map(word => word[0]).join('').slice(0, 2).toUpperCase();
-  return <span className="projects-node-chip" style={nodeStyle(node)}><span className="projects-monogram" aria-hidden="true">{letters}</span><span>{node.name}</span></span>;
 }
 export function Skeleton({subtitle = false}: {subtitle?: boolean}) {
   return subtitle ? <span className="projects-shimmer projects-subtitle-shimmer" aria-label="Reading summary"/> : <div className="projects-skeleton" aria-label="Reading items">{[0, 1, 2].map(n => <div className="projects-shimmer" key={n}/>)}</div>;
