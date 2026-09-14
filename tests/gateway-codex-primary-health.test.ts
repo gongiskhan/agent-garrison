@@ -99,7 +99,13 @@ describe("gateway with a Codex primary", () => {
       pty_status: "ready",
       session_id: null,
     });
-    expect(fs.readFileSync(path.join(compositionDir, ".garrison", "operative-session-id"), "utf8")).toBe("continue");
+    await expect.poll(() => {
+      try {
+        return fs.readFileSync(path.join(compositionDir, ".garrison", "operative-session-id"), "utf8");
+      } catch {
+        return null;
+      }
+    }, { timeout: 2_000 }).toBe("continue");
 
     for (const [pathname, init] of [
       ["/claude/status", undefined],

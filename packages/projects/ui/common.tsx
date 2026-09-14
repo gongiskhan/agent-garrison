@@ -13,10 +13,10 @@ export class ApiError extends Error {
 }
 export function failureMessage(failure: unknown, node: string) {
   if (failure instanceof ApiError) {
-    if (failure.status === 503) return STATE_UNAVAILABLE;
+    if (failure.status === 503 && (!failure.body.error || /state.*(?:unreachable|unavailable)/i.test(failure.body.error))) return STATE_UNAVAILABLE;
     if (!failure.body.error || ['peer-unreachable', 'peer-unaddressable', 'peer-read-failed'].includes(failure.body.error)) return `${node} did not answer.`;
   }
-  return failure instanceof Error ? failure.message : `${node} did not answer.`;
+  return failure instanceof Error && !(failure instanceof TypeError) ? failure.message : `${node} did not answer.`;
 }
 export async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, {cache: 'no-store', ...options});
@@ -44,9 +44,15 @@ export function Sheet({title, children, close}: {title: string; children: ReactN
   useEffect(() => {
     const dialog = ref.current!;
     dialog.showModal();
-    const resize = () => dialog.style.setProperty('--sheet-height', `${window.visualViewport?.height ?? window.innerHeight}px`);
-    resize(); window.visualViewport?.addEventListener('resize', resize);
-    return () => {window.visualViewport?.removeEventListener('resize', resize); dialog.close();};
+    const viewport = window.visualViewport;
+    const resize = () => {
+      const height = viewport?.height ?? window.innerHeight, top = viewport?.offsetTop ?? 0;
+      dialog.style.setProperty('--sheet-height', `${height}px`);
+      dialog.style.setProperty('--sheet-top', `${top}px`);
+      dialog.style.setProperty('--sheet-bottom', `${Math.max(0, window.innerHeight - height - top)}px`);
+    };
+    resize(); viewport?.addEventListener('resize', resize); viewport?.addEventListener('scroll', resize); window.addEventListener('resize', resize);
+    return () => {viewport?.removeEventListener('resize', resize); viewport?.removeEventListener('scroll', resize); window.removeEventListener('resize', resize); dialog.close();};
   }, []);
   return <dialog className="projects-sheet" ref={ref} aria-label={title} onCancel={event => {event.preventDefault(); close();}}><header><h2>{title}</h2><button type="button" aria-label="Close" onClick={close}><X size={20}/></button></header>{children}</dialog>;
 }

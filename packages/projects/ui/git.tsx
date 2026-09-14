@@ -139,7 +139,7 @@ export function Git({reference, node, base, stateUnavailable = false}: {referenc
       </div>
     </>}
     {sheet && <Sheet title="Commit and push" close={() => showSheet(false)}><form onSubmit={commit}>
-      <label>Commit message<textarea autoFocus value={message} onChange={event => setMessage(event.target.value)} rows={4}/></label>
+      <label>Commit message<textarea aria-label="Commit message" autoFocus value={message} onChange={event => setMessage(event.target.value)} rows={4}/></label>
       <div className="projects-sheet-actions"><button type="button" onClick={() => showSheet(false)}>Cancel</button><button type="submit" disabled={!message.trim() || disabled}>Commit and push</button></div>
     </form></Sheet>}
   </div>;

@@ -15,7 +15,7 @@ export function createMachines({discover = async () => null, fetchImpl = fetch} 
         const base = await discover();
         if (!base) return [];
         const data = await get(base, 'transports', 8000);
-        return (data.transports || []).filter(row => typeof row.name === 'string').map(row => ({transport: row.name, label: row.label || row.name, root: row.cwd || '~'}));
+        return (data.transports || []).filter(row => typeof row.name === 'string' && /^[A-Za-z0-9._-]{1,512}$/.test(row.name) && !['.', '..'].includes(row.name)).map(row => ({transport: row.name, label: row.label || row.name, root: row.cwd || '~'}));
       } catch {return [];}
     },
     async handle(request, transport, action) {
@@ -28,7 +28,7 @@ export function createMachines({discover = async () => null, fetchImpl = fetch} 
       if (!base) throw new HttpError(503, MACHINES_UNAVAILABLE);
       const data = await get(base, `transports/${encodeURIComponent(transport)}/${action === 'tree' ? 'files' : 'file'}?path=${encodeURIComponent(rel)}`, action === 'tree' ? 25_000 : 35_000);
       if (action === 'tree') {
-        const items = (data.entries || []).filter(entry => !isSensitive(entry.path)).map(entry => ({name: entry.name, path: entry.path, type: entry.type === 'dir' ? 'dir' : 'file', size: entry.size}));
+        const items = (data.entries || []).filter(entry => !isSensitive(entry.path)).map(entry => ({name: entry.name, path: entry.path, type: entry.type === 'dir' ? 'dir' : 'file', size: entry.size})).sort((a, b) => a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1);
         return {source: `machine:${transport}`, path: data.path, writable: false, items};
       }
       if (data.truncated || data.size > MAX_TEXT_BYTES) throw new HttpError(413, 'file too large to open in the browser', {size: data.size});

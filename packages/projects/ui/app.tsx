@@ -59,7 +59,7 @@ export function ProjectsHost({view, bridge}: {view: string[]; bridge: Bridge}) {
           }
         }));
       } catch (failure) {
-        if (!signal.aborted) {setError((failure as Error).message); setRosterReady(true);}
+        if (!signal.aborted) {setError((failure as Error).message); setGroups([]); setRosterReady(true);}
       }
     })();
     return () => controller.abort();
@@ -70,8 +70,8 @@ export function ProjectsHost({view, bridge}: {view: string[]; bridge: Bridge}) {
     onTouchStart={event => {touchStart.current = window.scrollY === 0 ? event.touches[0].clientY : null;}}
     onTouchEnd={event => {if (touchStart.current !== null && event.changedTouches[0].clientY - touchStart.current > 80) retry(); touchStart.current = null;}}>
     {error && !(stateUnavailable && owner && view[2] === 'git') && <Banner retry={retry}>{error}</Banner>}
-    <div className="projects-layout"><Picker groups={groups} summaries={summaries} filter={filter} setFilter={setFilter} selected={selected ? {node: view[0], project: view[1]} : undefined} bridge={bridge} retry={retry}/>
-      <main className="projects-main">{selected ? owner ? <Project key={`${view[0]}/${view[1]}`} view={view} node={owner.node} bridge={bridge} stateUnavailable={stateUnavailable}/> : rosterReady ? stateUnavailable ? null : <Banner retry={retry}>This node is not in the mesh.</Banner> : <Skeleton/> : <p className="projects-pick-prompt">Pick a project to browse its files or work with git.</p>}</main>
+    <div className="projects-layout"><Picker groups={groups} summaries={summaries} filter={filter} setFilter={setFilter} selected={selected ? {node: view[0], project: view[1]} : undefined} bridge={bridge} retry={retry} selectedMachine={view[1] === 'machines' ? view[2] : undefined}/>
+      <main className="projects-main">{selected ? owner ? <Project key={`${view[0]}/${view[1]}`} view={view} node={owner.node} machineLabel={owner.data?.machines.find(machine => machine.transport === view[2])?.label} bridge={bridge} stateUnavailable={stateUnavailable}/> : rosterReady ? stateUnavailable ? null : <Banner retry={retry}>This node is not in the mesh.</Banner> : <Skeleton/> : <p className="projects-pick-prompt">Pick a project to browse its files or work with git.</p>}</main>
     </div>
   </div>;
 }

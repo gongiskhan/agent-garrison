@@ -6,8 +6,12 @@
   line-height: 1.5;
   width: 100%;
   min-width: 0;
+  min-height: 100dvh;
   padding: var(--space-4) var(--space-3) calc(var(--space-8) + env(safe-area-inset-bottom, 0px));
   overflow-wrap: anywhere;
+}
+@media (max-width: 719px) {
+  .projects-app {min-height: calc(100dvh - var(--app-bar-h));}
 }
 .projects-app * {box-sizing: border-box; min-width: 0;}
 .projects-app h1, .projects-app h2 {margin: 0; color: var(--ink); font-weight: 600;}
@@ -40,6 +44,8 @@
 .projects-app .projects-picker-row strong, .projects-app .projects-picker-row small {display: block;}
 .projects-app .projects-picker-row strong {font-size: var(--text-sm); font-weight: 600;}
 .projects-app .projects-picker-row[aria-current=page] {border-left-color: var(--node-accent); background: var(--surface-raised);}
+.projects-app .projects-summary {line-height: 1.9;}
+.projects-app .projects-summary-chip {display: inline-block; padding-inline: var(--space-1); border: 1px solid var(--rule); border-radius: var(--radius-sm); background: var(--surface); line-height: 1.5; white-space: nowrap;}
 .projects-app .projects-picker-row:hover, .projects-app .projects-file-row:hover {background: var(--surface);}
 .projects-app .projects-pick-prompt {display: none; color: var(--mute);}
 .projects-app.projects-has-selection .projects-picker {display: none;}
@@ -52,13 +58,13 @@
 .projects-app .projects-tabs a[aria-current=page] {border-color: var(--sage); color: var(--sage); font-weight: 600;}
 .projects-app .projects-banner {display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); margin-bottom: var(--space-4); background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius-sm); font-size: var(--text-sm);}
 .projects-app .projects-banner > span {flex: 1;}
-.projects-app .projects-banner > a {display: inline-flex; align-items: center; min-height: var(--tap-target); padding: 0 var(--space-2); text-decoration: underline;}
+.projects-app .projects-banner > a {display: inline-flex; align-items: center; justify-content: center; min-width: var(--tap-target); min-height: var(--tap-target); padding: 0 var(--space-2); text-decoration: underline;}
 .projects-app .projects-banner > button {padding: var(--space-1); border: 0; background: transparent;}
 .projects-app .projects-error {border-color: var(--alarm);}
 .projects-app .projects-empty {color: var(--mute); font-size: var(--text-sm); padding: var(--space-4) var(--space-2);}
 .projects-app .projects-breadcrumb {display: flex; align-items: center; overflow-x: auto; white-space: nowrap; margin-bottom: var(--space-3); max-width: 100%;}
 .projects-app .projects-breadcrumb span {display: inline-flex; align-items: center; flex: none;}
-.projects-app .projects-breadcrumb a {display: inline-flex; align-items: center; min-height: var(--tap-target); padding: 0 var(--space-2); flex: none;}
+.projects-app .projects-breadcrumb a {display: inline-flex; align-items: center; min-width: var(--tap-target); min-height: var(--tap-target); padding: 0 var(--space-2); flex: none;}
 .projects-app .projects-breadcrumb a[aria-current] {font-weight: 600;}
 .projects-app .projects-folder-tools {display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3);}
 .projects-app .projects-folder-tools label {flex: 1; min-width: 160px;}
@@ -89,7 +95,7 @@
 .projects-app .hljs-title, .projects-app .hljs-built_in {color: var(--info);}
 .projects-app .hljs-comment {color: var(--mute); font-style: italic;}
 .projects-app .projects-workspace-editor textarea {min-height: 45dvh; font-family: var(--font-mono), monospace; resize: vertical;}
-.projects-app .projects-sheet {width: min(560px, calc(100% - var(--space-6))); max-height: calc(var(--sheet-height, 100dvh) - var(--space-6)); overflow-y: auto; margin: auto auto var(--space-3); padding: var(--space-5); border: 1px solid var(--rule); border-radius: var(--radius-md); background: var(--canvas); color: var(--ink); box-shadow: var(--shadow-lg);}
+.projects-app .projects-sheet {top: var(--sheet-top, 0px); bottom: var(--sheet-bottom, 0px); width: min(560px, calc(100% - var(--space-6))); max-height: calc(var(--sheet-height, 100dvh) - var(--space-6)); overflow-y: auto; margin: auto auto var(--space-3); padding: var(--space-5); border: 1px solid var(--rule); border-radius: var(--radius-md); background: var(--canvas); color: var(--ink); box-shadow: var(--shadow-lg);}
 .projects-app .projects-sheet::backdrop {background: color-mix(in srgb, var(--shell) 65%, transparent);}
 .projects-app .projects-sheet > header {display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4);}
 .projects-app .projects-sheet label {display: block;}
@@ -117,14 +123,14 @@
     color-scheme: dark; --canvas: var(--shell); --surface: var(--shell-2); --surface-raised: var(--shell-3); --surface-sunken: var(--shell);
     --ink: var(--shell-ink); --ink-2: var(--shell-ink); --mute: var(--shell-mute); --rule: var(--shell-rule);
     --sage: color-mix(in srgb, var(--sage-2) 60%, var(--shell-ink)); --brass: var(--brass-2);
-    --alarm: var(--alarm-soft); --info: var(--info-2);
+    --info: var(--info-2);
   }
 }
 
 .projects-app .projects-git { min-width: 0; }
 .projects-app .projects-status-strip { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); margin-block: var(--space-3); }
 .projects-app .projects-status-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; min-width: 0; }
-.projects-app .projects-chip-danger { color: var(--alarm); background: color-mix(in srgb, var(--alarm) 18%, var(--surface)); }
+.projects-app .projects-chip-danger { color: var(--alarm); background: color-mix(in srgb, var(--alarm) 32%, var(--surface)); }
 .projects-app .projects-git-actions { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); margin-block: var(--space-4); }
 .projects-app .projects-git-actions button { width: 100%; justify-content: center; }
 .projects-app .projects-working { animation: projects-rotate 1s linear infinite; }
@@ -142,8 +148,8 @@
 .projects-app .projects-change-path strong { font-weight: 600; }
 .projects-app .projects-dirty-badge { flex-shrink: 0; min-width: var(--tap-target); padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: var(--text-sm); text-align: center; border: 1px solid transparent; }
 .projects-app .projects-dirty-modified { background: color-mix(in srgb, var(--warn) 18%, var(--surface)); color: var(--warn); }
-.projects-app .projects-dirty-added { background: color-mix(in srgb, var(--sage) 18%, var(--surface)); color: var(--sage); }
-.projects-app .projects-dirty-deleted { background: color-mix(in srgb, var(--alarm) 18%, var(--surface)); color: var(--alarm); }
+.projects-app .projects-dirty-added { background: color-mix(in srgb, var(--sage) 25%, var(--surface)); color: var(--sage); }
+.projects-app .projects-dirty-deleted { background: color-mix(in srgb, var(--alarm) 32%, var(--surface)); color: var(--alarm); }
 .projects-app .projects-dirty-untracked, .projects-app .projects-dirty-other { background: var(--surface); color: var(--mute); }
 .projects-app .projects-dirty-conflict { border-color: var(--alarm); color: var(--alarm); }
 .projects-app .projects-dirty-renamed { background: var(--surface); color: var(--info); }
@@ -156,13 +162,16 @@
 .projects-app .projects-diff-view h2 { font-size: var(--text-base); font-weight: 600; overflow-wrap: anywhere; flex-basis: 100%; }
 .projects-app .projects-diff-back { display: inline-flex; align-items: center; gap: var(--space-1); min-height: var(--tap-target); }
 .projects-app .projects-diff-scroll { max-width: 100%; overflow: auto; max-height: 65vh; }
+.projects-app .projects-diff-scroll::-webkit-scrollbar { width: 12px; height: 12px; }
+.projects-app .projects-diff-scroll::-webkit-scrollbar-track { background: var(--surface); }
+.projects-app .projects-diff-scroll::-webkit-scrollbar-thumb { background: var(--mute); border: 3px solid var(--surface); border-radius: var(--radius-md); }
 .projects-app .projects-diff { width: max-content; min-width: 100%; margin: 0; font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.7; }
 .projects-app .projects-diff-line { display: flex; width: 100%; }
 .projects-app .projects-diff-line > code { padding-inline: var(--space-2) var(--space-4); }
 .projects-app .projects-diff-number { display: inline-block; flex-shrink: 0; width: 4ch; padding-inline: var(--space-1); color: var(--mute); text-align: right; user-select: none; }
 .projects-app .projects-diff-hunk { background: var(--surface); color: var(--info); }
-.projects-app .projects-diff-added { background: color-mix(in srgb, var(--sage) 18%, var(--surface)); }
-.projects-app .projects-diff-removed { background: color-mix(in srgb, var(--alarm) 18%, var(--surface)); }
+.projects-app .projects-diff-added { background: color-mix(in srgb, var(--sage) 25%, var(--surface)); }
+.projects-app .projects-diff-removed { background: color-mix(in srgb, var(--alarm) 32%, var(--surface)); }
 .projects-app .projects-diff-meta { color: var(--mute); }
 .projects-app .projects-diff-truncated { padding: var(--space-3); color: var(--mute); }
 .projects-app .projects-diff-open .projects-git-sections { display: none; }
@@ -178,6 +187,7 @@
 
 @media (prefers-color-scheme: dark) {
   .projects-app .projects-dirty-modified { color: var(--brass-2); }
+  .projects-app .projects-chip-danger, .projects-app .projects-dirty-deleted, .projects-app .projects-dirty-conflict { color: color-mix(in srgb, var(--alarm) 55%, var(--shell-ink)); }
 }
 
 .projects-app .projects-desktop-copy {display: none;}

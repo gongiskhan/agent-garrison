@@ -29,7 +29,7 @@ function Code({file}: {file: FileBody}) {
   return <div className="projects-code-scroll"><pre className="projects-code"><span className="projects-line-numbers" aria-hidden="true">{file.content.split('\n').map((_, index) => <span key={index}>{index + 1}</span>)}</span><code dangerouslySetInnerHTML={{__html: html}}/></pre></div>;
 }
 
-export function Files({reference, writable, title, base, bridge, dirtyPaths = [], nodeName = reference.node}: {reference: ProjectRef; writable: boolean; title: string; base: string; bridge: Bridge; dirtyPaths?: string[]; nodeName?: string}) {
+export function Files({reference, writable, title, base, bridge, dirtyPaths = [], nodeName = reference.node, machine}: {reference: ProjectRef; writable: boolean; title: string; base: string; bridge: Bridge; dirtyPaths?: string[]; nodeName?: string; machine?: string}) {
   const path = useSearchParams().get('path') || '';
   const [tree, setTree] = useState<Tree | null>(null), [file, setFile] = useState<FileBody | null>(null);
   const [error, setError] = useState(''), [loading, setLoading] = useState(true), [revision, refresh] = useState(0);
@@ -37,7 +37,7 @@ export function Files({reference, writable, title, base, bridge, dirtyPaths = []
   const [newFolder, showNewFolder] = useState(false), [folderName, setFolderName] = useState('');
   const [editing, setEditing] = useState(false), [content, setContent] = useState(''), [working, setWorking] = useState(false), [editError, setEditError] = useState('');
   const currentCrumb = useRef<HTMLAnchorElement>(null);
-  const api = (action: string) => reference.project === 'workspace' ? workspaceUrl(reference.node, action) : projectsUrl(reference, action);
+  const api = (action: string) => machine ? projectsUrl({node: reference.node, project: 'machines'}, `${encodeURIComponent(machine)}/${action}`) : reference.project === 'workspace' ? workspaceUrl(reference.node, action) : projectsUrl(reference, action);
   const treeUrl = api(`tree?path=${encodeURIComponent(path)}`), fileUrl = api(`file?path=${encodeURIComponent(path)}`);
   const parentUrl = api(`tree?path=${encodeURIComponent(parentPath(path))}`);
   const location = (rel: string) => `${base}${rel ? `?path=${encodeURIComponent(rel)}` : ''}`;
@@ -64,7 +64,7 @@ export function Files({reference, writable, title, base, bridge, dirtyPaths = []
   useEffect(() => {if (!toast) return; const timer = setTimeout(() => setToast(''), 2500); return () => clearTimeout(timer);}, [toast]);
   const items = tree?.items.filter(entry => entry.name.toLowerCase().includes(filter.toLowerCase())) || [];
   const folder = tree?.path || '', crumbs = folder.split('/').filter(Boolean);
-  const size = file ? tree?.items.find(entry => entry.path === file.path)?.size ?? new TextEncoder().encode(file.content).length : 0;
+  const size = file ? tree?.items.find(entry => entry.path === file.path)?.size ?? (file.encoding === 'base64' ? Math.floor(file.content.length * 3 / 4) - (file.content.endsWith('==') ? 2 : file.content.endsWith('=') ? 1 : 0) : new TextEncoder().encode(file.content).length) : 0;
   async function save() {
     setWorking(true); setEditError('');
     try {

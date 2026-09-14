@@ -1,3 +1,4 @@
+import {projectsMachines} from './projects-machines';
 import {garrisonDir} from './claude-home';
 import {readNodeIdentity} from './node-identity';
 import {crossSiteBlocked} from './mesh/peer-auth';
@@ -12,6 +13,7 @@ export function projectsService() {
     env: {...process.env, GARRISON_HOME: garrisonDir()},
     guard: crossSiteBlocked,
     withState,
+    machines: projectsMachines(),
     node: () => {
       const identity = readNodeIdentity();
       return {id: identity.id, name: identity.name, accentColor: identity.accentHex, isSelf: true, state: 'online'};
