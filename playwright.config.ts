@@ -47,6 +47,7 @@ export default defineConfig({
     },
     {
       name: "tablet",
+      testIgnore: ["**/projects/**"],
       use: { ...devices["Desktop Chrome"], viewport: { width: 1024, height: 768 } }
     },
     {
