@@ -113,6 +113,17 @@ function refreshConversation(db,id) {
   db.prepare(`UPDATE messages_conversations SET unreadCount=(SELECT COUNT(*) FROM messages WHERE conversationId=? AND read=0 AND deleted=0 AND archived=0),lastMessageTs=COALESCE((SELECT MAX(ts) FROM messages WHERE conversationId=?),lastMessageTs) WHERE id=?`).run(id,id,id);
 }
 export function getMessage(db,id) { return decode(db.prepare('SELECT * FROM messages WHERE id=?').get(id)); }
+export function listProviderStateEffects(db,id) {
+  if(!getMessage(db,id))throw new MessagesError(404,'Message not found');
+  const fields=new Set(['read','archived','deleted','starred','labels','suppressNotification']);
+  const effects=db.prepare("SELECT id,kind,status,createdAt,error,payload FROM messages_effects WHERE messageId=? AND kind='providerState' ORDER BY createdAt DESC,rowid DESC LIMIT 50").all(id).map(row=>{
+    const payload=JSON.parse(row.payload);
+    return {id:row.id,type:row.kind,status:row.status,createdAt:row.createdAt,finishedAt:payload._receipt?.finishedAt??null,
+      error:row.status==='failed'?'Provider action failed':null,revision:Number.isInteger(payload.revision)?payload.revision:null,
+      patchFields:Object.keys(payload.patch??{}).filter(key=>fields.has(key))};
+  });
+  return {effects};
+}
 function queueEffect(db,message,kind,payload,key) {
   db.prepare('INSERT OR IGNORE INTO messages_effects(id,messageId,kind,payload,createdAt) VALUES (?,?,?,?,?)').run(key??messageId(),message?.id??null,kind,JSON.stringify(payload),now());
 }
@@ -457,6 +468,7 @@ export function finishWork(db,node,kind,id,input) {
       db.prepare('UPDATE messages_effects SET status=?,error=? WHERE id=?').run(input.error?'failed':'done',input.error??null,id);
       const payload=JSON.parse(row.payload);
       if (row.kind==='providerState') {
+        db.prepare("UPDATE messages_effects SET payload=json_set(payload,'$._receipt.finishedAt',?) WHERE id=?").run(now(),id);
         const raw=db.prepare('SELECT * FROM messages WHERE id=?').get(row.messageId);
         if (raw) {
           const provider=listProviders(db).find(p=>p.id===raw.provider),local=JSON.parse(raw.localState),rollback={};

@@ -984,42 +984,47 @@
           "text": "Gmail account grants, incremental mail sync, HTML and mail actions. Evidence: evidence/messages/p3/; docs/messages/README.md.",
           "done": true,
           "sentToKanban": null,
-          "noteRef": null
+          "noteRef": null,
+          "note": "Implementation and fixtures accepted; live Gmail smoke remains pending Google mail read consent. See docs/messages/acceptance-report.md."
         },
         {
           "id": "m4",
           "text": "Slack user accounts, conversations, threads and files. Evidence: evidence/messages/p4/; docs/messages/README.md.",
           "done": true,
           "sentToKanban": null,
-          "noteRef": null
+          "noteRef": null,
+          "note": "Implementation and fixtures accepted; live Slack text and voice smokes remain pending a user grant. See docs/messages/acceptance-report.md."
         },
         {
           "id": "m5",
           "text": "Existing WhatsApp connection, events, media and held sends. Evidence: evidence/messages/p5/; docs/messages/README.md.",
-          "done": false,
+          "done": true,
           "sentToKanban": null,
-          "noteRef": null
+          "noteRef": null,
+          "note": "WhatsApp self-only live checks and both browser media profiles pass after the final guarded rollout. Evidence: evidence/messages/live/whatsapp-final/ and evidence/messages/live/madrid-live-media-proof.json."
         },
         {
           "id": "m6",
           "text": "Shared composer, attachments, Drive, audio playback and transcripts. Evidence: evidence/messages/p6/; docs/messages/README.md.",
-          "done": false,
+          "done": true,
           "sentToKanban": null,
-          "noteRef": null
+          "noteRef": null,
+          "note": "WhatsApp self-only live checks and both browser media profiles pass after the final guarded rollout. Slack voice remains consent pending. Evidence: evidence/messages/live/whatsapp-final/ and evidence/messages/live/madrid-live-media-proof.json."
         },
         {
           "id": "m7",
           "text": "Saved views, deterministic rules and provider settings. Evidence: evidence/messages/p7/; docs/messages/README.md.",
-          "done": false,
+          "done": true,
           "sentToKanban": null,
           "noteRef": null
         },
         {
           "id": "m8",
           "text": "Performance, offline behavior, retention, rollout and acceptance. Evidence: evidence/messages/p8/; docs/messages/README.md.",
-          "done": false,
+          "done": true,
           "sentToKanban": null,
-          "noteRef": null
+          "noteRef": null,
+          "note": "Accepted with Google and Slack consent pending. 8981 runner tests and 58 browser cases pass. Air, Pro and Madrid are healthy at 40/40 and 15/15; Mini concurrent work and unavailable CSG are deferred. See docs/messages/acceptance-report.md."
         }
       ]
     }

@@ -2,13 +2,14 @@
 // re-materialise writes ZERO files — dev()'s chokidar watcher depends on it),
 // seed-on-first-contact, manifest push CAS, and the enrolled/unenrolled split.
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { startStateService } from "./state-service-harness";
 import { resetStateClient } from "../src/lib/state-client";
 import type { LibraryEntry } from "../src/lib/types";
+import { parse as parseYaml } from "yaml";
 
 let h: Awaited<ReturnType<typeof startStateService>>;
 let dir: string;
@@ -55,6 +56,51 @@ function vaultConsumer(id: string, scope: string[]): LibraryEntry {
 }
 
 describe("composition sync", () => {
+  const legacyGatewayManifest = (port = 5777) => `name: legacy-gateway\n# Keep the authored configuration.\nx-garrison:\n  composition:\n    selections:\n      gateway:\n        - id: http-gateway\n          config:\n            port: ${port}\n            stretch_claude_home: false\n            stretch_strategy: continue\n      channels:\n        - id: fixture-channel\n          config:\n            enabled: true\n`;
+  it("removes the retired gateway flag from the authority before materialization and stays idempotent", async () => {
+    const { syncCompositionFromState } = await import("../src/lib/composition-sync");
+    const raw = legacyGatewayManifest();
+    await h.client.putComposition("retired-gateway", raw, { ifMatchRev: 0 });
+    const target = mkdtempSync(path.join(os.tmpdir(), "gar-retired-gateway-"));
+    await syncCompositionFromState("retired-gateway", target);
+    const stored = (await h.client.getComposition("retired-gateway"))!;
+    const expected = parseYaml(raw);
+    delete expected["x-garrison"].composition.selections.gateway[0].config.stretch_claude_home;
+    expect(parseYaml(stored.manifestYaml)).toEqual(expected);
+    expect(stored.manifestYaml).toContain("# Keep the authored configuration.");
+    expect(readFileSync(path.join(target, "apm.yml"), "utf8")).toBe(stored.manifestYaml);
+    const mtime = statSync(path.join(target, "apm.yml")).mtimeMs;
+    expect((await syncCompositionFromState("retired-gateway", target)).refreshedFiles).toEqual([]);
+    expect((await h.client.getComposition("retired-gateway"))!.rev).toBe(stored.rev);
+    expect(statSync(path.join(target, "apm.yml")).mtimeMs).toBe(mtime);
+  });
+  it("preserves a concurrent authority edit when retiring the gateway flag", async () => {
+    const { syncCompositionFromState } = await import("../src/lib/composition-sync");
+    const { stateClient } = await import("../src/lib/state-client");
+    await h.client.putComposition("retired-gateway-cas", legacyGatewayManifest(), { ifMatchRev: 0 });
+    const target = mkdtempSync(path.join(os.tmpdir(), "gar-retired-gateway-cas-"));
+    const write = vi.spyOn(stateClient(), "putComposition").mockImplementationOnce(async (id) => {
+      const current = (await h.client.getComposition(id))!;
+      await h.client.putComposition(id, legacyGatewayManifest(5888), { ifMatchRev: current.rev });
+      throw Object.assign(new Error("Concurrent edit"), { status: 409 });
+    });
+    try {
+      await syncCompositionFromState("retired-gateway-cas", target);
+      const config = parseYaml((await h.client.getComposition("retired-gateway-cas"))!.manifestYaml)["x-garrison"].composition.selections.gateway[0].config;
+      expect(config).toEqual({ port: 5888, stretch_strategy: "continue" });
+      expect(write).toHaveBeenCalledTimes(2);
+    } finally { write.mockRestore(); }
+  });
+  it("retires the flag before seeding a composition and refreshes the local first-contact manifest", async () => {
+    const { syncCompositionFromState } = await import("../src/lib/composition-sync");
+    const target = mkdtempSync(path.join(os.tmpdir(), "gar-retired-gateway-seed-"));
+    writeFileSync(path.join(target, "apm.yml"), legacyGatewayManifest());
+    const result = await syncCompositionFromState("retired-gateway-seed", target);
+    expect(result).toEqual({ source: "seeded-to-service", refreshedFiles: ["apm.yml"] });
+    const stored = (await h.client.getComposition("retired-gateway-seed"))!;
+    expect(stored.manifestYaml).not.toContain("stretch_claude_home");
+    expect(readFileSync(path.join(target, "apm.yml"), "utf8")).toBe(stored.manifestYaml);
+  });
   it("first contact seeds the service from the local tree", async () => {
     const { syncCompositionFromState } = await import("../src/lib/composition-sync");
     writeFileSync(path.join(dir, "apm.yml"), "name: sync-fixture\n");

@@ -42,4 +42,4 @@ MESSAGES-NEEDS-GONCALO: reconnect Google with mail read scope in Connectors
 
 MESSAGES-NEEDS-GONCALO: reinstall Slack with user scopes
 
-These notices must be persisted once the store exists. No provider smoke has run.
+Both exact notices were persisted with stable event identities after the store was deployed. Google and Slack remain pending consent. The paired Madrid WhatsApp account passed the final self-only provider action, image/audio decoding, transcription and search checks after the media transport correction and guarded reload. Browser playback at 1.5x passed on both profiles. Full results are in [acceptance-report.md](acceptance-report.md).

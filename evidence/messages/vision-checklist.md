@@ -131,3 +131,22 @@ The phone checks use browser emulation. The lead checked the images directly. Ea
 - `live/air-messages-public-desktop.png`: PASS. The lead viewed the deployed HTTPS page at 1440 by 900. The 360 px list pane and conversation placeholder align, filters and counts fit, and the shell reports runner 40/40 and fittings 15/15. No overlap or clipped page content is present.
 - `live/air-messages-public-iphone-verified.png`: PASS. Final capture uses a short search value so both the search chip and Clear fit visibly. The lead viewed this distinct image path; header, counts, empty state and phone geometry remain correct.
 - `live/air-messages-public-desktop-verified.png`: PASS. Final capture shows the settled running status, 40/40 checks and 15/15 views. The lead viewed this distinct image path; both panes and search controls fit without overlap.
+
+## Public Pro deployment
+
+- `live/pro-messages-public-iphone.png`: PASS. The lead viewed the deployed HTTPS screen at 390 by 844. Header, tabs and counts are visible, the short search chip and Clear fit, the empty state is legible and the page has no horizontal overflow or overlap.
+- `live/pro-messages-public-desktop.png`: PASS. The lead viewed the deployed HTTPS screen at 1440 by 900. The list and conversation panes align, search controls fit and the shell reports 40/40 checks and 15/15 views. No unrelated message content is captured.
+
+## Public Madrid deployment
+
+- `live/madrid-messages-public-iphone.png`: PASS. The lead viewed the HTTPS screen at 390 by 844. Header, tabs, counts, short search chip and Clear fit without clipping or overlap. The empty state is legible.
+- `live/madrid-messages-public-desktop.png`: PASS. The lead viewed the HTTPS screen at 1440 by 900. Both panes and filter controls align, and the shell reports 40/40 checks and 15/15 views. No unrelated message content is captured.
+
+## Live cross-node media
+
+- `live/madrid-live-voice-iphone.png`: PASS. The lead viewed the real self-only voice note on the deployed phone page. The WhatsApp badge, timestamp, complete player, 1.5x speed, duration, transcript and Sent state fit. The composer remains visible inside the viewport. Gray masks conceal unrelated content and account identity.
+- `live/madrid-live-voice-desktop.png`: PASS. The lead viewed the real voice note on the deployed desktop page. The player and transcript fit the outgoing bubble; header, two-pane layout and bottom composer do not overlap. The shell reports 40/40 and 15/15 on bef8f7e7.
+- `live/madrid-live-image-iphone.png`: PASS. The lead viewed the decoded synthetic image delivered through the real cross-node endpoint. Its full 320 by 240 content is visible without corruption or clipping. This dedicated decode surface complements the fixture image-viewer journey.
+- `live/madrid-live-image-desktop.png`: PASS. The lead viewed the same real downloaded image at desktop size, centered and complete. The browser receipt independently proves natural dimensions and byte identity across both profiles.
+
+The live browser receipt proves actual M4A decoding, advancing playback at 1.5x, no audio error, the expected synthetic transcript and successful image decoding. It uses no provider fixtures or message writes: `live/madrid-live-media-proof.json`.

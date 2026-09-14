@@ -268,6 +268,10 @@ describe("forwarding to a peer", () => {
   // Set by the SSE case so the test can observe the upstream connection closing.
   let sseClosed: Promise<void>;
   let markSseClosed: () => void;
+  const binaryFixtures = [
+    { name: "image", mime: "image/png", bytes: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jwioAAAAASUVORK5CYII=", "base64") },
+    { name: "audio", mime: "audio/mp4", bytes: Buffer.concat([Buffer.from([0, 0, 0, 20]), Buffer.from("ftypM4A "), Buffer.from(Array.from({ length: 256 }, (_, value) => value))]) }
+  ];
 
   beforeAll(async () => {
     sseClosed = new Promise<void>((resolve) => {
@@ -280,6 +284,14 @@ describe("forwarding to a peer", () => {
         const body = Buffer.concat(chunks).toString("utf8");
         seen.push({ method: req.method ?? "", url: req.url ?? "", headers: req.headers, body });
         const url = req.url ?? "";
+
+        const binary = binaryFixtures.find(fixture => url === `/api/messages/attachments/message-1/${fixture.name}`);
+        if (binary) {
+          res.writeHead(200, { "content-type": binary.mime, "cache-control": "public, max-age=3600" });
+          res.write(binary.bytes.subarray(0, 17));
+          res.end(binary.bytes.subarray(17));
+          return;
+        }
 
         if (url.startsWith("/api/threads/t-1/live")) {
           res.writeHead(200, {
@@ -352,6 +364,24 @@ describe("forwarding to a peer", () => {
     });
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: "permission request is no longer pending" });
+  });
+
+  it.each(binaryFixtures)("preserves non-UTF8 $name bytes across the peer HTTP response", async ({ name, mime, bytes }) => {
+    expect(Buffer.from(bytes.toString("utf8"), "utf8")).not.toEqual(bytes);
+    const response = await forwardToPeer({ node: "media-owner", base, path: `/api/messages/attachments/message-1/${name}`, method: "GET" });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe(mime);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes);
+  });
+
+  it("preserves the structured 502 response when an upstream body cannot be read", async () => {
+    const upstream = new Response(new ReadableStream({ start(controller) { controller.error(new Error("broken fixture body")); } }), { headers: { "content-type": "audio/mp4" } });
+    const response = await forwardToPeer({ node: "media-owner", base, path: "/api/messages/attachments/message-1/audio", method: "GET", fetchImpl: async () => upstream });
+    expect(response.status).toBe(502);
+    expect(response.headers.get("content-type")).toBe("application/json");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual({ error: "peer-read-failed", node: "media-owner", base, detail: "broken fixture body" });
   });
 
   it("relays an SSE stream chunk by chunk", async () => {
