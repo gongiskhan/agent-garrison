@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-09-14T04:47:19.807Z",
+  "updatedAt": "2026-09-14T08:07:23.604Z",
   "categories": [
     {
       "id": "c1",
@@ -548,7 +548,7 @@
         {
           "id": "c6.10",
           "text": "Projects as a core area: files and git for every project on every node, one resolver, one git module, the merge pump in the app, the file-browser fitting and the mesh git floor retired.",
-          "done": false,
+          "done": true,
           "sentToKanban": null,
           "noteRef": "n-c6.10"
         }
