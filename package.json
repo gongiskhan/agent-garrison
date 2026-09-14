@@ -47,6 +47,7 @@
     "@garrison/claude-pty": "file:packages/claude-pty",
     "@garrison/improver": "file:packages/improver",
     "@garrison/messages": "file:packages/messages",
+    "@garrison/projects": "file:packages/projects",
     "@garrison/state-client": "file:packages/garrison-state-client",
     "@garrison/talk": "file:packages/talk",
     "@monaco-editor/react": "^4.7.0",

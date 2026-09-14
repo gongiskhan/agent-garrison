@@ -28,6 +28,7 @@ function isSafeHref(url: string): boolean {
   return /^(?:https?:|mailto:|tel:)/i.test(u); // explicit safe schemes only
 }
 
+function createMarkdown(wikiLinks: boolean) {
 const md = new Marked();
 // `as any` on the renderer: marked's token types are version-specific and the
 // dynamic `this.parser` access doesn't satisfy the strict root tsconfig.
@@ -60,13 +61,18 @@ md.use({
 // images / same-origin /file links. Root-relative, so safe at SSR here (no
 // client host needed); loopback-URL rewriting is a client concern handled by the
 // live chat surfaces (ClaudeChat, kanban).
-md.use({ extensions: [filePathMarkedExtension(), {
+md.use({ extensions: [filePathMarkedExtension()] });
+if (wikiLinks) md.use({ extensions: [{
   name: "archiveWikilink", level: "inline",
   start: (src: string) => src.indexOf("[["),
   tokenizer(src: string) { const match = /^\[\[([^\]\n]+)\]\]/.exec(src); if (match) return { type: "archiveWikilink", raw: match[0], text: match[1] }; },
   renderer(token: any) { return `<a href="/archive/search?q=${escapeAttr(encodeURIComponent(token.text))}">${escapeHtml(token.text)}</a>`; }
 }] });
+return md;
+}
+const md = createMarkdown(true);
+const plainWikiMarkdown = createMarkdown(false);
 
-export function renderMarkdown(src: string): string {
-  return md.parse(src) as string;
+export function renderMarkdown(src: string, {wikiLinks = true}: {wikiLinks?: boolean} = {}): string {
+  return (wikiLinks ? md : plainWikiMarkdown).parse(src) as string;
 }

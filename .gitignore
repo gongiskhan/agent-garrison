@@ -78,6 +78,8 @@ public/phase-1-demo/.playwright-artifacts/
 .next-e2e/
 .next-e2e-archive/
 .next-e2e-talk/
+.next-e2e-projects-a/
+.next-e2e-projects-b/
 .next-prod/
 
 # CodeGraph / Serena local indexes (regenerated on demand)

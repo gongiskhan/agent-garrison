@@ -61,6 +61,7 @@ describe("the menu is two flat alphabetical groups", () => {
       "/improver",
       "/mesh",
       "/messages",
+      "/projects",
       "/quarters",
       "/talk",
       "/vault"

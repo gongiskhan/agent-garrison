@@ -1,5 +1,6 @@
 "use client";
 import { ARCHIVE_LABEL } from "../../../packages/archive/label.mjs";
+import { PROJECTS_LABEL } from "../../../packages/projects/label.mjs";
 
 import { Fragment, useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -25,6 +26,7 @@ import {
   Mic,
   MessagesSquare,
   Archive,
+  FolderGit2,
   Radio,
   Boxes,
   Brain,
@@ -491,6 +493,13 @@ export const COMMAND_ITEMS: CommandItem[] = [
     label: "Mesh",
     Icon: Boxes,
     isActive: (p) => (p === "/mesh" || p.startsWith("/mesh/")) && !p.startsWith("/mesh/talk/")
+  },
+  {
+    id: "nav:projects",
+    href: "/projects",
+    label: PROJECTS_LABEL,
+    Icon: FolderGit2,
+    isActive: (p) => p === "/projects" || p.startsWith("/projects/")
   },
   {
     id: "nav:quarters",

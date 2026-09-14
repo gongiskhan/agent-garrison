@@ -39,6 +39,8 @@
     ".next-e2e/types/**/*.ts",
     ".next-e2e-archive/types/**/*.ts",
     ".next-e2e-talk/types/**/*.ts",
+    ".next-e2e-projects-a/types/**/*.ts",
+    ".next-e2e-projects-b/types/**/*.ts",
     ".next-prod/types/**/*.ts"
   ],
   "exclude": [

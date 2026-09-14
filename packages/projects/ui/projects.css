@@ -1,0 +1,124 @@
+.projects-app {
+  color: var(--ink);
+  background: var(--canvas);
+  font-family: var(--font-sans), sans-serif;
+  font-size: var(--text-base);
+  line-height: 1.5;
+  width: 100%;
+  min-width: 0;
+  padding: var(--space-4) var(--space-3) calc(var(--space-8) + env(safe-area-inset-bottom, 0px));
+  overflow-wrap: anywhere;
+}
+.projects-app * {box-sizing: border-box; min-width: 0;}
+.projects-app h1, .projects-app h2 {margin: 0; color: var(--ink); font-weight: 600;}
+.projects-app h1 {font: 600 var(--text-xl)/1.2 var(--font-display), serif;}
+.projects-app h2 {font-size: var(--text-lg); line-height: 1.3;}
+.projects-app a {color: inherit; text-decoration: none;}
+.projects-app button, .projects-app .projects-button {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  min-height: var(--tap-target); min-width: var(--tap-target); padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--rule); border-radius: var(--radius-sm); font: inherit;
+  color: var(--ink); background: var(--surface-raised); cursor: pointer;
+}
+.projects-app button:disabled {opacity: .55; cursor: default;}
+.projects-app :focus-visible {outline: 2px solid var(--brass); outline-offset: 2px;}
+.projects-app input, .projects-app textarea {
+  width: 100%; min-height: var(--tap-target); border: 1px solid var(--rule); border-radius: var(--radius-sm);
+  background: var(--surface-raised); color: var(--ink); font: inherit; padding: var(--space-2) var(--space-3);
+}
+.projects-app small {font-size: var(--text-xs); color: var(--mute);}
+.projects-app svg {flex: none;}
+.projects-app .projects-layout {display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-6);}
+.projects-app .projects-picker > h1 {margin-bottom: var(--space-5);}
+.projects-app .projects-filter {display: block;}
+.projects-app .projects-node-group {margin-top: var(--space-6);}
+.projects-app .projects-node-group > header {display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-2);}
+.projects-app .projects-node-chip {display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); font-weight: 600;}
+.projects-app .projects-monogram {display: inline-grid; place-items: center; width: 32px; height: 32px; flex: none; border: 1px solid var(--node-accent); border-radius: var(--radius-sm); color: var(--node-accent); background: color-mix(in srgb, var(--node-accent) 12%, var(--surface)); font-size: var(--text-xs);}
+.projects-app .projects-node-state {color: var(--mute); text-align: right; font-size: var(--text-xs);}
+.projects-app .projects-node-state small {display: block;}
+.projects-app .projects-picker-row {display: flex; align-items: center; gap: var(--space-3); min-height: var(--row-target); padding: var(--space-3) var(--space-2); border-bottom: 1px solid var(--rule); border-left: 3px solid transparent;}
+.projects-app .projects-picker-row > span {flex: 1;}
+.projects-app .projects-picker-row strong, .projects-app .projects-picker-row small {display: block;}
+.projects-app .projects-picker-row strong {font-size: var(--text-sm); font-weight: 600;}
+.projects-app .projects-picker-row[aria-current=page] {border-left-color: var(--node-accent); background: var(--surface-raised);}
+.projects-app .projects-picker-row:hover, .projects-app .projects-file-row:hover {background: var(--surface);}
+.projects-app .projects-pick-prompt {display: none; color: var(--mute);}
+.projects-app.projects-has-selection .projects-picker {display: none;}
+.projects-app .projects-back, .projects-app .projects-file-back {display: inline-flex; align-items: center; gap: var(--space-1); min-height: var(--tap-target); margin-bottom: var(--space-3);}
+.projects-app .projects-project-header {display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4);}
+.projects-app .projects-project-header h1 {width: 100%;}
+.projects-app .projects-chip {display: inline-flex; align-items: center; border: 1px solid var(--rule); border-radius: var(--radius-sm); padding: var(--space-1) var(--space-2); background: var(--surface); font-size: var(--text-xs);}
+.projects-app .projects-tabs {display: flex; border-bottom: 1px solid var(--rule); margin-bottom: var(--space-4);}
+.projects-app .projects-tabs a {display: grid; place-items: center; min-height: var(--tap-target); padding: var(--space-2) var(--space-5); border-bottom: 2px solid transparent;}
+.projects-app .projects-tabs a[aria-current=page] {border-color: var(--sage); color: var(--sage); font-weight: 600;}
+.projects-app .projects-banner {display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); margin-bottom: var(--space-4); background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius-sm); font-size: var(--text-sm);}
+.projects-app .projects-banner > span {flex: 1;}
+.projects-app .projects-banner > a {display: inline-flex; align-items: center; min-height: var(--tap-target); padding: 0 var(--space-2); text-decoration: underline;}
+.projects-app .projects-banner > button {padding: var(--space-1); border: 0; background: transparent;}
+.projects-app .projects-error {border-color: var(--alarm);}
+.projects-app .projects-empty {color: var(--mute); font-size: var(--text-sm); padding: var(--space-4) var(--space-2);}
+.projects-app .projects-breadcrumb {display: flex; align-items: center; overflow-x: auto; white-space: nowrap; margin-bottom: var(--space-3); max-width: 100%;}
+.projects-app .projects-breadcrumb span {display: inline-flex; align-items: center; flex: none;}
+.projects-app .projects-breadcrumb a {display: inline-flex; align-items: center; min-height: var(--tap-target); padding: 0 var(--space-2); flex: none;}
+.projects-app .projects-breadcrumb a[aria-current] {font-weight: 600;}
+.projects-app .projects-folder-tools {display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3);}
+.projects-app .projects-folder-tools label {flex: 1; min-width: 160px;}
+.projects-app .projects-file-row {display: flex; align-items: center; gap: var(--space-3); min-height: var(--row-target); border-bottom: 1px solid var(--rule); padding: var(--space-2);}
+.projects-app .projects-file-row > span {flex: 1; font-size: var(--text-sm);}
+.projects-app .projects-file-row > small {flex: none; text-align: right;}
+.projects-app .projects-file-row[aria-current] {background: var(--surface-raised);}
+.projects-app .projects-file-open .projects-folder-list {display: none;}
+.projects-app .projects-viewer > header {display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: var(--space-3); padding-bottom: var(--space-4); margin-bottom: var(--space-4); border-bottom: 1px solid var(--rule);}
+.projects-app .projects-viewer-actions {display: flex; flex-wrap: wrap; gap: var(--space-2);}
+.projects-app .projects-viewer figure {margin: 0;}
+.projects-app .projects-viewer img {display: block; max-width: 100%; height: auto;}
+.projects-app .projects-viewer figcaption {margin-top: var(--space-3); color: var(--mute); font-size: var(--text-sm);}
+.projects-app .projects-markdown {color: var(--ink); font-size: var(--text-base);}
+.projects-app .projects-markdown h1 {font-family: var(--font-sans), sans-serif; margin-bottom: var(--space-4);}
+.projects-app .projects-markdown h2 {margin-top: var(--space-6); margin-bottom: var(--space-3);}
+.projects-app .projects-markdown p, .projects-app .projects-markdown ul, .projects-app .projects-markdown ol {margin-bottom: var(--space-4);}
+.projects-app .projects-markdown ul {list-style: disc; padding-left: var(--space-6);}
+.projects-app .projects-markdown ol {list-style: decimal; padding-left: var(--space-6);}
+.projects-app .projects-markdown pre {overflow-x: auto; max-width: 100%;}
+.projects-app .projects-markdown code {color: var(--ink); background: var(--surface-sunken);}
+.projects-app .projects-code-scroll {max-width: 100%; overflow: auto; background: var(--surface-raised); border: 1px solid var(--rule); border-radius: var(--radius-sm);}
+.projects-app .projects-code {display: flex; width: max-content; min-width: 100%; margin: 0; padding: var(--space-3) 0; font: var(--text-sm)/1.7 var(--font-mono), monospace; white-space: pre; overflow-wrap: normal;}
+.projects-app .projects-code code {display: block; padding-right: var(--space-4);}
+.projects-app .projects-line-numbers {display: flex; flex-direction: column; text-align: right; color: var(--mute); user-select: none; padding: 0 var(--space-4);}
+.projects-app .hljs-keyword, .projects-app .hljs-selector-tag, .projects-app .hljs-number {color: var(--brass);}
+.projects-app .hljs-string, .projects-app .hljs-attr {color: var(--sage);}
+.projects-app .hljs-title, .projects-app .hljs-built_in {color: var(--info);}
+.projects-app .hljs-comment {color: var(--mute); font-style: italic;}
+.projects-app .projects-workspace-editor textarea {min-height: 45dvh; font-family: var(--font-mono), monospace; resize: vertical;}
+.projects-app .projects-sheet {width: min(560px, calc(100% - var(--space-6))); max-height: calc(var(--sheet-height, 100dvh) - var(--space-6)); overflow-y: auto; margin: auto auto var(--space-3); padding: var(--space-5); border: 1px solid var(--rule); border-radius: var(--radius-md); background: var(--canvas); color: var(--ink); box-shadow: var(--shadow-lg);}
+.projects-app .projects-sheet::backdrop {background: color-mix(in srgb, var(--shell) 65%, transparent);}
+.projects-app .projects-sheet > header {display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4);}
+.projects-app .projects-sheet label {display: block;}
+.projects-app .projects-sheet input, .projects-app .projects-sheet textarea {margin-top: var(--space-2);}
+.projects-app .projects-sheet-actions {display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-4);}
+.projects-app .projects-toast {position: fixed; z-index: 100; bottom: calc(var(--space-5) + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); max-width: calc(100% - var(--space-6)); padding: var(--space-3) var(--space-5); border: 1px solid var(--rule); border-radius: var(--radius-sm); background: var(--surface-raised); color: var(--ink); box-shadow: var(--shadow-sm);}
+.projects-app .projects-skeleton {display: grid; gap: var(--space-2); margin-top: var(--space-3);}
+.projects-app .projects-shimmer {display: block; background: linear-gradient(100deg, var(--surface-sunken) 35%, var(--surface-raised) 50%, var(--surface-sunken) 65%); background-size: 250% 100%; animation: projects-shimmer 1.8s linear infinite; border-radius: var(--radius-sm);}
+.projects-app .projects-skeleton > div {height: var(--row-target);}
+.projects-app .projects-subtitle-shimmer {height: var(--text-xs); width: 65%; margin-top: var(--space-2);}
+@keyframes projects-shimmer {to {background-position: -250% 0;}}
+@media (min-width: 1280px) {
+  .projects-app {padding: var(--space-6);}
+  .projects-app .projects-layout {grid-template-columns: 300px minmax(0, 1fr); gap: var(--space-8);}
+  .projects-app.projects-has-selection .projects-picker {display: block;}
+  .projects-app .projects-picker {border-right: 1px solid var(--rule); padding-right: var(--space-5);}
+  .projects-app .projects-pick-prompt {display: block; margin: var(--space-8) 0;}
+  .projects-app .projects-back, .projects-app .projects-file-back {display: none;}
+  .projects-app .projects-file-open .projects-file-layout {display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: var(--space-6);}
+  .projects-app .projects-file-open .projects-folder-list {display: block;}
+  .projects-app .projects-sheet {margin: auto;}
+}
+@media (prefers-color-scheme: dark) {
+  .projects-app {
+    color-scheme: dark; --canvas: var(--shell); --surface: var(--shell-2); --surface-raised: var(--shell-3); --surface-sunken: var(--shell);
+    --ink: var(--shell-ink); --ink-2: var(--shell-ink); --mute: var(--shell-mute); --rule: var(--shell-rule);
+    --sage: color-mix(in srgb, var(--sage-2) 60%, var(--shell-ink)); --brass: var(--brass-2);
+    --alarm: var(--alarm-soft); --info: var(--info-2);
+  }
+}

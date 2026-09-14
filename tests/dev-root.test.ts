@@ -9,8 +9,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { listProjectNames, resolveProjectName } from "@/lib/dev-root";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { listProjectNames, resolveProjectName, selfCheckoutProject } from "@/lib/dev-root";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-expect-error - untyped fitting-local module, imported here only to pin the two implementations together
 import * as gateway from "../fittings/seed/http-gateway/scripts/lib/project-source.mjs";
@@ -35,6 +35,19 @@ afterEach(() => {
 });
 
 describe("dev-root resolver", () => {
+  it("keeps the optional self-checkout alias inside the canonical resolver", () => {
+    const checkout = path.join(root, "checkout");
+    fs.mkdirSync(path.join(checkout, ".git"), { recursive: true });
+    const cwd = vi.spyOn(process, "cwd").mockReturnValue(checkout);
+    try {
+      const real = fs.realpathSync(checkout);
+      expect(selfCheckoutProject()).toEqual({ project: "garrison", root: real });
+      expect(resolveProjectName("garrison", { devRoot, selfCheckout: true })).toBe(real);
+      expect(resolveProjectName("garrison", { devRoot })).toBeNull();
+      expect(listProjectNames(devRoot, { selfCheckout: true })).toEqual(["garrison"]);
+      expect(listProjectNames(path.join(root, "absent"), { selfCheckout: true })).toEqual([]);
+    } finally { cwd.mockRestore(); }
+  });
   it("accepts a git repo directly under the dev root and returns its realpath", () => {
     const repo = makeRepo("garrison");
     expect(resolveProjectName("garrison", { devRoot })).toBe(fs.realpathSync(repo));

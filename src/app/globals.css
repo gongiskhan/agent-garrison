@@ -45,6 +45,24 @@
   --warn-soft: #f2e6c7;
   --shadow-sm: 0 1px 2px rgba(23, 32, 25, 0.08), 0 6px 18px rgba(23, 32, 25, 0.045);
   --shadow-lg: 0 24px 70px rgba(16, 23, 18, 0.22);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-lg: 20px;
+  --text-xl: 28px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --tap-target: 44px;
+  --row-target: 56px;
+  --info: #315f91;
+  --info-2: #8bb9e9;
 }
 
 * { box-sizing: border-box; }
