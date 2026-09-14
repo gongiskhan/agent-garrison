@@ -28,6 +28,7 @@ const USAGE = `roadmap.mjs - read and edit a project's roadmap.json
   roadmap.mjs uncheck     [file] <itemId>
   roadmap.mjs add-category [file] <title>
   roadmap.mjs add-item    [file] <categoryId> <text>
+  roadmap.mjs upsert-note [file] <ownerId> <title> <body>
 
 \`file\` defaults to ./roadmap.json. Ids are never renumbered; done items are
 never removed.`;
@@ -297,6 +298,27 @@ function main(argv) {
       doc.categories.push({ id, title, noteRef: null, items: [] });
       writeDoc(file, doc);
       process.stdout.write(`${id}\n`);
+      return;
+    }
+    case "upsert-note": {
+      const [ownerId, title, ...bodyParts] = args;
+      if (!ownerId || !title || !bodyParts.length) fail("upsert-note needs an owner id, title and body");
+      const doc = readDoc(file);
+      const owner = findCategory(doc, ownerId) ?? findItem(doc, ownerId)?.item;
+      if (!owner) fail(`no category or item "${ownerId}" in ${file}`);
+      if (!Array.isArray(doc.notes)) doc.notes = [];
+      let note = doc.notes.find(candidate => isObject(candidate) && candidate.id === owner.noteRef);
+      if (!note) {
+        const used = collectIds(doc), base = `n-${ownerId}`;
+        let id = typeof owner.noteRef === "string" && owner.noteRef.trim() ? owner.noteRef : base;
+        if (!owner.noteRef) for (let suffix = 2; used.has(id); suffix++) id = `${base}-${suffix}`;
+        note = { id, title: "Notes", body: "" };
+        doc.notes.push(note); owner.noteRef = id;
+      }
+      note.title = title.trim() || note.title;
+      note.body = bodyParts.join(" ");
+      writeDoc(file, doc);
+      process.stdout.write(`${note.id}\n`);
       return;
     }
     case "add-item": {
