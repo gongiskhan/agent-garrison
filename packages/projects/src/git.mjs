@@ -232,7 +232,7 @@ export async function gitStatus(cwd) {
     upstream: snapshot.upstream,
     ahead: snapshot.ahead,
     behind: snapshot.behind,
-    dirty: snapshot.dirty,
+    dirty: snapshot.dirty.map(entry => ({xy: entry.xy, path: entry.path, state: dirtyState(entry.xy), staged: entry.xy !== '??' && !['.', ' '].includes(entry.xy[0])})),
     dirtyCount: snapshot.dirty.length,
     stash: stashCount,
     inProgress,

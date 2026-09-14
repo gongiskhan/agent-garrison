@@ -122,3 +122,62 @@
     --alarm: var(--alarm-soft); --info: var(--info-2);
   }
 }
+
+.projects-app .projects-git { min-width: 0; }
+.projects-app .projects-status-strip { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); margin-block: var(--space-3); }
+.projects-app .projects-status-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; min-width: 0; }
+.projects-app .projects-chip-danger { color: var(--alarm); background: color-mix(in srgb, var(--alarm) 18%, var(--surface)); }
+.projects-app .projects-git-actions { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); margin-block: var(--space-4); }
+.projects-app .projects-git-actions button { width: 100%; justify-content: center; }
+.projects-app .projects-working { animation: projects-rotate 1s linear infinite; }
+@keyframes projects-rotate { to { transform: rotate(360deg); } }
+.projects-app .projects-action-result { border: 1px solid var(--rule); border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); margin-block: var(--space-4); background: var(--surface); overflow-wrap: anywhere; }
+.projects-app .projects-action-result p + p { margin-top: var(--space-2); }
+.projects-app .projects-action-result a { display: inline-flex; align-items: center; min-height: var(--tap-target); color: var(--sage); text-decoration: underline; }
+.projects-app .projects-git-layout, .projects-app .projects-git-sections { min-width: 0; }
+.projects-app .projects-git-sections section + section { margin-top: var(--space-6); }
+.projects-app .projects-git-sections h2 { font-size: var(--text-base); font-weight: 600; padding-block: var(--space-3); }
+.projects-app .projects-change-row { display: flex; align-items: center; gap: var(--space-3); min-height: var(--row-target); border-bottom: 1px solid var(--rule); padding: var(--space-2); min-width: 0; }
+.projects-app .projects-change-row:hover { background: var(--surface); }
+.projects-app .projects-change-path { min-width: 0; overflow-wrap: anywhere; }
+.projects-app .projects-change-path > span { color: var(--mute); }
+.projects-app .projects-change-path strong { font-weight: 600; }
+.projects-app .projects-dirty-badge { flex-shrink: 0; min-width: var(--tap-target); padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: var(--text-sm); text-align: center; border: 1px solid transparent; }
+.projects-app .projects-dirty-modified { background: color-mix(in srgb, var(--warn) 18%, var(--surface)); color: var(--warn); }
+.projects-app .projects-dirty-added { background: color-mix(in srgb, var(--sage) 18%, var(--surface)); color: var(--sage); }
+.projects-app .projects-dirty-deleted { background: color-mix(in srgb, var(--alarm) 18%, var(--surface)); color: var(--alarm); }
+.projects-app .projects-dirty-untracked, .projects-app .projects-dirty-other { background: var(--surface); color: var(--mute); }
+.projects-app .projects-dirty-conflict { border-color: var(--alarm); color: var(--alarm); }
+.projects-app .projects-dirty-renamed { background: var(--surface); color: var(--info); }
+.projects-app .projects-commit-row { display: flex; gap: var(--space-3); border-bottom: 1px solid var(--rule); padding: var(--space-3) var(--space-2); min-height: var(--row-target); }
+.projects-app .projects-commit-row > code { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--mute); padding-top: var(--space-1); }
+.projects-app .projects-commit-row > div { min-width: 0; overflow-wrap: anywhere; }
+.projects-app .projects-commit-row small { color: var(--mute); }
+.projects-app .projects-diff-view { min-width: 0; border: 1px solid var(--rule); border-radius: var(--radius-md); overflow: hidden; }
+.projects-app .projects-diff-view > header { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-3); border-bottom: 1px solid var(--rule); }
+.projects-app .projects-diff-view h2 { font-size: var(--text-base); font-weight: 600; overflow-wrap: anywhere; flex-basis: 100%; }
+.projects-app .projects-diff-back { display: inline-flex; align-items: center; gap: var(--space-1); min-height: var(--tap-target); }
+.projects-app .projects-diff-scroll { max-width: 100%; overflow: auto; max-height: 65vh; }
+.projects-app .projects-diff { width: max-content; min-width: 100%; margin: 0; font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.7; }
+.projects-app .projects-diff-line { display: flex; width: 100%; }
+.projects-app .projects-diff-line > code { padding-inline: var(--space-2) var(--space-4); }
+.projects-app .projects-diff-number { display: inline-block; flex-shrink: 0; width: 4ch; padding-inline: var(--space-1); color: var(--mute); text-align: right; user-select: none; }
+.projects-app .projects-diff-hunk { background: var(--surface); color: var(--info); }
+.projects-app .projects-diff-added { background: color-mix(in srgb, var(--sage) 18%, var(--surface)); }
+.projects-app .projects-diff-removed { background: color-mix(in srgb, var(--alarm) 18%, var(--surface)); }
+.projects-app .projects-diff-meta { color: var(--mute); }
+.projects-app .projects-diff-truncated { padding: var(--space-3); color: var(--mute); }
+.projects-app .projects-diff-open .projects-git-sections { display: none; }
+@media (min-width: 1280px) {
+  .projects-app .projects-git-actions { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .projects-app .projects-diff-open .projects-git-layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); align-items: start; gap: var(--space-4); }
+  .projects-app .projects-diff-open .projects-git-sections { display: block; }
+  .projects-app .projects-diff-back { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .projects-app .projects-working { animation: none; }
+}
+
+@media (prefers-color-scheme: dark) {
+  .projects-app .projects-dirty-modified { color: var(--brass-2); }
+}
