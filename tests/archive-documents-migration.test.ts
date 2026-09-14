@@ -51,6 +51,6 @@ it('has no retired fitting, loader, API writer or shipped selection; keeps neigh
  await expect(fs.stat('fittings/seed/documents')).rejects.toMatchObject({code:'ENOENT'});
  expect(await fs.readFile('src/components/fitting-views/registry.tsx','utf8')).not.toContain('documents:');
  await expect(fs.stat('src/app/api/fittings/documents')).rejects.toMatchObject({code:'ENOENT'});
- for(const name of ['roadmaps','pdf','project-viewer','basic-memory','trello','vault-git-sync','file-browser'])expect((await fs.stat('fittings/seed/'+name)).isDirectory()).toBe(true);
+ for(const name of ['roadmaps','pdf','project-viewer','basic-memory','trello','vault-git-sync'])expect((await fs.stat('fittings/seed/'+name)).isDirectory()).toBe(true);
  for(const entry of await fs.readdir('compositions',{withFileTypes:true})){if(!entry.isDirectory())continue;let raw;try{raw=await fs.readFile('compositions/'+entry.name+'/apm.yml','utf8');}catch{continue;}expect(retireDocumentsYaml(raw)).toBe(raw);}
 });

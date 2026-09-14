@@ -1,4 +1,6 @@
 import { type ChildProcessWithoutNullStreams } from "node:child_process";
+// @ts-ignore The standing capability is also consumed as ESM.
+import { PROJECTS_CAPABILITIES } from "../../packages/projects/src/capabilities.mjs";
 import { spawnTracked } from "./spawn";
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -1246,9 +1248,7 @@ export async function startOperativeBoundFittings(
   // without this it logs "Start on agent lists is disabled" and the run loop is dead.
   const gatewayBaseUrl = getRecord(compositionId).gateway?.baseUrl;
   // Selection config per fitting id, projected into the spawn env (see
-  // ownPortConfigEnv) so servers read their composition config - e.g. the
-  // file-browser's `root` lands as GARRISON_FILEBROWSER_ROOT instead of the
-  // apm.yml value being decorative.
+  // ownPortConfigEnv) so servers read the selected values from their spawn env.
   const configById = new Map<string, Record<string, unknown>>();
   for (const items of Object.values(composition.selections)) {
     for (const item of items ?? []) {
@@ -1925,6 +1925,7 @@ export function renderCapabilitiesBlock(
   entries: LibraryEntry[],
   detail: CapabilitiesDetail = "full"
 ): string {
+  const withCore = (providers: string) => `${PROJECTS_CAPABILITIES}\n\n${providers}`;
   const inputs = entries.map((entry) => ({ id: entry.id, metadata: entry.metadata }));
   const result = resolveCapabilities(inputs);
   const providerEntries: Array<{
@@ -1945,9 +1946,8 @@ export function renderCapabilitiesBlock(
       });
     }
     // Derived view providers: a fitting with no declared provides but with a
-    // ui.views[]/own_port surface AND a for_consumers block (e.g. the
-    // file-browser's artifact-surface guidance) must still reach the
-    // Operative's prompt - the resolver derives its `view` capability, so the
+    // ui.views[]/own_port surface AND a for_consumers block must still reach
+    // the runtime prompt. The resolver derives its `view` capability, so the
     // assembly derives the matching provider line. One line per fitting, not
     // per view, so multi-view fittings don't duplicate their guidance.
     if (
@@ -1965,11 +1965,11 @@ export function renderCapabilitiesBlock(
   }
   if (!result.ok) {
     if (providerEntries.length === 0) {
-      return "_no Faculties currently installed in this Composition._";
+      return withCore("_no Faculties currently installed in this Composition._");
     }
   }
   if (providerEntries.length === 0) {
-    return "_no Faculties currently installed in this Composition._";
+    return withCore("_no Faculties currently installed in this Composition._");
   }
   providerEntries.sort((a, b) => {
     if (a.kind !== b.kind) return a.kind.localeCompare(b.kind);
@@ -1988,22 +1988,22 @@ export function renderCapabilitiesBlock(
   // measurement showed nobody can make well (zero capability-doc calls in 35
   // recorded conversations).
   if (detail === "names") {
-    return providerEntries.map((entry) => `- ${entry.kind}:${entry.name}`).join("\n");
+    return withCore(providerEntries.map((entry) => `- ${entry.kind}:${entry.name}`).join("\n"));
   }
   // "index" keeps the inventory - which is what stops a stretch inventing a
   // capability - and drops the bodies, which are what cost the tokens.
   if (detail === "index") {
     const lines = providerEntries.map((entry) => {
       const has = entry.forConsumers ? "  [usage guidance available]" : "";
-      return `- ${entry.kind}:${entry.name} — ${entry.summary}${has}`;
+      return `- ${entry.kind}:${entry.name} - ${entry.summary}${has}`;
     });
-    return lines.join("\n");
+    return withCore(lines.join("\n"));
   }
   const anyForConsumers = providerEntries.some((entry) => entry.forConsumers);
   const separator = anyForConsumers ? "\n\n" : "\n";
-  return providerEntries
+  return withCore(providerEntries
     .map((entry) => {
-      const header = `- ${entry.kind}:${entry.name} — ${entry.summary}`;
+      const header = `- ${entry.kind}:${entry.name} - ${entry.summary}`;
       if (!entry.forConsumers) {
         return header;
       }
@@ -2013,7 +2013,7 @@ export function renderCapabilitiesBlock(
         .join("\n");
       return `${header}\n${indented}`;
     })
-    .join(separator);
+    .join(separator));
 }
 
 async function readPromptForFaculty(

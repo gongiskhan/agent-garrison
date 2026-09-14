@@ -1,3 +1,5 @@
+// @ts-ignore Core workspace paths are shared with the ESM handlers.
+import {workspaceRoot} from '../packages/projects/src/workspace.mjs';
 import { execFileSync } from "node:child_process";
 import {
   existsSync,
@@ -655,6 +657,14 @@ describe("Codex secondary-instance isolation", () => {
     ).toEqual([]);
   });
 
+  it("keeps core workspace roots inside each instance home unless explicitly overridden", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "projects-homes-")); sandboxes.push(root);
+    const a = path.join(root, "a"), b = path.join(root, "b"), custom = path.join(root, "artifacts");
+    expect(workspaceRoot({GARRISON_HOME: a})).toBe(path.join(a, "files"));
+    expect(workspaceRoot({GARRISON_HOME: b})).toBe(path.join(b, "files"));
+    expect(workspaceRoot({GARRISON_HOME: a, GARRISON_FILEBROWSER_ROOT: custom})).toBe(custom);
+  });
+
   it("keeps every shipped default profile on the primary state roots", () => {
     // Derived, not hardcoded: a retired composition must not fail this on ENOENT,
     // and a new one must be covered the day it lands.
@@ -686,8 +696,6 @@ describe("Codex secondary-instance isolation", () => {
       });
       expect(config("observability", "kanban-loop")?.board_dir, profile)
         .toBe("~/.garrison/kanban-loop");
-      expect(config("sessions", "file-browser")?.root, profile)
-        .toBe("~/.garrison/files");
       expect(config("sessions", "vault-git-sync")?.vault_dir, profile)
         .toBe("~/ObsidianVault");
       const codexLeak = JSON.stringify(selections).includes(".garrison-codex");

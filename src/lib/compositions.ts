@@ -1,4 +1,5 @@
-import { migrateArchiveManifest, migrateArchiveYaml, ARCHIVE_DEFAULTS } from "./composition-migrate";
+import { migrateArchiveManifest, migrateArchiveYaml, ARCHIVE_DEFAULTS, RETIRED_PROJECTS_FITTING } from "./composition-migrate";
+import { retireProjectsFile } from "./projects-retirement";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { COMPOSITIONS_DIR, ROOT_DIR } from "./paths";
@@ -471,6 +472,7 @@ export async function listCompositions(): Promise<Composition[]> {
       .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
       .map(async (entry) => {
         try {
+          await retireProjectsFile(getCompositionManifestPath(entry.name), entry.name);
           const manifest = await readYamlFile<CompositionManifest>(getCompositionManifestPath(entry.name));
           if (!manifest) return null;
           const overlay = await readLocalOverlay(entry.name);
@@ -507,6 +509,7 @@ async function ensureReadableComposition(id: string): Promise<void> {
 export async function readComposition(id = DEFAULT_COMPOSITION_ID): Promise<CompositionV4> {
   await ensureReadableComposition(id);
   const manifestPath = getCompositionManifestPath(id);
+  await retireProjectsFile(manifestPath, id);
   const manifest = await readYamlFile<CompositionManifest>(manifestPath);
   if (!manifest) {
     throw new Error(
@@ -834,6 +837,7 @@ export function manifestToComposition(id: string, manifest: CompositionManifest)
 
 export async function readCompositionWithDerivedTasks(id = DEFAULT_COMPOSITION_ID): Promise<CompositionV4> {
   await ensureReadableComposition(id);
+  await retireProjectsFile(getCompositionManifestPath(id), id);
   const manifest = await readYamlFile<CompositionManifest>(getCompositionManifestPath(id));
   if (!manifest) {
     throw new Error(
@@ -998,7 +1002,7 @@ export function deriveUnfitted(
 
 function normalizeUnfitted(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
-  return [...new Set(raw.filter((v): v is string => typeof v === "string" && v.length > 0))].sort();
+  return [...new Set(raw.filter((v): v is string => typeof v === "string" && v.length > 0 && v !== RETIRED_PROJECTS_FITTING))].sort();
 }
 
 function normalizeSelections(selections: FittingSelectionMap): FittingSelectionMap {
@@ -1008,7 +1012,7 @@ function normalizeSelections(selections: FittingSelectionMap): FittingSelectionM
     if (!items || items.length === 0) {
       continue;
     }
-    normalized[facultyId] = items.filter((item)=>!["improver","improver-nightly"].includes(item.id)).map((item) => selectedFittingSchema.parse(item));
+    normalized[facultyId] = items.filter((item)=>!["improver","improver-nightly",RETIRED_PROJECTS_FITTING].includes(item.id)).map((item) => selectedFittingSchema.parse(item));
   }
   return normalized;
 }

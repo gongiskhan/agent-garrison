@@ -411,21 +411,6 @@
     }
   },
   {
-    "id": "file-browser",
-    "name": "File Browser",
-    "repo": "local:fittings/seed/file-browser",
-    "localPath": "fittings/seed/file-browser",
-    "summary": "Mobile-first file browser/viewer/editor scoped to a workspace root (Monaco + Markdown + images). The artifact surface that replaces the artifact-store.",
-    "platforms": [
-      "claude-code"
-    ],
-    "ratings": {
-      "github_stars_url": "https://github.com/gongiskhan/garrison-file-browser",
-      "global": 4.5,
-      "claude_code": 4.5
-    }
-  },
-  {
     "id": "frontend-design",
     "name": "Frontend design",
     "repo": "local:fittings/seed/frontend-design",

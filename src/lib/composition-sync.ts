@@ -23,6 +23,8 @@ import { discoverStateConfig } from "@garrison/state-client";
 import { readFileSync } from "node:fs";
 // @ts-ignore — shared migration also runs in the release CLI.
 import { migrateImproverManifest } from "../../packages/improver/src/composition.mjs";
+import { retireProjectsYaml } from "./composition-migrate";
+import { recordProjectsRetirement } from "./projects-retirement";
 
 export function nodeIsEnrolled(): boolean {
   try {
@@ -72,17 +74,25 @@ export async function syncCompositionFromState(
 
   if (!comp) {
     // First contact: push the local tree up.
-    const manifestYaml = migrateImproverManifest(await readFile(manifestPath, "utf8")).manifestYaml;
+    const before = migrateImproverManifest(await readFile(manifestPath, "utf8")).manifestYaml;
+    const manifestYaml = retireProjectsYaml(before);
     await client.putComposition(compositionId, manifestYaml, { ifMatchRev: 0 });
+    if (manifestYaml !== before) {
+      await writeIfChanged(manifestPath, manifestYaml);
+      await recordProjectsRetirement(compositionId);
+    }
     return { source: "seeded-to-service", refreshedFiles: [] };
   }
 
   for(let attempt=0;attempt<4;attempt++) {
     const migration=migrateImproverManifest(comp.manifestYaml);
-    if(!migration.changed)break;
+    const manifestYaml=retireProjectsYaml(migration.manifestYaml);
+    const projectsChanged=manifestYaml!==migration.manifestYaml;
+    if(!migration.changed&&!projectsChanged)break;
     try {
-      await client.putComposition(compositionId,migration.manifestYaml,{ifMatchRev:comp.rev});
-      comp={...comp,manifestYaml:migration.manifestYaml};break;
+      await client.putComposition(compositionId,manifestYaml,{ifMatchRev:comp.rev});
+      if(projectsChanged)await recordProjectsRetirement(compositionId);
+      comp={...comp,manifestYaml};break;
     } catch(error) {
       if((error as {status?:number}).status!==409 || attempt===3)throw error;
       const fresh=await client.getComposition(compositionId);

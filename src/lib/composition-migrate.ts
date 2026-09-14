@@ -1,3 +1,5 @@
+// @ts-ignore The retirement ID is shared with plain ESM scripts.
+import {RETIRED_FITTING_ID} from '../../packages/projects/src/retirement.mjs';
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -365,4 +367,32 @@ export function retireDocumentsYaml(raw:string):string {
   const dependencies=doc.getIn(['dependencies','apm']);
   if(isSeq(dependencies))for(let i=dependencies.items.length-1;i>=0;i--){const item=dependencies.items[i];const value=isMap(item)?item.get('path'):item;if(typeof value==='string'&&/(?:^|\/)fittings\/seed\/documents\/?$/.test(value)){dependencies.delete(i);changed=true;}}
   return changed?doc.toString({lineWidth:0}):raw;
+}
+
+export const RETIRED_PROJECTS_FITTING = RETIRED_FITTING_ID;
+
+/** Remove only the retired Projects surface, preserving other selections. */
+export function retireProjectsYaml(raw: string): string {
+  const document = parseDocument(raw);
+  if (document.errors.length) throw document.errors[0];
+  let changed = false;
+  const selections = document.getIn(['x-garrison', 'composition', 'selections']);
+  if (isMap(selections)) for (const pair of selections.items) {
+    if (!isSeq(pair.value)) continue;
+    for (let i = pair.value.items.length - 1; i >= 0; i--) {
+      const item = pair.value.items[i];
+      if (isMap(item) && item.get('id') === RETIRED_PROJECTS_FITTING) {pair.value.delete(i); changed = true;}
+    }
+  }
+  const dependencies = document.getIn(['dependencies', 'apm']);
+  if (isSeq(dependencies)) for (let i = dependencies.items.length - 1; i >= 0; i--) {
+    const item = dependencies.items[i], value = isMap(item) ? item.get('path') : item;
+    const retiredPath = `fittings/seed/${RETIRED_PROJECTS_FITTING}`;
+    if (typeof value === 'string' && (value.replace(/\/$/, '') === retiredPath || value.replace(/\/$/, '').endsWith(`/${retiredPath}`))) {dependencies.delete(i); changed = true;}
+  }
+  const unfitted = document.getIn(['x-garrison', 'composition', 'unfitted']);
+  if (isSeq(unfitted)) for (let i = unfitted.items.length - 1; i >= 0; i--) {
+    if (String(unfitted.items[i]) === RETIRED_PROJECTS_FITTING) {unfitted.delete(i); changed = true;}
+  }
+  return changed ? document.toString({lineWidth: 0}) : raw;
 }

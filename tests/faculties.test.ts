@@ -166,9 +166,8 @@ describe("sessions split (2026-06-18)", () => {
     }
   });
 
-  it("keeps dev-env + file-browser in sessions", async () => {
+  it("keeps dev-env in sessions", async () => {
     expect(await seedFaculty("dev-env")).toBe("sessions");
-    expect(await seedFaculty("file-browser")).toBe("sessions");
   });
 
   it("folds the legacy screen-share/browser/outposts aliases into surfaces", () => {

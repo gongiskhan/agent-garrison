@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 // A proxied fitting's bundle (kanban, monitor, ports, power, automations,
-// file-browser, ...) issues its runtime data fetches root-absolute
+// other own-port views, ...) issues its runtime data fetches root-absolute
 // (fetch("/board"), fetch("/api/ports"), ...) because it has no idea it is
 // being served under /api/fittings/proxy/<id>/ rather than its own origin.
 // Those requests resolve against the SHELL origin and 404

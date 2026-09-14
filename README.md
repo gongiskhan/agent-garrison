@@ -16,6 +16,10 @@ Open-source. Local-first. Single-user. No cloud, no auth, no telemetry. Talks on
 
 ---
 
+## Projects
+
+Projects at `/projects` is the core files and git area. Browse repositories on any mesh node, inspect changes and commits, and run git actions on the owning node. Project files are read-only; the local Garrison files workspace supports artifact edits and new folders. The app keeps these routes and the merge request pump available when the composition is down.
+
 ## What it does, in one picture
 
 ```

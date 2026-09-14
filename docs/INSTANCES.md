@@ -99,7 +99,6 @@ value IS the node port. Sandboxes add their offset.
 | ports-default | 8088 | 18088 | 28088 | 8488 |
 | kanban-loop | 8089 | 18089 | 28089 | 8489 |
 | automations | 8090 | 18090 | 28090 | 8490 |
-| file-browser | 8091 | 18091 | 28091 | 8491 |
 | power-default | 8092 | 18092 | 28092 | 8492 |
 | improver | 8093 | 18093 | 28093 | 8493 |
 | omi-channel | 8094 | 18094 | 28094 | 8494 |

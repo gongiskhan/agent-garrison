@@ -70,12 +70,12 @@ describe("envFingerprintForExtraEnv (V1d env-drift detection)", () => {
   });
 
   it("a projected config key (GARRISON_<ID>_<KEY>) participates in the fingerprint", () => {
-    // Changing the file-browser's root in apm.yml must drift the fingerprint
+    // Changing the artifact-view's root in apm.yml must drift the fingerprint
     // so the next `up` heal-restarts the fitting with the new value instead of
     // silently ignoring the config change.
     const base = { GARRISON_GATEWAY_URL: "http://127.0.0.1:24777" };
-    const a = envFingerprintForExtraEnv({ ...base, GARRISON_FILEBROWSER_ROOT: "~/.garrison/files" });
-    const b = envFingerprintForExtraEnv({ ...base, GARRISON_FILEBROWSER_ROOT: "/srv/files" });
+    const a = envFingerprintForExtraEnv({ ...base, GARRISON_ARTIFACTVIEW_ROOT: "~/.garrison/files" });
+    const b = envFingerprintForExtraEnv({ ...base, GARRISON_ARTIFACTVIEW_ROOT: "/srv/files" });
     const absent = envFingerprintForExtraEnv(base);
     expect(a).not.toBe(b);
     expect(a).not.toBe(absent);
@@ -83,12 +83,12 @@ describe("envFingerprintForExtraEnv (V1d env-drift detection)", () => {
 
   it("projected key order never changes the fingerprint", () => {
     const a = envFingerprintForExtraEnv({
-      GARRISON_FILEBROWSER_ROOT: "~/.garrison/files",
-      GARRISON_FILEBROWSER_PORT: "27091"
+      GARRISON_ARTIFACTVIEW_ROOT: "~/.garrison/files",
+      GARRISON_ARTIFACTVIEW_PORT: "27091"
     });
     const b = envFingerprintForExtraEnv({
-      GARRISON_FILEBROWSER_PORT: "27091",
-      GARRISON_FILEBROWSER_ROOT: "~/.garrison/files"
+      GARRISON_ARTIFACTVIEW_PORT: "27091",
+      GARRISON_ARTIFACTVIEW_ROOT: "~/.garrison/files"
     });
     expect(a).toBe(b);
   });
@@ -97,7 +97,7 @@ describe("envFingerprintForExtraEnv (V1d env-drift detection)", () => {
 describe("ownPortConfigEnv (composition config → spawn env projection)", () => {
   it("projects scalar config as GARRISON_<ID-without-dashes>_<KEY>, skipping nested values", () => {
     expect(
-      ownPortConfigEnv("file-browser", {
+      ownPortConfigEnv("artifact-view", {
         root: "~/.garrison/files",
         port: 27091,
         read_only: false,
@@ -106,9 +106,9 @@ describe("ownPortConfigEnv (composition config → spawn env projection)", () =>
         empty: null
       })
     ).toEqual({
-      GARRISON_FILEBROWSER_ROOT: "~/.garrison/files",
-      GARRISON_FILEBROWSER_PORT: "27091",
-      GARRISON_FILEBROWSER_READ_ONLY: "false"
+      GARRISON_ARTIFACTVIEW_ROOT: "~/.garrison/files",
+      GARRISON_ARTIFACTVIEW_PORT: "27091",
+      GARRISON_ARTIFACTVIEW_READ_ONLY: "false"
     });
   });
 

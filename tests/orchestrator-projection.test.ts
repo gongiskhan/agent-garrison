@@ -121,7 +121,7 @@ describe("buildOrchestratorInstructions (pure fold + capabilities substitution)"
     });
     expect(out.startsWith("## Behavior")).toBe(true);
     expect(out).not.toContain("You are the soul.");
-    expect(out).toContain("- channel:slack — Slack inbound/outbound");
+    expect(out).toContain("- channel:slack - Slack inbound/outbound");
     expect(out).not.toContain("{{capabilities}}");
     expect(out.endsWith("\n")).toBe(true);
   });

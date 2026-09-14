@@ -88,7 +88,7 @@ export const faculties: FacultyDefinition[] = [
     cardinality: "multi",
     shapes: ["plugin", "script", "cli-skill"],
     notes:
-      "The working dev session and its records — Dev Env (the consolidated tabbed terminal + browser surface) plus the artifact store. Surfaces the Sessions record.",
+      "The working development session and its records, including Dev Env's terminal and browser surface. Files and git live in the core project area.",
     tier: "dev"
   },
   {
@@ -226,7 +226,7 @@ export const facultyRoleCopy: Record<FacultyId, { role: string; fit: string }> =
   },
   sessions: {
     role: "The working dev session and its records.",
-    fit: "Dev Env consolidates terminals and session status into one tabbed surface; the artifact store backs it."
+    fit: "Dev Env consolidates terminals and session status into one tabbed surface. Artifacts live in the core project area."
   },
   surfaces: {
     role: "Auxiliary own-port live surfaces for seeing and reaching the machine.",

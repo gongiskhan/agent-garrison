@@ -1,3 +1,5 @@
+// @ts-ignore The standing capability is supplied by the core package.
+import {PROJECTS_CAPABILITIES} from '../packages/projects/src/capabilities.mjs';
 // The boot prefix is what a stretch pays before it does any work. These tests
 // pin the two cuts measured in bench/prefix-2026-08-29: a per-duty tool
 // allow-list instead of the CLI's whole inventory, and a capability catalogue
@@ -120,14 +122,14 @@ describe("capability catalogue detail", () => {
     expect(block).toContain("memory-store:beta");
   });
 
-  it("keeps the whole inventory but drops the bodies in index mode", () => {
+  it("keeps fitting inventory and core guidance while dropping fitting bodies", () => {
     const block = renderCapabilitiesBlock(entries, "index");
     expect(block).toContain("memory-store:alpha");
     expect(block).toContain("memory-store:beta");
     expect(block).not.toContain("ALPHA GUIDANCE BODY");
     // A stretch has to be able to tell WHICH lines have something more to read.
     expect(block).toContain("[usage guidance available]");
-    expect(block.split("\n").filter((l) => l.startsWith("- "))).toHaveLength(2);
+    expect(block.split("\n").filter((l) => l.startsWith("- "))).toHaveLength(3);
   });
 
   it("defaults to full, so nothing changes for a composition that did not opt in", () => {
@@ -138,6 +140,6 @@ describe("capability catalogue detail", () => {
     const big = entry("gamma", "x".repeat(20_000));
     const full = renderCapabilitiesBlock([big], "full");
     const index = renderCapabilitiesBlock([big], "index");
-    expect(index.length).toBeLessThan(full.length / 50);
+    expect(index.length - PROJECTS_CAPABILITIES.length).toBeLessThan((full.length - PROJECTS_CAPABILITIES.length) / 50);
   });
 });

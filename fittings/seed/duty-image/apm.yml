@@ -64,7 +64,7 @@ x-garrison:
          with an image-generation model; if the composition exposes an image MCP
          tool, that works too.
       2. Send the prompt to that model.
-      3. Save the returned image into the artifact store (the file-browser root,
+      3. Save the returned image into the artifact store (the Garrison files root,
          ~/.garrison/files by default) and return the saved path.
 
     This is a documented-simple duty, NOT a heavy image pipeline: the actual

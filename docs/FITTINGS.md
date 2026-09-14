@@ -28,8 +28,18 @@ Legacy artifacts are copied into `Projects/Garrison/Documents` with provenance,
 originals retained, and old document links redirect for one release. Run
 `npx tsx scripts/archive-retire-documents.ts` to migrate before removing any old
 selection. The normal Archive startup also migrates available artifacts.
-`roadmaps`, `pdf`, `project-viewer`, Basic Memory, Trello, vault-git-sync and
-file-browser remain in place. No other default selection changes.
+`roadmaps`, `pdf`, `project-viewer`, Basic Memory, Trello and vault-git-sync
+remain in place.
+
+## Projects
+
+Projects is a core area at `/projects`, backed by `packages/projects` and the
+shell's `/api/projects` and `/api/workspace` routes. It lists repositories on
+every mesh node, confines file reads on the owning node, and runs git there.
+Garrison files keeps the local artifact root writable; peers can only read it.
+The app owns the merge request pump even when its composition is down. Existing
+compositions drop the retired file surface on first load and record the removal
+under `<GARRISON_HOME>/migrations/projects/`.
 
 ## Tier Classifier
 

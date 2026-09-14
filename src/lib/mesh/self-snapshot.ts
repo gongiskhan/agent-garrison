@@ -1,3 +1,4 @@
+import {RETIRED_PROJECTS_FITTING} from "../composition-migrate";
 // This node's own health snapshot — the answer to "what is this machine doing
 // right now", assembled entirely from local sources.
 //
@@ -103,7 +104,7 @@ async function probeSessions(): Promise<SessionsSnapshot | null> {
   try {
     const dir = path.join(garrisonDir(), "web-channel", "threads");
     const names = await readdir(dir);
-    return { webThreads: names.filter((n) => n.endsWith(".json")).length };
+    return { webThreads: names.filter((n) => n.endsWith(".json") && n !== `${RETIRED_PROJECTS_FITTING}.json`).length };
   } catch {
     return null;
   }
@@ -126,7 +127,7 @@ async function probeViews(now: number): Promise<ViewsSnapshot | null> {
   let value: ViewsSnapshot | null;
   try {
     const dir = path.join(garrisonDir(), "ui-fittings");
-    const names = (await readdir(dir)).filter((n) => n.endsWith(".json"));
+    const names = (await readdir(dir)).filter((n) => n.endsWith(".json") && n !== `${RETIRED_PROJECTS_FITTING}.json`);
     const probed = await Promise.all(
       names.map(async (name) => {
         try {

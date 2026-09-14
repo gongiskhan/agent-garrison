@@ -14,7 +14,6 @@ dependencies:
     - path: ../../fittings/seed/cortex-client
     - path: ../../fittings/seed/dev-env
     - path: ../../fittings/seed/drill
-    - path: ../../fittings/seed/file-browser
     - path: ../../fittings/seed/garrison-assistant
     - path: ../../fittings/seed/garrison-call
     - path: ../../fittings/seed/gemini-runtime
@@ -196,11 +195,6 @@ x-garrison:
           config:
             port: 8086
             bind_host: 127.0.0.1
-        - id: file-browser
-          config:
-            port: 8091
-            bind_host: 127.0.0.1
-            root: ~/.garrison/files
         - id: vault-git-sync
           config:
             cron: 0 4 * * *
@@ -285,8 +279,7 @@ x-garrison:
               target: sol
               effort: high
           - description: >-
-              deep: architecture, cross-cutting refactors, tricky bugs with unclear cause,
-              security-sensitive or multi-subsystem work
+              deep: architecture, cross-cutting refactors, tricky bugs with unclear cause, security-sensitive or multi-subsystem work
             cell:
               target: sol
               effort: xhigh
@@ -502,8 +495,7 @@ x-garrison:
       - id: security-review
         title: Security Review
         description: >-
-          The security-boundary rubric: authorization, injection, secrets, tenancy, input
-          validation.
+          The security-boundary rubric: authorization, injection, secrets, tenancy, input validation.
         levels:
           - description: 'quick: the boundary checklist on the diff'
             cell:

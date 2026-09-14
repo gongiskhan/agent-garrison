@@ -4,6 +4,7 @@ import path from "node:path";
 import { garrisonDir } from "@/lib/claude-home";
 import { getTailnetServeMap } from "@/lib/tailnet-serve";
 import { readNodeIdentity } from "@/lib/node-identity";
+import { RETIRED_PROJECTS_FITTING } from "@/lib/composition-migrate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +31,7 @@ export async function GET() {
   const dir = path.join(garrisonDir(), "ui-fittings");
   let names: string[] = [];
   try {
-    names = (await readdir(dir)).filter((n) => n.endsWith(".json"));
+    names = (await readdir(dir)).filter((n) => n.endsWith(".json") && n !== `${RETIRED_PROJECTS_FITTING}.json`);
   } catch (err) {
     const e = err as NodeJS.ErrnoException;
     if (e?.code === "ENOENT") return NextResponse.json({ views: [] });

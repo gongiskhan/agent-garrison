@@ -2,6 +2,10 @@
 
 Canonical pattern for Garrison Fitting views. The own-port convention was locked in 2026-05-16 (see [DECISIONS.md](./DECISIONS.md) §"UI-Fitting port convention"); the mandatory-view rule landed 2026-07-29 (see `docs/decisions/2026-07-29-every-fitting-has-a-view.md`).
 
+## Projects is a shell route
+
+Projects mounts `packages/projects` at `/projects` on the shell origin. File and git requests use relative `/api/projects` URLs for self and the existing peer relay for another node. Garrison files uses `/api/workspace`, with writes on self only. Projects is a core Command item and does not publish or consume a fitting status file.
+
 ## The rules
 
 > **1. Every Fitting has a view.** A Fitting without one is invisible in the sidebar Fittings group — that is an authoring error, and the validation pipeline rejects it. The view is either one or more `x-garrison.ui.views[]` declarations (embedded, rendered inside Garrison at `/fitting/<id>`), or an own-port UI (`own_port: true`, embedded at `/embed/<id>` when live).

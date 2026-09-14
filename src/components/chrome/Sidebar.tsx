@@ -336,7 +336,6 @@ function useIsMobileViewport(): boolean {
 // file: exact id first (most meaningful), then the capability kind it
 // provides, then its Faculty role, then a generic embedded/own-port fallback.
 const VIEW_ICON_BY_ID: Record<string, LucideIcon> = {
-  "file-browser": Archive,
   "browser-default": Globe,
   "dev-env": SquareTerminal,
   improver: Sparkles,

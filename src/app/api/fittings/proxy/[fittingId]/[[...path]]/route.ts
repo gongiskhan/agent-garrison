@@ -1,3 +1,4 @@
+import {RETIRED_PROJECTS_FITTING} from "@/lib/composition-migrate";
 import { NextResponse } from "next/server";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -47,6 +48,7 @@ async function proxy(
   { params }: { params: { fittingId: string; path?: string[] } }
 ): Promise<Response> {
   const { fittingId } = params;
+  if (fittingId === RETIRED_PROJECTS_FITTING) return NextResponse.json({error: "not found"}, {status: 404});
   if (!isValidFittingId(fittingId)) {
     return NextResponse.json({ error: "invalid fittingId" }, { status: 400 });
   }

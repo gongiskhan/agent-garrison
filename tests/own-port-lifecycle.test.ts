@@ -65,9 +65,9 @@ function makeEntry(
 
 describe("ownPortConfigEnv (config -> spawn env projection)", () => {
   it("projects scalar config as GARRISON_<ID>_<KEY> with separators dropped/normalised", () => {
-    const env = ownPortConfigEnv("file-browser", { root: "/srv/x", port: 27090 });
-    expect(env.GARRISON_FILEBROWSER_ROOT).toBe("/srv/x");
-    expect(env.GARRISON_FILEBROWSER_PORT).toBe("27090");
+    const env = ownPortConfigEnv("artifact-view", { root: "/srv/x", port: 27090 });
+    expect(env.GARRISON_ARTIFACTVIEW_ROOT).toBe("/srv/x");
+    expect(env.GARRISON_ARTIFACTVIEW_PORT).toBe("27090");
   });
 
   it("skips a LOOPBACK bind_host so the instance-wide GARRISON_BIND_HOST governs", () => {
