@@ -47,7 +47,7 @@ export default defineConfig({
     },
     {
       name: "tablet",
-      testIgnore: ["**/projects/**"],
+      testIgnore: ["**/tests/e2e/projects/**"],
       use: { ...devices["Desktop Chrome"], viewport: { width: 1024, height: 768 } }
     },
     {
