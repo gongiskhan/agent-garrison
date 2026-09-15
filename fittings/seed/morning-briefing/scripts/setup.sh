@@ -103,7 +103,7 @@ if [ -n "${GARRISON_GATEWAY_URL:-}" ]; then
 fi
 log "registering scheduler job morning-briefing"
 node "$SCHED" register morning-briefing "$CRON" \
-  --description "Daily Trello + Calendar briefing posted to Slack" \
+  --description "Daily Trello + Calendar briefing (delivery: $DELIVERY)" \
   -- "$WRAPPER" >/dev/null
 
 echo "ok"

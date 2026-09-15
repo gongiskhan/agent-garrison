@@ -2,7 +2,10 @@
 """Daily morning-briefing trigger for Agent Garrison.
 
 Subcommands:
-  fire                       POST the synthetic prompt to gateway /jobs.
+  fire                       POST the synthetic prompt to gateway /jobs; for
+                             WhatsApp delivery, start the delivery watcher.
+  watch STATE_FILE           Confirm the briefing left; re-fire or fall back
+                             to a plain briefing if it did not (detached).
   --cron HH:MM <weekdays>    Print the cron expression for the given config.
   --render-prompt [DATE]     Print the rendered briefing prompt (for tests).
                              DATE defaults to today; format YYYY-MM-DD.
@@ -367,10 +370,8 @@ def gateway_url() -> str:
     return f"http://{host}:{port}"
 
 
-def cmd_fire() -> int:
-    today = date.today()
+def job_body(today: date, sources: dict, attempt: int = 1) -> dict:
     delivery, _jid = delivery_config()
-    sources = gather_sources(today)
     body = {
         "kind": "morning-briefing",
         "date": today.isoformat(),
@@ -381,6 +382,37 @@ def cmd_fire() -> int:
         "delivery": delivery,
         "instructions": render_prompt(today, sources),
     }
+    # The gateway dedupes on a hash of the whole payload, so a re-fire with the
+    # same data would be acknowledged and dropped. Only a retry carries the
+    # field, which keeps the first fire's payload exactly what it always was.
+    if attempt > 1:
+        body["attempt"] = attempt
+    return body
+
+
+def cmd_fire() -> int:
+    today = date.today()
+    delivery, jid = delivery_config()
+    sources = gather_sources(today)
+    fired_at = time.time()
+    code = post_job(job_body(today, sources))
+    if delivery == "whatsapp" and os.environ.get("GARRISON_BRIEFING_WATCH", "1") != "0":
+        state = {
+            "date": today.isoformat(),
+            "fired_at": fired_at,
+            "jid": jid,
+            "sources": sources,
+            "posts": [fired_at] if code == 0 else [],
+            "attempts": 1,
+        }
+        try:
+            launch_watcher(state)
+        except OSError as exc:
+            print(f"delivery watcher could not start: {exc}", file=sys.stderr)
+    return code
+
+
+def post_job(body: dict) -> int:
     url = f"{gateway_url()}/jobs"
     data = json.dumps(body).encode("utf-8")
     for attempt in range(1, POST_ATTEMPTS + 1):
@@ -422,6 +454,212 @@ def cmd_fire() -> int:
     return 1
 
 
+# ── Delivery watcher ─────────────────────────────────────────────────────────
+# A 202 from /jobs only means the turn was QUEUED. Everything after it can still
+# fail with nobody told: the gateway crashed on 2026-09-11 and refused every
+# fire for four days, and on 2026-09-15 the turn itself died on an API 429
+# after the ack — the gateway deliberately never replays a dispatched turn. So
+# for WhatsApp delivery a detached watcher confirms the briefing actually left,
+# re-fires once if it did not, and as a last resort sends a plain briefing built
+# from the data this script already gathered. Detached, because the scheduler
+# runs jobs one at a time and a 40-minute wait here would stall every other job.
+
+WATCH_POLL_S = 15            # well under the 60 s outbox cancel window
+WATCH_RETRY_AFTER_S = 15 * 60
+WATCH_FALLBACK_AFTER_S = 40 * 60
+WATCH_GIVE_UP_AFTER_S = 90 * 60
+WATCH_MAX_ATTEMPTS = 2
+
+WEEKDAYS_PT = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"]
+
+
+def watch_state_path(day: str) -> str:
+    return os.path.join(garrison_home(), "morning-briefing", f"{day}.json")
+
+
+def write_watch_state(state: dict) -> str:
+    path = watch_state_path(state["date"])
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(state, fh, ensure_ascii=False, indent=1)
+    os.replace(tmp, path)
+    return path
+
+
+def launch_watcher(state: dict) -> None:
+    path = write_watch_state(state)
+    log_dir = os.path.join(garrison_home(), "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log = open(os.path.join(log_dir, "morning-briefing.log"), "a", encoding="utf-8")
+    # Own session and no inherited pipes: the scheduler waits for the job's
+    # stdout to close, so the watcher must not hold it open.
+    subprocess.Popen(
+        [sys.executable, os.path.abspath(__file__), "watch", path],
+        stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+        start_new_session=True, close_fds=True,
+    )
+    log.close()
+    print(f"delivery watcher started ({path})")
+
+
+def plan_watch_action(state: dict, now: float, delivered: bool) -> str:
+    """What the watcher does next: done | post | retry | fallback | give-up | wait.
+
+    Pure, so the timing policy is testable without a gateway or a phone.
+    """
+    if delivered:
+        return "done"
+    elapsed = now - state["fired_at"]
+    posts = state.get("posts") or []
+    last_post = posts[-1] if posts else None
+    if elapsed >= WATCH_GIVE_UP_AFTER_S:
+        return "give-up"
+    # A turn posted moments ago may still be composing; never race it with a
+    # fallback, or the principal gets the briefing twice.
+    quiet = last_post is None or now - last_post >= WATCH_RETRY_AFTER_S
+    if elapsed >= WATCH_FALLBACK_AFTER_S and quiet:
+        return "fallback"
+    if last_post is None:
+        return "post"  # the gateway was unreachable; keep knocking
+    if quiet and state.get("attempts", 1) < WATCH_MAX_ATTEMPTS:
+        return "retry"
+    return "wait"
+
+
+def fallback_text(state: dict) -> str:
+    """A plain briefing from the gathered data, for when no turn delivered one."""
+    day = date.fromisoformat(state["date"])
+    data = state.get("sources") or {}
+    lines = [f"Briefing {day.strftime('%d/%m')} ({WEEKDAYS_PT[day.weekday()]})"]
+
+    events = data.get("events")
+    if events is None:
+        lines.append(f"Eventos: indisponíveis ({data.get('events_error') or 'erro'}).")
+    elif not events:
+        lines.append("Eventos: nenhum hoje.")
+    else:
+        lines.append("Eventos:")
+        for ev in events:
+            when = ev.get("when") or ""
+            hhmm = when[11:16] if "T" in when else "dia todo"
+            lines.append(f"• {hhmm} {ev.get('summary') or '(sem título)'}")
+
+    tasks = data.get("tasks")
+    if tasks is None:
+        lines.append(f"A Fazer: indisponível ({data.get('tasks_error') or 'erro'}).")
+    elif not tasks:
+        lines.append("A Fazer: lista vazia.")
+    else:
+        lines.append("A Fazer:")
+        lines.extend(f"• {name}" for name in tasks[:10])
+        if len(tasks) > 10:
+            lines.append(f"• … e mais {len(tasks) - 10}")
+
+    lines.append("(versão simples: o assistente não conseguiu compor o briefing hoje)")
+    return "\n".join(lines)
+
+
+def whatsapp_daemon_url() -> Optional[str]:
+    try:
+        with open(os.path.join(garrison_home(), "ui-fittings", "whatsapp-web.json"), encoding="utf-8") as fh:
+            return (json.load(fh).get("url") or "").rstrip("/") or None
+    except (OSError, ValueError):
+        return None
+
+
+def briefing_delivered(state: dict) -> bool:
+    """True once a message to the JID is parked in the outbox or already sent.
+
+    Parked counts: the daemon drains its own outbox, and the 60 s window is
+    longer than the poll, so every send is seen pending at least once.
+    """
+    jid, fired_at = state["jid"], state["fired_at"]
+    fired_iso = datetime.utcfromtimestamp(fired_at).strftime("%Y-%m-%dT%H:%M:%S")
+    base = whatsapp_daemon_url()
+    if base:
+        try:
+            with urllib.request.urlopen(f"{base}/outbox", timeout=10) as resp:
+                pending = json.loads(resp.read().decode("utf-8")).get("pending") or []
+            if any(e.get("to") == jid and str(e.get("queuedAt") or "") >= fired_iso for e in pending):
+                return True
+        except Exception:
+            pass
+    # Kept small on purpose: the connector truncates very large outputs.
+    messages, err = connector_call_plain("whatsapp-web", "recent_messages", {"n": 100})
+    if err or not isinstance(messages, list):
+        return False
+    return any(
+        m.get("fromMe") and m.get("chatJid") == jid and (m.get("timestamp") or 0) >= fired_at * 1000
+        for m in messages
+    )
+
+
+def connector_call_plain(connector: str, action: str, args: dict):
+    """connector_call for a connector with no auth (whatsapp-web): no auth-env hop."""
+    comp = (os.environ.get("GARRISON_COMPOSITION_DIR") or "").strip()
+    script = os.path.join(comp, "apm_modules", "_local", connector, "scripts", "connector.mjs")
+    if not comp or not os.path.exists(script):
+        return None, "connector not installed in this composition"
+    try:
+        proc = subprocess.run(
+            ["node", script, "call", action, json.dumps(args)],
+            capture_output=True, text=True, cwd=comp, timeout=CONNECTOR_TIMEOUT_S,
+            env={**os.environ, "GARRISON_HOME": garrison_home()},
+        )
+        payload = json.loads((proc.stdout or "").strip() or "{}")
+    except (subprocess.TimeoutExpired, json.JSONDecodeError):
+        return None, "unreadable connector output"
+    if not payload.get("ok"):
+        return None, str(payload.get("error") or "call failed")
+    return payload.get("result"), None
+
+
+def _wlog(message: str) -> None:
+    print(f"[{datetime.now().isoformat(timespec='seconds')}] {message}", flush=True)
+
+
+def cmd_watch(path: str) -> int:
+    with open(path, encoding="utf-8") as fh:
+        state = json.load(fh)
+    today = date.fromisoformat(state["date"])
+    _wlog(f"watching {state['date']} briefing to {state['jid']}")
+    while True:
+        now = time.time()
+        action = plan_watch_action(state, now, briefing_delivered(state))
+        if action == "done":
+            state["outcome"] = "delivered"
+            _wlog("delivered")
+            break
+        if action == "give-up":
+            state["outcome"] = "gave-up"
+            _wlog("gave up: nothing delivered and the fallback could not send")
+            break
+        if action in ("post", "retry"):
+            attempt = state.get("attempts", 1) + (1 if action == "retry" else 0)
+            if post_job(job_body(today, state["sources"], attempt)) == 0:
+                state.setdefault("posts", []).append(now)
+                state["attempts"] = attempt
+                _wlog(f"job posted (attempt {attempt})")
+            else:
+                _wlog("gateway unreachable; trying again in a minute")
+                time.sleep(60 - WATCH_POLL_S)
+            write_watch_state(state)
+        elif action == "fallback":
+            result, err = connector_call_plain(
+                "whatsapp-web", "send_text", {"to": state["jid"], "body": fallback_text(state)}
+            )
+            if err:
+                _wlog(f"fallback send failed: {err}")
+            else:
+                state["outcome"] = "fallback-sent"
+                _wlog(f"fallback queued: {json.dumps(result)[:200]}")
+                break
+        time.sleep(WATCH_POLL_S)
+    write_watch_state(state)
+    return 0
+
+
 def compute_cron(time_hhmm: str, weekdays_only: bool) -> str:
     parts = time_hhmm.strip().split(":")
     if len(parts) != 2:
@@ -454,6 +692,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--render-prompt", nargs="?", const="", metavar="DATE")
     sub = parser.add_subparsers(dest="cmd")
     sub.add_parser("fire")
+    watch = sub.add_parser("watch")
+    watch.add_argument("state_file")
     args = parser.parse_args(argv)
     if args.cron:
         return cmd_cron(args.cron[0], args.cron[1])
@@ -461,6 +701,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_render_prompt(args.render_prompt or None)
     if args.cmd == "fire":
         return cmd_fire()
+    if args.cmd == "watch":
+        return cmd_watch(args.state_file)
     parser.print_help(sys.stderr)
     return 2
 

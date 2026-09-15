@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-09-10T08:27:29.473402+00:00'
+generated_at: '2026-09-15T08:34:06.352619+00:00'
 apm_version: 0.25.0
 dependencies:
 - repo_url: _local/agent-sdk-runtime
@@ -164,7 +164,7 @@ dependencies:
   - .claude/skills/morning-briefing
   - .claude/skills/morning-briefing/SKILL.md
   deployed_file_hashes:
-    .claude/skills/morning-briefing/SKILL.md: sha256:e2f182cf94c4c451220cb1b0bbf55f3e6d472f90062a97af5c37923b2bc65a83
+    .claude/skills/morning-briefing/SKILL.md: sha256:f44ee80f0eb9911a76e35ba98f73490e6e0e158b3e9fcdaec3789cd4fa9b85dd
   source: local
   local_path: ../../fittings/seed/morning-briefing
 - repo_url: _local/omi-channel
@@ -461,7 +461,7 @@ deployments:
   owners:
   - ../../fittings/seed/morning-briefing
   active_owner: ../../fittings/seed/morning-briefing
-  content_hash: sha256:e2f182cf94c4c451220cb1b0bbf55f3e6d472f90062a97af5c37923b2bc65a83
+  content_hash: sha256:f44ee80f0eb9911a76e35ba98f73490e6e0e158b3e9fcdaec3789cd4fa9b85dd
 - kind: project-relative
   target: claude
   value: .claude/skills/redesign-existing-projects

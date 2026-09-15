@@ -138,6 +138,11 @@ interface RunnerRecord {
   process?: ChildProcessWithoutNullStreams;
   watcher?: FSWatcher;
   restartTimer?: NodeJS.Timeout;
+  // Crash recovery for a gateway that died after becoming ready
+  // (scheduleGatewayRecovery): the pending restart, and when recent attempts
+  // started, so a gateway that keeps crashing exhausts a bounded budget.
+  recoveryTimer?: NodeJS.Timeout;
+  gatewayRecoveries?: number[];
   gateway?: GatewayInfo;
   // Serialize lifecycle mutations for one composition inside this server
   // process. Without this, two Run/restart requests can interleave PID-file
@@ -1079,6 +1084,11 @@ async function downUnlocked(compositionId: string): Promise<RunnerState> {
   if (record.restartTimer) {
     clearTimeout(record.restartTimer);
     record.restartTimer = undefined;
+  }
+  // An explicit stop outranks a pending crash recovery.
+  if (record.recoveryTimer) {
+    clearTimeout(record.recoveryTimer);
+    record.recoveryTimer = undefined;
   }
   if (record.watcher) {
     await record.watcher.close();
@@ -2612,6 +2622,63 @@ function portOccupied(host: string, port: number): Promise<boolean> {
   });
 }
 
+// A gateway that dies on its own after becoming ready used to leave the
+// composition `failed` until a human noticed. The launchd waiter only watches
+// the first minutes after boot, so on 2026-09-11 one crash (an EPIPE after an
+// MCP startup timeout) silently dropped every scheduled job for four days while
+// the app and every own-port view kept answering 200. Recovery re-runs up(),
+// the same path the waiter and the Run button use, with a bounded backoff so a
+// gateway that crashes on boot cannot loop forever.
+export const GATEWAY_RECOVERY_DELAYS_MS = [15_000, 60_000, 5 * 60_000] as const;
+export const GATEWAY_RECOVERY_WINDOW_MS = 30 * 60_000;
+
+/** The delay before the next recovery attempt, or null once the budget is spent. */
+export function nextGatewayRecoveryDelay(recentAttempts: readonly number[], now: number): number | null {
+  const inWindow = recentAttempts.filter((at) => now - at < GATEWAY_RECOVERY_WINDOW_MS).length;
+  return inWindow < GATEWAY_RECOVERY_DELAYS_MS.length ? GATEWAY_RECOVERY_DELAYS_MS[inWindow] : null;
+}
+
+function scheduleGatewayRecovery(compositionId: string): void {
+  const record = getRecord(compositionId);
+  if (record.recoveryTimer) return;
+  const now = Date.now();
+  record.gatewayRecoveries = (record.gatewayRecoveries ?? []).filter(
+    (at) => now - at < GATEWAY_RECOVERY_WINDOW_MS
+  );
+  const delay = nextGatewayRecoveryDelay(record.gatewayRecoveries, now);
+  if (delay === null) {
+    appendLog(
+      compositionId,
+      "runner",
+      `Gateway recovery gave up after ${record.gatewayRecoveries.length} attempts in ${GATEWAY_RECOVERY_WINDOW_MS / 60_000} min; run the composition again once the cause is fixed`
+    );
+    return;
+  }
+  record.gatewayRecoveries.push(now);
+  appendLog(
+    compositionId,
+    "runner",
+    `Gateway exited unexpectedly; restarting composition in ${Math.round(delay / 1000)}s (attempt ${record.gatewayRecoveries.length}/${GATEWAY_RECOVERY_DELAYS_MS.length})`
+  );
+  const timer = setTimeout(() => {
+    const current = getRecord(compositionId);
+    if (current.recoveryTimer === timer) current.recoveryTimer = undefined;
+    // Someone may have run or stopped the composition meanwhile; only a
+    // composition still failed with no live gateway is ours to restart.
+    if (current.state.status !== "failed" || current.process) return;
+    up(compositionId, { devMode: current.state.devMode }).catch((error) => {
+      appendLog(
+        compositionId,
+        "stderr",
+        `Gateway recovery failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+      scheduleGatewayRecovery(compositionId);
+    });
+  }, delay);
+  timer.unref?.();
+  record.recoveryTimer = timer;
+}
+
 async function spawnGateway(
   compositionId: string,
   cwd: string,
@@ -2733,6 +2800,9 @@ async function spawnGateway(
         status: code === 0 ? "stopped" : "failed",
         pid: undefined
       });
+      // down() flips the status to "stopping" before it kills the child, so a
+      // failed exit seen while still "running" is a crash, never a stop.
+      if (code !== 0) scheduleGatewayRecovery(compositionId);
     } else if (ownsRecord) {
       // A prior stop attempt may have timed out and left the record failed but
       // intentionally retained. When the child eventually exits, retire the
