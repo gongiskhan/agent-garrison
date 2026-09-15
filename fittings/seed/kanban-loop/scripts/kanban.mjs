@@ -537,6 +537,23 @@ async function seedMorningBrief() {
   console.log(`kanban-loop: Morning briefing ${result.created ? `created (${result.card.id})` : result.cutover ? `cut over (${result.card.id})` : `already exists (${result.card.id})`}${result.cutoverPending ? " — paused pending legacy-job removal" : ""}`);
 }
 
+// Is the gateway answering at all? Any HTTP response (even a 404) means an
+// operative is up and the tick has something to kick; a connection error or a
+// timeout means it is down, and the tick skips quietly. Same check as the board
+// server's own gatewayReachable in server.mjs.
+async function gatewayReachable(url) {
+  if (!url) return false;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 1500);
+    const r = await fetch(url, { method: "GET", signal: ctrl.signal }).catch(() => null);
+    clearTimeout(t);
+    return Boolean(r);
+  } catch {
+    return false;
+  }
+}
+
 // Process due IMMEDIATE agent-list cards. Skips scheduler-beat (Test runs on its own
 // beat), manual, and interactive lists.
 async function tick() {
