@@ -110,7 +110,7 @@ x-garrison:
     plays on whichever device runs the Spotify app — for "play on my phone" the
     Spotify app must be open/awake on the phone (it then appears under `devices`).
 
-      node apm_modules/_local/spotify/scripts/connector.mjs catalog
+      node "$GARRISON_COMPOSITION_DIR/apm_modules/_local/spotify/scripts/connector.mjs" catalog
         -> the action catalog as JSON.
       node .../connector.mjs call current
         -> { is_playing, track, artist, device } — check before acting.
