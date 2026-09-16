@@ -19,10 +19,9 @@ protocol NodeProber: Sendable {
 }
 
 struct URLSessionNodeProber: NodeProber {
-    /// Short on purpose: this runs on the path between launch and first paint,
-    /// and a node that needs longer than this to answer its own root is not a
-    /// node the user can work on anyway.
-    static let defaultTimeout: TimeInterval = 3
+    /// Allow a cellular/tailnet connection to wake up. A healthy Madrid root
+    /// took 3.1 seconds on a cold connection; that is not a dead node.
+    static let defaultTimeout: TimeInterval = 8
 
     let timeout: TimeInterval
     private let session: URLSession
@@ -42,7 +41,7 @@ struct URLSessionNodeProber: NodeProber {
     }
 
     func reachable(_ origin: URL) async -> Bool {
-        var request = URLRequest(url: origin)
+        var request = URLRequest(url: origin.appendingPathComponent("api/mesh/self"))
         // GET, not HEAD: the shell is a Next app behind a tunnel, and neither
         // is obliged to answer a HEAD. The body is discarded either way.
         request.httpMethod = "GET"
@@ -78,6 +77,8 @@ enum NodeFailoverOutcome: Equatable {
     /// the node the user chose beats silently hopping to another one that is
     /// equally dead, and the bootstrap/error page still offers a way out.
     case noneReachable
+    /// Another check, a manual selection, or cancellation owns the decision.
+    case superseded
 }
 
 /// The one thing the user sees. Held on NodeStore, rendered by the app.

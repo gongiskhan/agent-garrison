@@ -72,6 +72,8 @@ final class NodeStore: ObservableObject {
     @Published private(set) var lastFailover: NodeFailoverNotice?
 
     private let defaults: UserDefaults?
+    private var selectionRevision = 0
+    private var checkingFailover = false
 
     /// Injectable for tests (a plain suite name instead of the group). The
     /// legacy keys are read and mirrored through the SAME defaults so a test
@@ -97,6 +99,7 @@ final class NodeStore: ObservableObject {
         }
         persistNodes()
         if current?.name == record.name {
+            if current?.shellOrigin != record.shellOrigin { selectionRevision += 1 }
             current = record
             mirrorLegacy(record)
         }
@@ -108,6 +111,7 @@ final class NodeStore: ObservableObject {
     @discardableResult
     func select(name: String) -> Bool {
         guard let record = nodes.first(where: { $0.name == name }) else { return false }
+        selectionRevision += 1
         current = record
         defaults?.set(record.name, forKey: AppGroup.Key.nodeCurrent)
         mirrorLegacy(record)
@@ -139,11 +143,28 @@ final class NodeStore: ObservableObject {
     @discardableResult
     func failoverIfNeeded(prober: NodeProber, now: Date = Date()) async -> NodeFailoverOutcome {
         guard let from = current else { return .noCurrentNode }
-        if await prober.reachable(from.shellOrigin) { return .currentReachable }
+        guard !checkingFailover else { return .superseded }
+        checkingFailover = true
+        defer { checkingFailover = false }
+        let revision = selectionRevision
+        func stillSelected() -> Bool {
+            !Task.isCancelled && selectionRevision == revision && current?.name == from.name
+        }
+        let reachable = await prober.reachable(from.shellOrigin)
+        guard stillSelected() else { return .superseded }
+        if reachable { return .currentReachable }
         // `nodes` is re-read after the await on purpose: a node could have been
         // added or removed from the page while the probe was in flight.
         for candidate in nodes where candidate.name != from.name {
-            guard await prober.reachable(candidate.shellOrigin) else { continue }
+            let peerReachable = await prober.reachable(candidate.shellOrigin)
+            guard stillSelected() else { return .superseded }
+            guard peerReachable else { continue }
+            // Confirm failure after finding a healthy peer: one timeout while
+            // the phone's network wakes up cannot replace its chosen webview.
+            let recovered = await prober.reachable(from.shellOrigin)
+            guard stillSelected() else { return .superseded }
+            if recovered { return .currentReachable }
+            guard nodes.contains(where: { $0.name == candidate.name && $0.shellOrigin == candidate.shellOrigin }) else { continue }
             guard select(name: candidate.name) else { continue }
             lastFailover = NodeFailoverNotice(from: from.name, to: candidate.name, at: now)
             return .switched(from: from.name, to: candidate.name)
@@ -162,6 +183,7 @@ final class NodeStore: ObservableObject {
         nodes.removeAll { $0.name == name }
         persistNodes()
         if current?.name == name {
+            selectionRevision += 1
             current = nil
             defaults?.removeObject(forKey: AppGroup.Key.nodeCurrent)
             clearLegacy()

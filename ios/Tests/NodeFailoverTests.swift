@@ -191,10 +191,92 @@ final class NodeFailoverTests: XCTestCase {
         XCTAssertFalse(URLSessionNodeProber.isAlive(status: 503))
     }
 
-    // The probe budget is the launch path: a node that cannot answer its own
-    // root in three seconds is not one the user can work on.
-    func testProbeTimeoutStaysShort() {
-        XCTAssertEqual(URLSessionNodeProber.defaultTimeout, 3)
-        XCTAssertEqual(URLSessionNodeProber().timeout, 3)
+    func testProbeAllowsColdTailnetConnections() async {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [ColdNodeProtocol.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let prober = URLSessionNodeProber(session: session)
+        let alive = await prober.reachable(URL(string: "https://madrid.test")!)
+        XCTAssertTrue(alive, "The observed 3.1-second cold response is healthy")
+        XCTAssertEqual(ColdNodeProtocol.requestPath, "/api/mesh/self")
+        XCTAssertEqual(prober.timeout, 8)
     }
+
+    private actor ScriptedProber: NodeProber {
+        var answers: [Bool]
+        init(_ answers: [Bool]) { self.answers = answers }
+        func reachable(_ origin: URL) async -> Bool { answers.removeFirst() }
+    }
+
+    @MainActor
+    func testColdCurrentRecoversBeforeFailover() async {
+        let store = storeWithNodes(["madrid", "pro"], selected: "madrid")
+        let outcome = await store.failoverIfNeeded(prober: ScriptedProber([false, true, true]))
+        XCTAssertEqual(outcome, .currentReachable)
+        XCTAssertEqual(store.current?.name, "madrid")
+        XCTAssertNil(store.lastFailover)
+    }
+
+    private actor GateProber: NodeProber {
+        var requestCount = 0
+        private var pending: [CheckedContinuation<Bool, Never>] = []
+        func reachable(_ origin: URL) async -> Bool {
+            requestCount += 1
+            return await withCheckedContinuation { pending.append($0) }
+        }
+        func answer(_ value: Bool) { pending.removeFirst().resume(returning: value) }
+    }
+
+    @MainActor
+    func testForegroundChecksDoNotRaceAndManualSelectionWins() async {
+        let store = storeWithNodes(["madrid", "pro", "mini"], selected: "madrid")
+        let prober = GateProber()
+        let check = Task { await store.failoverIfNeeded(prober: prober) }
+        while await prober.requestCount < 1 { await Task.yield() }
+        let overlapping = await store.failoverIfNeeded(prober: prober)
+        XCTAssertEqual(overlapping, .superseded)
+        await prober.answer(false)
+        while await prober.requestCount < 2 { await Task.yield() }
+        XCTAssertTrue(store.select(name: "mini"))
+        await prober.answer(true)
+        let outcome = await check.value
+        XCTAssertEqual(outcome, .superseded)
+        XCTAssertEqual(store.current?.name, "mini")
+        XCTAssertNil(store.lastFailover)
+    }
+
+    @MainActor
+    func testCancelledProbeCannotSwitchTheWebview() async {
+        let store = storeWithNodes(["madrid", "pro"], selected: "madrid")
+        let prober = GateProber()
+        let check = Task { await store.failoverIfNeeded(prober: prober) }
+        while await prober.requestCount < 1 { await Task.yield() }
+        check.cancel()
+        await prober.answer(false)
+        let outcome = await check.value
+        XCTAssertEqual(outcome, .superseded)
+        XCTAssertEqual(store.current?.name, "madrid")
+    }
+}
+
+
+private final class ColdNodeProtocol: URLProtocol {
+    static var requestPath: String?
+    private var responseWork: DispatchWorkItem?
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "madrid.test" }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        Self.requestPath = request.url?.path
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            let response = HTTPURLResponse(url: self.request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            self.client?.urlProtocol(self, didLoad: Data("{}".utf8))
+            self.client?.urlProtocolDidFinishLoading(self)
+        }
+        responseWork = work
+        DispatchQueue.global().asyncAfter(deadline: .now() + 3.1, execute: work)
+    }
+    override func stopLoading() { responseWork?.cancel() }
 }
