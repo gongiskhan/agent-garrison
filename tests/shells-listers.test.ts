@@ -235,6 +235,43 @@ describe("codex lister", () => {
 });
 
 describe("cursor lister", () => {
+  it.each(["success", "error", "cancelled"])("uses an explicit Cursor %s completion ahead of older hooks, then observes a new turn", (status) => {
+    const home = path.join(sandbox, "cursor-completion");
+    const id = "completed-desktop";
+    const file = path.join(home, "projects", "tmp-project", "agent-transcripts", id, `${id}.jsonl`);
+    mkdirSync(path.dirname(file), { recursive: true });
+    const write = (records: object[], at: number) => {
+      appendFileSync(file, records.map((record) => JSON.stringify(record)).join("\n") + "\n");
+      utimesSync(file, new Date(at), new Date(at));
+    };
+    const completedAt = NOW - 60 * 60_000;
+    const events = [
+      { event: "agent-stop", runtime: "cursor", session_id: id, ts: new Date(completedAt - 5000).toISOString() },
+      { event: "agent-start", runtime: "cursor", session_id: id, ts: new Date(completedAt - 1000).toISOString() },
+    ];
+    const row = (now = NOW) => listCursor({ now, env: { HOME: sandbox, GARRISON_CURSOR_HOME: home } })[0];
+    write([
+      { role: "user", message: { content: [{ type: "text", text: "Upgrade project" }] } },
+      { role: "assistant", message: { content: [{ type: "text", text: "Finished" }] } },
+      { type: "turn_ended", status },
+    ], completedAt);
+    for (const now of [completedAt, NOW]) {
+      expect(applyHookStatus(row(now), events, now)).toMatchObject({
+        status: "idle", statusSource: "transcript-events", statusAt: new Date(completedAt).toISOString(),
+        transcript: { format: "cursor-agent-jsonl", path: file },
+      });
+    }
+    // A new prompt's hook can arrive before its journal write.
+    events.push({ event: "agent-start", runtime: "cursor", session_id: id, ts: new Date(NOW).toISOString() });
+    expect(applyHookStatus(row(), events, NOW).status).toBe("working");
+    write([{ role: "user", message: { content: [{ type: "text", text: "Next task" }] } }], NOW);
+    expect(row()).toMatchObject({ status: "working", statusSource: "transcript" });
+    expect(applyHookStatus(row(NOW + 60_000), events, NOW + 60_000).status).toBe("working");
+    // Quiet text is not proof of completion; only the explicit marker closes it.
+    write([{ role: "assistant", message: { content: [{ type: "text", text: "Investigating" }] } }], NOW + 1000);
+    expect(applyHookStatus(row(NOW + 60_000), events, NOW + 60_000).status).toBe("working");
+  });
+
   function desktopFixture() {
     const db = path.join(sandbox, "state.vscdb");
     const meta = JSON.stringify({ name: "Desktop title", status: "completed", createdAt: NOW - 1000, lastUpdatedAt: NOW, conversation: "private-body-sentinel" });

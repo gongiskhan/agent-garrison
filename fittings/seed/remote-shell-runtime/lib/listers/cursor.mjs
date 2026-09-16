@@ -2,10 +2,9 @@
 // <id>/<id>.jsonl` holds BOTH desktop composer sessions and CLI chats, live-
 // updating; `~/.cursor/chats/<ws>/<id>/meta.json` names which ids are CLI
 // chats (and their real cwd - the transcript's own slug is lossy, since both
-// "/" and "." fold to "-"). No hooks yet on this box's own node profile (the
-// fitting's install-hooks.mjs installs them locally); status is the
-// transcript-mtime baseline, layered over by the state doc publisher when a
-// hook event exists. `GARRISON_CURSOR_HOME` overrides the root for tests -
+// "/" and "." fold to "-"). Explicit turn completion and the transcript-mtime
+// baseline feed the session index, which reconciles them with lifecycle hooks.
+// `GARRISON_CURSOR_HOME` overrides the root for tests -
 // the same override name Quarters uses.
 
 import { execFileSync } from "node:child_process";
@@ -135,6 +134,21 @@ function firstUserLine(file) {
   return null;
 }
 
+/** Cursor JSONL has explicit, untimestamped turn_ended records. The file's
+ * mtime dates the final record, so a completed turn can outrank an earlier
+ * activity hook without guessing from a quiet assistant text block. */
+function cursorTranscriptStatus(file, mtimeMs, now) {
+  if (!file.endsWith(".jsonl")) return transcriptStatus(mtimeMs, now);
+  let completed = false;
+  for (const rec of readJsonlSlice(file, { tail: true })) {
+    if (rec?.type === "turn_ended") completed = true;
+    else if (rec?.role === "user" || rec?.role === "assistant") completed = false;
+  }
+  return completed
+    ? { status: "idle", statusSource: "transcript-events", statusAt: new Date(mtimeMs).toISOString() }
+    : transcriptStatus(mtimeMs, now);
+}
+
 export function list({ windowDays = 5, now = Date.now(), env = process.env } = {}) {
   const home = cursorHome(env);
   const rows = [];
@@ -164,7 +178,7 @@ export function list({ windowDays = 5, now = Date.now(), env = process.env } = {
       const meta = chatsMeta.get(id);
       const cwd = meta?.cwd ?? guessedCwd;
       const kind = meta ? "cli" : "desktop";
-      const base = transcriptStatus(stat.mtimeMs, now);
+      const base = cursorTranscriptStatus(file, stat.mtimeMs, now);
       const title = desktop.get(id)?.title ?? meta?.name ?? meta?.title ?? firstUserLine(file);
       rows.push({
         id,
@@ -173,8 +187,7 @@ export function list({ windowDays = 5, now = Date.now(), env = process.env } = {
         cwd,
         project: projectName(cwd) ?? slug.split("-").pop(),
         title,
-        status: base.status,
-        statusSource: base.statusSource,
+        ...base,
         startedAt: Number.isFinite(meta?.createdAtMs) ? new Date(meta.createdAtMs).toISOString() : null,
         lastActivityAt: new Date(stat.mtimeMs).toISOString(),
         // Only a CLI chat has a proven cursor-agent resume target. IDE
