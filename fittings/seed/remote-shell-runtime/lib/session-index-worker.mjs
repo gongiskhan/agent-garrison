@@ -20,6 +20,7 @@ export function createIndexBuilder({ timeoutMs = 30_000, workerUrl = new URL(imp
     const request = pending;
     pending = null;
     clearTimeout(request.timer);
+    worker?.unref();
     if (error) request.reject(error);
     else request.resolve(rows);
   }
@@ -50,6 +51,7 @@ export function createIndexBuilder({ timeoutMs = 30_000, workerUrl = new URL(imp
       const timer = setTimeout(() => discard(current, new Error("Session index build timed out")), timeoutMs);
       timer.unref?.();
       pending = { promise, resolve, reject, timer };
+      current.ref();
       try {
         // Only plain row metadata crosses the thread boundary, never PTYs,
         // sockets, event listeners or native SessionManager instances.

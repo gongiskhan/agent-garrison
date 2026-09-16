@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import http from "node:http";
+import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -90,4 +91,14 @@ it("coalesces refreshes, recovers after a timed-out worker and rejects work afte
   await expect(builder.build()).resolves.toEqual([{ id: 2 }]);
   await builder.close();
   await expect(builder.build()).rejects.toThrow("closed");
+});
+
+it("keeps a standalone caller alive until its first discovery completes", () => {
+  const runner = path.join(root, "standalone.mjs");
+  const moduleUrl = pathToFileURL(path.resolve("fittings/seed/remote-shell-runtime/lib/session-index-worker.mjs")).href;
+  writeFileSync(runner, `import {createIndexBuilder} from ${JSON.stringify(moduleUrl)};
+const builder = createIndexBuilder();
+try { console.log(JSON.stringify(await builder.build())); } finally { await builder.close(); }
+`);
+  expect(JSON.parse(execFileSync(process.execPath, [runner], { encoding: "utf8", timeout: 5000 }))).toEqual([]);
 });
