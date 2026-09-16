@@ -87,12 +87,11 @@ function readDesktopMetadata(env) {
       desktopCache.error = null;
       return desktopCache.rows;
     }
+    // Composer values can contain hundreds of MB of conversation data. Ask
+    // SQLite to extract all six metadata fields together, parsing each value
+    // once instead of once per selected field.
     const sql = `select substr(key, 14) as id,
-      json_extract(value, '$.name') as title,
-      json_extract(value, '$.status') as status,
-      json_extract(value, '$.createdAt') as createdAt,
-      coalesce(json_extract(value, '$.lastUpdatedAt'), json_extract(value, '$.updatedAt'), json_extract(value, '$.createdAt')) as updatedAt,
-      json_extract(value, '$.cwd') as cwd
+      json_extract(value, '$.name', '$.status', '$.createdAt', '$.lastUpdatedAt', '$.updatedAt', '$.cwd') as metadata
       from cursorDiskKV where key like 'composerData:%' and json_valid(value)`;
     const out = execFileSync("sqlite3", ["-readonly", "-json", dbPath, sql],
       { encoding: "utf8", timeout: 5000, maxBuffer: 4 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] });
@@ -101,7 +100,13 @@ function readDesktopMetadata(env) {
     const parsed = out.trim() ? JSON.parse(out) : [];
     if (!Array.isArray(parsed)) throw new SyntaxError("invalid metadata result");
     const rows = new Map();
-    for (const row of parsed) if (row?.id) rows.set(row.id, { ...row, dbPath });
+    for (const row of parsed) {
+      if (!row?.id) continue;
+      const fields = JSON.parse(row.metadata);
+      if (!Array.isArray(fields) || fields.length !== 6) throw new SyntaxError("invalid metadata fields");
+      const [title, status, createdAt, lastUpdatedAt, updatedAt, cwd] = fields;
+      rows.set(row.id, { id: row.id, title, status, createdAt, updatedAt: lastUpdatedAt ?? updatedAt ?? createdAt, cwd, dbPath });
+    }
     desktopCache.rows = rows;
     desktopCache.error = null;
   } catch (err) {

@@ -24,7 +24,7 @@ import { refreshHostTokens, DEFAULT_REFRESH_MS } from "../lib/host-credential.mj
 import { TetherManager, tetherArmed } from "../lib/tether.mjs";
 import { ForwardManager } from "../lib/forwards.mjs";
 import { listRemoteDir, readRemoteFile } from "../lib/remote-files.mjs";
-import { buildIndex } from "../lib/session-index.mjs";
+import { createIndexBuilder } from "../lib/session-index-worker.mjs";
 import { nodeName, shellOrigin } from "../lib/node-identity.mjs";
 import { flush as flushIndex, schedulePublish as publishIndex } from "../lib/index-publisher.mjs";
 import { applyCors, verdict as originVerdict } from "../lib/origin-guard.mjs";
@@ -178,12 +178,15 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
 
   // ── the session index (owned shells + every listed external session) ─────
   let lastIndex = { node: nodeName(), shellOrigin: shellOrigin(process.env, { port: opts.port }), updatedAt: null, rows: [] };
+  const indexBuilder = createIndexBuilder();
+  let indexStopped = false;
   let indexBuilding = false;
-  function refreshIndex() {
-    if (indexBuilding) return lastIndex;
+  async function refreshIndex() {
+    if (indexStopped || indexBuilding) return lastIndex;
     indexBuilding = true;
     try {
-      const rows = buildIndex({ manager, windowDays: opts.sessionWindowDays, garrisonHomeDir: garrisonHome() });
+      const rows = await indexBuilder.build({ manager, windowDays: opts.sessionWindowDays, garrisonHomeDir: garrisonHome() });
+      if (indexStopped) return lastIndex;
       lastIndex = {
         node: nodeName(),
         shellOrigin: shellOrigin(process.env, { port: opts.port }),
@@ -192,15 +195,21 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
       };
       void publishIndex(lastIndex);
     } catch (err) {
-      console.warn(`[remote-shell] index build failed: ${err?.message ?? err}`);
+      if (!indexStopped) console.warn(`[remote-shell] index build failed: ${err?.message ?? err}`);
     } finally {
       indexBuilding = false;
     }
     return lastIndex;
   }
-  refreshIndex();
+  void refreshIndex();
   const indexTimer = setInterval(refreshIndex, opts.indexPublishSeconds * 1000);
   indexTimer.unref?.();
+
+  function stopIndex() {
+    indexStopped = true;
+    clearInterval(indexTimer);
+    return indexBuilder.close();
+  }
 
   const server = http.createServer(async (req, res) => {
     const { pathname, query } = url.parse(req.url || "/", true);
@@ -584,6 +593,8 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
     ws.on("close", () => { unsubscribe?.(); });
   });
 
+  server.once("close", () => { void stopIndex(); });
+
   assertStatusSlotFree();
   await assertPortFree(opts.port, opts.host);
 
@@ -650,7 +661,7 @@ export async function startServer(opts = parseArgs(process.argv.slice(2))) {
 
   const shutdown = async () => {
     clearInterval(refreshTimer);
-    clearInterval(indexTimer);
+    await stopIndex();
     try { await flushIndex(); } catch {}
     tunnels.stopSupervision();
     manager.shutdownAll();
