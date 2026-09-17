@@ -270,7 +270,9 @@ button.linkish:hover:not(:disabled) { background: none; transform: none; color: 
 .lang-toggle button + button { border-left: 1px solid rgba(238, 226, 202, 0.3); }
 .lang-toggle button[aria-pressed="true"] { background: var(--brass-2); color: var(--shell); }
 .lang-toggle button:hover:not(:disabled) { transform: none; box-shadow: none; color: var(--shell-ink); }
-.lang-toggle button[aria-pressed="true"]:hover:not(:disabled) { color: var(--shell); }
+/* Outranks `.topbar button:hover`, which would otherwise repaint the pressed
+   half dark-on-dark the moment the pointer that clicked it is still there. */
+.topbar .lang-toggle button[aria-pressed="true"]:hover:not(:disabled) { background: var(--brass-2); color: var(--shell); }
 
 /* ── check sections ────────────────────────────────────────────────────── */
 
