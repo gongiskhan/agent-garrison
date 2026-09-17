@@ -290,10 +290,14 @@ describe("Preflight report cache", () => {
     expect(deps.buildReport).toHaveBeenLastCalledWith({ checks: null, ledger: "update", lang: "pt" });
     await request(port, "/api/report?lang=pt-BR");
     expect(deps.buildReport).toHaveBeenCalledTimes(2);
+    // Junk resolves to the default, whose slot is still warm: no rebuild.
     const junk = await request(port, "/api/report?lang=zz");
     expect(junk.status).toBe(200);
-    expect(deps.buildReport).toHaveBeenCalledTimes(3);
-    expect(deps.buildReport).toHaveBeenLastCalledWith({ checks: null, ledger: "update", lang: "en" });
+    expect(deps.buildReport).toHaveBeenCalledTimes(2);
+    // Two languages keep two slots — neither evicts the other.
+    await request(port, "/api/report?lang=pt");
+    await request(port, "/api/report?lang=en");
+    expect(deps.buildReport).toHaveBeenCalledTimes(2);
   });
 
   it("honours an explicit fresh read", async () => {

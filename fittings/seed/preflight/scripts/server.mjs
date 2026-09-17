@@ -164,40 +164,44 @@ export function createRequestHandler(deps = {}) {
   const cacheTtlMs = Number.isFinite(api.reportCacheMs)
     ? api.reportCacheMs
     : Number(process.env.GARRISON_PREFLIGHT_REPORT_CACHE_MS ?? 15000);
-  let cached = { key: null, at: 0, inflight: null, value: null };
-  const invalidateReport = () => { cached = { key: null, at: 0, inflight: null, value: null }; };
+  // One slot per (language, subset). A single slot made a Portuguese tab and
+  // an English one evict each other on every poll, so both paid a full
+  // collector run every 30s and neither ever hit the cache.
+  const slots = new Map();
+  const MAX_SLOTS = 8;
+  const invalidateReport = () => { slots.clear(); };
 
   const rebuild = (key, checks, lang) => {
+    const slot = slots.get(key) ?? { at: 0, inflight: null, value: null };
+    slots.set(key, slot);
     const inflight = Promise.resolve(api.buildReport({ checks, ledger: "update", ...(lang ? { lang } : {}) })).then(
-      (value) => { cached = { key, at: Date.now(), inflight: null, value }; return value; },
-      (err) => { if (cached.inflight === inflight) invalidateReport(); throw err; }
+      (value) => { if (slots.get(key) === slot) Object.assign(slot, { at: Date.now(), inflight: null, value }); return value; },
+      (err) => { if (slots.get(key) === slot && slot.inflight === inflight) slots.delete(key); throw err; }
     );
+    slot.inflight = inflight;
+    if (slots.size > MAX_SLOTS) slots.delete(slots.keys().next().value);
     return inflight;
   };
 
-  // The language is part of the key: a report is rendered prose, and the one
-  // slot must never hand a Portuguese page an English build. Flipping the
-  // toggle therefore evicts and rebuilds, which is the semantics wanted.
+  // The language is part of the key: a report is rendered prose, and a slot
+  // must never hand a Portuguese page an English build.
   const cachedReport = (checks, fresh, lang) => {
     const key = `${lang || "*"}|${(checks ?? []).slice().sort().join(",") || "*"}`;
-    if (!fresh && cached.key === key) {
+    const slot = slots.get(key);
+    if (!fresh && slot) {
       // Concurrent misses share one build instead of racing several.
-      if (cached.inflight && !cached.value) return cached.inflight;
-      if (cached.value) {
+      if (slot.inflight && !slot.value) return slot.inflight;
+      if (slot.value) {
         // Stale-while-revalidate: a report that exists is served at once, and a
         // stale one is rebuilt BEHIND the response. The page never waits for a
         // rebuild it did not ask for — the 30s poll used to block each tab for
         // the full collector run. fresh=1 and a repair still force a wait.
-        if (Date.now() - cached.at >= cacheTtlMs && !cached.inflight) {
-          cached.inflight = rebuild(key, checks, lang);
-          cached.inflight.catch(() => {});
-        }
-        return Promise.resolve(cached.value);
+        if (Date.now() - slot.at >= cacheTtlMs && !slot.inflight) rebuild(key, checks, lang).catch(() => {});
+        return Promise.resolve(slot.value);
       }
     }
-    const inflight = rebuild(key, checks, lang);
-    cached = { key, at: Date.now(), inflight, value: null };
-    return inflight;
+    if (fresh) slots.delete(key);
+    return rebuild(key, checks, lang);
   };
 
   // `?lang=` is authoritative when present and valid; otherwise the node's
