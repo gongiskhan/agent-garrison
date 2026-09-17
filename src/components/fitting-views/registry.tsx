@@ -48,20 +48,6 @@ const REGISTRY: Record<string, FittingViewComponent> = {
       loading: ViewLoading
     }
   ),
-  "documents:read": dynamic(
-    () => import("../../../fittings/seed/documents/ui/DocumentRead"),
-    {
-      ssr: false,
-      loading: ViewLoading
-    }
-  ),
-  "documents:edit": dynamic(
-    () => import("../../../fittings/seed/documents/ui/DocumentEdit"),
-    {
-      ssr: false,
-      loading: ViewLoading
-    }
-  ),
   "snapshots-default:snapshots": dynamic(
     () => import("@/components/fitting-views/SnapshotsView"),
     {

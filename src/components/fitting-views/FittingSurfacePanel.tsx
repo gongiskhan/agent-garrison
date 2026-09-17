@@ -5,6 +5,7 @@ import { useAppShell } from "@/components/chrome/AppShell";
 import { matchView } from "@/lib/fitting-views";
 import { faculties } from "@/lib/faculties";
 import { isOwnPortFitting } from "@/lib/faculties";
+import { SharingSection } from "./shared/SharingSection";
 import { FittingView } from "./FittingView";
 import { OwnPortStatusPanel } from "./OwnPortStatusPanel";
 
@@ -136,6 +137,7 @@ export function FittingSurfacePanel() {
           body="Its views render elsewhere (a Compose-pane tab), or the manifest needs a ui.views entry — every Fitting has a view."
         />
       )}
+      {match && ["garrison:skill", "garrison:prompt"].includes(match.view.entry) ? <SharingSection fittingId={entry.id} /> : null}
     </main>
   );
 }

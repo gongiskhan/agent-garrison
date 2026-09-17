@@ -26,6 +26,7 @@
 // terminal side effects exactly once).
 
 import { pendingConversationQuestion } from "@garrison/claude-pty/conversation-question.mjs";
+import { emitSystemMessage } from "@garrison/messages/system";
 import fs from "node:fs";
 import path from "node:path";
 import {
@@ -568,7 +569,7 @@ Missing facts you can inspect are not blockers. Ask for user input only when an
 essential decision cannot be inferred or checked. Do not re-ask for authorized work.
 Return a concise handoff with concrete remaining steps and constraints, using
 the fenced handoff form. Findings belong in the findings tool, not just prose.
-Finish intake within eight tool turns; the working duty can investigate further.`,
+Hand off once the route is clear; do not investigate unrelated details.`,
   // The one duty a person SPEAKS to (D62). Everything here is read aloud into an
   // earpiece, so the register is the voice lane's, not the loop's: the word cap
   // and the markdown ban are the same ones buildVoiceDiscussPrompt has carried
@@ -596,6 +597,14 @@ How to speak here, which is different from writing:
   They answer by voice and the conversation carries on right here.
 
 What to DO, not just say. Finish it in this pass whenever you can:
+
+For tasks, priorities or what is due today, read the real board with
+garrison_list_cards and garrison_get_card. For calendar and other connected
+services, use garrison_list_connectors to discover actions, then
+garrison_connector_read for lookups. For today's agenda, check both the board and Google calendar.list_events
+with time_min/time_max for the user's local day. Keep due work, overdue work and
+calendar events distinct. Report a service's actual failure or connection state;
+never infer missing access without attempting the available tools.
 
 - A question you can answer, from what you know or with the tools you have:
   answer it.
@@ -1478,11 +1487,12 @@ export function approvalState(store) {
   const tail = store.tail(400, { kinds: ["user-message", "approval-requested"] });
   let lastAsk = -1;
   let lastMsg = -1;
+  let lastDecision = null;
   for (const e of tail) {
     if (e.kind === "approval-requested") lastAsk = e.index;
-    else lastMsg = e.index;
+    else { lastMsg = e.index; lastDecision = e.payload?.approvalDecision ?? null; }
   }
-  return { asked: lastAsk >= 0, approved: lastAsk >= 0 && lastMsg > lastAsk };
+  return { asked: lastAsk >= 0, approved: lastAsk >= 0 && lastMsg > lastAsk && lastDecision !== "reject" };
 }
 
 function nextDutyFor(store, selectedDuties) {
@@ -1792,6 +1802,13 @@ export async function runConversation(gateway, {
             logFn: (e) => gateway.logFn?.(e),
           });
           onFrame("approval-requested", { next: duty });
+          const approval = store.tail(1, { kinds: ["approval-requested"] })[0];
+          await emitSystemMessage({ category: "card.needs-input", severity: "info", title: card.title || "Plan approval",
+            body: lastHandoff?.summary || "The plan is ready for approval.", cardId: card.id, conversationRef: conversationId,
+            externalId: `approval:${conversationId}:${approval.index}`, action: { kind: "approval", prompt: "Approve the plan and continue?",
+              options: ["approve", "reject"], answeredAt: null, answer: null, revertUntil: null,
+              target: { ownerNode: env.GARRISON_NODE_NAME, conversationId, cardId: card.id, approvalId: `approval-${approval.index}` } },
+          }, { env }).catch((error) => gateway.logFn?.({ kind: "messages-error", error: error.message }));
           terminal = "awaiting-approval";
           break;
         }
@@ -2101,7 +2118,7 @@ export async function runConversation(gateway, {
           },
           onUsage,
           signal: stretchAbort.signal,
-          timeoutMs: duty === "triage" ? Math.min(STRETCH_TIMEOUT_MS, 120_000) : STRETCH_TIMEOUT_MS,
+          timeoutMs: STRETCH_TIMEOUT_MS,
           env,
         });
       } finally {
@@ -2371,6 +2388,15 @@ export async function runConversation(gateway, {
         logFn: (e) => gateway.logFn?.(e),
       });
     }
+    if (terminal === "needs-input") {
+      const question = pendingConversationQuestion(store);
+      if (question) await emitSystemMessage({ category: "card.needs-input", severity: "info", title: card?.title || "Conversation needs you",
+        body: question.question, cardId: card?.id ?? null, conversationRef: conversationId,
+        externalId: `question:${conversationId}:${question.id}`, action: { kind: "question", prompt: question.question,
+          options: question.options.map((option) => option.label), answeredAt: null, answer: null, revertUntil: null,
+          target: { ownerNode: env.GARRISON_NODE_NAME, conversationId, cardId: card?.id ?? null, questionId: question.id } },
+      }, { env }).catch((error) => gateway.logFn?.({ kind: "messages-error", error: error.message }));
+    }
     onFrame("done", { terminal, stretches });
     return { stretches, terminal };
     } catch (err) {
@@ -2393,7 +2419,7 @@ export async function runConversation(gateway, {
 /** Record a user message in the store; a running stretch picks it up at its
  *  next brief, and when nothing is running the caller kicks an advance so a
  *  responder stretch answers from L1. */
-export function recordUserMessage(store, { text, origin = "web", threadId = null, context = null, routing = null, delivery = null, steered = false, clientRequestId = null, questionId = null }) {
+export function recordUserMessage(store, { text, origin = "web", threadId = null, context = null, routing = null, delivery = null, steered = false, clientRequestId = null, questionId = null, approvalDecision = null, approvalId = null }) {
   const requestId = typeof clientRequestId === "string" && clientRequestId.trim() ? clientRequestId.trim().slice(0, 200) : null;
   const fullText = String(text ?? "");
   const normalizedText = fullText.slice(0, 32_000);
@@ -2416,6 +2442,13 @@ export function recordUserMessage(store, { text, origin = "web", threadId = null
   if (questionId != null && pendingConversationQuestion(store)?.id !== questionId) {
     return { ok: false, conflict: true, error: "This question has already been answered or is no longer active. Refresh the conversation." };
   }
+  if (approvalDecision != null) {
+    const records = store.tail(400, { kinds: ["approval-requested", "user-message"] });
+    const asked = [...records].reverse().find((entry) => entry.kind === "approval-requested");
+    if (!["approve", "reject"].includes(approvalDecision) || !asked || approvalId !== `approval-${asked.index}` || records.some((entry) => entry.kind === "user-message" && entry.index > asked.index)) {
+      return { ok: false, conflict: true, error: "This approval has already been answered or is no longer active." };
+    }
+  }
   const running = store.currentStretch();
   return store.append({
     kind: "user-message",
@@ -2424,6 +2457,7 @@ export function recordUserMessage(store, { text, origin = "web", threadId = null
       ...(fullText.length > normalizedText.length ? { textRef: store.spillPayload(fullText).ref } : {}),
       ...(requestId ? { clientRequestId: requestId } : {}),
       ...(questionId ? { questionId } : {}),
+      ...(approvalDecision ? { approvalDecision, approvalId } : {}),
       origin,
       threadId,
       arrivedDuringStretch: running,

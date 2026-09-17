@@ -16,13 +16,9 @@ import path from "node:path";
 export const REPO_ROOT = process.cwd();
 const NEXT_BIN = path.join(REPO_ROOT, "node_modules", "next", "dist", "bin", "next");
 
-// The same dist dir the base config's dev server uses. A second `next dev` on
-// the live server's .next/ stomps its route manifests, so the e2e servers keep
-// their own; and it has to be THIS dir rather than one minted per run because
-// Next appends any distDir it does not find in tsconfig.json's `include` to
-// that file - .next-e2e is the one already listed there and in .gitignore. The
-// two e2e configs therefore never run at the same time.
-const DIST_DIR = ".next-e2e";
+// The shell fixture runs beside the config's webServer. Each owns its build
+// output so route manifests and client chunks cannot overwrite one another.
+const DIST_DIR = ".next-e2e-talk";
 
 export async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {

@@ -431,6 +431,11 @@ const server = http.createServer(async (req, res) => {
     if (method === 'POST' && pathname === '/notify') {
       const body = await readJson(req);
       if (body === null) return sendJson(res, 400, { ok: false, error: 'invalid JSON' });
+      const messages = await import('@garrison/messages/system');
+      if (!messages.isMessageMirror(body)) {
+        const message = await messages.emitSystemMessage(messages.systemInputFromNotification(body, 'slack'));
+        return sendJson(res, 202, { ok: true, queued: true, messageId: message.id });
+      }
       const out = await outbound.notify(body);
       return sendJson(res, out.status, out.body);
     }

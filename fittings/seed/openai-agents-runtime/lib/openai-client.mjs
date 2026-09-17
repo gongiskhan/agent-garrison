@@ -186,7 +186,7 @@ export async function runOpenAiAgent({
     // shared rather than duplicated per lane.
     const streamed = wireApi === "responses";
     const res = await runner.run(agent, runInput, {
-      maxTurns: maxTurns ?? 12,
+      maxTurns: maxTurns ?? 800,
       ...(streamed ? { stream: true } : {}),
       ...(signal ? { signal } : {})
     });

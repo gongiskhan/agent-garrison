@@ -19,6 +19,7 @@ import { createHash } from "node:crypto";
 import { parse as parseToml } from "smol-toml";
 import yaml from "js-yaml";
 import { writeFileAtomic } from "./atomic-write";
+import { garrisonRuntimeHome } from "./claude-home";
 import { assertClaudeWritable } from "./install-state";
 import { readComposition } from "./compositions";
 import { readLibrary } from "./library";
@@ -75,6 +76,20 @@ export function runtimeHome(descriptorId: string, env: NodeJS.ProcessEnv = proce
   return override && override.trim() ? override : os.homedir();
 }
 
+// Descriptor paths stay portable in manifests. Only the native config prefix
+// is translated; project-scoped paths and explicit absolute fixtures retain
+// their declared location. User homes are exposed separately and read-only.
+export function runtimeConfigPath(descriptorId: string, declared: string): string {
+  if (descriptorId === "codex" || descriptorId === "gemini") {
+    const prefix = `~/.${descriptorId}`;
+    if (declared === prefix || declared.startsWith(prefix + "/")) {
+      const home = descriptorId === "codex" ? process.env.CODEX_HOME : process.env.GEMINI_CLI_HOME;
+      return path.join(home || garrisonRuntimeHome(descriptorId), declared.slice(prefix.length));
+    }
+  }
+  return expandHome(declared, runtimeHome(descriptorId));
+}
+
 // Resolve the selected runtimes of the composition to their Quarters entries.
 // Runtimes without a descriptor are simply absent (a runtime is not obliged to
 // be configurable); malformed situations surface as warnings on the entry.
@@ -112,7 +127,7 @@ export async function resolveRuntimeQuarters(compositionId?: string): Promise<Ru
         );
       }
     } else {
-      const home = expandHome(descriptor.home_dir);
+      const home = runtimeConfigPath(descriptor.id, descriptor.home_dir);
       try {
         const stat = await fs.stat(home);
         item.homeDirExists = stat.isDirectory();
@@ -216,7 +231,7 @@ export async function readRuntimeFile(
   declaredPath: string
 ): Promise<RuntimeFileView> {
   const decl = findDeclared(descriptor, declaredPath);
-  const abs = expandHome(decl.path);
+  const abs = runtimeConfigPath(descriptor.id, decl.path);
   let content = "";
   let exists = true;
   try {
@@ -268,7 +283,7 @@ export async function writeRuntimeFile(
   if (current.exists && current.sha !== baselineSha) {
     throw new Error(`${decl.path} changed on disk since it was loaded — reload before editing (sha mismatch)`);
   }
-  const abs = expandHome(decl.path);
+  const abs = runtimeConfigPath(descriptor.id, decl.path);
   await fs.mkdir(path.dirname(abs), { recursive: true });
   // Atomic (temp+rename): a crash mid-write must never leave a truncated
   // native config (review minor — matches the repo-wide write discipline).
@@ -354,7 +369,7 @@ async function fileSetRootAbs(decl: QuartersFileSet, descriptorId: string, proje
     if (!roots.includes(project)) throw new Error(`${JSON.stringify(project)} is not a known project root`);
     return path.resolve(project, decl.root);
   }
-  return path.resolve(expandHome(decl.root, runtimeHome(descriptorId)));
+  return path.resolve(runtimeConfigPath(descriptorId, decl.root));
 }
 
 async function fileSetEntryAbs(
@@ -618,7 +633,7 @@ export interface RuntimeLogEntry {
 export async function listRuntimeLogs(descriptor: QuartersDescriptor): Promise<RuntimeLogEntry[]> {
   const out: RuntimeLogEntry[] = [];
   for (const declared of descriptor.log_paths ?? []) {
-    const root = expandHome(declared);
+    const root = runtimeConfigPath(descriptor.id, declared);
     const walk = async (dir: string, depth: number, prefix: string) => {
       if (depth > LOG_WALK_DEPTH || out.length >= LOG_MAX_ENTRIES) return;
       let entries;
@@ -657,7 +672,7 @@ export async function tailRuntimeLog(
       `log root ${JSON.stringify(declaredRoot)} is not declared by the ${descriptor.id} quarters descriptor`
     );
   }
-  const rootAbs = path.resolve(expandHome(declaredRoot));
+  const rootAbs = path.resolve(runtimeConfigPath(descriptor.id, declaredRoot));
   const abs = path.resolve(rootAbs, rel);
   // STRICTLY inside the root — never the root entry itself (a root that is a
   // file/symlink would otherwise be tailed as a whole), and never lexical-only:

@@ -21,8 +21,14 @@ describe("tethered fitting addresses", () => {
     mocks.identity.mockReturnValue({ tetherHost: "dev-madrid", shellOrigin: "https://dev-madrid.tail31efa.ts.net:8998" });
     const { views } = await (await GET()).json();
     expect(views[0].tailnetUrl).toBe("https://dev-madrid.tail31efa.ts.net:8998");
-    expect(views[1].tailnetUrl).toBeNull();
     expect(mocks.serve).not.toHaveBeenCalled();
+  });
+
+  it("routes every other own-port view through the same-origin proxy route", async () => {
+    mocks.identity.mockReturnValue({ tetherHost: "dev-madrid", shellOrigin: "https://dev-madrid.tail31efa.ts.net:8998" });
+    const { views } = await (await GET()).json();
+    expect(views[1].fittingId).toBe("other");
+    expect(views[1].tailnetUrl).toBe("/api/fittings/proxy/other");
   });
 
   it("keeps native tailnet nodes on their actual serve map", async () => {

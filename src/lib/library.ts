@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { FITTINGS_DIR, LIBRARY_PATH, ROOT_DIR } from "./paths";
+import { capturedFittingsDir } from "./claude-home";
 import { parseGarrisonMetadata } from "./metadata";
 import { writeFileAtomic } from "./atomic-write";
 import { CATEGORY_BY_FACULTY, type LibraryEntry } from "./types";
@@ -114,6 +115,15 @@ async function discoverFittingDirs(): Promise<{ id: string; localPath: string }[
       }
     }
   }
+  // Promoted primitives stay on their owner node, alongside the existing
+  // captured store. Only manifests explicitly promoted to fittings are listed.
+  const captured = capturedFittingsDir();
+  for (const item of await fs.readdir(captured, { withFileTypes: true }).catch(() => [])) {
+    if (!item.isDirectory() || found.some(entry => entry.id === item.name)) continue;
+    const localPath = path.relative(ROOT_DIR, path.join(captured, item.name));
+    const manifest = await readYamlFile<RawManifest>(path.join(captured, item.name, "apm.yml"));
+    if (manifest?.["x-garrison"]) found.push({ id: item.name, localPath });
+  }
   return found;
 }
 
@@ -210,6 +220,7 @@ async function libraryFingerprint(manifestPaths: string[]): Promise<string> {
   const watched = [
     LIBRARY_PATH,
     EXCLUDED_PATH,
+    capturedFittingsDir(),
     path.join(FITTINGS_DIR, "seed"),
     path.join(FITTINGS_DIR, "local"),
     ...manifestPaths,

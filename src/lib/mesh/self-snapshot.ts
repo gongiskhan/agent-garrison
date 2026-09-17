@@ -1,3 +1,4 @@
+import {RETIRED_PROJECTS_FITTING} from "../composition-migrate";
 // This node's own health snapshot — the answer to "what is this machine doing
 // right now", assembled entirely from local sources.
 //
@@ -14,6 +15,8 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { readNodeIdentity } from "@/lib/node-identity";
+import { readHomesState } from "@/lib/homes-migration";
+import { checkHomeLeaks } from "@/lib/home-leaks";
 import { garrisonDir } from "@/lib/claude-home";
 import { ROOT_DIR } from "@/lib/paths";
 import { resolveActiveComposition } from "@/lib/active-composition";
@@ -52,6 +55,7 @@ export interface MeshSelfSnapshot {
   sessions: SessionsSnapshot | null;
   git: GitSnapshot | null;
   views: ViewsSnapshot | null;
+  homes?: { garrison: string; leaks: number; checkedAt: string } | null;
   // Rolled up for the mesh row's state pill so a peer does not have to know
   // how to read every block above. See src/lib/mesh/staleness.ts.
   degraded: boolean;
@@ -66,6 +70,15 @@ const VIEW_HEALTH_TIMEOUT_MS = 1_200;
 // within one beat, long enough that two readers never double-probe.
 const VIEWS_CACHE_MS = 5_000;
 let viewsCache: { at: number; value: ViewsSnapshot | null } | null = null;
+
+async function probeHomes(): Promise<MeshSelfSnapshot["homes"]> {
+  try {
+    const homes = await readHomesState();
+    if (homes?.version !== 2) return null;
+    const report = await checkHomeLeaks();
+    return { garrison: homes.garrisonHome, leaks: report.leaks.length, checkedAt: report.checkedAt };
+  } catch { return null; }
+}
 
 async function probeComposition(): Promise<CompositionSnapshot | null> {
   try {
@@ -91,7 +104,7 @@ async function probeSessions(): Promise<SessionsSnapshot | null> {
   try {
     const dir = path.join(garrisonDir(), "web-channel", "threads");
     const names = await readdir(dir);
-    return { webThreads: names.filter((n) => n.endsWith(".json")).length };
+    return { webThreads: names.filter((n) => n.endsWith(".json") && n !== `${RETIRED_PROJECTS_FITTING}.json`).length };
   } catch {
     return null;
   }
@@ -114,7 +127,7 @@ async function probeViews(now: number): Promise<ViewsSnapshot | null> {
   let value: ViewsSnapshot | null;
   try {
     const dir = path.join(garrisonDir(), "ui-fittings");
-    const names = (await readdir(dir)).filter((n) => n.endsWith(".json"));
+    const names = (await readdir(dir)).filter((n) => n.endsWith(".json") && n !== `${RETIRED_PROJECTS_FITTING}.json`);
     const probed = await Promise.all(
       names.map(async (name) => {
         try {
@@ -148,11 +161,12 @@ export function resetSelfSnapshotCache(): void {
 
 export async function readSelfSnapshot(): Promise<MeshSelfSnapshot> {
   const now = Date.now();
-  const [composition, sessions, git, views] = await Promise.all([
+  const [composition, sessions, git, views, homes] = await Promise.all([
     probeComposition(),
     probeSessions(),
     readGitSnapshot(ROOT_DIR, GIT_TIMEOUT_MS),
-    probeViews(now)
+    probeViews(now),
+    probeHomes()
   ]);
 
   // Degraded is deliberately narrow: a node with a running composition whose
@@ -185,6 +199,7 @@ export async function readSelfSnapshot(): Promise<MeshSelfSnapshot> {
     sessions,
     git,
     views,
+    homes,
     degraded,
     activity
   };

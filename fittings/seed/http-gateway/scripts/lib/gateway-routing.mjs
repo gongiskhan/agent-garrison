@@ -34,7 +34,7 @@ import {
   PERSONAL_SCOPE_TOKEN,
   resolveRunScope
 } from "./project-source.mjs";
-import { SHARED_MCP_TOOLS, runtimeCodexEnabled } from "./harness-profiles.mjs";
+import { SHARED_MCP_TOOLS, DEFAULT_MAX_TURNS, runtimeCodexEnabled } from "./harness-profiles.mjs";
 import { stretchProcessEnv } from "./stretch-process-env.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -1499,7 +1499,7 @@ export class RoutedGateway {
       // implement phase parks itself mid-task ("no valid next step chosen") and
       // the card lands in needs-attention having done half the job - the failure
       // reads like a bug in the work rather than a budget the caller never set.
-      maxTurns: target.maxTurns ?? 200,
+      maxTurns: target.maxTurns ?? DEFAULT_MAX_TURNS,
       budgetTokens: target.budgetTokens ?? null,
       permissionMode: opts.permissionMode === "default" ? "default" : "bypassPermissions",
       thinking: target.thinking?.type === "disabled" ? { type: "disabled" } : undefined,
@@ -1508,7 +1508,7 @@ export class RoutedGateway {
       ...(target.disallowedTools !== undefined ? { disallowedTools: disallowedTools ?? [] } : {}),
       // A duty harness profile sets `mcpServers: null` to mean "this stretch
       // carries no MCP server", which is different from leaving it unspecified.
-      // Nine unused schemas are ~2.3k tokens of boot prefix on every stretch.
+      // Working profiles carry the shared board, connector and continuity tools.
       mcpServers: target.mcpServers === null || target.promptMode === "lean"
         ? {}
         : narrowMcpTools(cloneAssemblyValue(this._agentSdkMcpServers), target.mcpTools, opts.conversationId, opts.cwd),
@@ -1688,12 +1688,7 @@ export class RoutedGateway {
       // Inherit the gateway process env (PATH/HOME/CLAUDE_CONFIG_DIR + the
       // Paymaster account pin) — the SDK replaces the subprocess env, so an
       // empty baseEnv would strip config-dir isolation and the account token.
-      // GARRISON_STRETCH_CLAUDE_HOME, when set, redirects the CLI away from the
-      // user's real ~/.claude: see stretch-claude-home.mjs for why a stretch
-      // must not read the user's memory index, skills or agents.
-      env: stretchProcessEnv(process.env.GARRISON_STRETCH_CLAUDE_HOME
-        ? { ...process.env, CLAUDE_CONFIG_DIR: process.env.GARRISON_STRETCH_CLAUDE_HOME }
-        : process.env, { conversationId: opts.conversationId, stretchId: opts.stretchId }),
+      env: stretchProcessEnv(process.env, { conversationId: opts.conversationId, stretchId: opts.stretchId }),
       permissionMode: fixed.permissionMode,
       ...(streamingInput ? { streamingInput: true } : {}),
     };

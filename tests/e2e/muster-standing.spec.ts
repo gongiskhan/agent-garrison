@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures/shell";
 import fs from "node:fs";
 import path from "node:path";
 import yaml from "js-yaml";
@@ -6,7 +6,7 @@ import yaml from "js-yaml";
 // The Muster Standing Fittings section (S5b): slot cards for the standing
 // (non-duty) faculty slots, each with its current fitting(s), config form, a
 // swap picker, and health. Runtimes are NOT on this tab: they have their own
-// first-class Muster tab (RuntimesPanel — featured primary card, secondary
+// first-class Muster tab (RuntimesPanel - featured primary card, secondary
 // grid, set-primary/create/swap/test flows), covered below.
 // A dedicated fixture composition seeds real, registered fittings so the slots
 // have content and the swap picker has faculty-scoped candidates. COMPOSITIONS_DIR
@@ -34,7 +34,7 @@ function writeFixture(): void {
           runtimes: [
             { id: "claude-code-runtime", config: {} },
             { id: "agent-sdk-runtime", config: {} },
-            // garrison-call sits in the runtimes slot but provides no engine —
+            // garrison-call sits in the runtimes slot but provides no engine -
             // it must render as a "support" card with no Set-as-primary/Test.
             { id: "garrison-call", config: {} }
           ]
@@ -76,11 +76,11 @@ test("(a) the Standing Fittings section renders slot cards with the current fitt
   await expect(page.getByTestId("standing-section")).toBeVisible({ timeout: 15000 });
 
   // The standing slot cards are present, and stationed fittings show.
-  await expect(page.getByTestId("standing-slot-gateway")).toBeVisible();
-  await expect(page.getByTestId("standing-slot-channels")).toBeVisible();
+  await expect(page.getByTestId("standing-category-Core")).toBeVisible();
+  await expect(page.getByTestId("standing-category-Interfaces")).toBeVisible();
   await expect(page.getByTestId("standing-fitting-http-gateway")).toBeVisible();
 
-  // Runtimes are NOT rendered here — they live on their own Muster tab.
+  // Runtimes are NOT rendered here - they live on their own Muster tab.
   await expect(page.getByTestId("standing-slot-runtimes")).toHaveCount(0);
   await expect(page.getByTestId("standing-fitting-agent-sdk-runtime")).toHaveCount(0);
   await expect(page.getByTestId("standing-new-runtime")).toHaveCount(0);
@@ -129,7 +129,7 @@ test("a runtime card text-config edit autosaves to the manifest (debounced)", as
   await expect(page.getByTestId("rt-primary-claude-code-runtime")).toBeVisible({ timeout: 15000 });
 
   // Unfold the primary runtime's config and edit its base_url (a debounced text
-  // field — the code path that previously dropped edits on tab-away).
+  // field - the code path that previously dropped edits on tab-away).
   await page.getByTestId("rt-cfg-toggle-claude-code-runtime").click();
   const urlField = page.getByTestId("standing-config-runtimes-claude-code-runtime-base_url");
   await expect(urlField).toBeVisible();
@@ -188,7 +188,7 @@ test("(b) the swap picker opens and lists faculty-scoped candidates", async ({ p
   const modal = page.getByTestId("standing-swap-modal");
   await expect(modal).toBeVisible();
   await expect(page.getByTestId("standing-picker-search")).toBeVisible();
-  // The picker is scoped to the gateway faculty — mcp-gateway is a candidate.
+  // The picker is scoped to the gateway faculty - mcp-gateway is a candidate.
   await expect(page.getByTestId("standing-picker-item-mcp-gateway")).toBeVisible();
 });
 

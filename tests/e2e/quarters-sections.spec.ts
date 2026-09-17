@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures/shell";
 
 // GARRISON-RUNTIMES-V1 S7 (P7/D6): Quarters sections follow the composition.
 // Multi-runtime (the default composition): every runtime renders as a

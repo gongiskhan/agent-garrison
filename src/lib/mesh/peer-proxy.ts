@@ -55,6 +55,27 @@ interface AllowRule {
 // Exactly the endpoints cross-node watch / steer / stop / answer need. Adding a
 // row here widens what every node in the mesh may do to every other node.
 const ALLOW: readonly AllowRule[] = [
+  { shape: ["projects"], methods: ["GET"], upstream: "app" },
+  { shape: ["projects", ID, "summary"], methods: ["GET"], upstream: "app" },
+  { shape: ["projects", ID, "tree"], methods: ["GET"], upstream: "app" },
+  { shape: ["projects", ID, "file"], methods: ["GET"], upstream: "app" },
+  { shape: ["projects", ID, "git", "status"], methods: ["GET"], upstream: "app" },
+  { shape: ["projects", ID, "git", "diff"], methods: ["GET"], upstream: "app" },
+  { shape: ["projects", ID, "git", "log"], methods: ["GET"], upstream: "app" },
+  { shape: ["projects", ID, "git", "fetch"], methods: ["POST"], upstream: "app" },
+  { shape: ["projects", ID, "git", "commit-push"], methods: ["POST"], upstream: "app" },
+  { shape: ["projects", ID, "git", "pull-from-others"], methods: ["POST"], upstream: "app" },
+  { shape: ["projects", ID, "git", "push-to-others"], methods: ["POST"], upstream: "app" },
+  { shape: ["projects", "machines", ID, "tree"], methods: ["GET"], upstream: "app" },
+  { shape: ["projects", "machines", ID, "file"], methods: ["GET"], upstream: "app" },
+  { shape: ["workspace", "tree"], methods: ["GET"], upstream: "app" },
+  { shape: ["workspace", "file"], methods: ["GET"], upstream: "app" },
+  { shape: ['messages','outbox',ID,'attachments',ID], methods: ['GET'], upstream: 'app' },
+  ...['setRead','archive','delete','send','outboxStatus','cancelSend'].map((action): AllowRule => ({ shape: ['messages','providers',ID,'adapter',action], methods: ['POST'], upstream: 'app' })),
+  { shape: ["messages", "attachments", ID, ID], methods: ["GET"], upstream: "app" },
+  { shape: ["messages", ID, "html"], methods: ["GET"], upstream: "app" },
+  { shape: ["install"], methods: ["GET", "POST"], upstream: "app" },
+  { shape: ["install", "leaks"], methods: ["GET"], upstream: "app" },
   { shape: ["conversation", ID], methods: ["GET"], upstream: "app" },
   ...["question", "log", "summary", "metrics"].map((action): AllowRule => ({ shape: ["conversation", ID, action], methods: ["GET"], upstream: "app" })),
   { shape: ["conversation", ID, "stream"], methods: ["GET"], upstream: "app", sse: true },
@@ -154,6 +175,14 @@ export function allowListDescription(): string[] {
   });
 }
 
+/** The route applies these budgets only after allow-list classification. */
+export function projectsPeerTimeout(method: string, route: PeerRoute): number | undefined {
+  if (method !== "POST" || route.upstream !== "app") return undefined;
+  if (/^\/api\/projects\/[^/]+\/git\/fetch$/.test(route.path)) return 60_000;
+  if (/^\/api\/projects\/[^/]+\/git\/(commit-push|pull-from-others|push-to-others)$/.test(route.path)) return 180_000;
+  return undefined;
+}
+
 // ── Where the peer is ───────────────────────────────────────────────────────
 
 // The peer's Garrison app. Each node publishes its app at the tailnet ROOT
@@ -247,7 +276,7 @@ export interface ForwardInput {
 export async function forwardToPeer(input: ForwardInput): Promise<Response> {
   const doFetch = input.fetchImpl ?? fetch;
   const sse = input.sse === true;
-  const timeoutMs = input.timeoutMs ?? (sse ? SSE_CONNECT_TIMEOUT_MS
+  const timeoutMs = input.timeoutMs ?? (input.method === "POST" && input.path === "/api/install" ? 300_000 : sse ? SSE_CONNECT_TIMEOUT_MS
     : input.method === "POST" && input.path === "/api/remote-shell/sessions" ? 65_000 : PROXY_TIMEOUT_MS);
 
   const timeout = new AbortController();
@@ -313,8 +342,8 @@ export async function forwardToPeer(input: ForwardInput): Promise<Response> {
   }
 
   try {
-    const text = await upstream.text();
-    return new Response(text, {
+    const body = await upstream.arrayBuffer();
+    return new Response(body, {
       status: upstream.status,
       headers: {
         "content-type": upstreamType || "application/json",

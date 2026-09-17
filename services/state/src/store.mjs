@@ -115,7 +115,7 @@ export function listNodes(db) {
     }));
 }
 
-export function hello(db, authNode, input, serverSchemaVersion) {
+export function hello(db, authNode, input, serverSchemaVersion, minCompatibleSchema = serverSchemaVersion) {
   const { clientVersion, minSchema, maxSchema, capabilities, localTime, health, activeComposition, tailnetHost, tailnetIp, platform, accentColor } = input ?? {};
   if (localTime) {
     const skew = Math.abs(Date.parse(localTime) - Date.now());
@@ -130,7 +130,7 @@ export function hello(db, authNode, input, serverSchemaVersion) {
   }
   const lo = Number.isFinite(minSchema) ? minSchema : serverSchemaVersion;
   const hi = Number.isFinite(maxSchema) ? maxSchema : serverSchemaVersion;
-  const behind = serverSchemaVersion < lo || serverSchemaVersion > hi;
+  const behind = serverSchemaVersion < lo || hi < minCompatibleSchema;
   const tx = db.transaction(() => {
     const prior = db.prepare("SELECT status FROM nodes WHERE name=?").get(authNode.name);
     db.prepare(

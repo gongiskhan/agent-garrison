@@ -10,4 +10,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 command -v restic >/dev/null 2>&1 || { echo "restic is not installed" >&2; exit 1; }
 [ -n "${RESTIC_REPOSITORY:-}" ] || { echo "FOLLOWUP: no RESTIC_REPOSITORY configured" >&2; exit 1; }
 
-exec restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune
+restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune
+rc=$?
+node - "$SNAPSHOTS_HOME/prune.json" "$rc" <<'JS'
+const fs = require('node:fs');
+fs.writeFileSync(process.argv[2], JSON.stringify({lastRun: new Date().toISOString(), ok: process.argv[3] === '0', exitCode: Number(process.argv[3])}) + '\n', {mode: 0o600});
+JS
+node "$SCRIPT_DIR/schedule-status.mjs" --publish || true
+exit "$rc"

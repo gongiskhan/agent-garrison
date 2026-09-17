@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {RETIRED_FITTING_ID} from "../packages/projects/src/retirement.mjs";
 // Expose every own-port Fitting view over the HTTPS Tailscale address, so its
 // links/embeds work from a phone/iPad on the tailnet (not just localhost).
 //
@@ -25,7 +26,7 @@ function ownPortViews() {
   const dir = path.join(garrisonHome, "ui-fittings");
   let files = [];
   try {
-    files = readdirSync(dir).filter((n) => n.endsWith(".json") && !n.includes(path.sep));
+    files = readdirSync(dir).filter((n) => n.endsWith(".json") && n !== `${RETIRED_FITTING_ID}.json` && !n.includes(path.sep));
   } catch {
     return [];
   }

@@ -54,10 +54,14 @@ describe("the menu is two flat alphabetical groups", () => {
     expect(COMMAND_ITEMS.map((item) => item.href).sort()).toEqual([
       "/",
       "/accounts",
+      "/archive",
       "/compose",
       "/connectors",
       "/coordination",
+      "/improver",
       "/mesh",
+      "/messages",
+      "/projects",
       "/quarters",
       "/talk",
       "/vault"

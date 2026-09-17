@@ -1,0 +1,59 @@
+{
+  "at": "2026-09-11T19:03:40.732Z",
+  "ok": true,
+  "state": {
+    "snapshot": "garrison-daily-2026-09-11T18-50-32-228Z.db",
+    "ageHours": 0.21902888888888888,
+    "schemaVersion": 2,
+    "integrity": "ok",
+    "restored": {
+      "cards": 404,
+      "cardDocs": 299
+    },
+    "live": {
+      "cards": 405,
+      "cardDocs": 299
+    },
+    "delta": {
+      "cards": -1,
+      "cardDocs": 0
+    }
+  },
+  "restic": {
+    "snapshotId": "d9e494b484375e2f18ec5e4b594969a8c8207b337812efaf8a16979b6d500484",
+    "ageHours": 0.23025833333333334,
+    "conversations": {
+      "restored": 89,
+      "live": 89
+    },
+    "meshConversations": {
+      "csg": 0,
+      "goncalos-mac-mini-1": 2,
+      "goncalos-macbook-air-1": 2,
+      "goncalos-macbook-pro": 23
+    },
+    "meshLive": {
+      "csg": 0,
+      "goncalos-mac-mini-1": 2,
+      "goncalos-macbook-air-1": 2,
+      "goncalos-macbook-pro": 23
+    }
+  },
+  "boot": {
+    "stateService": "ok"
+  },
+  "tolerances": {
+    "cards": 5,
+    "cardDocs": 20,
+    "conversations": 5,
+    "maxAgeHours": 30
+  },
+  "failures": [],
+  "lines": [
+    "Verified state snapshot garrison-daily-2026-09-11T18-50-32-228Z.db: schema 2, integrity ok",
+    "Restored restic snapshot d9e494b484375e2f18ec5e4b594969a8c8207b337812efaf8a16979b6d500484: 89 conversations",
+    "Compared live counts: 405 cards, 299 card docs, 89 conversations",
+    "Booted restored state service on an ephemeral loopback port; /v1/health ok; stopped it",
+    "Restore drill ok; report: /home/ggomes/.garrison/snapshots/restore-drill.json"
+  ]
+}

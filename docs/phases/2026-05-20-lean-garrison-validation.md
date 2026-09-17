@@ -1,5 +1,7 @@
 # Lean Garrison — Playwright validation findings
 
+> Archive supersedes the historical document workspace described below as of 2026-09-11. Current routes, migration and ownership rules: [Archive decision](../decisions/2026-09-11-archive.md). Historical verification is retained as evidence.
+
 **Date:** 2026-05-20
 **Validator:** playwright-cli 0.1.6 against a fresh `next dev` on `127.0.0.1:7778`, dogfood composition (`compositions/default/apm.yml`) — 18 of 21 Faculties stationed.
 **Decision under test:** [`docs/decisions/2026-05-20-lean-garrison-trim.md`](../decisions/2026-05-20-lean-garrison-trim.md).

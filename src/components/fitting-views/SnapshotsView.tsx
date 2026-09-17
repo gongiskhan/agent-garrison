@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { RestoreDrillReport } from "@/app/api/snapshots/core";
 import type { FittingViewProps } from "@/components/fitting-views/registry";
 
 interface SnapshotsState {
@@ -17,7 +18,18 @@ interface Snapshot {
   hostname?: string;
 }
 
+interface SchedulingNode {
+  node: string;
+  path: string;
+  at?: string;
+  warning?: string | null;
+  backup?: { lastRun: string; ok: boolean } | null;
+  prune?: { lastRun: string; ok: boolean } | null;
+  jobs?: Array<{ id: string; cron: string; lastRun?: { endedAt: string; ok: boolean } | null }>;
+}
 interface StatusResponse {
+  restoreDrill?: RestoreDrillReport | null;
+  scheduling?: { nodes: SchedulingNode[]; error?: string } | null;
   state: SnapshotsState | null;
   repository: string | null;
   snapshots: Snapshot[] | null;
@@ -28,7 +40,8 @@ interface StatusResponse {
 export default function SnapshotsView(_props: FittingViewProps) {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<null | "run" | "verify">(null);
+  const [busy, setBusy] = useState<null | "run" | "verify" | "drill">(null);
+  const [drillOutput, setDrillOutput] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [verifyResult, setVerifyResult] = useState<{ ok: boolean; output: string } | null>(null);
 
@@ -78,6 +91,26 @@ export default function SnapshotsView(_props: FittingViewProps) {
     }
   }, []);
 
+  const runDrill = useCallback(async () => {
+    setBusy("drill");
+    setDrillOutput("");
+    try {
+      const res = await fetch("/api/snapshots/restore-drill", { method: "POST" });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Restore drill failed to start");
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("Restore drill stream is unavailable");
+      const decoder = new TextDecoder();
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const text = decoder.decode(value, { stream: true });
+        setDrillOutput(previous => previous + text);
+      }
+      await refresh();
+    } catch (error) { setDrillOutput(error instanceof Error ? error.message : String(error)); }
+    finally { setBusy(null); }
+  }, [refresh]);
+
   const state = status?.state ?? null;
   const snapshots = status?.snapshots ?? null;
   const repository = status?.repository ?? null;
@@ -103,11 +136,36 @@ export default function SnapshotsView(_props: FittingViewProps) {
         </div>
         <div style={{ maxWidth: 620, fontSize: 13.5, lineHeight: 1.65, color: "var(--mute)", marginTop: 7 }}>
           Off-site, encrypted restic backups of the Garrison state. Scheduled
-          daily by a systemd timer, independent of Garrison.
+          daily by systemd or the scheduler on each node.
         </div>
       </header>
 
       {error ? <Notice title="Cannot load status" body={error} tone="bad" /> : null}
+
+      <Panel title="Restore drill">
+        {status?.restoreDrill ? (
+          <div style={{ display: "grid", gap: 8, fontSize: 13 }}>
+            <div>Last run: {drillTime(status.restoreDrill.at)} · <span style={{ color: status.restoreDrill.ok ? "var(--sage)" : "var(--alarm)" }}>{status.restoreDrill.ok ? "ok" : "failed"}</span></div>
+            <div>Cards {status.restoreDrill.state.restored?.cards ?? "?"} (live {status.restoreDrill.state.live?.cards ?? "?"}) · Card docs {status.restoreDrill.state.restored?.cardDocs ?? "?"} (live {status.restoreDrill.state.live?.cardDocs ?? "?"}) · Conversations {status.restoreDrill.restic.conversations?.restored ?? "?"} (live {status.restoreDrill.restic.conversations?.live ?? "?"})</div>
+            <div style={{ color: "var(--mute)" }}>State snapshot {snapshotAge(status.restoreDrill.state.ageHours)} old · Restic snapshot {snapshotAge(status.restoreDrill.restic.ageHours)} old</div>
+            {status.restoreDrill.failures.length > 0 ? <ul style={{ color: "var(--alarm)", paddingLeft: 18 }}>{status.restoreDrill.failures.map(f => <li key={f}>{f}</li>)}</ul> : null}
+          </div>
+        ) : <p style={{ fontSize: 13, margin: 0 }}>Restore drill has not run yet.</p>}
+        <button type="button" onClick={runDrill} disabled={busy !== null} className={secondaryButtonClass} style={{ marginTop: 12 }}>{busy === "drill" ? "Running drill…" : "Run drill now"}</button>
+        {drillOutput ? <pre role="status" style={{ ...preStyle, marginTop: 12, whiteSpace: "pre-wrap" }}>{drillOutput}</pre> : null}
+      </Panel>
+
+      <Panel title="Scheduling">
+        {status?.scheduling?.nodes?.map(node => (
+          <div key={node.node} style={{ display: "grid", gap: 5, padding: "8px 0", fontSize: 12.5, borderBottom: "1px solid var(--rule)" }}>
+            <strong>{node.node} · {node.path}</strong>
+            <div>Backup: {node.backup ? `${formatTime(node.backup.lastRun)} · ${node.backup.ok ? "ok" : "failed"}` : "no run recorded"} · Prune: {node.prune ? `${formatTime(node.prune.lastRun)} · ${node.prune.ok ? "ok" : "failed"}` : "no run recorded"}</div>
+            {node.jobs?.filter(job => !["snapshots.backup", "snapshots.prune"].includes(job.id)).map(job => <div key={job.id}>{job.id.replace("snapshots.", "")} · {job.lastRun ? `${formatTime(job.lastRun.endedAt)} · ${job.lastRun.ok ? "ok" : "failed"}` : "no run recorded"}</div>)}
+            {node.warning ? <div style={{ color: "var(--alarm)" }}>{node.warning}</div> : null}
+          </div>
+        )) ?? <span style={{ fontSize: 13 }}>Scheduling status unavailable.</span>}
+        {status?.scheduling?.error ? <div role="alert">{status.scheduling.error}</div> : null}
+      </Panel>
 
       <Panel title="Last backup">
         {initialLoading ? (
@@ -366,4 +424,13 @@ function formatBytes(bytes: number): string {
   }
   const rounded = unit === 0 ? value : Math.round(value * 10) / 10;
   return `${rounded} ${units[unit]}`;
+}
+
+function snapshotAge(hours?: number): string {
+  return typeof hours === "number" && Number.isFinite(hours) ? `${Math.round(hours)}h` : "?h";
+}
+function drillTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return `${date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }).replace("Sept", "Sep")}, ${date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`;
 }

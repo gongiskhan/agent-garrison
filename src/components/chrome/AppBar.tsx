@@ -11,6 +11,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, Menu } from "lucide-react";
+import { ListeningBadge, ListeningToast } from "@/components/capture/ListeningControl";
 import clsx from "clsx";
 
 // The phone header. At phone width the shell has no rail: the app bar carries
@@ -118,6 +119,8 @@ export function AppBar({
           </span>
         ) : null}
       </div>
+      <ListeningBadge />
+      <ListeningToast />
       <div className="app-bar-actions">
         {config?.actions}
         {trailing}

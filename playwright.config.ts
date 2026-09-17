@@ -10,7 +10,7 @@ const PORT = Number(process.env.GARRISON_E2E_PORT ?? 3401);
 export default defineConfig({
   testDir: "./tests/e2e",
   globalSetup: "./tests/e2e/global-setup.ts",
-  fullyParallel: false, // serialise — shared dev server
+  fullyParallel: false, // serialise - shared dev server
   forbidOnly: !!process.env.CI,
   retries: 0,
   workers: 1,
@@ -21,7 +21,7 @@ export default defineConfig({
   // route on first hit, and the first paint of a page like /muster waits on the
   // AppShell fetch fan-out (library + compositions + vault + active pointer)
   // plus /api/muster. The tests that flaked were exactly the ones that ASSERT
-  // first paint — `expect(...).toBeVisible()` got 5s while `.click()` got the
+  // first paint - `expect(...).toBeVisible()` got 5s while `.click()` got the
   // 30s actionability timeout, so which tests failed shifted run to run with
   // machine load. This is a wait ceiling, not a grace period: a genuinely
   // broken page still fails, 15s later.
@@ -33,6 +33,8 @@ export default defineConfig({
   timeout: 60_000,
   use: {
     baseURL: `http://127.0.0.1:${PORT}`,
+    // API fixtures must reach Playwright routing on every navigation.
+    serviceWorkers: "block",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     // opt-in flow video capture (evidence): GARRISON_E2E_VIDEO=1
@@ -45,6 +47,7 @@ export default defineConfig({
     },
     {
       name: "tablet",
+      testIgnore: ["**/tests/e2e/projects/**"],
       use: { ...devices["Desktop Chrome"], viewport: { width: 1024, height: 768 } }
     },
     {
@@ -70,6 +73,8 @@ export default defineConfig({
       GARRISON_STATE_PATH: TEST_STATE_FILE,
       GARRISON_CLAUDE_HOME: CLAUDE_SANDBOX,
       GARRISON_HOME: GARRISON_SANDBOX,
+      GARRISON_DISABLE_HOST_DAEMONS: "1",
+      GARRISON_MESSAGES_DISABLE_WORKERS: "1",
       // Two `next dev` processes sharing one .next/ poison each other's route
       // cache (the live launchd server owns .next/), so the e2e sandbox server
       // gets its own dist dir. next.config.mjs reads this env var.

@@ -1,3 +1,5 @@
+import { emitSystemMessage } from "@garrison/messages/system";
+import { isArchivePath, hasArchiveReference, automationVaultRoot } from "../../archive/src/paths.mjs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -25,45 +27,11 @@ function delivered(notice) {
     Array.isArray(notice.delivery?.native) && notice.delivery.native.some((r) => r.means === "companion-push" && r.ok)));
 }
 export async function notify(store, context, id, title, text, link = "/improver") {
-  let claimed = false;
-  const notice = await store.update("notice", id, (current) => {
-    claimed = false;
-    if (delivered(current)) return null;
-    if (!context.forwardedNotice && Date.parse(current?.deliveryLeaseUntil) > Date.now()) return null;
-    claimed = true;
-    return { ...(current ?? { id, title, text, link, at: new Date().toISOString() }),
-      lastAttemptAt: new Date().toISOString(), deliveryLeaseUntil: new Date(Date.now() + 90_000).toISOString() };
-  });
-  if (!claimed) return notice;
-  const request = (url, body, timeoutMs) => requestJson(url, body, { timeoutMs, fetchImpl: context.fetchImpl ?? fetch });
-  const receipt = { pushed: 0, native: [] };
-  try { Object.assign(receipt, await request(`${context.appUrl}/api/notify`, {title,text,link,tag:`improver:${id}`}, 5_000)); }
-  catch (error) { receipt.reason = error.message; }
-  try {
-    const capture = JSON.parse(await fs.readFile(path.join(context.home,"ui-fittings/capture-service.json"),"utf8"));
-    if (capture.url) {
-      const result = await request(`${capture.url}/notify`, {title,text,link,path:link,tag:`improver:${id}`,idempotencyKey:`improver:${id}`}, 8_000);
-      receipt.native = Array.isArray(result) ? result : [];
-    }
-  } catch (error) { receipt.nativeError = error.code === "ENOENT" ? "No native push provider on this node" : error.message; }
-  if (receipt.pushed > 0 || receipt.native.some((r) => r.means === "companion-push" && r.ok))
-    return store.update("notice", id, (current) => delivered(current) ? null :
-      {...current,deliveredAt:new Date().toISOString(),delivery:receipt,deliveryError:null,deliveryLeaseUntil:null});
-  // The phone may be registered on another node. Forward only this existing
-  // durable notice; a forwarded delivery cannot recurse around the mesh.
-  if (!context.forwardedNotice) {
-    for (const node of (await store.client.listNodes().catch(() => [])).filter((n) => n.name !== context.node).slice(0,4)) {
-      const origin = node.health?.node?.appOrigin ?? (node.tailnetHost ? `https://${node.tailnetHost}` : null);
-      if (!origin) continue;
-      try {
-        const out = await request(`${origin}/api/improver`, {action:"deliver-notice",id}, 10_000);
-        if (delivered(out)) return out;
-      } catch { /* Keep the notice visible and retry after the peer recovers. */ }
-    }
-  }
-  return store.update("notice", id, (current) => delivered(current) ? null :
-    {...current,deliveredAt:null,deliveryLeaseUntil:null,delivery:receipt,
-      deliveryError:[receipt.reason,...receipt.native.map((r) => r.skipped ?? r.error).filter(Boolean),receipt.nativeError].filter(Boolean).join("; ") || "No registered device received this notice"});
+  const message = await emitSystemMessage({
+    category: "improver.decision", severity: /failed|interrupted|recovery/i.test(title) ? "warning" : "info",
+    title, body: text, externalId: `improver:${id}`, sourceLink: link,
+  }, { client: store.client, env: { ...process.env, GARRISON_HOME: context.home }, fetchImpl: context.fetchImpl });
+  return { id, messageId: message.id, title, text, link: `/messages/${message.id}`, at: message.ts, queued: true };
 }
 export async function retryPendingNotice(store, context) {
   const pending = (await store.list("notice")).filter((n) => !delivered(n) &&
@@ -136,14 +104,27 @@ export async function migrateLegacy(store, context) {
   await store.update("migration", context.node, () => ({ at: new Date().toISOString(), proposals: old.length }));
 }
 
-export async function vaultSyncReceipt(client, node) {
-  const jobs = (await client.listSchedulerJobs()).filter((job) => /^vault-git-sync(?:@|$)/.test(job.id) &&
+export async function vaultSyncReceipt(client, node, configuredJobs) {
+  const jobs = (configuredJobs ?? await client.listSchedulerJobs()).filter((job) => /^vault-git-sync(?:@|$)/.test(job.id) &&
     [node, `node:${node}`].includes(job.target) && job.enabled);
   // Scheduler projects wire IDs such as vault-git-sync@node to the local ID
   // before execution, so historical receipts use the base ID plus owner node.
   const ids = [...new Set(jobs.flatMap((job) => [job.id, job.id.replace(/@[^@]+$/, "")]))];
   const runs = (await Promise.all(ids.map((id) => client.listSchedulerRuns(id)))).flat();
   return runs.filter((entry) => entry.node === node).sort((a,b) => String(b.endedAt).localeCompare(String(a.endedAt)))[0] ?? null;
+}
+
+export async function vaultSyncStatus(client, node) {
+  const jobs = (await client.listSchedulerJobs()).filter((job) => /^vault-git-sync(?:@|$)/.test(job.id) &&
+    [node, `node:${node}`].includes(job.target));
+  // Some nodes deliberately have no local vault fitting. Check the jobs that
+  // are configured here; absence is different from a failed or disabled job.
+  if (!jobs.length) return { configured:false, state:"not-configured", lastRun:null, error:null };
+  const latest = await vaultSyncReceipt(client,node,jobs);
+  const error = !jobs.some((job)=>job.enabled) ? "Quarter-hour vault sync is disabled" :
+    !latest || latest.exit!==0 || Date.now()-Date.parse(latest.endedAt)>45*60_000
+      ? "Quarter-hour vault sync has no recent successful scheduler receipt" : null;
+  return { configured:true, state:error?"failed":"ok", lastRun:latest, error };
 }
 
 export async function runReview({ store = new ImprovementStore(), context, run, model, collect = collectDailyEvidence }) {
@@ -161,10 +142,12 @@ export async function runReview({ store = new ImprovementStore(), context, run, 
     await updateRun(store, run, { stage: "collecting" });
     const settings = await store.settings();
     const evidence = await collect({ ...context, day: run.day, client: store.client, shared: context.node === settings.memoryNode });
-    if (zeca?.file) {
+    const archiveVault=context.vaultDir||automationVaultRoot({...process.env,GARRISON_HOME:context.home});
+    if (zeca?.file && !isArchivePath(archiveVault,zeca.file)) {
       const excerpt = (await fs.readFile(zeca.file,"utf8")).slice(0,5000);
       evidence.sources.push({id:hash(zeca.file).slice(0,20),node:context.node,kind:"zeca",title:"Zeca review and captured memories",ref:zeca.file,at:run.day,excerpt});
     }
+    evidence.sources=evidence.sources.filter(source=>!isArchivePath(archiveVault,source.ref)&&!hasArchiveReference(archiveVault,source.excerpt));
     const dir = path.join(context.home, "improver", "reviews", run.id);
     await fs.mkdir(dir, { recursive: true });
     // Raw excerpts stay private on the owner; shared records contain citations.
@@ -199,7 +182,10 @@ export async function runReview({ store = new ImprovementStore(), context, run, 
       operational.push({kind:"node-health",node:context.node,at:health?.at,git:health?.git,composition:health?.composition,views:health?.views});
       if(!health || Date.now()-Date.parse(health.at)>5*60_000)operationalErrors.push("Node health heartbeat is unavailable or stale");
       else {
-        if(health.git?.branch!=="main")operationalErrors.push("The node checkout is not on main");
+        // Git telemetry can time out while this node is busy. A missing sample
+        // does not assert that the checkout changed branches; main-sync also
+        // records its independent deployment/catch-up outcome below.
+        if(health.git?.branch && health.git.branch!=="main")operationalErrors.push("The node checkout is not on main");
         if(health.composition?.running!==true || health.views?.unhealthy?.length)operationalErrors.push("The node reports unhealthy running services");
       }
       const sync=operational.find((o)=>o.title==="Main deployment sync")?.value;
@@ -207,9 +193,13 @@ export async function runReview({ store = new ImprovementStore(), context, run, 
     } catch(error) {operationalErrors.push(`Node health unavailable: ${error.message}`);}
 
     try {
-      const latest = await vaultSyncReceipt(store.client, context.node);
-      operational.push({kind:"vault-schedule",node:context.node,lastRun:latest??null});
-      if(!latest || latest.exit!==0 || Date.now()-Date.parse(latest.endedAt)>45*60_000) operationalErrors.push("Quarter-hour vault sync has no recent successful scheduler receipt");
+      const status = await vaultSyncStatus(store.client, context.node);
+      operational.push({kind:"vault-schedule",node:context.node,...status});
+      if(!status.configured) {
+        const local = operational.find((entry)=>entry.title==="Vault sync");
+        if(local) local.value={state:"not-configured",message:"Vault sync is not configured on this node"};
+      }
+      if(status.error) operationalErrors.push(status.error);
     } catch(error) { operationalErrors.push(`Vault scheduler receipts unavailable: ${error.message}`); }
     if(zeca && !zeca.ok) operationalErrors.push(`Zeca review failed: ${zeca.error??zeca.reason??zeca.skipped}`);
     await fs.writeFile(path.join(dir,"review.json"), JSON.stringify(result,null,2), { mode: 0o600 });

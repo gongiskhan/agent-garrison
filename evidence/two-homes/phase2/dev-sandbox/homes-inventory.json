@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "at": "2026-09-12T08:03:04.124Z",
+  "node": "two-homes-dev",
+  "homes": {
+    "claude-code": "/tmp/two-homes-real-apm.cM9Lp7/.claude",
+    "codex": "/tmp/two-homes-real-apm.cM9Lp7/.codex",
+    "gemini": "/tmp/two-homes-real-apm.cM9Lp7/.gemini"
+  },
+  "items": [
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-legacy",
+      "name": "garrison-legacy",
+      "owner": null,
+      "hash": "230f354f51225da9588c5c62cba18c6d79293ca435f1ec43c2f567823648bbc6"
+    }
+  ]
+}

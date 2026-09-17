@@ -1,3 +1,4 @@
+import { captureMessagesFixture } from "./messages-capture-fixture";
 // Companion E2E (M7): the WHOLE loop against a sandboxed instance with EVERY
 // flag on and every external boundary mocked — run via `npm run e2e:companion`.
 //
@@ -77,6 +78,7 @@ describe("companion E2E — all flags on, external boundaries mocked", () => {
   const vaultDir = path.join(home, "obsidian-vault");
   mkdirSync(vaultDir, { recursive: true });
   const cleanups: Array<() => void> = [];
+  let messagesEnv: Record<string,string> = {};
   afterAll(() => {
     while (cleanups.length) cleanups.pop()!();
     rmSync(home, { recursive: true, force: true });
@@ -214,7 +216,11 @@ describe("companion E2E — all flags on, external boundaries mocked", () => {
       wakeSettledCloseMs: 80,
       wakeMaxCaptureMs: 3000
     });
+    const messagesFixture = captureMessagesFixture((handle as any).notifier);
+    const messagesBridge = await messagesFixture.listen(); messagesEnv = messagesBridge.env;
     cleanups.push(() => {
+      messagesBridge.close();
+      messagesFixture.close();
       handle.ingress.close();
       handle.server.close();
     });
@@ -357,16 +363,16 @@ describe("companion E2E — all flags on, external boundaries mocked", () => {
     const gatewayCallsBefore = gatewayCalls.length;
     const { stdout } = await execFileAsync(
       process.execPath,
-      [path.join(__dirname, "..", "fittings", "seed", "omi-channel", "scripts", "triage.mjs"), "--tick"],
+      [path.join(__dirname, "..", "fittings", "seed", "capture-service", "scripts", "triage.mjs"), "--tick"],
       {
         timeout: 60000,
         env: {
           ...process.env,
           GARRISON_HOME: home,
-          GARRISON_OMI_DIR: path.join(home, "omi"),
+          ...messagesEnv,
           GARRISON_CAPTURE_DIR: path.join(home, "capture"),
           GARRISON_GATEWAY_URL: `http://127.0.0.1:${(gateway.address() as any).port}`,
-          GARRISON_OMICHANNEL_TRIAGE_ENABLED: "true",
+          GARRISON_CAPTURESERVICE_TRIAGE_ENABLED: "true",
           BASIC_MEMORY_VAULT_DIR: vaultDir,
           BASIC_MEMORY_MEMORY_DIR: "Memory"
         }
@@ -405,7 +411,7 @@ describe("companion E2E — all flags on, external boundaries mocked", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ title: "Zeca asks", text: "Qual dos dois relatórios devo enviar?", tag: "ask", idempotencyKey: "e2e-ask-1" })
     }).then((r) => r.json());
-    expect(askReceipts[0]).toMatchObject({ means: "companion-push", ok: true });
+    expect(askReceipts[0]).toMatchObject({ means: "messages", ok: true, queued: true });
     await waitFor(() => pushes.length === pushesBefore + 1, 8000, "ask push");
     expect(pushes.at(-1)!.payload.aps.alert.body).toContain("Qual dos dois relatórios");
 

@@ -19,6 +19,7 @@
 //   - Quick cards are excluded: their outcome was the inline channel reply.
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { emitSystemMessage, systemInputFromNotification, cardEventSystemInput } from "@garrison/messages/system";
 import path from "node:path";
 import { ackFromOriginEvent, isAckableEventKind, loadTemplateSets } from "./ack.mjs";
 import os from "node:os";
@@ -80,7 +81,7 @@ function statusFileUrl(fittingId) {
 // thread_ts encoded in the threadId (`<conversation>:<thread_ts>`); the adapter
 // only serves this route while it is running, and it is started by hand (it needs
 // a public tunnel), so with it down this entry is inert like the omi one.
-const CHANNEL_FITTINGS = { web: "web-channel-default", omi: "omi-channel", slack: "slack-channel" };
+const CHANNEL_FITTINGS = { web: "web-channel-default", slack: "slack-channel" };
 
 // The web channel's delivery base. Conversations lives in the Garrison shell,
 // whose loopback base the runner projects into every fitting as GARRISON_APP_URL;
@@ -202,36 +203,8 @@ export async function fanOutNotification(
   { title, text, actions = [], link = null, tag = null, idempotencyKey = null },
   { skipFittingIds = [], fetchImpl = fetch, serveMap = null } = {}
 ) {
-  const skip = new Set(skipFittingIds.filter(Boolean));
-  // Every fan-out target is a channel; rehost the loopback deep links once to
-  // the tailnet form so the notification is reachable off-box (phones).
-  const { text: reachableText, link: reachableLink, actions: reachableActions } = await tailnetForChannel({
-    text,
-    link,
-    actions,
-    serveMap
-  });
-  const results = [];
-  await Promise.all(
-    notifyTargets()
-      .filter((e) => !skip.has(e.id))
-      .map(async ({ id, url }) => {
-        try {
-          const res = await fetchImpl(url, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ title, text: reachableText, actions: reachableActions, link: reachableLink, tag, idempotencyKey }),
-            signal: AbortSignal.timeout(8000)
-          });
-          // 404 = not a notify-capable channel. Anything else is a real outcome.
-          if (res.status !== 404) results.push({ id, status: res.status, ok: res.ok });
-        } catch {
-          // A fitting that is starting or wedged must never block a reminder
-          // reaching the other channels.
-        }
-      })
-  );
-  return results;
+  const stored = await emitSystemMessage(systemInputFromNotification({ title, text, link, tag, idempotencyKey }, "kanban"), { fetchImpl });
+  return [{ id: "messages", ok: true, queued: true, messageId: stored.id }];
 }
 
 /**
@@ -321,30 +294,11 @@ export function terminalTransition(prev, next) {
 // notify endpoint. Every failure path is swallowed (logged to stderr once) —
 // the card write must never depend on a channel being up.
 export function notifyOriginTransition(prev, next) {
-  try {
-    if (!terminalTransition(prev, next)) return;
-    const fittingId = CHANNEL_FITTINGS[String(next.originChannel.channel).toLowerCase()];
-    if (!fittingId) return;
-    const base = channelBase(fittingId);
-    if (!base) return;
-    const text = outcomeMessage(next);
-    void (async () => {
-      const { text: reachableText } = await tailnetForChannel({ text });
-      return fetch(`${base}/api/threads/${encodeURIComponent(next.originChannel.threadId)}/messages`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages: [{ role: "assistant", text: reachableText }] })
-      });
-    })()
-      .then((res) => {
-        if (!res.ok) console.error(`[kanban] origin notify → HTTP ${res.status} (${fittingId}, thread ${next.originChannel.threadId})`);
-      })
-      .catch((err) => {
-        console.error(`[kanban] origin notify failed: ${err?.message || err}`);
-      });
-  } catch {
-    /* never let feedback break a card write */
-  }
+  if (!terminalTransition(prev, next)) return;
+  void emitSystemMessage(cardEventSystemInput(next, {
+    kind: next.list === DONE_LIST ? "finished" : "blocked", message: outcomeMessage(next)
+  }, { ownerNode: process.env.GARRISON_NODE_NAME }))
+    .catch((error) => console.error(`[messages] card notification was not stored: ${error.message}`));
 }
 
 // ─────────────────────────── S3a: per-transport lifecycle event router (D8)
@@ -475,6 +429,11 @@ export function routeBrief(root, card, { brief, gate } = {}) {
 // thread-append contract). Extracted so every channel-transport delivery uses
 // one path; the channel id picks the host via CHANNEL_FITTINGS + channelBase.
 async function postChannelMessage(channel, threadId, text, { idempotencyKey = null, fetchImpl = fetch, serveMap = null } = {}) {
+  // Historical cloud-origin cards keep a reachable notice surface after retirement.
+  if (channel === "omi") {
+    const ok = await deliverBoardNotice("Card updates", text, { idempotencyKey, fetchImpl });
+    return { ok, channel: "web", fittingId: CHANNEL_FITTINGS.web, threadId: BOARD_NOTICE_THREAD };
+  }
   const fittingId = CHANNEL_FITTINGS[channel];
   if (!fittingId || !threadId || !text) return { ok: false, channel, fittingId, reason: "invalid channel message" };
   const base = channelBase(fittingId);
@@ -512,37 +471,8 @@ function deliverChannelMessage(channel, threadId, text) {
 const BOARD_NOTICE_THREAD = "kanban-board-review";
 
 export async function deliverBoardNotice(title, text, { idempotencyKey = null, fetchImpl = fetch } = {}) {
-  try {
-    if (!text) return false;
-    const base = webChannelBase();
-    if (!base) return false;
-    const ensured = await fetchImpl(`${base}/api/threads`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: BOARD_NOTICE_THREAD, title: title || "Board review", source: "kanban-loop" })
-    });
-    if (!ensured.ok) {
-      console.error(`[kanban] board notice → thread ensure HTTP ${ensured.status}`);
-      return false;
-    }
-    const { text: reachableText } = await tailnetForChannel({ text });
-    const posted = await fetchImpl(`${base}/api/threads/${BOARD_NOTICE_THREAD}/messages`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        messages: [{ role: "assistant", text: reachableText }],
-        ...(idempotencyKey ? { idempotencyKey } : {})
-      })
-    });
-    if (!posted.ok) {
-      console.error(`[kanban] board notice → HTTP ${posted.status}`);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.error(`[kanban] board notice failed: ${err?.message || err}`);
-    return false;
-  }
+  const message = await emitSystemMessage(systemInputFromNotification({ title, text, idempotencyKey }, "board"), { fetchImpl });
+  return Boolean(message.id);
 }
 
 /**
@@ -591,8 +521,12 @@ export function routeOriginEvent(root, disk, card, event) {
       // message. Keep the final duty-summary in the durable lifecycle log, but
       // do not post a second, 200-character copy into the Web Channel thread.
       (event.kind === "duty-summary" && event.detail?.listTo === DONE_LIST);
-    if (CHANNEL_FITTINGS[transport] && !card.quick && event.message && card.originChannel?.threadId && !skipWeb) {
-      deliverChannelMessage(transport, card.originChannel.threadId, event.message);
+    // The store is the delivery source even when the originating channel is down.
+    // A paused conversation publishes its exact handoff question on its owner.
+    if (!(event.kind === "blocked" && card.conversationId)) {
+      void emitSystemMessage(cardEventSystemInput(card, event, { ownerNode: process.env.GARRISON_NODE_NAME }))
+        .then(() => emitAckForEvent(card, { ...event, messagesStored: true }))
+        .catch((error) => console.error(`[messages] card notification was not stored: ${error.message}`));
     }
 
     // The acknowledgement, on the same event and therefore with the same
@@ -601,7 +535,6 @@ export function routeOriginEvent(root, disk, card, event) {
     // the delivery above and ignores skipWeb - suppressing a duplicate thread
     // message says nothing about whether the operator should hear the outcome.
     // Ackable kinds are whitelisted in ack.mjs; everything else returns null.
-    emitAckForEvent(card, event);
   } catch {
     /* never let event routing break a card write */
   }
@@ -620,6 +553,7 @@ function emitAckForEvent(card, event) {
     // never heard them spoken.
     const ack = ackFromOriginEvent(event, card, { templateSets: loadTemplateSets() });
     if (!ack) return;
+    if (event.messagesStored) ack._messagesStored = true;
     if (ack.skipped) {
       console.warn(`[kanban-loop] ack skipped (${ack.skipped}) for card ${card.id}: ${ack.reason}`);
       return;
@@ -693,7 +627,6 @@ export function scheduleReminderMessage(card, { started = false } = {}) {
 // the omi fitting's relay (which pushes an Omi notification and degrades to
 // the web channel by itself). With the omi fitting absent, fall back to the
 // web board-notice thread so the reminder is never silently dropped.
-const OMI_REMINDER_THREAD = "omi-reports";
 
 export async function deliverScheduleReminder(root, card, {
   started = false,
@@ -701,72 +634,12 @@ export async function deliverScheduleReminder(root, card, {
   fetchImpl = fetch
 } = {}) {
   try {
-    const text = scheduleReminderMessage(card, { started });
-    // Fan out to every notify-capable channel IN ADDITION to the origin chain
-    // below. A reminder is not a reply: the user asked for it on every surface
-    // so they can find out which one actually works for them. Deep link and a
-    // Start button ride along; transports that cannot render buttons append the
-    // link as text instead.
-    const ref = cardShortRef(card.id);
-    // The chain below already reaches ONE channel: the origin thread's fitting
-    // when the card has one, else the omi relay thread. Skip that fitting in
-    // the fan-out or the user gets the same reminder twice on that surface.
-    const chainFittingId = card.originChannel?.channel
-      ? CHANNEL_FITTINGS[String(card.originChannel.channel).toLowerCase()]
-      : statusFileUrl(CHANNEL_FITTINGS.omi)
-        ? CHANNEL_FITTINGS.omi
-        : null;
-    const fanout = await fanOutNotification(
-      {
-        title: started ? "Scheduled card started" : "Card due",
-        text,
-        link: boardCardUrl(card.id),
-        tag: `card-${card.id}`,
-        actions: started ? [] : [{ label: "Open card", url: boardCardUrl(card.id) }],
-        idempotencyKey
-      },
-      { skipFittingIds: [chainFittingId], fetchImpl }
-    );
-    let chain;
-    if (card.originChannel?.channel && card.originChannel?.threadId) {
-      routeOriginEvent(root, null, card, {
-        kind: "schedule-due",
-        message: null,
-        detail: { scheduledFor: card.scheduledFor ?? null, started },
-        idempotencyKey
-      });
-      chain = await postChannelMessage(
-        String(card.originChannel.channel).toLowerCase(),
-        card.originChannel.threadId,
-        text,
-        { idempotencyKey, fetchImpl }
-      );
-    } else {
-      // No originating thread (board-created card): record the event, then push
-      // through omi when its fitting is up, else the web board-notice thread.
-      routeOriginEvent(root, null, card, {
-        kind: "schedule-due",
-        message: null,
-        detail: { scheduledFor: card.scheduledFor ?? null, started },
-        idempotencyKey
-      });
-      if (statusFileUrl(CHANNEL_FITTINGS.omi)) {
-        chain = await postChannelMessage("omi", OMI_REMINDER_THREAD, text, { idempotencyKey, fetchImpl });
-      } else {
-        const delivered = await deliverBoardNotice("Scheduled cards", text, { idempotencyKey, fetchImpl });
-        chain = delivered
-          ? { ok: true, channel: "web", fittingId: CHANNEL_FITTINGS.web, threadId: BOARD_NOTICE_THREAD }
-          : { ok: false, channel: "web", fittingId: CHANNEL_FITTINGS.web, reason: "no running reminder channel" };
-      }
-    }
-    const receipts = [...fanout, chain].filter(Boolean);
-    return {
-      ok: chain?.ok === true,
-      receipts,
-      ...(chain?.ok === true ? {} : { error: chain?.reason ?? "no running reminder channel" })
-    };
+    const input = cardEventSystemInput(card, { kind: "schedule-due", message: scheduleReminderMessage(card, { started }),
+      idempotencyKey, detail: { scheduledFor: card.scheduledFor ?? null, started } }, { ownerNode: process.env.GARRISON_NODE_NAME });
+    const message = await emitSystemMessage(input, { fetchImpl });
+    return { ok: true, receipts: [{ id: "messages", ok: true, queued: true, messageId: message.id }] };
   } catch (error) {
-    return { ok: false, receipts: [], error: String(error?.message ?? error).slice(0, 500) };
+    return { ok: false, receipts: [], error: String(error.message) };
   }
 }
 
@@ -787,6 +660,6 @@ export function routeNeedsInput(root, disk, card, { questions, autonomyHold = fa
     // and "was the question asked?" must be answerable), but its channel post is
     // suppressed - see the `created` precedent in routeOriginEvent, which is the
     // same situation and the same answer.
-    detail: { questions: qs, ...(autonomyHold ? { autonomyHold: true } : {}) }
+    detail: { questions: Array.isArray(questions) ? questions : qs, ...(autonomyHold ? { autonomyHold: true } : {}) }
   });
 }

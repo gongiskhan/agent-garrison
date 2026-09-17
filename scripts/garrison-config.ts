@@ -6,7 +6,7 @@
 //
 // Logic lives in src/lib/claude-config-sync.ts (unit-tested); this wires paths
 // + the git side of `commit`. Run via `npm run config -- <verb>`.
-import os from "node:os";
+import { userClaudeHome } from "../src/lib/claude-home";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -21,7 +21,7 @@ import {
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, "..");
-const CLAUDE_HOME = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
+const CLAUDE_HOME = userClaudeHome();
 const PAYLOAD = path.join(REPO, "fittings/seed/claude-config/payload");
 
 function git(args: string[]): string {

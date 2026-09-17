@@ -14,6 +14,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
+    func applicationWillTerminate(_ application: UIApplication) { ListeningChannel.shared.terminating() }
+
     func application(_ application: UIApplication,
                      didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         Task { @MainActor in
@@ -41,6 +43,7 @@ struct GarrisonApp: App {
         // Before the first body: seeding in onAppear would first build a
         // no-node bridge (bootstrap page) and tear it down a frame later.
         NodeStore.shared.seedFromEnvironmentIfRequested()
+        FixtureStreamer.configureListeningJourneyIfRequested()
         // GARRISON_OPEN_PATH=/capture takes the cold-start route lane: the
         // path waits in PushRouter until the first load settles, exactly as a
         // push tap on a closed app does. Simulator iteration only.
@@ -71,9 +74,7 @@ struct GarrisonApp: App {
                         // one screen. Only when we already know the peripheral
                         // - a first pairing is still a deliberate act, from the
                         // page.
-                        if AppGroup.pendantIdentifier != nil {
-                            PendantController.shared.reconnectIfNeeded()
-                        }
+                        ListeningChannel.shared.foreground()
                         // Silent re-registration only: never a permission
                         // prompt at launch. The first prompt is
                         // GarrisonPush.register() from the page, in context.
@@ -101,7 +102,7 @@ struct GarrisonApp: App {
             .onChange(of: store.current) { _, _ in
                 // This also covers editing a node's capture URL or token
                 // without changing its shell origin (no bridge remount).
-                PendantController.shared.reconnectIfNeeded()
+                ListeningChannel.shared.foreground()
             }
         }
         .onChange(of: scenePhase) { _, phase in
@@ -109,9 +110,7 @@ struct GarrisonApp: App {
             // Coming back from the background: CoreBluetooth may have dropped
             // the link while suspended, and the wearable is worn all day. A
             // connect on an already-connected transport is a no-op.
-            if AppGroup.pendantIdentifier != nil {
-                PendantController.shared.reconnectIfNeeded()
-            }
+            ListeningChannel.shared.foreground()
             // A node can die while the app is in someone's pocket, and on a
             // flapping tunnel it does. Same rules as the launch probe: a
             // reachable node is never switched away from.

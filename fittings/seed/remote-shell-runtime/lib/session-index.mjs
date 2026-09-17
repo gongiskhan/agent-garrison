@@ -43,7 +43,7 @@ function normCwd(raw) {
  *  records (not just summary()) for pane evidence - the second precedence
  *  tier for a session whose runtime has no hooks (a plain `shell`, or an
  *  agent whose CLI hooks are not installed on this machine). */
-function ownedRows(manager, now) {
+export function ownedRows(manager, now) {
   if (!manager) return [];
   const rows = [];
   for (const s of manager.sessions.values()) {
@@ -176,6 +176,7 @@ function readThreadClaims(home, localNode) {
 /**
  * @param {object} opts
  * @param {import("./sessions.mjs").SessionManager} [opts.manager]
+ * @param {Array} [opts.ownedSessions] Plain owned-row snapshot for worker discovery.
  * @param {number} [opts.windowDays]
  * @param {number} [opts.now]
  * @param {string} [opts.garrisonHomeDir]
@@ -190,6 +191,7 @@ function readThreadClaims(home, localNode) {
  */
 export function buildIndex({
   manager = null,
+  ownedSessions = null,
   windowDays = 5,
   now = Date.now(),
   garrisonHomeDir = garrisonHome(),
@@ -197,7 +199,7 @@ export function buildIndex({
   cardSessionIds = new Map(),
   claudeBackgroundAgents = undefined
 } = {}) {
-  const owned = ownedRows(manager, now);
+  const owned = ownedSessions ?? ownedRows(manager, now);
   const { bySessionId, byShellKey } = readThreadClaims(garrisonHomeDir, nodeName({ ...env, GARRISON_HOME: garrisonHomeDir }));
   const ownedIds = new Set(owned.flatMap((r) => [r.nativeSessionId, r.resumeRef].filter((id) => typeof id === "string").map((id) => `${r.runtime}\0${id}`)));
   const events = readLocalEvents(garrisonHomeDir);

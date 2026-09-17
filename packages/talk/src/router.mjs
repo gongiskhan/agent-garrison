@@ -22,9 +22,12 @@
 // route for that reason.
 
 import { createReadStream, existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { emitSystemMessage, isMessageMirror, systemInputFromNotification } from "@garrison/messages/system";
 import { meshThreads } from "./mesh-threads.mjs";
 import { localSessionForStream, localSessionsStatus, meshSessions } from "./mesh-sessions.mjs";
 import { readCursorDesktopTranscript } from "./cursor-desktop-transcript.mjs";
+import { cursorProxy } from "./cursor-proxy.mjs";
+import { cursorNodeHandler } from './cursor-node.mjs';
 import { parseByFormat } from "./transcript-formats.mjs";
 import { gatewayCancelForwarder, gatewayMessageForwarder, handleConversationRequest } from "@garrison/claude-pty";
 import { rotateZecaConversation, zecaConversation } from "./zeca.mjs";
@@ -502,7 +505,7 @@ const VOICE_SESSION_ID_RE = /^[A-Za-z0-9_-]{10,40}$/;
 // provider port and no token on the phone. The provider's own SSE route trusts
 // loopback and the tailnet; the token rides only when the host holds one.
 async function handleVoiceSessionEvents(req, res, sessionId, voice) {
-  if (!VOICE_SESSION_ID_RE.test(sessionId)) {
+  if (sessionId !== null && !VOICE_SESSION_ID_RE.test(sessionId)) {
     jsonRes(res, 400, { error: "bad session id" });
     return;
   }
@@ -517,7 +520,7 @@ async function handleVoiceSessionEvents(req, res, sessionId, voice) {
     return;
   }
   const token = await voiceToken(voice);
-  const target = new URL(`/sessions/${sessionId}/events`, info.url);
+  const target = new URL(sessionId === null ? "/capture/listening/events" : `/sessions/${sessionId}/events`, info.url);
   const headers = { Accept: "text/event-stream" };
   if (token) headers.Authorization = `Bearer ${token}`;
   pipeUpstreamSse(req, res, {
@@ -3501,6 +3504,10 @@ async function handleNotify(req, res, opts) {
   const text = typeof body?.text === "string" ? body.text.trim() : "";
   const title = typeof body?.title === "string" && body.title.trim() ? body.title.trim() : "Garrison";
   if (!text) return jsonRes(res, 400, { error: "text required" });
+  if (!isMessageMirror(body)) {
+    const message = await emitSystemMessage(systemInputFromNotification(body, "web"));
+    return jsonRes(res, 202, { ok: true, queued: true, messageId: message.id });
+  }
   // Actions render as real buttons where the transport supports them; the
   // service worker caps at two, which is a browser limit, not ours.
   const actions = Array.isArray(body?.actions)
@@ -3558,11 +3565,20 @@ function settle(res, pending, log) {
 // names the voice provider and hands over the capture token; without it every
 // /api/voice/* answer is "no voice provider".
 export function createTalkRouter(liveOpts, { distDir = null, log = console } = {}) {
+  let cursor;
   return async function handleTalkRequest(req, res) {
     try {
       const parsed = url.parse(req.url || "/", true);
       const pathname = parsed.pathname || "/";
       const method = req.method || "GET";
+      if (pathname.startsWith('/api/cursor/')) {
+        if (pathname.startsWith('/api/cursor/hooks/') || pathname.startsWith('/api/cursor/internal/')) {
+          cursor ??= cursorNodeHandler({ home: garrisonDir() });
+          const localPath = pathname.replace(/^\/api\/cursor(?:\/internal)?\//, '/cursor/');
+          settle(res, cursor.handle(req, res, localPath), log); return true;
+        }
+        return cursorProxy(req, res, pathname, { home: garrisonDir(), nodeUrl: `http://127.0.0.1:${liveOpts.port}`, prefix: '/api/cursor/internal' });
+      }
       if (pathname === "/health" || pathname === "/api/health") { settle(res, handleHealth(req, res, liveOpts), log); return true; }
       // Host-aware URL/file rendering + rich transcript (issues #1/#3/#4). Root
       // paths (not /api/*) so they inherit this origin's tailscale serve mapping.
@@ -3595,6 +3611,7 @@ export function createTalkRouter(liveOpts, { distDir = null, log = console } = {
       if (pathname.startsWith("/api/remote-shell/")) {
         settle(res, handleRemoteShellProxy(req, res, pathname.slice("/api/remote-shell".length), parsed.search?.slice(1) ?? ""), log); return true;
       }
+      if (pathname === "/api/voice/listening/events" && method === "GET") { settle(res, handleVoiceSessionEvents(req, res, null, liveOpts.voice), log); return true; }
       if (pathname === "/api/voice/health" && method === "GET") { settle(res, handleVoiceHealth(res, liveOpts.voice), log); return true; }
       if (pathname === "/api/voice" && method === "GET") { settle(res, handleVoiceInfo(res, liveOpts.voice), log); return true; }
       if (pathname === "/api/voice/stt" && method === "POST") { settle(res, handleVoiceProxy(req, res, "/stt", liveOpts.voice), log); return true; }

@@ -10,6 +10,8 @@
 // tokenless route and returns nothing but liveness + versions.
 
 import http from "node:http";
+import { messagesRoute } from "./messages/router.mjs";
+import { authenticateIngest, MessagesError } from "./messages/store.mjs";
 import { openDb, binarySchemaVersion, schemaMeta, resolveDbPath } from "./db.mjs";
 import {
   StoreError,
@@ -39,6 +41,9 @@ const pkg = require("../package.json");
 
 const db = openDb();
 const SCHEMA_VERSION = binarySchemaVersion();
+// Migration 003 adds isolated Messages tables and preserves the schema 002 API.
+// Keep that explicit compatibility floor only for this additive migration.
+const MIN_COMPATIBLE_SCHEMA = SCHEMA_VERSION === 3 ? 2 : SCHEMA_VERSION;
 const META = schemaMeta(db);
 const SERVICE_VERSION = process.env.GARRISON_STATE_VERSION?.trim() || pkg.version;
 
@@ -137,7 +142,7 @@ const server = http.createServer(async (req, res) => {
     // ── auth ──
     const auth = req.headers.authorization ?? "";
     const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : null;
-    const node = authenticateToken(db, token);
+    const node = authenticateIngest(db, token) ?? authenticateToken(db, token);
     if (!node) throw new StoreError(401, "unauthenticated", "a registered node bearer token is required");
 
     // A behind node reads freely; its writes refuse until it converges.
@@ -147,14 +152,21 @@ const server = http.createServer(async (req, res) => {
     }
 
     const body = isWrite ? await readBody(req) : undefined;
+    if (node.scope === "messages-ingest" && p[0] !== "messages") throw new MessagesError(403, "Ingest credentials cannot access other state areas");
+    if (p[0] === "messages") {
+      const result = messagesRoute(db, node, req.method, p.slice(1), url, body);
+      if (isWrite) signalChange();
+      return send(res, 200, result);
+    }
 
     // ── hello ──
     if (req.method === "POST" && p[0] === "hello" && p.length === 1) {
-      const { behind } = mutate(() => hello(db, node, body, SCHEMA_VERSION));
+      const { behind } = mutate(() => hello(db, node, body, SCHEMA_VERSION, MIN_COMPATIBLE_SCHEMA));
       return send(res, 200, {
         node: node.name,
         behind,
         schemaVersion: SCHEMA_VERSION,
+        minCompatibleSchema: MIN_COMPATIBLE_SCHEMA,
         serviceVersion: SERVICE_VERSION,
         meshId: META.mesh_id,
         serverTime: new Date().toISOString()
@@ -164,6 +176,16 @@ const server = http.createServer(async (req, res) => {
     // ── changes ──
     if (req.method === "GET" && p[0] === "changes" && p.length === 1) {
       return await handleChanges(res, url);
+    }
+
+    // Counts only; normal node authentication above applies to this endpoint.
+    if (req.method === "GET" && p[0] === "stats" && p.length === 1) {
+      return send(res, 200, {
+        cards: db.prepare("SELECT COUNT(*) AS c FROM cards WHERE deleted_at IS NULL").get().c,
+        cardDocs: db.prepare("SELECT COUNT(*) AS c FROM card_docs").get().c,
+        sessions: db.prepare("SELECT COUNT(*) AS c FROM sessions").get().c,
+        nodes: db.prepare("SELECT COUNT(*) AS c FROM nodes").get().c
+      });
     }
 
     // ── nodes ──
@@ -432,7 +454,7 @@ const server = http.createServer(async (req, res) => {
 
     throw new StoreError(404, "not-found", `no route for ${req.method} ${url.pathname}`);
   } catch (err) {
-    if (err instanceof StoreError) {
+    if (err instanceof StoreError || err instanceof MessagesError) {
       return send(res, err.status, err.body);
     }
     console.error(`[state] unhandled error on ${req.method} ${req.url}:`, err);

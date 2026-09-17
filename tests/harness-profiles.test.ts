@@ -1,10 +1,12 @@
+// @ts-ignore The standing capability is supplied by the core package.
+import {PROJECTS_CAPABILITIES} from '../packages/projects/src/capabilities.mjs';
 // The boot prefix is what a stretch pays before it does any work. These tests
 // pin the two cuts measured in bench/prefix-2026-08-29: a per-duty tool
 // allow-list instead of the CLI's whole inventory, and a capability catalogue
 // carried as an index instead of every provider's full guidance.
 import { describe, it, expect } from "vitest";
 // @ts-ignore - pure .mjs module (single-line: TS reports TS7016 on the CLOSING line of a multi-line import, which the ignore above would not cover)
-import { applyDutyHarnessProfile, toolProfileForDuty, narrowToolProfileForDuty, NARROW_DUTY_TOOL_PROFILES, SHARED_MCP_TOOLS, TOOL_PROFILES } from "../fittings/seed/http-gateway/scripts/lib/harness-profiles.mjs";
+import { applyDutyHarnessProfile, toolProfileForDuty, narrowToolProfileForDuty, NARROW_DUTY_TOOL_PROFILES, SHARED_MCP_TOOLS, READ_MCP_TOOLS, TOOL_PROFILES } from "../fittings/seed/http-gateway/scripts/lib/harness-profiles.mjs";
 import { renderCapabilitiesBlock } from "../src/lib/runner";
 import type { LibraryEntry } from "../src/lib/types";
 
@@ -39,11 +41,11 @@ describe("duty harness profiles", () => {
     expect(new Set(blocks).size).toBe(1);
   });
 
-  it("bounds triage to read-only intake even when the coding target carries full tools", () => {
-    const route = applyDutyHarnessProfile(agentSdkRoute({ tools: ["Bash", "Agent", "Write"], maxTurns: 50 }), "triage");
+  it("keeps intake read-only without overriding the configured working turn budget", () => {
+    const route = applyDutyHarnessProfile(agentSdkRoute({ tools: ["Bash", "Agent", "Write"], maxTurns: 800 }), "triage");
     expect(route.target.tools).toEqual(["Read", "Glob", "Grep"]);
-    expect(route.target.maxTurns).toBe(8);
-    expect(route.target.mcpTools).toEqual(SHARED_MCP_TOOLS);
+    expect(route.target.maxTurns).toBe(800);
+    expect(route.target.mcpTools).toEqual(READ_MCP_TOOLS);
   });
 
   it.each(["responder", "dialogue", "discuss", "research"])("lets %s look up changing facts without a connector", (duty) => {
@@ -120,14 +122,14 @@ describe("capability catalogue detail", () => {
     expect(block).toContain("memory-store:beta");
   });
 
-  it("keeps the whole inventory but drops the bodies in index mode", () => {
+  it("keeps fitting inventory and core guidance while dropping fitting bodies", () => {
     const block = renderCapabilitiesBlock(entries, "index");
     expect(block).toContain("memory-store:alpha");
     expect(block).toContain("memory-store:beta");
     expect(block).not.toContain("ALPHA GUIDANCE BODY");
     // A stretch has to be able to tell WHICH lines have something more to read.
     expect(block).toContain("[usage guidance available]");
-    expect(block.split("\n").filter((l) => l.startsWith("- "))).toHaveLength(2);
+    expect(block.split("\n").filter((l) => l.startsWith("- "))).toHaveLength(3);
   });
 
   it("defaults to full, so nothing changes for a composition that did not opt in", () => {
@@ -138,6 +140,6 @@ describe("capability catalogue detail", () => {
     const big = entry("gamma", "x".repeat(20_000));
     const full = renderCapabilitiesBlock([big], "full");
     const index = renderCapabilitiesBlock([big], "index");
-    expect(index.length).toBeLessThan(full.length / 50);
+    expect(index.length - PROJECTS_CAPABILITIES.length).toBeLessThan((full.length - PROJECTS_CAPABILITIES.length) / 50);
   });
 });

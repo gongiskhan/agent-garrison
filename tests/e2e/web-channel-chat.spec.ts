@@ -186,8 +186,11 @@ test.describe("web-channel rich chat UI", () => {
     await expect(block.locator(".cc-codelang")).toHaveText("typescript");
     await expect(block.locator(".hljs-keyword").first()).toBeVisible(); // export/function/const/return
 
-    // The working indicator is gone now the reply has rendered.
+    // The indicator disappears with the first prose. Message actions appear
+    // only when the turn ends, after streamed chunks stop replacing the block.
     await expect(working).toHaveCount(0);
+    const msgCopy = page.locator(".cc-msgcopy").last();
+    await expect(msgCopy).toBeVisible();
 
     // 3) Per-block copy button copies the code to the clipboard.
     const copyBtn = block.locator(".cc-codecopy");
@@ -204,7 +207,6 @@ test.describe("web-channel rich chat UI", () => {
     await expect(page.locator(".cc-md").last()).toContainText("<img src=x");
 
     // 4) Per-message copy button copies the whole assistant response.
-    const msgCopy = page.locator(".cc-msgcopy").last();
     await expect(msgCopy).toBeVisible();
     await msgCopy.click();
     // The per-message copy is an icon: it confirms with a tick and its label.

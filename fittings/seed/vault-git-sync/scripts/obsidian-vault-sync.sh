@@ -30,6 +30,8 @@
 
 set -uo pipefail
 
+SYNC_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 MODE="full"
 REQUIRE_FRESH=0
 for arg in "$@"; do
@@ -95,14 +97,42 @@ fi
 
 BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
 
+# Install only repository-local Git metadata. Original documents retain Git's
+# normal merge behavior; identical-source extractions converge as whole files.
+if [ -f "$SYNC_SCRIPT_DIR/git-derived-merge.mjs" ]; then
+  if ! node "$SYNC_SCRIPT_DIR/git-derived-merge.mjs" install "$VAULT" >>"$LOG" 2>&1; then
+    write_status error "Archive derived merge setup failed; no sync performed."
+    exit 1
+  fi
+fi
+
 # 0. Mirror Claude's native Garrison project memory into the vault (ported from
 #    the retired ~/.claude/tools copy, which the systemd timer used to run).
 #    FAIL CLOSED when the mirror exists: a vault commit must not silently omit
 #    a mirror update. A node WITHOUT the mirror script (the Macs — tools/ is
 #    not in the portable subset) still syncs; only dev-madrid mirrors.
-MEMORY_MIRROR="${CLAUDE_MEMORY_MIRROR:-$HOME/.claude/tools/claude-memory-to-obsidian.py}"
+USER_CLAUDE_HOME="${GARRISON_USER_CLAUDE_HOME:-$HOME/.claude}"
+MEMORY_MIRROR="${CLAUDE_MEMORY_MIRROR:-$USER_CLAUDE_HOME/tools/claude-memory-to-obsidian.py}"
 if [ "$MODE" != "pull" ] && [ -x "$MEMORY_MIRROR" ]; then
-  if ! "$MEMORY_MIRROR" >>"$LOG" 2>&1; then
+  # The mirror receives an explicit native source. No vault glob can turn the
+  # user-owned Archive into an automatic memory input.
+  ARCHIVE_PATHS="${GARRISON_ARCHIVE_PATHS:-$(python3 - "${BASH_SOURCE[0]}" <<'PY_ARCHIVE_PATH'
+from pathlib import Path
+import sys
+for parent in Path(sys.argv[1]).resolve().parents:
+    candidate = parent / "packages/archive/src/paths.mjs"
+    if candidate.exists():
+        print(candidate)
+        break
+PY_ARCHIVE_PATH
+)}"
+  MIRROR_SOURCE="${CLAUDE_MEMORY_SOURCE:-$USER_CLAUDE_HOME/projects/-home-ggomes-dev-garrison/memory}"
+  if [ -z "$ARCHIVE_PATHS" ] || ! node "$ARCHIVE_PATHS" --check-mirror-source "$VAULT" "$MIRROR_SOURCE"; then
+    log "Archive excluded from native mirror inputs; vault sync deferred"
+    write_status error "Archive excluded from native mirror inputs"
+    exit 1
+  fi
+  if ! "$MEMORY_MIRROR" --source "$MIRROR_SOURCE" --destination "$VAULT/Projects/Garrison/Memory/Claude Native" >>"$LOG" 2>&1; then
     log "Claude memory mirror failed; vault sync deferred"
     write_status error "Claude memory mirror failed; vault sync deferred"
     exit 1
@@ -114,6 +144,11 @@ fi
 LOCAL_CHANGES=0
 if [ "$MODE" != "pull" ]; then
   git add -A
+  if ! node "$SYNC_SCRIPT_DIR/git-unicode-aliases.mjs" "$VAULT" >>"$LOG" 2>&1; then
+    log "Unicode index alias check failed; vault files preserved"
+    write_status error "Unicode filename aliases need review; nothing pushed"
+    exit 1
+  fi
   if ! git diff --cached --quiet; then
     git commit -q -m "vault sync: $(ts)" 2>>"$LOG"
     log "committed local changes"

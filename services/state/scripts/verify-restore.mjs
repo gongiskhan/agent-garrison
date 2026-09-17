@@ -17,8 +17,8 @@ const db = new Database(file, { readonly: true });
 try {
   const version = db.prepare("SELECT value FROM schema_meta WHERE key='schema_version'").get()?.value;
   const counts = {};
-  for (const t of ["nodes", "cards", "config_docs", "secrets", "scheduler_jobs", "sessions", "changes"]) {
-    counts[t] = db.prepare(`SELECT COUNT(*) AS c FROM ${t}`).get().c;
+  for (const t of ["nodes", "cards", "card_docs", "config_docs", "secrets", "scheduler_jobs", "sessions", "changes"]) {
+    counts[t] = db.prepare(`SELECT COUNT(*) AS c FROM ${t}${t === "cards" ? " WHERE deleted_at IS NULL" : ""}`).get().c;
   }
   const integrity = db.pragma("integrity_check", { simple: true });
   if (integrity !== "ok") {

@@ -189,87 +189,41 @@ describe("push delivery outcomes", () => {
   });
 });
 
-// The fan-out (kanban-loop): a reminder must reach EVERY notify-capable channel,
-// not just the first match. Discovery is by probing running fittings rather than
-// a hardcoded transport map - that map is why slack-channel, which has existed
-// and can post, was invisible to notifications.
-describe("multi-channel notification fan-out", () => {
-  it("delivers to every fitting that accepts /notify and skips those that 404", async () => {
+// Every producer stores once; mirrors own channel delivery and its receipts.
+describe("stored notification mirrors", () => {
+  async function storedNotice(key: string) {
     const { fanOutNotification } = await import("../fittings/seed/kanban-loop/lib/notify-origin.mjs");
-    const home = mkdtempSync(path.join(os.tmpdir(), "fanout-"));
-    mkdirSync(path.join(home, "ui-fittings"), { recursive: true });
-    for (const [id, port] of [["web-channel-default", 1], ["omi-channel", 2], ["drill", 3]]) {
-      writeFileSync(
-        path.join(home, "ui-fittings", `${id}.json`),
-        JSON.stringify({ fittingId: id, url: `http://127.0.0.1:${port}` })
-      );
-    }
-    const prev = process.env.GARRISON_HOME;
-    process.env.GARRISON_HOME = home;
-
+    const receipt = await fanOutNotification({ title: "Card due", text: "Fixture notice", idempotencyKey: key });
+    expect(receipt).toMatchObject([{ id: "messages", queued: true, ok: true }]);
+    return (await __kanbanState.client.request("GET", `/v1/messages/${receipt[0].messageId}`)).message;
+  }
+  it("delivers the stored record to notification targets and ignores absent endpoints", async () => {
+    const { deliverMessageMirrors } = await import("../packages/messages/system.mjs");
+    const message = await storedNotice("web-push-fanout");
     const hits: string[] = [];
-    const res = await fanOutNotification(
-      { title: "Card due", text: "hello" },
-      {
-        fetchImpl: (async (url: string) => {
-          hits.push(url);
-          // drill is not a channel: it has no /notify route.
-          return url.includes(":3/") ? { ok: false, status: 404 } : { ok: true, status: 200 };
-        }) as unknown as typeof fetch
-      }
-    );
-
-    if (prev === undefined) delete process.env.GARRISON_HOME;
-    else process.env.GARRISON_HOME = prev;
-    rmSync(home, { recursive: true, force: true });
-
-    expect(hits).toHaveLength(3); // probed all three
-    expect(res.map((r: { id: string }) => r.id).sort()).toEqual(["omi-channel", "web-channel-default"]);
+    const result = await deliverMessageMirrors(message, { targets: [
+      { id: "web", url: "http://web.fixture/notify" }, { id: "slack", url: "http://slack.fixture/notify" }, { id: "absent", url: "http://absent.fixture/notify" },
+    ], fetchImpl: async (url) => {
+      hits.push(String(url));
+      return new Response("{}", { status: String(url).includes("absent") ? 404 : 200 });
+    } });
+    expect(hits).toHaveLength(3);
+    expect(result.map((receipt: any) => receipt.id)).toEqual(["web", "slack"]);
   });
-
-  it("skips the origin channel so the favourite surface is not notified twice", async () => {
-    const { fanOutNotification } = await import("../fittings/seed/kanban-loop/lib/notify-origin.mjs");
-    const home = mkdtempSync(path.join(os.tmpdir(), "fanout-skip-"));
-    mkdirSync(path.join(home, "ui-fittings"), { recursive: true });
-    for (const id of ["web-channel-default", "omi-channel"]) {
-      writeFileSync(path.join(home, "ui-fittings", `${id}.json`), JSON.stringify({ fittingId: id, url: "http://127.0.0.1:1" }));
-    }
-    const prev = process.env.GARRISON_HOME;
-    process.env.GARRISON_HOME = home;
-    const res = await fanOutNotification(
-      { title: "t", text: "x" },
-      {
-        skipFittingIds: ["omi-channel"],
-        fetchImpl: (async () => ({ ok: true, status: 200 })) as unknown as typeof fetch
-      }
-    );
-    if (prev === undefined) delete process.env.GARRISON_HOME;
-    else process.env.GARRISON_HOME = prev;
-    rmSync(home, { recursive: true, force: true });
-    expect(res.map((r: { id: string }) => r.id)).toEqual(["web-channel-default"]);
+  it("stores the same producer event only once and does not repeat completed mirror legs", async () => {
+    const { deliverMessageMirrors } = await import("../packages/messages/system.mjs");
+    const first = await storedNotice("web-push-dedup"), repeated = await storedNotice("web-push-dedup");
+    expect(repeated.id).toBe(first.id);
+    const hits: string[] = [];
+    await deliverMessageMirrors(first, { deliveredTargets: ["web"], targets: [{ id: "web", url: "http://web.fixture/notify" }, { id: "slack", url: "http://slack.fixture/notify" }],
+      fetchImpl: async (url) => { hits.push(String(url)); return new Response("{}"); } });
+    expect(hits).toEqual(["http://slack.fixture/notify"]);
   });
-
-  it("one wedged channel does not stop the others", async () => {
-    const { fanOutNotification } = await import("../fittings/seed/kanban-loop/lib/notify-origin.mjs");
-    const home = mkdtempSync(path.join(os.tmpdir(), "fanout-wedged-"));
-    mkdirSync(path.join(home, "ui-fittings"), { recursive: true });
-    for (const [id, port] of [["web-channel-default", 1], ["omi-channel", 2]]) {
-      writeFileSync(path.join(home, "ui-fittings", `${id}.json`), JSON.stringify({ fittingId: id, url: `http://127.0.0.1:${port}` }));
-    }
-    const prev = process.env.GARRISON_HOME;
-    process.env.GARRISON_HOME = home;
-    const res = await fanOutNotification(
-      { title: "t", text: "x" },
-      {
-        fetchImpl: (async (url: string) => {
-          if (url.includes(":2/")) throw new Error("connection refused");
-          return { ok: true, status: 200 };
-        }) as unknown as typeof fetch
-      }
-    );
-    if (prev === undefined) delete process.env.GARRISON_HOME;
-    else process.env.GARRISON_HOME = prev;
-    rmSync(home, { recursive: true, force: true });
-    expect(res.map((r: { id: string }) => r.id)).toEqual(["web-channel-default"]);
+  it("records a failed target while still delivering to the remaining channel", async () => {
+    const { deliverMessageMirrors } = await import("../packages/messages/system.mjs");
+    const message = await storedNotice("web-push-independent");
+    const result = await deliverMessageMirrors(message, { targets: [{ id: "slack", url: "http://slack.fixture/notify" }, { id: "web", url: "http://web.fixture/notify" }],
+      fetchImpl: async (url) => { if (String(url).includes("slack")) throw new Error("Fixture connection refused"); return new Response("{}"); } });
+    expect(result).toMatchObject([{ id: "slack", ok: false }, { id: "web", ok: true }]);
   });
 });

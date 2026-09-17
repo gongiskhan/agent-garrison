@@ -1,5 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getInstallStatus, install, disable, backupNow } from "@/lib/install-state";
+import { reconcileHomes } from "@/lib/homes-migration";
+import { checkHomeLeaks, quarantineHomeLeaks } from "@/lib/home-leaks";
+import { readNodeIdentity } from "@/lib/node-identity";
+import { resolveActiveComposition } from "@/lib/active-composition";
+import { readComposition } from "@/lib/compositions";
+import { crossSiteBlocked } from "@/lib/mesh/peer-auth";
 import { jsonError } from "@/lib/http";
 
 export const runtime = "nodejs";
@@ -20,10 +26,21 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const blocked = crossSiteBlocked(request);
+  if (blocked) return blocked;
   try {
     const body = await request.json().catch(() => ({}));
     const action = String(body?.action ?? "");
     switch (action) {
+      case "reconcile-homes": {
+        const active = await resolveActiveComposition();
+        const migration = await reconcileHomes(await readComposition(active.id));
+        return NextResponse.json({ ...(await getInstallStatus()), migration, homes: await checkHomeLeaks(), node: readNodeIdentity().id });
+      }
+      case "quarantine-leaks": {
+        const result = await quarantineHomeLeaks();
+        return NextResponse.json({ ...(await getInstallStatus()), ...result, homes: result.report, node: readNodeIdentity().id });
+      }
       case "install":
         return NextResponse.json(await install());
       case "disable":

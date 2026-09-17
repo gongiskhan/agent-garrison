@@ -16,6 +16,9 @@ const PEER_CACHE_MS = 5000;
 const DEFAULT_ENDED_CAP_PER_NODE = Infinity;
 const FETCH_TIMEOUT_MS = 2500;
 const SNAPSHOT_STALE_MS = 90_000;
+// A hook can precede Cursor's journal. Without a journal, resume target or
+// terminal, it is only a brief discovery placeholder, not hours of live work.
+const CURSOR_PLACEHOLDER_MS = 5 * 60_000;
 
 // Mirror of the shell's NODE_ACCENTS palette (src/lib/node-identity.ts),
 // same duplication mesh-threads.mjs already carries.
@@ -249,8 +252,14 @@ export async function meshSessions({ limitEndedPerNode = DEFAULT_ENDED_CAP_PER_N
   }
 
   const cutoff = Date.now() - 5 * 86_400_000;
-  let all = [...localRows, ...peerRows].filter((r) => r.status === "working" ||
-    Date.parse(r.lastActivityAt ?? r.startedAt) >= cutoff);
+  let all = [...localRows, ...peerRows].filter((r) => {
+    const activityAt = Date.parse(r.lastActivityAt ?? r.startedAt);
+    if (r.runtime === "cursor" && !r.transcript && !r.cursor && !r.shell &&
+        !r.resumable && !r.attachable && !r.terminalRef) {
+      return activityAt >= Date.now() - CURSOR_PLACEHOLDER_MS;
+    }
+    return r.status === "working" || activityAt >= cutoff;
+  });
 
   // Bind this node's wrapper threads to their exact shell on ANY node.
   // Native conversation identities remain owner-local.

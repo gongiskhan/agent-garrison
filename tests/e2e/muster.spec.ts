@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures/shell";
 
 // The switch-gating proof intercepts its POST; keep a PWA service worker from
 // bypassing Playwright's page routing for that request.
@@ -8,7 +8,7 @@ import path from "node:path";
 import yaml from "js-yaml";
 
 // The Muster page (S5a): shell + header + readiness strip + Duties section.
-// (a)-(b)-(e) drive the seeded DEFAULT composition (16 real duties). (c)-(d) drive
+// (a)-(b)-(e) drive the dedicated synthetic composition. (c)-(d) drive
 // a dedicated fixture composition with a SKILL cell + an agentic and a
 // single-shot (garrison-call) target, so tap-to-place assignment and live
 // validation can be exercised deterministically. COMPOSITIONS_DIR is the repo's
@@ -32,6 +32,7 @@ function writeFixture(): void {
         name: "Muster E2E Fixture",
         selections: {},
         duties: [
+          { id: "sample", title: "Sample", description: "Synthetic levels fixture", levels: [1, 2, 3].map(level => ({ description: `Fixture level ${level}`, cell: { target: "cc-sonnet", effort: "medium" } })) },
           {
             id: "develop",
             title: "Develop",
@@ -44,7 +45,7 @@ function writeFixture(): void {
             ]
           }
         ],
-        selected_duties: ["develop"],
+        selected_duties: ["sample", "develop"],
         targets: [
           { id: "cc-sonnet", runtime: "claude-code", model: "sonnet" },
           { id: "sdk-haiku", runtime: "agent-sdk", model: "haiku" },
@@ -74,7 +75,7 @@ test("(a) Muster renders the header, readiness strip, and duty rows", async ({ p
     if (m.type() === "error") errors.push(m.text());
   });
 
-  await page.goto("/muster");
+  await page.goto(`/muster?composition=${FIXTURE_ID}`);
   await expect(page.getByTestId("muster-page")).toBeVisible();
 
   // Header: the single "Muster" kicker + the composition title + the switcher.
@@ -86,7 +87,7 @@ test("(a) Muster renders the header, readiness strip, and duty rows", async ({ p
   await expect(page.getByTestId("readiness-rules")).toBeVisible();
   await expect(page.getByTestId("rule-orchestrator")).toBeVisible();
 
-  // At least one duty row from the seeded default composition.
+  // At least one duty row from the synthetic composition.
   await expect(page.getByTestId("duty-list")).toBeVisible();
   await expect(page.locator('[data-testid^="duty-row-"]').first()).toBeVisible();
 
@@ -94,20 +95,20 @@ test("(a) Muster renders the header, readiness strip, and duty rows", async ({ p
 });
 
 test("(b) a duty row expands to its per-duty levels", async ({ page }) => {
-  await page.goto("/muster");
-  const toggle = page.getByTestId("duty-toggle-code");
+  await page.goto(`/muster?composition=${FIXTURE_ID}`);
+  const toggle = page.getByTestId("duty-toggle-sample");
   await expect(toggle).toBeVisible();
 
   // Collapsed: levels are not shown.
-  await expect(page.getByTestId("duty-levels-code")).toHaveCount(0);
+  await expect(page.getByTestId("duty-levels-sample")).toHaveCount(0);
 
   await toggle.click();
-  const levels = page.getByTestId("duty-levels-code");
+  const levels = page.getByTestId("duty-levels-sample");
   await expect(levels).toBeVisible();
-  // The default "code" duty has three levels, each a leaf cell with a target.
-  await expect(page.getByTestId("cell-target-code-1")).toBeVisible();
-  await expect(page.getByTestId("cell-target-code-2")).toBeVisible();
-  await expect(page.getByTestId("cell-target-code-3")).toBeVisible();
+  // The fixture "sample" duty has three levels, each a leaf cell with a target.
+  await expect(page.getByTestId("cell-target-sample-1")).toBeVisible();
+  await expect(page.getByTestId("cell-target-sample-2")).toBeVisible();
+  await expect(page.getByTestId("cell-target-sample-3")).toBeVisible();
 });
 
 test("(c) tap-to-pick assigns a target to a leaf cell (no drag)", async ({ page }) => {
@@ -145,14 +146,14 @@ test("(d) live validation flags a garrison-call target on a skill cell", async (
   const cell = page.getByTestId("cell-target-develop-1");
 
   // Arm the single-shot garrison-call target, wait for the armed state to settle
-  // (mirrors test (c) — clicking the cell before arm registers is a no-op), then
+  // (mirrors test (c) - clicking the cell before arm registers is a no-op), then
   // place it on the skill cell.
   await page.getByTestId("target-chip-oneshot").click();
   await expect(page.getByTestId("target-chip-oneshot")).toHaveAttribute("data-armed", "true");
   await cell.click();
 
   // The non-agentic target on a skill cell is flagged inline and the offending
-  // target shows on the cell — never silently accepted.
+  // target shows on the cell - never silently accepted.
   const violation = page.getByTestId("cell-violation-develop-1");
   await expect(violation).toBeVisible();
   await expect(violation).toContainText(/agentic|single-shot/i);
@@ -305,12 +306,12 @@ test("(f) a duty's level ladder is editable: add, describe, remove", async ({ pa
 
 test("(e) no horizontal overflow at 390px", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/muster");
+  await page.goto(`/muster?composition=${FIXTURE_ID}`);
   await expect(page.getByTestId("muster-page")).toBeVisible();
 
   // Expand a duty so the widest content (cells, targets tray) is on screen.
-  await page.getByTestId("duty-toggle-code").click();
-  await expect(page.getByTestId("duty-levels-code")).toBeVisible();
+  await page.getByTestId("duty-toggle-sample").click();
+  await expect(page.getByTestId("duty-levels-sample")).toBeVisible();
 
   const overflow = await page.evaluate(() => {
     const el = document.documentElement;

@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { StateUnavailableError, stateDegraded, withState } from "@/lib/state-client";
 import { readNodeIdentity } from "@/lib/node-identity";
 import { crossSiteBlocked } from "@/lib/mesh/peer-auth";
-import { MAX_BODY_BYTES, classifyPeerPath, forwardToPeer, peerAppBase, peerThreadUrl } from "@/lib/mesh/peer-proxy";
+import { MAX_BODY_BYTES, classifyPeerPath, forwardToPeer, peerAppBase, peerThreadUrl, projectsPeerTimeout } from "@/lib/mesh/peer-proxy";
 import { healthAppOrigin } from "@/lib/mesh/node-row";
 import type { SessionInfo } from "@garrison/state-client";
 
@@ -141,6 +141,12 @@ async function handle(request: NextRequest, { params }: Params): Promise<Respons
     body = raw.toString("utf8");
   }
 
+  if (segments[0] === "install" && request.method === "POST") {
+    let action: unknown;
+    try { action = JSON.parse(body || "{}").action; } catch { return json(400, { error: "invalid JSON" }); }
+    if (action === "install") return json(409, { error: "a machine installs itself the first time; use Add a machine" });
+    if (!["reconcile-homes", "quarantine-leaks"].includes(String(action))) return json(400, { error: "unknown peer install action" });
+  }
   const response = await forwardToPeer({
     node,
     base,
@@ -151,6 +157,7 @@ async function handle(request: NextRequest, { params }: Params): Promise<Respons
     contentType: request.headers.get("content-type"),
     accept: request.headers.get("accept"),
     sse: route.sse,
+    timeoutMs: projectsPeerTimeout(request.method, route),
     // A closed tab must close the upstream connection. Without this an SSE
     // watch leaks its peer connection for the life of the process.
     signal: request.signal

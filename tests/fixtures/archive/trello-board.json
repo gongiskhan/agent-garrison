@@ -1,0 +1,547 @@
+{
+  "id": "64f100000000000000000000",
+  "name": "Synthetic documents",
+  "shortLink": "Fixture9",
+  "lists": [
+    {
+      "id": "list1",
+      "name": "Personal documents",
+      "pos": 16384,
+      "closed": false
+    },
+    {
+      "id": "list2",
+      "name": "House",
+      "pos": 32768,
+      "closed": false
+    },
+    {
+      "id": "list3",
+      "name": "Finance",
+      "pos": 49152,
+      "closed": false
+    }
+  ],
+  "cards": [
+    {
+      "id": "64f100000000000000000000",
+      "idBoard": "64f100000000000000000000",
+      "idList": "list1",
+      "name": "Cartão de Cidadão",
+      "desc": "Synthetic description 1.",
+      "pos": 16384,
+      "dateLastActivity": "2026-09-11T10:12:00+01:00",
+      "due": "2027-03-01T12:00:00Z",
+      "closed": false,
+      "labels": [
+        {
+          "name": "fixture",
+          "color": "green"
+        }
+      ],
+      "attachments": [
+        {
+          "id": "att0",
+          "name": "sample-document.jpg",
+          "url": "https://trello.com/1/cards/64f100000000000000000000/attachments/att0/download/sample-document.jpg",
+          "bytes": 12000,
+          "mimeType": "image/jpeg",
+          "isUpload": true
+        }
+      ],
+      "cover": {
+        "idAttachment": "att0"
+      },
+      "checklists": [],
+      "customFieldItems": [
+        {
+          "idCustomField": "field1",
+          "value": {
+            "text": "FAKE-2026"
+          }
+        }
+      ]
+    },
+    {
+      "id": "64f100000000000000000001",
+      "idBoard": "64f100000000000000000000",
+      "idList": "list1",
+      "name": "Fixture card 2",
+      "desc": "Synthetic description 2.",
+      "pos": 32768,
+      "dateLastActivity": "2026-09-11T10:12:00+01:00",
+      "due": null,
+      "closed": false,
+      "labels": [
+        {
+          "name": "fixture",
+          "color": "green"
+        },
+        {
+          "name": "",
+          "color": "blue"
+        }
+      ],
+      "attachments": [
+        {
+          "id": "att1",
+          "name": "sample-document.jpg",
+          "url": "https://trello.com/1/cards/64f100000000000000000001/attachments/att1/download/sample-document.jpg",
+          "bytes": 12000,
+          "mimeType": "image/jpeg",
+          "isUpload": true
+        },
+        {
+          "id": "external",
+          "name": "Portal",
+          "url": "https://example.com/",
+          "bytes": 0,
+          "isUpload": false
+        }
+      ],
+      "cover": {
+        "idAttachment": "att1"
+      },
+      "checklists": [],
+      "customFieldItems": []
+    },
+    {
+      "id": "64f100000000000000000002",
+      "idBoard": "64f100000000000000000000",
+      "idList": "list1",
+      "name": "Fixture card 3",
+      "desc": "Synthetic description 3.",
+      "pos": 49152,
+      "dateLastActivity": "2026-09-11T10:12:00+01:00",
+      "due": null,
+      "closed": false,
+      "labels": [
+        {
+          "name": "fixture",
+          "color": "green"
+        }
+      ],
+      "attachments": [
+        {
+          "id": "att2",
+          "name": "sample-document.jpg",
+          "url": "https://trello.com/1/cards/64f100000000000000000002/attachments/att2/download/sample-document.jpg",
+          "bytes": 12000,
+          "mimeType": "image/jpeg",
+          "isUpload": true
+        },
+        {
+          "id": "oversize",
+          "name": "large.pdf",
+          "url": "https://trello.com/large.pdf",
+          "bytes": 31457280,
+          "mimeType": "application/pdf",
+          "isUpload": true
+        }
+      ],
+      "cover": {
+        "idAttachment": "att2"
+      },
+      "checklists": [],
+      "customFieldItems": []
+    },
+    {
+      "id": "64f100000000000000000003",
+      "idBoard": "64f100000000000000000000",
+      "idList": "list2",
+      "name": "Fixture card 4",
+      "desc": "Synthetic description 4.",
+      "pos": 16384,
+      "dateLastActivity": "2026-09-11T10:12:00+01:00",
+      "due": null,
+      "closed": false,
+      "labels": [
+        {
+          "name": "fixture",
+          "color": "green"
+        }
+      ],
+      "attachments": [
+        {
+          "id": "att3",
+          "name": "sample-document.jpg",
+          "url": "https://trello.com/1/cards/64f100000000000000000003/attachments/att3/download/sample-document.jpg",
+          "bytes": 12000,
+          "mimeType": "image/jpeg",
+          "isUpload": true
+        }
+      ],
+      "cover": {
+        "idAttachment": "att3"
+      },
+      "checklists": [
+        {
+          "id": "check1",
+          "idCard": "64f100000000000000000003",
+          "name": "Preparation",
+          "pos": 10,
+          "checkItems": [
+            {
+              "id": "item1",
+              "name": "First item",
+              "state": "incomplete",
+              "pos": 10
+            },
+            {
+              "id": "item2",
+              "name": "Second item",
+              "state": "complete",
+              "pos": 20
+            }
+          ]
+        }
+      ],
+      "customFieldItems": []
+    },
+    {
+      "id": "64f100000000000000000004",
+      "idBoard": "64f100000000000000000000",
+      "idList": "list2",
+      "name": "Kitchen / repairs",
+      "desc": "Synthetic description 5.",
+      "pos": 32768,
+      "dateLastActivity": "2026-09-11T10:12:00+01:00",
+      "due": null,
+      "closed": false,
+      "labels": [
+        {
+          "name": "fixture",
+          "color": "green"
+        }
+      ],
+      "attachments": [
+        {
+          "id": "att4",
+          "name": "sample-document.jpg",
+          "url": "https://trello.com/1/cards/64f100000000000000000004/attachments/att4/download/sample-document.jpg",
+          "bytes": 12000,
+          "mimeType": "image/jpeg",
+          "isUpload": true
+        }
+      ],
+      "cover": {
+        "idAttachment": "att4"
+      },
+      "checklists": [],
+      "customFieldItems": []
+    },
+    {
+      "id": "64f100000000000000000005",
+      "idBoard": "64f100000000000000000000",
+      "idList": "list2",
+      "name": "Fixture card 6",
+      "desc": "Synthetic description 6.",
+      "pos": 49152,
+      "dateLastActivity": "2026-09-11T10:12:00+01:00",
+      "due": null,
+      "closed": false,
+      "labels": [
+        {
+          "name": "fixture",
+          "color": "green"
+        }
+      ],
+      "attachments": [
+        {
+          "id": "att5",
+          "name": "sample-document.jpg",
+          "url": "https://trello.com/1/cards/64f100000000000000000005/attachments/att5/download/sample-document.jpg",
+          "bytes": 12000,
+          "mimeType": "image/jpeg",
+          "isUpload": true
+        }
+      ],
+      "cover": {
+        "idAttachment": "att5"
+      },
+      "checklists": [],
+      "customFieldItems": []
+    },
+    {
+      "id": "64f100000000000000000006",
+      "idBoard": "64f100000000000000000000",
+      "idList": "list3",
+      "name": "Fixture card 7",
+      "desc": "Synthetic description 7.",
+      "pos": 16384,
+      "dateLastActivity": "2026-09-11T10:12:00+01:00",
+      "due": null,
+      "closed": false,
+      "labels": [
+        {
+          "name": "fixture",
+          "color": "green"
+        }
+      ],
+      "attachments": [
+        {
+          "id": "att6",
+          "name": "sample-document.jpg",
+          "url": "https://trello.com/1/cards/64f100000000000000000006/attachments/att6/download/sample-document.jpg",
+          "bytes": 12000,
+          "mimeType": "image/jpeg",
+          "isUpload": true
+        }
+      ],
+      "cover": {
+        "idAttachment": "att6"
+      },
+      "checklists": [],
+      "customFieldItems": []
+    },
+    {
+      "id": "64f100000000000000000007",
+      "idBoard": "64f100000000000000000000",
+      "idList": "list3",
+      "name": "Fixture card 8",
+      "desc": "Synthetic description 8.",
+      "pos": 32768,
+      "dateLastActivity": "2026-09-11T10:12:00+01:00",
+      "due": null,
+      "closed": false,
+      "labels": [
+        {
+          "name": "fixture",
+          "color": "green"
+        }
+      ],
+      "attachments": [
+        {
+          "id": "att7",
+          "name": "sample-document.jpg",
+          "url": "https://trello.com/1/cards/64f100000000000000000007/attachments/att7/download/sample-document.jpg",
+          "bytes": 12000,
+          "mimeType": "image/jpeg",
+          "isUpload": true
+        }
+      ],
+      "cover": {
+        "idAttachment": "att7"
+      },
+      "checklists": [],
+      "customFieldItems": []
+    },
+    {
+      "id": "64f100000000000000000008",
+      "idBoard": "64f100000000000000000000",
+      "idList": "list3",
+      "name": "Fixture card 9",
+      "desc": "Synthetic description 9.",
+      "pos": 49152,
+      "dateLastActivity": "2026-09-11T10:12:00+01:00",
+      "due": null,
+      "closed": true,
+      "labels": [
+        {
+          "name": "fixture",
+          "color": "green"
+        }
+      ],
+      "attachments": [
+        {
+          "id": "att8",
+          "name": "sample-document.jpg",
+          "url": "https://trello.com/1/cards/64f100000000000000000008/attachments/att8/download/sample-document.jpg",
+          "bytes": 12000,
+          "mimeType": "image/jpeg",
+          "isUpload": true
+        }
+      ],
+      "cover": {
+        "idAttachment": "att8"
+      },
+      "checklists": [],
+      "customFieldItems": []
+    }
+  ],
+  "actions": [
+    {
+      "id": "comment0-0",
+      "type": "commentCard",
+      "date": "2026-09-11T10:14:00Z",
+      "memberCreator": {
+        "fullName": "Gonçalo"
+      },
+      "data": {
+        "card": {
+          "id": "64f100000000000000000000"
+        },
+        "text": "Synthetic comment 1"
+      }
+    },
+    {
+      "id": "comment0-1",
+      "type": "commentCard",
+      "date": "2026-09-10T10:14:00Z",
+      "memberCreator": {
+        "fullName": "Gonçalo"
+      },
+      "data": {
+        "card": {
+          "id": "64f100000000000000000000"
+        },
+        "text": "Synthetic comment 2"
+      }
+    },
+    {
+      "id": "comment0-2",
+      "type": "commentCard",
+      "date": "2026-09-09T10:14:00Z",
+      "memberCreator": {
+        "fullName": "Gonçalo"
+      },
+      "data": {
+        "card": {
+          "id": "64f100000000000000000000"
+        },
+        "text": "Synthetic comment 3"
+      }
+    },
+    {
+      "id": "comment1-0",
+      "type": "commentCard",
+      "date": "2026-09-11T10:14:00Z",
+      "memberCreator": {
+        "fullName": "Gonçalo"
+      },
+      "data": {
+        "card": {
+          "id": "64f100000000000000000001"
+        },
+        "text": "Synthetic comment 1"
+      }
+    },
+    {
+      "id": "comment2-0",
+      "type": "commentCard",
+      "date": "2026-09-11T10:14:00Z",
+      "memberCreator": {
+        "fullName": "Gonçalo"
+      },
+      "data": {
+        "card": {
+          "id": "64f100000000000000000002"
+        },
+        "text": "Synthetic comment 1"
+      }
+    },
+    {
+      "id": "comment3-0",
+      "type": "commentCard",
+      "date": "2026-09-11T10:14:00Z",
+      "memberCreator": {
+        "fullName": "Gonçalo"
+      },
+      "data": {
+        "card": {
+          "id": "64f100000000000000000003"
+        },
+        "text": "Synthetic comment 1"
+      }
+    },
+    {
+      "id": "comment4-0",
+      "type": "commentCard",
+      "date": "2026-09-11T10:14:00Z",
+      "memberCreator": {
+        "fullName": "Gonçalo"
+      },
+      "data": {
+        "card": {
+          "id": "64f100000000000000000004"
+        },
+        "text": "Synthetic comment 1"
+      }
+    },
+    {
+      "id": "comment5-0",
+      "type": "commentCard",
+      "date": "2026-09-11T10:14:00Z",
+      "memberCreator": {
+        "fullName": "Gonçalo"
+      },
+      "data": {
+        "card": {
+          "id": "64f100000000000000000005"
+        },
+        "text": "Synthetic comment 1"
+      }
+    },
+    {
+      "id": "comment6-0",
+      "type": "commentCard",
+      "date": "2026-09-11T10:14:00Z",
+      "memberCreator": {
+        "fullName": "Gonçalo"
+      },
+      "data": {
+        "card": {
+          "id": "64f100000000000000000006"
+        },
+        "text": "Synthetic comment 1"
+      }
+    },
+    {
+      "id": "comment7-0",
+      "type": "commentCard",
+      "date": "2026-09-11T10:14:00Z",
+      "memberCreator": {
+        "fullName": "Gonçalo"
+      },
+      "data": {
+        "card": {
+          "id": "64f100000000000000000007"
+        },
+        "text": "Synthetic comment 1"
+      }
+    },
+    {
+      "id": "comment8-0",
+      "type": "commentCard",
+      "date": "2026-09-11T10:14:00Z",
+      "memberCreator": {
+        "fullName": "Gonçalo"
+      },
+      "data": {
+        "card": {
+          "id": "64f100000000000000000008"
+        },
+        "text": "Synthetic comment 1"
+      }
+    }
+  ],
+  "checklists": [
+    {
+      "id": "check1",
+      "idCard": "64f100000000000000000003",
+      "name": "Preparation",
+      "pos": 10,
+      "checkItems": [
+        {
+          "id": "item1",
+          "name": "First item",
+          "state": "incomplete",
+          "pos": 10
+        },
+        {
+          "id": "item2",
+          "name": "Second item",
+          "state": "complete",
+          "pos": 20
+        }
+      ]
+    }
+  ],
+  "customFields": [
+    {
+      "id": "field1",
+      "name": "Reference",
+      "type": "text"
+    }
+  ]
+}

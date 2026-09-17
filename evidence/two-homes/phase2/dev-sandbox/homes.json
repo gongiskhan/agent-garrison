@@ -1,0 +1,33 @@
+{
+  "version": 2,
+  "garrisonHome": "/tmp/two-homes-real-apm.cM9Lp7/.garrison-dev/runtime-homes/claude",
+  "migratedAt": "2026-09-12T08:03:07.621Z",
+  "userConfigBackupDir": "/tmp/two-homes-real-apm.cM9Lp7/.garrison-dev/backups/pre-two-homes-2026-09-12T08-03-04-136Z",
+  "report": {
+    "quarantineDir": "/tmp/two-homes-real-apm.cM9Lp7/.garrison-dev/quarantine/2026-09-12T08-03-04-140Z-93d57cfa",
+    "moved": 1,
+    "leftModified": [],
+    "hooksStripped": 0,
+    "mcpRemoved": 0,
+    "shared": {
+      "claude-code": [
+        "basic-memory"
+      ],
+      "codex": [],
+      "gemini": []
+    },
+    "leaks": 0,
+    "inventory": {
+      "at": "2026-09-12T08:03:04.124Z",
+      "compared": true,
+      "expected": 1,
+      "removed": [
+        "claude-code:skill:skills/garrison-legacy"
+      ],
+      "retainedShared": [],
+      "leftModified": [],
+      "unresolved": []
+    }
+  },
+  "notificationSent": true
+}

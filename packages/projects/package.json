@@ -1,0 +1,18 @@
+{
+  "name": "@garrison/projects",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/projects.mjs",
+    "./label": "./label.mjs",
+    "./urls": "./src/urls.mjs",
+    "./ui": "./ui/app.tsx"
+  },
+  "peerDependencies": {
+    "@garrison/state-client": "*",
+    "highlight.js": "*",
+    "lucide-react": "*",
+    "react": "*"
+  }
+}

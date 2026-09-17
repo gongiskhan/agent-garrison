@@ -68,7 +68,7 @@ final class PushManager: NSObject, ObservableObject, UNUserNotificationCenterDel
             // The registry names the device the token belongs to; the App Group
             // capture name is whatever the capture settings last said (it read
             // "Mac mini" on a phone), so the system name goes instead.
-            body: try? JSONSerialization.data(withJSONObject: ["apns_token": token, "device_name": UIDevice.current.name])
+            body: try? JSONSerialization.data(withJSONObject: ["apns_token": token, "device_name": UIDevice.current.name, "device_id": (try? ListeningIdentity.load()) ?? ""])
         ) else {
             status = "set the base URL and token first"
             return

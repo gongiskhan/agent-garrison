@@ -70,7 +70,7 @@ export function fromServiceRow(row) {
 }
 
 function fromLegacyRecord(record) {
-  const spec = { kind: "shell", command: record.command };
+  const spec = record.spec ?? { kind: "shell", command: record.command };
   if (record.integration !== undefined) spec.integration = record.integration;
   if (record.poll_interval_ms !== undefined) spec.poll_interval_ms = record.poll_interval_ms;
   return {
@@ -78,7 +78,7 @@ function fromLegacyRecord(record) {
     cron: record.cron,
     type: record.type ?? "cron",
     enabled: record.enabled !== false,
-    target: FILE_TARGET,
+    target: record.target ?? FILE_TARGET,
     spec,
     description: record.description,
     rev: null,
@@ -98,7 +98,8 @@ function toLegacyRecord(job) {
     cron: job.cron,
     command: job.spec?.kind === "shell" ? job.spec.command : job.command,
     enabled: job.enabled !== false,
-    type: job.type ?? "cron"
+    type: job.type ?? "cron",
+    ...(job.spec?.kind !== "shell" ? { spec: job.spec, target: job.target } : {})
   };
   const description = job.description ?? job.spec?.description;
   const integration = job.integration ?? job.spec?.integration;

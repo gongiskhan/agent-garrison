@@ -1,4 +1,6 @@
 "use client";
+import { ARCHIVE_LABEL } from "../../../packages/archive/label.mjs";
+import { PROJECTS_LABEL } from "../../../packages/projects/label.mjs";
 
 import { Fragment, useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -24,6 +26,7 @@ import {
   Mic,
   MessagesSquare,
   Archive,
+  FolderGit2,
   Radio,
   Boxes,
   Brain,
@@ -47,6 +50,15 @@ import type { CapabilityKind, Composition, FacultyId, LibraryEntry } from "@/lib
 
 export function Sidebar() {
   const pathname = usePathname() ?? "/";
+  const [messagesUnread, setMessagesUnread] = useState(0);
+  useEffect(() => {
+    const refresh = () => void fetch('/api/messages/counts').then(response => response.ok ? response.json() : null).then(data => { if (data?.counts) setMessagesUnread(data.counts.all || 0); }).catch(() => {});
+    const receive = (event: Event) => setMessagesUnread((event as CustomEvent).detail?.all || 0);
+    refresh();
+    const timer = setInterval(refresh, 30000);
+    window.addEventListener('messages.counts', receive);
+    return () => { clearInterval(timer); window.removeEventListener('messages.counts', receive); };
+  }, []);
   const {
     composition,
     library,
@@ -193,7 +205,7 @@ export function Sidebar() {
           library={library}
           pathname={pathname}
           viewStatuses={viewStatuses}
-          commandBadges={{ "nav:composition": `${stationedCount}/${totalFaculties}` }}
+          commandBadges={{ "nav:composition": `${stationedCount}/${totalFaculties}`, "nav:messages": messagesUnread ? String(messagesUnread) : '' }}
         />
       </nav>
 
@@ -324,7 +336,6 @@ function useIsMobileViewport(): boolean {
 // file: exact id first (most meaningful), then the capability kind it
 // provides, then its Faculty role, then a generic embedded/own-port fallback.
 const VIEW_ICON_BY_ID: Record<string, LucideIcon> = {
-  "file-browser": Archive,
   "browser-default": Globe,
   "dev-env": SquareTerminal,
   improver: Sparkles,
@@ -434,6 +445,7 @@ export interface CommandItem {
 export const HOME_ITEM_ID = "nav:garrison";
 
 export const COMMAND_ITEMS: CommandItem[] = [
+  { id: "nav:messages", href: "/messages", label: "Messages", Icon: MessagesSquare, isActive: (p) => p === "/messages" || p.startsWith("/messages/") },
   { id: "nav:improver", href: "/improver", label: "Improver", Icon: Sparkles, isActive: (p) => p === "/improver" || p.startsWith("/improver/") },
   {
     id: "nav:accounts",
@@ -442,6 +454,7 @@ export const COMMAND_ITEMS: CommandItem[] = [
     Icon: KeyRound,
     isActive: (p) => p === "/accounts" || p.startsWith("/accounts/")
   },
+  { id: "nav:archive", href: "/archive", label: ARCHIVE_LABEL, Icon: Archive, isActive: (p) => p === "/archive" || p.startsWith("/archive/") },
   {
     id: "nav:composition",
     href: "/compose",
@@ -479,6 +492,13 @@ export const COMMAND_ITEMS: CommandItem[] = [
     label: "Mesh",
     Icon: Boxes,
     isActive: (p) => (p === "/mesh" || p.startsWith("/mesh/")) && !p.startsWith("/mesh/talk/")
+  },
+  {
+    id: "nav:projects",
+    href: "/projects",
+    label: PROJECTS_LABEL,
+    Icon: FolderGit2,
+    isActive: (p) => p === "/projects" || p.startsWith("/projects/")
   },
   {
     id: "nav:quarters",

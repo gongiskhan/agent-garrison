@@ -50,6 +50,9 @@ export function resolveViewUrl(view: {
   const here = window.location.hostname;
   if (!here || here === "127.0.0.1" || here === "localhost") return url;
   if (view.tailnetUrl) {
+    // A path (tethered-node proxy route, e.g. "/api/fittings/proxy/<id>") is
+    // inherently same-origin — no hostname to compare, just use it.
+    if (view.tailnetUrl.startsWith("/")) return view.tailnetUrl;
     try {
       if (new URL(view.tailnetUrl).hostname === here) return view.tailnetUrl;
     } catch {

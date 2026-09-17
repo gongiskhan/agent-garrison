@@ -63,7 +63,7 @@ scheduler jobs. Manual review and nightly Zeca phases have distinct daily claims
 Core recovery handles expired workers and interrupted authoring; task creation
 uses a stable identity, while a failed revert retries the revert.
 
-Deployment and live review/UI/notification acceptance are in progress.
+The live acceptance and remaining environment limits are recorded below.
 
 ## Live rollout findings
 
@@ -89,3 +89,79 @@ rebuilds the bundle. Existing node outputs were compared and preserved in Git
 stashes before catch-up. YAML formatting was normalized without changing values.
 A verified build can be reused when a concurrent mesh restart defers deployment;
 source changes during a build refuse publication and require a fresh build.
+
+## Accepted release — 2026-09-10 09:03 UTC
+
+Runtime release `697f214f20e25e844fbff91aebb7005365f2d6d6` is on main.
+Pro, Air, Mini and CSG have healthy deployment receipts for that revision.
+Pro/Air/Mini each report 41 successful verify hooks and 16 healthy views; CSG
+uses its smaller composition. Madrid has the same source revision and the
+preceding `a8e0d428` runtime. Its separate active Capture task has uncommitted
+work: a non-overlapping fast-forward preserved that work, and no app/gateway
+restart was forced. The main catch-up worker will deploy when safe.
+
+The real previous-day run `nightly-mesh-2026-09-09` completed at
+09:02:42 UTC with all five owner reviews complete and seven proposals recorded
+across those reviews. Its existing occurrence `01M24GQCFA8H522TDTM6K6NP8M`
+recovered from Needs Attention to Done. The original template
+`0137DBYSVP4W6XSQSG8FQRMR7D` is Nightly Sync, autonomous, scheduled at 03:00
+Europe/Lisbon; its next occurrence is 2026-09-11 02:00 UTC. Retries join completed
+owner/day reviews rather than rerunning their models or rotating Zeca twice.
+
+The configured review model is Claude Opus 5. The final Pro review returned three
+valid, source-cited proposals with no dropped findings or operational errors.
+Per-request output schemas now constrain citations to that owner's collected
+evidence IDs. Pending findings remain decisions, not automatically verified facts
+or user approvals. Legacy findings retain their provenance; demonstration autonomy
+was not imported. All five tracks require review until the user promotes them;
+five consecutive verified, user-kept outcomes recommend promotion but do not grant
+it. Creating an implementation task never counts as keeping an improvement.
+
+Desktop and 390px browser layouts were inspected on published HTTPS origins. The
+core page is a permanent Command entry, with shared Decisions, Daily reviews and
+Autonomy surfaces. Real authoring saved and read back the explicitly requested
+Nightly/main decision through Basic Memory; the owned note's verified SHA-256 is
+`0c247a5ab0cb4f626988ff84a822c83be7ace4c0ca17f321d9dcd5ab39cf83e8`.
+Native notices have successful companion-push provider receipts for one registered
+device, including the live review outcomes. This does not prove physical display.
+
+The final core suite passes 26 tests, including owner-specific citation enums,
+claim/CAS recovery, idempotent task retry, outcome/autonomy handling, vault receipt
+matching and push-delivery races. The 79 shell/schedule/Zeca/tick regressions,
+35 gateway/authentication checks and seven deployment-guard tests passed; production
+builds and type checking passed. Owner test evidence includes
+`/tmp/garrison-core-improver-citation-tests.log`,
+`/tmp/garrison-core-improver-operational-tests.log`, and the earlier logs above.
+All standing Zeca threads were empty during live acceptance, so their nightly
+phase correctly did not rotate them. Non-empty review, concurrent-input and
+failure-preservation behavior is tested, not claimed as a non-empty live run.
+
+## Operational recovery and limits
+
+Automatic quarter-hour vault sync was verified through shared scheduler receipts
+on all four configured primary nodes. CSG intentionally has no vault fitting;
+Nightly distinguishes unconfigured sync from missing, disabled, failed or stale
+configured sync. Optional missing git telemetry no longer causes a false branch
+alarm; observed non-main branches still do.
+
+Madrid rebooted during rollout (previous boot ended 08:33 UTC, new boot began
+08:39 UTC); its cause was not established. No host reboot was issued by this work.
+After recovery its composition was idle while a separate Capture task was active.
+Only its existing remote-shell fitting was started to restore CSG's relay; the
+Capture edits and app/gateway were preserved. The existing tunnel/tether repair
+APIs restored both forward legs and the reverse state leg without restarting CSG.
+Earlier stale forwarding-only SSH children were identified by exact listener
+ownership before targeted termination. CSG now has a validated SSH drop-in with
+ClientAliveInterval 30 and ClientAliveCountMax 3 to reclaim vanished relay clients;
+the listener was reloaded without terminating active child sessions.
+
+Air's final startup exposed missing Claude command links while its installed
+2.1.214 native binary remained executable. Restoring the absent links recovered
+41/41 verification and 16/16 views without changing that binary or interrupting
+its existing Claude process.
+
+Cortex defaults to `https://staging.ekoa.io`, as requested. Its new integration
+endpoint is reachable, but the current saved credential returns HTTP 401 and needs
+a staging-valid key entered through Connectors. Google consent and physical-phone
+acceptance remain user steps from the earlier connector/Capture release; this
+release does not claim them. State authority still depends on Madrid being online.

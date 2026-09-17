@@ -26,8 +26,8 @@ tracing old manifests (the resolver rejects them today):
 - `data-source` (dropped in the pivot, revived 2026-06-10 for
   trello-data-source, dropped again 2026-06-26): superseded by `connector`,
   which is strictly more general; Trello moved to the `trello` connector.
-- `artifact-store`: retired with the artifact-store Faculty; the file-browser
-  Fitting is the artifact surface today (canonical root `~/.garrison/files`).
+- `artifact-store`: retired with the artifact-store Faculty. Projects serves
+  Garrison files from the canonical artifact root `~/.garrison/files`.
 - `modes`: retired when editable Identity moved into Orchestrator. Legacy
   selections are removed by composition migration.
 
@@ -408,31 +408,23 @@ today.
   data the Operative recalls and manipulates).
 - **Typically consumes:** `vault` for the relevant API credentials.
 
-## artifact-store
+## Garrison files and Projects
 
-Host-provided filesystem storage for files the Operative or its
-Fittings produce — markdown documents, recordings, audio, images.
-Retired with the artifact-store Faculty; the file-browser Fitting is the
-artifact surface today (scoped workspace root, Monaco viewing/editing,
-rendered markdown, inline images).
+Projects is the core files and git area at `/projects`. Project trees are
+read-only through the file API. Git actions run on the node that owns each
+repository, through the app's railed git module and existing peer relay.
+The standing core capabilities block supplies the artifact contract without
+requiring a fitting or a running composition.
 
-The canonical workspace root is `~/.garrison/files` (overridable via
-`GARRISON_FILEBROWSER_ROOT`, projected from the file-browser selection's
-`root` config). Writers use plain filesystem writes - no CLI, sidecar, or
-registration step - into first-level namespace folders the file-browser
-seeds on boot:
+The canonical workspace root is `~/.garrison/files`, or
+`GARRISON_FILEBROWSER_ROOT` when set. Writers use plain filesystem writes into
+these first-level namespace folders:
 
 - `documents/` - user-facing markdown, reports, specs
 - `recordings/` - audio, video, screen captures
 - `runs/` - run outputs, logs, evidence from automated work
 - `uploads/` - files the user supplied
 
-The user reads everything through the Files view (sidebar Fittings), on
-phone or desktop.
-
-- **Cardinality:** singleton per composition.
-- **Typically provided by:** the Fitting in the former `artifact-store`
-  Faculty.
-- **Interface (historical):** write, read, list (filtered by namespace,
-  producer, time), delete, plus a stable URL form
-  (`garrison://artifacts/<id>`) the host app can route on.
+Use ISO date prefixes so artifacts sort chronologically. The user reads them
+in Projects, under Garrison files, on phone or desktop. Text and markdown can
+be edited on the owning node's workspace view. A peer's workspace is read-only.

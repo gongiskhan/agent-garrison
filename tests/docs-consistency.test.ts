@@ -114,12 +114,12 @@ describe("docs reflect the Quarters pivot (RC5 sync)", () => {
     );
   });
 
-  it("CLAUDE.md names every live role and drops the stale 24-faculty count", () => {
-    const doc = read("CLAUDE.md");
+  it("AGENTS.md names every live role and drops the stale 24-faculty count", () => {
+    const doc = read("AGENTS.md");
     for (const role of facultyIds) {
-      expect(doc, `CLAUDE.md must name role "${role}"`).toContain(role);
+      expect(doc, `AGENTS.md must name role "${role}"`).toContain(role);
     }
-    expect(doc, "CLAUDE.md must not present the stale 24-faculty count").not.toMatch(
+    expect(doc, "AGENTS.md must not present the stale 24-faculty count").not.toMatch(
       STALE_FACULTY_COUNT
     );
   });

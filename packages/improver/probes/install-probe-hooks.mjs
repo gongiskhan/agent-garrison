@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // install-probe-hooks.mjs — register the Improver Probe hooks into
-// ~/.claude/settings.json (GARRISON-FLOW-V2 S8). Mirrors the dev-env install-hooks
+// the managed Claude settings (GARRISON-FLOW-V2 S8). Mirrors the dev-env install-hooks
 // contract exactly: owner-scoped groups tagged `_garrison: "fitting:improver-probe"`,
 // additive (every unrelated group — dev-env, memory, goal-loop, hand-authored — is
 // preserved) and idempotent (this owner's groups are stripped before fresh ones are
@@ -21,12 +21,13 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url)); // .../improver/scripts
 const HOME = os.homedir();
-const CLAUDE_HOME = process.env.GARRISON_CLAUDE_HOME?.trim() || path.join(HOME, ".claude");
+const GARRISON_HOME = process.env.GARRISON_HOME?.trim() || path.join(HOME, ".garrison");
+const CLAUDE_HOME = process.env.GARRISON_CLAUDE_HOME?.trim() || path.join(GARRISON_HOME, "runtime-homes", "claude");
 const SETTINGS_PATH =
   process.env.GARRISON_CLAUDE_SETTINGS_PATH && process.env.GARRISON_CLAUDE_SETTINGS_PATH.trim().length > 0
     ? process.env.GARRISON_CLAUDE_SETTINGS_PATH
     : path.join(CLAUDE_HOME, "settings.json");
-const SNAPSHOT_DIR = path.join(process.env.GARRISON_HOME || path.join(HOME, ".garrison"), "snapshots");
+const SNAPSHOT_DIR = path.join(GARRISON_HOME, "snapshots");
 const SNAPSHOT_PATH = path.join(SNAPSHOT_DIR, "claude-settings.before-improver-probe.json");
 
 const OWNER = "core:improver-probe";

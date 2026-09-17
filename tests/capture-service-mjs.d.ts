@@ -17,6 +17,7 @@ declare module "*/capture-service/lib/config.mjs" {
     home: string;
     stateDir: string;
     statusFile: string;
+    operativeName: string;
     enabled: boolean;
     transcribeEnabled: boolean;
     wakeEnabled: boolean;
@@ -50,7 +51,6 @@ declare module "*/capture-service/lib/config.mjs" {
     apnsEnvironment: "production" | "sandbox";
     apnsTopic: string;
     sessionIdleTimeoutMs: number;
-    textSessionIdleMs: number;
     activeConversationWindowMs: number;
     transcribeMuteTimeoutMs: number;
     wakeProgressIntervalMs: number;
@@ -72,7 +72,6 @@ declare module "*/capture-service/scripts/server.mjs" {
   export function makeRequestHandler(ctx: unknown): (req: unknown, res: unknown) => Promise<void>;
   export const COMPANION_WAKE_SOURCE: Record<string, unknown>;
   export const PENDANT_WAKE_SOURCE: Record<string, unknown>;
-  export const OMI_TEXT_WAKE_SOURCE: Record<string, unknown>;
   export function startServer(cfg?: unknown): Promise<{
     server: Server;
     cfg: { port: number; statusFile: string; stateDir: string };
@@ -131,16 +130,10 @@ declare module "*/capture-service/lib/ingress.mjs" {
   export function bearerToken(req: { headers?: Record<string, string> }): string | null;
   export function parseMediaFrame(buf: Buffer): { kind: number; seq: number; ts: number; bytes: Buffer } | null;
   export function encodeMediaFrame(kind: number, seq: number, ts: number, bytes: Buffer): Buffer;
-  export const TEXT_SOURCES: Set<string>;
-  export const TEXT_SESSION_ID_RE: RegExp;
   export class CaptureIngress {
     constructor(deps: Record<string, unknown>);
     sessions: Map<string, unknown>;
-    static textSessionKey(source: string, sessionId: string): string;
     handleUpgrade(req: unknown, socket: unknown, head: unknown): void;
-    openTextSession(args: { source: string; sessionId: string }): { session: { record: Record<string, any>; text: true }; created: boolean };
-    noteTextSegments(session: unknown, count: number): void;
-    finalizeTextSession(id: string, reason: string): boolean;
     finalizeSession(id: string, reason: string): void;
     close(): void;
   }
@@ -217,6 +210,7 @@ declare module "*/capture-service/lib/notify.mjs" {
     cfg: Record<string, unknown>;
     apns: unknown;
     cardUrl(cardId: string | null): Promise<string | null>;
+    sendListeningPush(payload: Record<string, unknown>): Promise<unknown>;
     // Two budgets since the 2026-08-15 "no feedback" incident: routine ack
     // fan-out can no longer starve the pushes that answer a spoken command.
     sentToday(priority?: "routine" | "interactive"): number;
@@ -294,6 +288,7 @@ declare module "*/capture-service/lib/tts.mjs" {
     backend?: "elevenlabs" | "deepgram";
   }): string;
   export function looksPortuguese(text: unknown): boolean;
+  export function speechChunks(text: unknown, max?: number): string[];
   export const MAX_TEXT_CHARS: number;
   export const TTS_BACKENDS: string[];
   export function resolveBackend(cfg: Record<string, unknown>): {
@@ -417,7 +412,7 @@ declare module "*/capture-service/lib/wake.mjs" {
   export function buildVoiceDiscussTurn(utterance: string): string;
   export function splitForSpeech(text: unknown, opts?: { maxChars?: number; maxChunks?: number }): string[];
   export function humanTime(iso: unknown, now?: Date, lang?: string): string;
-  export const OMI_WAKE_SOURCE: Record<string, unknown>;
+  export const PENDANT_WAKE_SOURCE: Record<string, unknown>;
   export class ActiveConversation {
     constructor(opts?: { windowMs?: number; now?: () => number });
     pin(sessionId: string): { session_id: string; until: string };
@@ -459,9 +454,10 @@ declare module "*/capture-service/lib/wake.mjs" {
     expectAnswer(
       sessionId: string,
       ackId: string,
-      opts?: { lang?: string | null; rounds?: number; eventId?: string | null; reprompt?: boolean; spoken?: string | null }
+      opts?: { lang?: string | null; rounds?: number; eventId?: string | null; reprompt?: boolean; spoken?: string | null; conversationId?: string | null }
     ): void;
     armAnswerWindow(ackId: string): string | null;
+    observeFeedbackInterim(sessionId: string, segment: unknown): void;
     openAnswerWindow(sessionId: string): { ackId: string; lang: string; rounds: number; reprompt?: boolean } | null;
     isSpokenEcho(text: string, spoken: string | null): boolean;
     dispatch(args: {
@@ -637,4 +633,27 @@ declare module "*/capture-service/scripts/zeca-nightly.mjs" {
 declare module "*/capture-service/lib/pronunciation-aliases.mjs" {
   export function aliasRegex(variants: readonly string[] | null | undefined): RegExp | null;
   export function applyAliases(text: string, aliasMap: Record<string, readonly string[]> | null | undefined): string;
+}
+
+declare module "*/capture-service/lib/listening-config.mjs" {
+  export const STOP_HOLD_MS: number;
+}
+declare module "*/capture-service/lib/device-listening.mjs" {
+  export function migrateListeningStore(file: string): any;
+  export class DeviceListening {
+    constructor(deps: Record<string, unknown>);
+    register(device: string, source: string, metadata?: Record<string, unknown>): any;
+    get(device: string, source: string): any;
+    list(device?: string): any[];
+    subscribe(fn: (event: any) => void): () => void;
+    message(owner: string, message: Record<string, unknown>): any;
+    activity(device: string, source: string): any;
+    tick(): Promise<void>;
+  }
+}
+
+declare module "*/capture-service/lib/speech-input.mjs" {
+  export const REPLY_FEEDBACK_WINDOW_MS: number;
+  export const FEEDBACK_SETTLE_MS: number;
+  export function confidentSpeech(segment: unknown, options?: { interim?: boolean }): boolean;
 }

@@ -27,10 +27,9 @@ automated generation service.
      --out ~/.garrison/files/<slug>.png
    ```
 
-3. **Save to the artifact store.** Write the image into the artifact store — the
-   file-browser root, `~/.garrison/files` by default — with a descriptive name.
-   Return the saved path (and a `garrison://file-browser/...` link when surfacing
-   it in a channel) as the duty's output.
+3. **Save to the artifact store.** Write the image under `~/.garrison/files`
+   with a descriptive name. The user opens it in Projects, under Garrison files.
+   Return the saved path as the duty's output.
 
 ## Honesty
 

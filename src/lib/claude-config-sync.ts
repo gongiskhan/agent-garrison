@@ -1,3 +1,4 @@
+// The CLI supplies userClaudeHome(): drift sync follows your own config, not the Garrison home.
 // garrison config — the drift sync tying the live ~/.claude to the
 // agent-garrison seed (GARRISON-UNIFY-V1 S8, D25). Three verbs:
 //   status  — show drift between ~/.claude and the claude-config payload

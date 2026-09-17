@@ -89,12 +89,12 @@ final class PendantFeedbackMappingTests: XCTestCase {
         // And the app reconnects a KNOWN pendant on launch and on foreground,
         // so wearing it does not require visiting a screen at all.
         let app = try String(contentsOf: root.appendingPathComponent("GarrisonApp/GarrisonApp.swift"))
-        XCTAssertTrue(app.contains("PendantController.shared.reconnectIfNeeded()"))
+        XCTAssertTrue(app.contains("ListeningChannel.shared.foreground()"))
         XCTAssertFalse(app.contains("PendantController.shared.connect()"), "foregrounding must respect a deliberate pause")
         XCTAssertTrue(app.contains("scenePhase"))
         XCTAssertTrue(
-            app.contains("AppGroup.pendantIdentifier != nil"),
-            "auto-connect only for an already-paired pendant; first pairing stays deliberate"
+            try String(contentsOf: root.appendingPathComponent("GarrisonApp/ListeningChannel.swift")).contains("records[\"pendant\"]?.intent == \"listening\""),
+            "auto-connect follows server intent; first pairing stays deliberate"
         )
     }
 }

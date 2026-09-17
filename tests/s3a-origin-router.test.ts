@@ -13,7 +13,7 @@
 // imports it, but the duty-summary emission went with the dispatch engine, so
 // the builder is currently unreached. See task "Re-wire routeAutonomyActed into
 // the conversation launcher" — same lane, same pending re-wire.
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -50,11 +50,25 @@ import { seedBoard } from "../fittings/seed/kanban-loop/scripts/kanban.mjs";
 // card; side files still live under the kanban root this file already pins.
 import { setupKanbanState } from "./kanban-state-env";
 let __kanbanState: Awaited<ReturnType<typeof setupKanbanState>>;
+const pendingRequests = new Set<Promise<Response>>();
+const originalFetch = globalThis.fetch;
 beforeAll(async () => {
+  globalThis.fetch = (input, init) => {
+    const request = originalFetch(input, init);
+    pendingRequests.add(request);
+    void request.finally(() => pendingRequests.delete(request)).catch(() => {});
+    return request;
+  };
   __kanbanState = await setupKanbanState();
 }, 30_000);
+afterEach(async () => {
+  // Card notifications enqueue asynchronously. Finish their writes before the next fixture reset.
+  await Promise.resolve();
+  while (pendingRequests.size) await Promise.allSettled([...pendingRequests]);
+});
 afterAll(async () => {
   await __kanbanState?.stop();
+  globalThis.fetch = originalFetch;
 });
 // The card store is shared by every test in this file now, where a fresh tmp root
 // used to isolate them; wipe the cards between tests so one test's cards can never
@@ -145,17 +159,18 @@ describe("routeOriginEvent — event-log append for all transports; web delivery
 });
 
 // Web delivery: a fake web-channel thread server + a status file so statusFileUrl resolves.
-describe("routeOriginEvent — web transport delivers to the thread", () => {
+describe("routeOriginEvent stores web-origin notifications", () => {
   let threadServer: http.Server;
   const received: any[] = [];
 
   // Delivery is fire-and-forget and its path includes a state service round
   // trip, so a fixed sleep is a race under a loaded suite. Poll for it instead;
   // the assertion that follows still owns the verdict.
-  async function waitForDelivery(match: string, timeoutMs = 5_000) {
+  async function waitForStored(cardId: string, timeoutMs = 5_000) {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
-      const hit = received.find((m) => m.url.includes(match));
+      const result: any = await __kanbanState.client.request("GET", "/v1/messages");
+      const hit = result.messages.find((message: any) => message.cardId === cardId && message.category === "card.done");
       if (hit || Date.now() > deadline) return hit;
       await new Promise((r) => setTimeout(r, 20));
     }
@@ -189,16 +204,17 @@ describe("routeOriginEvent — web transport delivers to the thread", () => {
     await new Promise<void>((r) => threadServer.close(() => r()));
   });
 
-  it("posts the message to the origin thread AND logs the event", async () => {
+  it("stores the notification and logs the event without directly posting to its old thread", async () => {
     const root = tmp();
     const card = { id: "CW", title: "web card", origin_id: "web:chat-xyz", originChannel: { channel: "web", threadId: "chat-xyz" } };
     routeOriginEvent(root, null, card, { kind: "finished", message: "Run complete — web card." });
     // event log always written (synchronously)
     expect(readOriginEvents(root, "web:chat-xyz").map((e: any) => e.kind)).toEqual(["finished"]);
     // web delivery is fire-and-forget — give it a tick
-    const hit = await waitForDelivery("chat-xyz");
+    const hit = await waitForStored(card.id);
     expect(hit).toBeTruthy();
-    expect(hit.body.messages[0].text).toContain("Run complete — web card.");
+    expect(hit.bodyText).toContain("web card.");
+    expect(received).toHaveLength(0);
   });
 
   it("a quick card is NOT delivered to web (event log only)", async () => {
@@ -236,12 +252,12 @@ describe("routeOriginEvent — web transport delivers to the thread", () => {
       { terminalSummary: summary }
     );
 
-    await waitForDelivery(threadId);
-    const hits = received.filter((m) => m.url.includes(threadId));
-    expect(hits).toHaveLength(1);
+    const stored = await waitForStored(card.id);
+    const records: any = await __kanbanState.client.request("GET", "/v1/messages");
+    expect(records.messages.filter((message: any) => message.cardId === card.id && message.category === "card.done")).toHaveLength(1);
     // The full summary reaches the thread — no card-front truncation, and not
     // the bare "Run complete" fallback.
-    expect(hits[0].body.messages[0].text).toContain(marker);
+    expect(stored.bodyText).toContain(marker);
     expect(readOriginEvents(root, `web:${threadId}`).map((e: any) => e.kind)).toContain("finished");
   });
 
@@ -257,10 +273,10 @@ describe("routeOriginEvent — web transport delivers to the thread", () => {
 
     await updateCardCAS(root, card.id, (c: any) => ({ ...c, list: "done", status: "ok" }));
 
-    await waitForDelivery(threadId);
-    const hits = received.filter((m) => m.url.includes(threadId));
-    expect(hits).toHaveLength(1);
-    expect(hits[0].body.messages[0].text).toContain("Bare finish");
+    const stored = await waitForStored(card.id);
+    const records: any = await __kanbanState.client.request("GET", "/v1/messages");
+    expect(records.messages.filter((message: any) => message.cardId === card.id && message.category === "card.done")).toHaveLength(1);
+    expect(stored.bodyText).toContain("Bare finish");
   });
 });
 
@@ -313,7 +329,7 @@ describe("routeNeedsInput helper", () => {
     routeNeedsInput(root, null, { id: "CN", title: "n", origin_id: "board" }, { questions: ["A?", { question: "B?" }] });
     const ev = readOriginEvents(root, "board").at(-1);
     expect(ev.kind).toBe("needs-input");
-    expect(ev.detail.questions).toEqual(["A?", "B?"]);
+    expect(ev.detail.questions).toEqual(["A?", { question: "B?" }]);
     expect(ev.message).toContain("1. A?");
     expect(ev.message).toContain("2. B?");
   });

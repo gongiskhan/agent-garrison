@@ -1,3 +1,4 @@
+import { captureMirrorSink } from "./messages-capture-fixture";
 // Capture service fitting — M0 scaffold tests.
 //
 // Config layer: every pipe flag defaults OFF (invariant I9), env projection
@@ -173,6 +174,7 @@ describe("capture-service server", () => {
   it("boots sandboxed, writes the status file, serves /health, and keeps milestone surfaces honest", async () => {
     const cfg = loadConfig({ GARRISON_HOME: home });
     handle = await startServer({ ...cfg, port: 0, env: { GARRISON_HOME: home } });
+    captureMirrorSink((handle as any).notifier);
     const port = handle.cfg.port;
     expect(port).toBeGreaterThan(0);
     const base = `http://127.0.0.1:${port}`;
@@ -225,7 +227,7 @@ describe("capture-service server", () => {
       ["/capture/devices", { method: "POST", body: "{}" }, 403],
       ["/capture/sessions", {}, 403],
       ["/capture/stream", { method: "POST", body: "{}" }, 400],
-      ["/capture/later-milestone", { method: "POST", body: "{}" }, 501]
+      ["/capture/later-milestone", { method: "POST", body: "{}" }, 404]
     ];
     for (const [route, init, expected] of surfaces) {
       const res = await fetch(`${base}${route}`, init);

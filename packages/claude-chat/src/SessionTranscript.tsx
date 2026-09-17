@@ -146,6 +146,7 @@ export interface SessionStreamProps {
    * `awaiting-approval`, without duplicating the derivation.
    */
   onActivityChange?: (activity: ConversationActivity) => void;
+  onApprove?: () => Promise<void>;
 }
 
 export interface SessionEventTimelineProps {
@@ -825,6 +826,9 @@ function SessionNotice({
     label = errorLabel(block);
     reset = finiteEpochTime(block.retryAt);
     timePrefix = "Retry after";
+  } else if (block.type === 'status' && block.subtype === 'session_lifecycle') {
+    label = compactNoticeText(block.text);
+    detail = '';
   } else if (block.type === "retry" || block.type === "status") {
     const fallback = block.kind === "model_fallback" || block.subtype === "model_refusal_fallback";
     tone = fallback ? "route" : "warning";
@@ -1524,7 +1528,24 @@ function ConversationWorkingStrip({ activity, announce }: { activity: Conversati
 /** The conversation's terminal state, said out loud. A needs-input park was a
  * one-line collapsed ledger row before this - the single most consequential
  * state a conversation reaches, rendered quieter than a tool call. */
-function ConversationStateBanner({ activity }: { activity: ConversationActivity }) {
+function ConversationStateBanner({ activity, onApprove }: { activity: ConversationActivity; onApprove?: () => Promise<void> }) {
+  const sending = useRef(false);
+  const [approvalState, setApprovalState] = useState<"idle" | "sending" | "accepted">("idle");
+  const [error, setError] = useState<string | null>(null);
+  async function approve() {
+    if (!onApprove || sending.current) return;
+    sending.current = true;
+    setApprovalState("sending");
+    setError(null);
+    try {
+      await onApprove();
+      setApprovalState("accepted");
+    } catch (cause) {
+      sending.current = false;
+      setApprovalState("idle");
+      setError(cause instanceof Error ? cause.message : "The approval could not be sent. Try again.");
+    }
+  }
   if (activity.mode === "needs-input") {
     return (
       <div className="cc-conv-state cc-conv-state-attn" role="status">
@@ -1546,7 +1567,7 @@ function ConversationStateBanner({ activity }: { activity: ConversationActivity 
     // the plan behind a collapsed ledger row is asking for a blind signature.
     const plan = activity.approvalPlan ?? activity.summary;
     return (
-      <div className="cc-conv-state cc-conv-state-attn" role="status">
+      <div className="cc-conv-state cc-conv-state-approval" role="status">
         <div className="cc-conv-state-title">
           Waiting for your go-ahead
           {activity.approvalNext ? ` - next step: ${activity.approvalNext}` : ""}
@@ -1556,7 +1577,10 @@ function ConversationStateBanner({ activity }: { activity: ConversationActivity 
         ) : (
           <p className="cc-conv-state-line">The work is paused before its next step.</p>
         )}
-        <p className="cc-conv-state-hint">Reply below to approve or redirect.</p>
+        {onApprove && <button type="button" className="cc-approval-button" disabled={approvalState !== "idle"}
+          onClick={() => void approve()}>{approvalState === "sending" ? "Sending approval…" : approvalState === "accepted" ? "Approved — continuing…" : "Approve & continue"}</button>}
+        {error && <p className="cc-conv-state-line" role="alert">{error}</p>}
+        <p className="cc-conv-state-hint">{onApprove ? "Or reply below to discuss or redirect the plan." : "Reply below to approve or redirect."}</p>
       </div>
     );
   }
@@ -1597,6 +1621,7 @@ export function SessionStream({
   conversationLive,
   onActivityChange,
   emptyMessage,
+  onApprove,
 }: SessionStreamProps) {
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const [title, setTitle] = useState<string | null>(titleProp ?? null);
@@ -2035,7 +2060,7 @@ export function SessionStream({
               String(block.status ?? "").toLowerCase() !== "allowed" ||
               Boolean(block.overageStatus && String(block.overageStatus).toLowerCase() !== "allowed")
             )) ||
-            (block.type === "status" && (block.subtype === "api_retry" || block.subtype === "model_refusal_fallback"))
+            (block.type === "status" && (block.subtype === "api_retry" || block.subtype === "model_refusal_fallback" || block.subtype === "session_lifecycle"))
           ));
           // The turn's reasoning, in order. On a settled turn these render
           // hoisted above the reply - never inside the interim fold, where a
@@ -2060,7 +2085,7 @@ export function SessionStream({
                 String(block.status ?? "").toLowerCase() !== "allowed" ||
                 Boolean(block.overageStatus && String(block.overageStatus).toLowerCase() !== "allowed")
               )) ||
-              (block.type === "status" && (block.subtype === "api_retry" || block.subtype === "model_refusal_fallback"))
+              (block.type === "status" && (block.subtype === "api_retry" || block.subtype === "model_refusal_fallback" || block.subtype === "session_lifecycle"))
             ).length;
             return count + textCount + activityCount;
           }, 0);
@@ -2069,6 +2094,7 @@ export function SessionStream({
               {userText && (
                 <div className="cc-session-turn user">
                   <span className="cc-session-role">You</span>
+                  {turn.userEvents.some(event => event.origin) && <span className="cc-session-role">{turn.userEvents.find(event => event.origin)?.origin}</span>}
                   <TextBlock text={userText} role="user" />
                 </div>
               )}
@@ -2128,7 +2154,7 @@ export function SessionStream({
             </React.Fragment>
           );
         })}
-        {conversationMode && !derivedBusy && <ConversationStateBanner activity={activity} />}
+        {conversationMode && !derivedBusy && <ConversationStateBanner key={`${url}:${activity.mode}:${activity.since}`} activity={activity} onApprove={onApprove} />}
         {!stuck && (
           <div className="cc-session-jumpwrap">
             <button type="button" className="cc-session-jump" onClick={jumpToLatest}>

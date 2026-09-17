@@ -371,3 +371,27 @@ describe("screen_audio transcription gate", () => {
     pendant.ws.close();
   });
 });
+
+it("the phone mock waits for UI intent, streams frames, and acknowledges deliberate stop", async () => {
+  const { spawn } = await import("node:child_process");
+  const { handle, base } = await boot();
+  const device = "controlled-mock-device";
+  const control = new WebSocket(new URL("/capture/stream", base), { headers: { authorization: `Bearer ${TOKEN}`, "x-garrison-device-id": device } });
+  await new Promise<void>((resolve, reject) => { control.once("open", resolve); control.once("error", reject); });
+  const send = (type: string, fields = {}) => control.send(JSON.stringify({ type, device_id: device, source: "phone", at: new Date().toISOString(), ...fields }));
+  send("listening.subscribe", { device_name: "Test iPhone", app_version: "1" });
+  const mock = spawn(process.execPath, ["scripts/mock-phone-source.mjs", "--url", base, "--device", device, "--wait-for-intent", "--duration", "10"], { env: { ...process.env, CAPTURE_TOKEN: TOKEN }, stdio: "ignore" });
+  const row = async () => {
+    const response = await fetch(`${base}/capture/listening?device_id=${device}`, { headers: { authorization: `Bearer ${TOKEN}` } });
+    return (await response.json()).records.find((r: any) => r.source === "phone");
+  };
+  try {
+    await expect.poll(() => handle.ingress.sessions.size, { timeout: 5000 }).toBe(1);
+    expect(await row()).toMatchObject({ intent: "off", actual: "off", device_name: "Test iPhone" });
+    send("listening.intent", { intent: "listening" });
+    await expect.poll(async () => (await row()).actual, { timeout: 5000 }).toBe("listening");
+    await expect.poll(() => [...handle.ingress.sessions.values()].some((s: any) => s.media.highWater().audio > 0), { timeout: 5000 }).toBe(true);
+    send("listening.intent", { intent: "off" });
+    await expect.poll(async () => (await row()).actual, { timeout: 5000 }).toBe("off");
+  } finally { control.terminate(); mock.kill(); await new Promise(resolve => mock.once("exit", resolve)); }
+});

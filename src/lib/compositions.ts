@@ -1,3 +1,5 @@
+import { migrateArchiveManifest, migrateArchiveYaml, ARCHIVE_DEFAULTS, RETIRED_PROJECTS_FITTING } from "./composition-migrate";
+import { retireProjectsFile } from "./projects-retirement";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { COMPOSITIONS_DIR, ROOT_DIR } from "./paths";
@@ -6,13 +8,19 @@ import { authorApmDependencies } from "./apm-manifest";
 import { readLibrary } from "./library";
 import { validateSelection } from "./metadata";
 import { resolveCapabilities, serializeCapabilityGraph } from "./capabilities";
-import { facultyIds, dutyEfforts, type CapabilityIssue, type FittingSelectionMap, type Composition, type GlobalConfig, type LibraryEntry, type FacultyId, type SelectedFitting, type SerializedCapabilityGraph, type DutySpec, type SoulDefinition } from "./types";
+import { facultyIds, dutyEfforts, sharedRuntimes, type CapabilityIssue, type FittingSelectionMap, type Composition, type GlobalConfig, type LibraryEntry, type FacultyId, type SelectedFitting, type SerializedCapabilityGraph, type DutySpec, type SoulDefinition } from "./types";
 import { readYamlFile, writeYamlFile } from "./yaml";
+import { writeFileAtomic } from "./atomic-write";
 import { persistManifest } from "./manifest-write";
 import { z } from "zod";
 import { resolvePrimaryFromPolicy } from "./routing-primary";
 
 export const DEFAULT_COMPOSITION_ID = "default";
+export const selectedFittingSchema = z.object({
+  id: z.string().min(1),
+  config: z.record(z.union([z.string(), z.number(), z.boolean()])).default({}),
+  shared: z.array(z.enum(sharedRuntimes)).refine(values => new Set(values).size === values.length, "shared runtimes must be unique").optional()
+});
 
 const DEFAULT_ORCHESTRATOR_PROMPT = [
   "<!--",
@@ -431,6 +439,7 @@ function parseCompositionTargets(raw: unknown): CompositionTarget[] {
 
 export function defaultGlobalConfig(): GlobalConfig {
   return {
+    archive: { ...ARCHIVE_DEFAULTS },
     projects_root: "~/dev",
     vault: "default",
     platform: "claude-code",
@@ -464,6 +473,7 @@ export async function listCompositions(): Promise<Composition[]> {
       .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
       .map(async (entry) => {
         try {
+          await retireProjectsFile(getCompositionManifestPath(entry.name), entry.name);
           const manifest = await readYamlFile<CompositionManifest>(getCompositionManifestPath(entry.name));
           if (!manifest) return null;
           const overlay = await readLocalOverlay(entry.name);
@@ -500,6 +510,7 @@ async function ensureReadableComposition(id: string): Promise<void> {
 export async function readComposition(id = DEFAULT_COMPOSITION_ID): Promise<CompositionV4> {
   await ensureReadableComposition(id);
   const manifestPath = getCompositionManifestPath(id);
+  await retireProjectsFile(manifestPath, id);
   const manifest = await readYamlFile<CompositionManifest>(manifestPath);
   if (!manifest) {
     throw new Error(
@@ -511,7 +522,9 @@ export async function readComposition(id = DEFAULT_COMPOSITION_ID): Promise<Comp
     ? await resolvePrimaryFromPolicy(getCompositionDirectory(id))
     : null;
   const legacy = migrateLegacyRoutingOnPrimaryManifest(manifest, { primaryRuntimeId: policyPrimary });
+  const archiveChanged = migrateArchiveManifest(manifest);
   if (legacy.changed) await writeYamlFile(manifestPath, manifest);
+  else if (archiveChanged) await writeFileAtomic(manifestPath, migrateArchiveYaml(await fs.readFile(manifestPath, "utf8")));
   if (legacy.warning) console.warn(`[garrison] ${id}: ${legacy.warning}`);
   const overlay = await readLocalOverlay(id);
   return manifestToComposition(id, applyLocalOverlay(manifest, overlay));
@@ -580,6 +593,9 @@ export async function writeComposition(
   };
   // Selection/config repairs use the same comment-preserving, atomic writer
   // and authority CAS as Muster. A local-only save must not report success.
+  // Publish Archive defaults in this same save, before the returned read can
+  // migrate the local file beyond the exact bytes sent to the authority.
+  migrateArchiveManifest(manifest);
   await persistManifest(id, manifestPath, before, manifest);
   return readCompositionWithDerivedTasks(id);
 }
@@ -727,7 +743,7 @@ function mergeSelectionConfigs(
     const baseItems = base[facultyKey] ?? [];
     const overItems = over[facultyKey] ?? [];
     const byId = new Map<string, SelectedFitting>(
-      baseItems.map((item) => [item.id, { id: item.id, config: { ...(item.config ?? {}) } }])
+      baseItems.map((item) => [item.id, { ...item, config: { ...(item.config ?? {}) } }])
     );
     for (const item of overItems) {
       const existing = byId.get(item.id);
@@ -823,6 +839,7 @@ export function manifestToComposition(id: string, manifest: CompositionManifest)
 
 export async function readCompositionWithDerivedTasks(id = DEFAULT_COMPOSITION_ID): Promise<CompositionV4> {
   await ensureReadableComposition(id);
+  await retireProjectsFile(getCompositionManifestPath(id), id);
   const manifest = await readYamlFile<CompositionManifest>(getCompositionManifestPath(id));
   if (!manifest) {
     throw new Error(
@@ -834,7 +851,12 @@ export async function readCompositionWithDerivedTasks(id = DEFAULT_COMPOSITION_I
     ? await resolvePrimaryFromPolicy(getCompositionDirectory(id))
     : null;
   const legacy = migrateLegacyRoutingOnPrimaryManifest(manifest, { primaryRuntimeId: policyPrimary });
+  const archiveChanged = migrateArchiveManifest(manifest);
   if (legacy.changed) await writeYamlFile(getCompositionManifestPath(id), manifest);
+  else if (archiveChanged) {
+    const manifestPath = getCompositionManifestPath(id);
+    await writeFileAtomic(manifestPath, migrateArchiveYaml(await fs.readFile(manifestPath, "utf8")));
+  }
   if (legacy.warning) console.warn(`[garrison] ${id}: ${legacy.warning}`);
   const overlay = await readLocalOverlay(id);
   const composition = manifestToComposition(id, applyLocalOverlay(manifest, overlay));
@@ -900,6 +922,7 @@ export async function validateCompositionSelections(selections: FittingSelection
   for (const facultyId of facultyIds) {
     const selected = selections[facultyId] ?? [];
     const metadata = selected.map((item) => {
+      selectedFittingSchema.parse(item);
       const entry = byId.get(item.id);
       if (!entry) {
         throw new Error(`Unknown fitting ${item.id}`);
@@ -981,7 +1004,7 @@ export function deriveUnfitted(
 
 function normalizeUnfitted(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
-  return [...new Set(raw.filter((v): v is string => typeof v === "string" && v.length > 0))].sort();
+  return [...new Set(raw.filter((v): v is string => typeof v === "string" && v.length > 0 && v !== RETIRED_PROJECTS_FITTING))].sort();
 }
 
 function normalizeSelections(selections: FittingSelectionMap): FittingSelectionMap {
@@ -991,10 +1014,7 @@ function normalizeSelections(selections: FittingSelectionMap): FittingSelectionM
     if (!items || items.length === 0) {
       continue;
     }
-    normalized[facultyId] = items.filter((item)=>!["improver","improver-nightly"].includes(item.id)).map((item) => ({
-      id: item.id,
-      config: item.config ?? {}
-    }));
+    normalized[facultyId] = items.filter((item)=>!["improver","improver-nightly",RETIRED_PROJECTS_FITTING].includes(item.id)).map((item) => selectedFittingSchema.parse(item));
   }
   return normalized;
 }
@@ -1027,6 +1047,7 @@ export function migrateSelectionsByFaculty(
 export function defaultConfigForEntry(entry: LibraryEntry): SelectedFitting {
   return {
     id: entry.id,
+    ...(entry.metadata.shared_default?.length ? { shared: [...entry.metadata.shared_default] } : {}),
     config: Object.fromEntries(
       entry.metadata.config_schema
         .filter((field) => field.default !== undefined)

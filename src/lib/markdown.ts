@@ -28,6 +28,7 @@ function isSafeHref(url: string): boolean {
   return /^(?:https?:|mailto:|tel:)/i.test(u); // explicit safe schemes only
 }
 
+function createMarkdown(wikiLinks: boolean) {
 const md = new Marked();
 // `as any` on the renderer: marked's token types are version-specific and the
 // dynamic `this.parser` access doesn't satisfy the strict root tsconfig.
@@ -41,7 +42,13 @@ md.use({
       const text = self.parser.parseInline(token.tokens);
       let url = token.href || "";
       const g = /^garrison:\/\/([^/]+)\/?(.*)$/.exec(url);
-      if (g) url = `/fitting/${g[1]}${g[2] ? `/${g[2]}` : ""}`;
+      if (g?.[1] === "archive") {
+        let archivePath = g[2];
+        try { archivePath = decodeURIComponent(archivePath); } catch { /* Keep literal text. */ }
+        const card = archivePath.startsWith("Archive/") && archivePath.split("/").filter(Boolean).length >= 3 && (!archivePath.toLowerCase().endsWith(".md") || archivePath.endsWith("/index.md"));
+        if (card) archivePath = archivePath.replace(/\/index\.md$/, "");
+        url = `/archive/${card ? "card" : "notes"}?path=${encodeURIComponent(archivePath)}`;
+      } else if (g) url = `/fitting/${g[1]}${g[2] ? `/${g[2]}` : ""}`;
       if (!isSafeHref(url)) return text; // drop the href, keep the text
       const attrs =
         /^https?:\/\//i.test(url) || /^\/\//.test(url) ? ` target="_blank" rel="noopener noreferrer"` : "";
@@ -55,7 +62,17 @@ md.use({
 // client host needed); loopback-URL rewriting is a client concern handled by the
 // live chat surfaces (ClaudeChat, kanban).
 md.use({ extensions: [filePathMarkedExtension()] });
+if (wikiLinks) md.use({ extensions: [{
+  name: "archiveWikilink", level: "inline",
+  start: (src: string) => src.indexOf("[["),
+  tokenizer(src: string) { const match = /^\[\[([^\]\n]+)\]\]/.exec(src); if (match) return { type: "archiveWikilink", raw: match[0], text: match[1] }; },
+  renderer(token: any) { return `<a href="/archive/search?q=${escapeAttr(encodeURIComponent(token.text))}">${escapeHtml(token.text)}</a>`; }
+}] });
+return md;
+}
+const md = createMarkdown(true);
+const plainWikiMarkdown = createMarkdown(false);
 
-export function renderMarkdown(src: string): string {
-  return md.parse(src) as string;
+export function renderMarkdown(src: string, {wikiLinks = true}: {wikiLinks?: boolean} = {}): string {
+  return (wikiLinks ? md : plainWikiMarkdown).parse(src) as string;
 }

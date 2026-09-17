@@ -265,13 +265,13 @@ export async function buildCompositionBundle(
   if (!(await pathExists(manifestPath))) {
     throw new Error(`composition "${id}" does not exist`);
   }
+  // Complete the existing read migrations before taking the export snapshot.
+  // First and subsequent exports must carry the same canonical defaults.
+  const composition = await readCompositionWithDerivedTasks(id);
   const manifest = await readYamlFile<Record<string, unknown>>(manifestPath);
   if (!manifest || typeof manifest !== "object") {
     throw new Error(`composition "${id}" has an unreadable apm.yml`);
   }
-  // Parse it as a composition before exporting: a bundle built from a manifest
-  // that cannot itself be read is a bundle that cannot be imported.
-  const composition = await readCompositionWithDerivedTasks(id);
   const compositionDir = getCompositionDirectory(id);
   // Preserve any genuine pre-v4 authored identity before excluding its retired
   // source path from the portable bundle.

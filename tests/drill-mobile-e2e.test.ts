@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { chromium, type Browser, type Page } from "playwright";
 import { waitExit } from "./helpers/wait-exit";
 
-// Phase 8 (E1-E4) — Drill's own UI at phone width: FAB toggles the plan
+// Phase 8 (E1-E4) - Drill's own UI at phone width: FAB toggles the plan
 // sheet; Highlight closes the sheet, picks on the full-screen canvas with
 // enlarged touch targets, and reopens the sheet with the new area ready.
 
@@ -103,7 +103,7 @@ describe("Drill's own UI at phone width", () => {
     const p = page!;
     await p.goto(`${DRILL_BASE}/?view=authoring&page=testpage`);
     await p.locator(".dr-cv").waitFor({ state: "visible", timeout: 15000 });
-    // Select the "mobile" device/viewport chip for the APP UNDER TEST too —
+    // Select the "mobile" device/viewport chip for the APP UNDER TEST too -
     // independent of Drill's own responsive UI, but it makes the canvas a
     // phone-shaped box, matching this test's coordinate math.
     await p.locator(".dr-au-canvas").getByText("mobile", { exact: true }).click();
@@ -112,7 +112,7 @@ describe("Drill's own UI at phone width", () => {
       const image = document.querySelector<HTMLImageElement>(".dr-cv-frame");
       return !!image?.complete && image.naturalWidth > 0;
     });
-    expect(await p.locator(".dr-cv-frame").evaluate((image: HTMLImageElement) => [
+    await expect.poll(() => p.locator(".dr-cv-frame").evaluate((image: HTMLImageElement) => [
       image.naturalWidth,
       image.naturalHeight
     ])).toEqual([390, 844]);
@@ -135,7 +135,7 @@ describe("Drill's own UI at phone width", () => {
     expect(box!.x + box!.width).toBeLessThanOrEqual(391);
     expect(box!.y + box!.height).toBeLessThanOrEqual(845);
     // Fixture button center: top:100 left:40 width:160 height:44 -> (120, 122)
-    // in an (assumed) 390x844-ish authoring viewport — click proportionally.
+    // in an (assumed) 390x844-ish authoring viewport - click proportionally.
     const targetX = box!.x + (120 / 390) * box!.width;
     const targetY = box!.y + (122 / 844) * box!.height;
     await p.touchscreen.tap(targetX, targetY);

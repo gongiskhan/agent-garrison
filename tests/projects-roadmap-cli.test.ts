@@ -1,0 +1,31 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+import {afterEach, beforeEach, expect, it} from 'vitest';
+import {applyOp} from '@/lib/roadmaps';
+const execute = promisify(execFile);
+const cli = path.resolve(import.meta.dirname, '../fittings/seed/roadmaps/scripts/roadmap.mjs');
+let root: string, file: string;
+const seed = () => ({title: 'Synthetic roadmap', custom: {keep: true}, categories: [{id: 'c1', title: 'Work', items: [{id: 'c1.1', text: 'Synthetic feature', done: false, noteRef: null}]}], notes: [{id: 'n-c1.1', title: 'Unrelated note', body: 'Keep this note.'}]});
+beforeEach(async () => {root = await fs.mkdtemp(path.join(os.tmpdir(), 'projects-roadmap-')); file = path.join(root, 'roadmap.json'); await fs.writeFile(file, JSON.stringify(seed()));});
+afterEach(async () => {await fs.rm(root, {recursive: true, force: true});});
+const run = (...args: string[]) => execute(process.execPath, [cli, ...args], {timeout: 10_000, maxBuffer: 64 * 1024});
+it('links and updates decision notes with the same stable IDs as the view, preserving other data', async () => {
+  const expected = seed();
+  const body = '[Decision](docs/decisions/synthetic-feature.md)\n\nSynthetic rationale.';
+  applyOp(expected, {op: 'upsert-note', ownerId: 'c1.1', title: 'Feature decision', body});
+  expect((await run('upsert-note', file, 'c1.1', 'Feature decision', body)).stdout.trim()).toBe('n-c1.1-2');
+  const first = JSON.parse(await fs.readFile(file, 'utf8')); delete first.updatedAt;
+  expect(first).toEqual(expected);
+  applyOp(expected, {op: 'upsert-note', ownerId: 'c1.1', title: 'Final decision', body: 'Updated synthetic rationale.'});
+  await run('upsert-note', file, 'c1.1', 'Final decision', 'Updated synthetic rationale.');
+  const final = JSON.parse(await fs.readFile(file, 'utf8')); delete final.updatedAt;
+  expect(final).toEqual(expected); expect((await run('validate', file)).stdout.trim()).toBe('ok');
+});
+it('refuses an unknown note owner without changing the roadmap', async () => {
+  const before = await fs.readFile(file, 'utf8');
+  await expect(run('upsert-note', file, 'missing', 'Decision', 'Synthetic rationale.')).rejects.toThrow();
+  expect(await fs.readFile(file, 'utf8')).toBe(before);
+});

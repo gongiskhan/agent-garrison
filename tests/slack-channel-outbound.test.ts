@@ -341,7 +341,7 @@ describe("kanban-loop reaches the Slack fitting", () => {
   // Slack-originated card's outcome went nowhere. This drives the real
   // notify-origin delivery path against a fake status file and asserts the URL
   // it produces is the route the adapter now serves.
-  it("posts a slack-origin card's reminder to the adapter's thread-append route", async () => {
+  it("stores a Slack-origin reminder once and leaves delivery to Messages mirrors", async () => {
     const home = path.join(tmp, "garrison-home");
     mkdirSync(path.join(home, "ui-fittings"), { recursive: true });
     // A port no instance family claims: the ack fan-out this path also triggers
@@ -354,9 +354,9 @@ describe("kanban-loop reaches the Slack fitting", () => {
     process.env.GARRISON_HOME = home;
 
     const calls: string[] = [];
-    const fetchImpl = vi.fn(async (url: string) => {
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
       calls.push(String(url));
-      return { ok: true, status: 200, json: async () => ({ ok: true }) } as unknown as Response;
+      return fetch(url, init);
     });
 
     try {
@@ -372,9 +372,8 @@ describe("kanban-loop reaches the Slack fitting", () => {
       });
 
       expect(result.ok).toBe(true);
-      expect(calls).toContain(
-        "http://127.0.0.1:45512/api/threads/C0ABCDE12%3A1712345678.000200/messages"
-      );
+      expect(result.receipts).toMatchObject([{ id: "messages", queued: true }]);
+      expect(calls).toEqual([`${process.env.GARRISON_STATE_URL}/v1/messages/system`]);
       // The chain already reached Slack, so the fan-out must not send the same
       // reminder to the same fitting a second time.
       expect(calls.filter((url) => url.endsWith("/notify"))).toHaveLength(0);

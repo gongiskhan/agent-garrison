@@ -135,6 +135,7 @@ describe("connector OAuth routes (google)", () => {
 
     let tokenReqBody: URLSearchParams | undefined;
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "https://gmail.googleapis.com/gmail/v1/users/me/profile") return new Response("{}", { status: 403 });
       expect(url).toBe("https://oauth2.googleapis.com/token");
       tokenReqBody = new URLSearchParams(String(init?.body));
       return new Response(
@@ -149,7 +150,7 @@ describe("connector OAuth routes (google)", () => {
       { params: { id: "google" } }
     );
 
-    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(tokenReqBody!.get("grant_type")).toBe("authorization_code");
     expect(tokenReqBody!.get("code")).toBe("auth-code-1");
     expect(tokenReqBody!.get("client_id")).toBe("client-123");

@@ -2491,6 +2491,19 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
   background: color-mix(in srgb, var(--cc-rail-warn, #d29922) 16%, transparent);
 }
 .cc-conv-state-attn .cc-conv-state-title { color: var(--cc-fg); }
+.cc-conv-state-approval {
+  border-color: color-mix(in srgb, var(--cc-accent) 55%, var(--cc-border));
+  border-left: 4px solid var(--cc-accent);
+  background: color-mix(in srgb, var(--cc-accent) 10%, var(--cc-bg));
+}
+.cc-approval-button {
+  align-self: flex-start; min-height: 44px; padding: 10px 16px;
+  border: 1px solid var(--cc-accent); border-radius: 6px;
+  background: var(--cc-accent); color: var(--cc-accent-fg);
+  font: inherit; font-weight: 600; cursor: pointer;
+}
+.cc-approval-button:disabled { opacity: .65; cursor: default; }
+.cc-approval-button:focus-visible { outline: 2px solid var(--cc-accent); outline-offset: 3px; }
 .cc-conv-state-done {
   border-color: color-mix(in srgb, var(--cc-success, #70a37f) 55%, transparent);
   border-left: 4px solid var(--cc-success, #70a37f);

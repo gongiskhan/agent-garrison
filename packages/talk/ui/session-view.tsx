@@ -10,6 +10,7 @@ import { DISCONNECTED_COLOR, sessionDisconnected, sessionRunning, disconnectedMe
 import { SessionUsage } from "./session-usage";
 import { ShellComposer } from "./shell-composer";
 import type { RailSession } from "./sessions-rail";
+import { cursorStateLabel } from './cursor-sessions';
 
 const RUNTIME_LABEL: Record<string, string> = { claude: "Claude Code", codex: "Codex", cursor: "Cursor", gemini: "Gemini CLI", shell: "Shell" };
 
@@ -92,6 +93,9 @@ export function ExternalSessionView({
         <span className="wc-thread-src wc-thread-rt">{RUNTIME_LABEL[row.runtime] ?? row.runtime}</span>
         <span className="wc-thread-node" style={{ ["--node-accent" as never]: disconnected ? DISCONNECTED_COLOR : row.nodeAccent || "#6a746b" }}>{row.node}</span>
         {row.project && <span className="wc-thread-proj">{row.project}</span>}
+        {row.cursor?.model && <span className="wc-thread-src" data-testid="cursor-model">{row.cursor.model}</span>}
+        {row.cursor && <span className="wc-thread-src" role="status" data-testid="cursor-state">{cursorStateLabel(row.cursor.state)}</span>}
+        {row.cursor?.attached && <span className="wc-thread-src">Driving from Garrison</span>}
         <span className="wc-wb-title">{row.title || row.cwd || row.id}</span>
         <span className="wc-wb-sub">{subline}</span>
         {onClose && <button type="button" className="wc-wb-reattach" data-testid="sess-close" onClick={onClose}>Close</button>}
@@ -126,7 +130,7 @@ export function ExternalSessionView({
         )}
       </div>
       <div className="wc-sess-input-note">
-        {row.terminalRef ? "Messages go to the existing Dev Env terminal."
+        {row.cursor ? 'Live output from Cursor.' : row.terminalRef ? "Messages go to the existing Dev Env terminal."
           : row.attachable ? "Connect to send messages to the existing agent."
           : row.resumable && running ? "The original agent is working. Your message will wait for its current turn to finish."
           : row.resumable ? "Send resumes this conversation in a terminal here."

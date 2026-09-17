@@ -75,6 +75,35 @@ async function publishSnapshot(node: string, body: unknown) {
 }
 
 describe("meshSessions", () => {
+  it("expires unlinked Cursor hook placeholders despite fresh publication, keeping real sessions", async () => {
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    const placeholder = { id: "unlinked", runtime: "cursor", kind: "cli", status: "working",
+      statusSource: "hooks", lastActivityAt: new Date(now).toISOString(), transcript: null,
+      resumable: false, attachable: false };
+    const real = { ...placeholder, id: "journal", transcript: { format: "cursor-agent-jsonl", path: "/fixture/session.jsonl" } };
+    const resumable = { ...placeholder, id: "cli", resumable: true, resumeRef: "cli" };
+    const snapshot = { updatedAt: new Date(now).toISOString(), rows: [placeholder, real, resumable] };
+    await publishSnapshot("peer-node", snapshot);
+    const fetchImpl = fakeFetchWithBody(snapshot);
+    expect((await meshSessions({ fetchImpl })).rows).toHaveLength(6);
+
+    clock.mockReturnValue(now + 6 * 60_000);
+    const refreshed = { ...snapshot, updatedAt: new Date(Date.now()).toISOString() };
+    await publishSnapshot("peer-node", refreshed);
+    const expired = await meshSessions({ fetchImpl: fakeFetchWithBody(refreshed) });
+    expect(expired.rows.map((r: { id: string }) => r.id).sort()).toEqual(["cli", "cli", "journal", "journal"]);
+    expect(expired.rows.every((r: { status: string }) => r.status === "working")).toBe(true);
+
+    // A later real journal restores the same identity without a synthetic
+    // completion or deleting any of the owner's event history.
+    const linked = { ...placeholder, transcript: real.transcript };
+    clock.mockReturnValue(Date.now() + 5_001);
+    await publishSnapshot("peer-node", { ...refreshed, rows: [linked] });
+    const recovered = await meshSessions({ fetchImpl: fakeFetchWithBody({ rows: [] }) });
+    expect(recovered.rows).toEqual([expect.objectContaining({ id: "unlinked", node: "peer-node", transcript: real.transcript })]);
+  });
+
   it("uses the owner's published sessions when its cold local index exceeds the fetch deadline", async () => {
     await publishSnapshot("self-node", nativeSnapshot("slow-owner-session", Date.now()));
     const slowFetch = vi.fn((_url: string, { signal }: { signal: AbortSignal }) => new Promise((_resolve, reject) => {

@@ -74,7 +74,7 @@ x-garrison:
         GARRISON_KANBANLOOP_MORNING_BRIEF_EMAIL). Sent via the google connector's
         gmail.send once configured AND Google is connected; unset, or Google not
         connected, degrades this one channel honestly without failing the
-        briefing's Web/Omi/Slack delivery.
+        briefing's Web/Slack delivery.
   provides:
     - kind: automation-runner
       name: kanban-loop

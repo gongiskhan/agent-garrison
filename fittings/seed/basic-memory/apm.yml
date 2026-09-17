@@ -5,6 +5,7 @@ target: claude
 type: skill
 includes: auto
 x-garrison:
+  shared_default: [claude-code, codex]
   faculty: memory
   category: Core
   cardinality_hint: single

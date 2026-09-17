@@ -4,7 +4,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
-// @ts-ignore — the fitting intentionally exposes a plain ESM wrapper.
+// @ts-ignore - the fitting intentionally exposes a plain ESM wrapper.
 import { createSdkClient } from "../fittings/seed/agent-sdk-runtime/lib/sdk-client.mjs";
 
 class NativeInputQueue {
@@ -166,8 +166,9 @@ it("keeps the pinned native Query usable beyond maxTurns streamed inputs without
     input.close();
     try { query?.close?.(); } catch {}
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    fs.rmSync(compositionDir, { recursive: true, force: true });
-    fs.rmSync(configDir, { recursive: true, force: true });
+    // The SDK can finish its last config write after the iterator closes.
+    fs.rmSync(compositionDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    fs.rmSync(configDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 }, 30_000);
 
@@ -229,6 +230,7 @@ it.each(["one-shot", "standing", "cancel"])("waits for delayed MCP tools before 
     input.close();
     try { client?.close?.(); } catch {}
     await new Promise<void>((resolve) => server.close(() => resolve()));
-    fs.rmSync(root, { recursive: true, force: true });
+    // SDK shutdown may finish a final config write after its iterator closes.
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 }, 30_000);

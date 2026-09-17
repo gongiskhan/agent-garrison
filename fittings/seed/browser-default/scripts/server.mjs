@@ -763,6 +763,9 @@ async function launchChromium(opts) {
     "--disable-features=IsolateOrigins,site-per-process,TranslateUI",
     "--disable-component-update",
     "--disable-background-networking",
+    // Match Playwright's deterministic launch: bundled field trials can stop
+    // animation frames and screenshots in headless Chromium on macOS.
+    "--disable-field-trial-config",
     "--no-startup-window",
     ...(stealth ? ["--disable-blink-features=AutomationControlled"] : [])
   ];

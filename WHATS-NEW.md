@@ -1,3 +1,33 @@
+# Projects - 2026-09-13
+
+Projects brings files and git into Garrison's sidebar. Browse repositories on
+this node or a peer, inspect changes and commits, and fetch, commit and push,
+pull from others or file merge cards. Project trees stay read-only.
+
+Garrison files remains the place for documents, recordings, runs and uploads.
+You can edit those artifacts on their owning node. Projects and its merge pump
+remain available while a composition is down, and healthy remote-shell
+transports appear as read-only machines. The layout supports phone and desktop
+in both themes.
+
+
+# Archive — 2026-09-11
+
+Archive is now at `/archive`: folder browsing for your documents and
+Garrison memory in one combined library, content search, uploads and extraction, and a one-shot Trello
+import. It replaces the personal Trello document board and the retired Documents
+fitting. `Archive/` is yours: agents read it when asked, never write it, and
+nothing automatic feeds on it. Ingestion writes only derived sidecars.
+
+The 13 September follow-up adds list/thumbnail views, alphabetical or recent
+sorting, starred documents and bookmarks for documents and notes. Upload files
+directly into documents; Inbox is retired. Search filters by folder, type and
+bookmarked status, with exact identifier matching. Folder and document loading is bounded
+and saves update only their affected search entries. Attachment dialogs now clear
+iPhone safe areas, with compact PDF/file actions and image controls that fit
+portrait and landscape. Code-formatted text in notes stays readable in both
+light and dark themes.
+
 # What's new — Workbench dissolution
 
 **Date:** 2026-05-18

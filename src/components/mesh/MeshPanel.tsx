@@ -6,6 +6,8 @@ import clsx from "clsx";
 import { Panel } from "@/components/garrison/Panel";
 import { lastSeenAge, nodeStateLabel, type NodeState } from "@/lib/mesh/staleness";
 import { nodeHealth, type MeshNodeRow } from "@/lib/mesh/node-row";
+import { HomesChip } from "./HomesChip";
+import { NodeChip } from "./NodeChip";
 import styles from "./MeshPanel.module.css";
 
 // The mesh roster. Polls /api/mesh/nodes — the app proxies the state service so
@@ -238,7 +240,7 @@ function NodeCard({
   return (
     <li className={styles.card} data-testid="mesh-node" data-node={node.id} data-state={node.state}>
       <div className={styles.cardHead}>
-        <AccentDot color={node.accentColor} large />
+        <NodeChip node={node} showName={false} />
         <div className={styles.cardTitle}>
           <h2>{node.name}</h2>
           <div className={styles.cardSub}>
@@ -303,6 +305,7 @@ function NodeCard({
             <span className={styles.factNote}>unknown</span>
           )}
         </Fact>
+        <Fact label="Homes"><HomesChip node={node} /></Fact>
         <Fact label="Build">
           <span className="font-mono">{node.clientVersion || "unknown"}</span>
         </Fact>

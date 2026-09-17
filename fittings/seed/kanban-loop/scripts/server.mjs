@@ -88,6 +88,7 @@ import {
 } from "../lib/resolved-model.mjs";
 import { reconcileExistingBoard, relocateStrandedCards, registerSchedulerBeats } from "./kanban.mjs";
 import { recordBrief, briefRelPath } from "./discuss.mjs";
+import { messageCardId } from "@garrison/messages/system-actions";
 import { inferenceRunFn, interruptCardTurn, projectNameForRouting } from "../lib/gateway-client.mjs";
 import { inferProject, explicitWorkspaceFromCard } from "../lib/infer-project.mjs";
 import { loadPolicy, railForCard, railIsManualOnly, phaseTogglesFromCsv } from "../lib/policy.mjs";
@@ -1861,6 +1862,9 @@ async function collisionFreePosition(root, list, cardId, requested) {
 // instead of nothing).
 async function handleCreateCard(req, res, opts) {
   const body = (await readBody(req)) || {};
+  const messageOrigin = body.origin === "message";
+  const deterministicMessageId = messageOrigin && typeof body.idempotencyKey === "string"
+    ? messageCardId(body.idempotencyKey) : null;
   const checklistError = checklistValidationError(body.checklist);
   if (checklistError) return jsonRes(res, 400, { error: checklistError });
   const dutyLevels = validateDutyLevels(body.dutyLevels);
@@ -1897,6 +1901,13 @@ async function handleCreateCard(req, res, opts) {
   const conversationId = typeof body.conversationId === "string" && /^[0-9A-Za-z_-]{8,64}$/.test(body.conversationId)
     ? body.conversationId
     : null;
+  if (deterministicMessageId) {
+    const existing = await loadCard(opts.root, deterministicMessageId).catch((error) => {
+      if (error?.status === 404 || error?.code === "ENOENT") return null;
+      throw error;
+    });
+    if (existing) return jsonRes(res, 200, { card: cardSummary(existing) });
+  }
   const engineRunningCreate = targetListId === "running" && isEngineRequest(req);
   if (conversationId) {
     const existing = await loadCard(opts.root, conversationId).catch(() => null);
@@ -1934,7 +1945,7 @@ async function handleCreateCard(req, res, opts) {
   if (requestedScope === "project" && !suppliedProject) {
     return jsonRes(res, 400, { error: "project scope requires a project" });
   }
-  const explicitWorkspace = suppliedProject || requestedScope === "personal"
+  const explicitWorkspace = messageOrigin || suppliedProject || requestedScope === "personal"
     ? null
     : explicitWorkspaceFromCard({ title, description });
   const createPlacement = normalisePlacement(body.placement);
@@ -1970,10 +1981,17 @@ async function handleCreateCard(req, res, opts) {
   // midpoint is supplied. Positions trend negative over time; the sort is
   // float-based and the server 400s non-finite values. Empty list starts at zero.
   const card = await withCardOrderLock(opts.root, async () => {
+    if (deterministicMessageId) {
+      const existing = await loadCard(opts.root, deterministicMessageId).catch((error) => {
+        if (error?.status === 404 || error?.code === "ENOENT") return null;
+        throw error;
+      });
+      if (existing) return existing;
+    }
     const topPosition = await topOfListPosition(opts.root, storageListId);
     return createCard(opts.root, {
     // Materialization: the card TAKES its conversation's id when given one.
-    id: conversationId,
+    id: deterministicMessageId ?? conversationId,
     conversationId,
     title,
     machineId: body.machineId,
@@ -2193,7 +2211,7 @@ async function handleCreateCard(req, res, opts) {
   }
   // Visible project inference for a no-project card — fire-and-forget so create returns
   // at once; the events land on the card and surface on the next board poll.
-  if (cardScope(card) === "unscoped" && card.origin?.type !== "workSession") {
+  if (!messageOrigin && cardScope(card) === "unscoped" && card.origin?.type !== "workSession") {
     void runProjectInference(opts, card.id).catch((err) => console.error(`[kanban-loop] inference failed for ${card.id}:`, err?.message || err));
   }
   jsonRes(res, 201, { card: cardSummary(card) });

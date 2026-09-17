@@ -6,6 +6,7 @@ import clsx from "clsx";
 import { useAppShell } from "@/components/chrome/AppShell";
 import { AccountField, GenericLoginPanel } from "@/components/accounts/AccountField";
 import { runtimeAccountContract } from "@/components/accounts/shared";
+import { SharingSection } from "@/components/fitting-views/shared/SharingSection";
 import { FittingView } from "@/components/fitting-views/FittingView";
 import { FittingOverview } from "@/components/fitting-views/FittingOverview";
 import { matchView } from "@/lib/fitting-views";
@@ -705,7 +706,6 @@ function FittingConfigSection({
   const facultyTabView = entry.metadata.ui
     ? matchView(entry.metadata.ui.views, "/", "faculty-tab")?.view ?? null
     : null;
-  if (entry.metadata.config_schema.length === 0 && !facultyTabView && !entry.metadata.login) return null;
   return (
     <>
       {entry.metadata.config_schema.length > 0 || entry.metadata.login ? (
@@ -737,6 +737,8 @@ function FittingConfigSection({
           </div>
         </>
       ) : null}
+
+      {!facultyTabView || !["garrison:manage", "garrison:runtime", "garrison:connector"].includes(facultyTabView.entry) ? <SharingSection fittingId={entry.id} /> : null}
 
       {facultyTabView ? (
         <>
@@ -981,6 +983,7 @@ function OrchestratorGlobalConfig({
 function defaultSelection(entry: LibraryEntry): SelectedFitting {
   return {
     id: entry.id,
+    ...(entry.metadata.shared_default?.length ? { shared: [...entry.metadata.shared_default] } : {}),
     config: Object.fromEntries(
       entry.metadata.config_schema
         .filter((field) => field.default !== undefined)

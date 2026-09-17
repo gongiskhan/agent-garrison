@@ -30,6 +30,9 @@
 // `appendSystemPrompt` is deprecated in the renamed SDK; the structured
 // systemPrompt object (preset / string / preset+append) is the supported form.
 
+// Working sessions need room to finish. Inference callers keep explicit small limits.
+export const DEFAULT_MAX_TURNS = 800;
+
 export const LEAN_SYSTEM_PROMPT =
   "You are a concise assistant. Answer the question directly in one or two sentences. Do not use tools.";
 

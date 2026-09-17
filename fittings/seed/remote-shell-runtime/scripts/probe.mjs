@@ -16,6 +16,7 @@ try {
   await import("../lib/remote-shell-adapter.mjs");
   await import("../lib/runtimes.mjs");
   await import("../lib/session-index.mjs");
+  await import("../lib/session-index-worker.mjs");
   await import("../lib/node-identity.mjs");
   await import("../lib/index-publisher.mjs");
   await import("../lib/origin-guard.mjs");

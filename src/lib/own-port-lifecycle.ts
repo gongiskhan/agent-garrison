@@ -1,3 +1,4 @@
+import {RETIRED_PROJECTS_FITTING} from "./composition-migrate";
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, openSync, renameSync, writeFileSync, writeSync } from "node:fs";
@@ -26,14 +27,14 @@ const TRACKED_ENV_KEYS = ["GARRISON_GATEWAY_URL", "GARRISON_COMPOSITION_ID"] as 
 
 // Runner-projected per-fitting config keys (see ownPortConfigEnv) also drift-
 // track: they follow GARRISON_<ID>_<KEY>, so a changed composition config value
-// (e.g. the file-browser's root) restarts the fitting on the next `up` instead
+// (e.g. a surface root) restarts the fitting on the next `up` instead
 // of being silently ignored. Vault secret names never carry this shape in
 // practice, and even if one did, a changed secret forcing a restart is correct.
 const PROJECTED_CONFIG_ENV_PATTERN = /^GARRISON_[A-Z0-9]+_[A-Z0-9_]+$/;
 
 // Project a fitting's selected composition config into its spawn env. The
 // convention fitting servers read is GARRISON_<ID>_<KEY> with the id's
-// separators DROPPED (file-browser reads GARRISON_FILEBROWSER_ROOT) and the
+// separators dropped (sample-view reads GARRISON_SAMPLEVIEW_ROOT) and the
 // key's separators normalised to "_". Only scalar values (string, number,
 // boolean) project; nested objects/arrays are skipped.
 const LOOPBACK_BIND = /^(?:127\.0\.0\.1|localhost|::1|\[::1\])$/i;
@@ -477,6 +478,7 @@ export interface StartOptions {
 // on every start heals a fitting that came up after the last redeploy without
 // waiting for scripts/tailnet-serve-views.mjs to re-run.
 function publishToTailnetAfterStart(fittingId: string): void {
+  if (fittingId === RETIRED_PROJECTS_FITTING) return;
   if (currentProfile() !== "node") return;
   void (async () => {
     for (let i = 0; i < 20; i++) {
@@ -726,7 +728,7 @@ async function stopOwnPortFittingLocked(fittingId: string): Promise<StopResult> 
   const record = await readSpawnRecord(fittingId);
 
   let pid: number | null = null;
-  if (existsSync(jsonPath)) {
+  if (fittingId !== RETIRED_PROJECTS_FITTING && existsSync(jsonPath)) {
     try {
       const raw = await readFile(jsonPath, "utf8");
       const parsed = JSON.parse(raw) as { pid?: number };
@@ -902,6 +904,7 @@ export async function healVaultConsumingFittings(
 // Pid from the fitting's live status file: null when the file is missing,
 // unparseable, or names a dead process.
 async function runningStatusPid(fittingId: string): Promise<number | null> {
+  if (fittingId === RETIRED_PROJECTS_FITTING) return null;
   const jsonPath = statusFilePath(fittingId);
   if (!existsSync(jsonPath)) return null;
   try {

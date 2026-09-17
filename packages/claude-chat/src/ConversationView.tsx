@@ -266,6 +266,12 @@ export function ConversationView({
             transcriptOnly
             transcriptLive={live}
             transcriptOnActivityChange={activityChanged}
+            transcriptOnApprove={questions && seq == null ? async () => {
+              await transport.sendMessage("Approved - continue.", {
+                clientRequestId: `approval:${conversationId}:${activity?.since}`,
+                ...(routing ? { routing } : {}),
+              });
+            } : undefined}
             transcriptEmptyMessage={<div className="cc-conv-welcome"><strong>What would you like to work on?</strong><span>Ask a question, explore an idea, or describe a task. Your conversation will stay here.</span></div>}
             transcriptFocusEventId={seq == null ? undefined : conversationEventId(conversationId, seq)}
             routing={routing}

@@ -102,12 +102,12 @@ describe("view descriptor + provision derivation", () => {
 
   it("names provisions <fittingId>:<viewId>", () => {
     const provisions = deriveViewProvisions(
-      "documents",
+      "sample-reader",
       metadata({
         ui: { views: [{ id: "read", placement: "sidebar-surface", entry: "./ui/R.tsx", route: "/:id" }] }
       })
     );
-    expect(provisions).toEqual([{ kind: "view", name: "documents:read" }]);
+    expect(provisions).toEqual([{ kind: "view", name: "sample-reader:read" }]);
   });
 });
 

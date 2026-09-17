@@ -28,9 +28,10 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { FITTING_ID, loadConfig } from "../lib/config.mjs";
 import { CaptureStore, Counters, atomicWriteJSON, mergedCounters, readJSON, ulid } from "../lib/store.mjs";
-import { CaptureIngress, TEXT_SESSION_ID_RE, TEXT_SOURCES, bearerToken, tokenMatches } from "../lib/ingress.mjs";
+import { DeviceListening } from "../lib/device-listening.mjs";
+import { CaptureIngress, bearerToken, tokenMatches } from "../lib/ingress.mjs";
 import { TranscriptionLane } from "../lib/deepgram-live.mjs";
-import { ActiveConversation, OMI_WAKE_SOURCE, WakeBus, wakeRegex } from "../lib/wake.mjs";
+import { ActiveConversation, WakeBus, wakeRegex } from "../lib/wake.mjs";
 import { FeedbackBus } from "../lib/feedback.mjs";
 import { EchoGuard } from "../lib/echo-guard.mjs";
 import { BoardClient } from "../lib/board-client.mjs";
@@ -72,14 +73,6 @@ export const PENDANT_WAKE_SOURCE = {
   sessionProvenanceKey: "pendant_session_id",
   logPrefix: "capture-service"
 };
-
-// Omi (D24): omi-channel forwards its realtime segments here over
-// POST /capture/ingest/text and keeps no wake bus of its own, so the omi
-// identity the retired copy of wake.mjs carried (source "omi", origin
-// "omi:wake:<id>", omi_session_id in provenance) now lives on a third bus in
-// THIS process. Only the log prefix changes: the lines are written by
-// capture-service, so they say so.
-export const OMI_TEXT_WAKE_SOURCE = { ...OMI_WAKE_SOURCE, logPrefix: "capture-service" };
 
 // True when `pid` names a live process (EPERM still means alive, just not ours).
 function pidAlive(pid) {
@@ -348,6 +341,21 @@ export function makeRequestHandler(ctx) {
     const p = url.pathname;
 
     try {
+      if (req.method === "GET" && (p === "/capture/listening" || p === "/capture/listening/events")) {
+        const auth = authorizeHttp(cfg, req, counters);
+        if (!auth.ok) return json(res, auth.status, { error: auth.reason });
+        const device = url.searchParams.get("device_id");
+        if (p.endsWith("/events")) {
+          res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
+          const send = event => { if (!device || event.device_id === device) res.write(`data: ${JSON.stringify(event)}\n\n`); };
+          for (const record of ctx.listening.list(device)) send({ type: "listening.state", ...record });
+          const off = ctx.listening.subscribe(send);
+          const timer = setInterval(() => res.write(": keepalive\n\n"), 15000);
+          req.on("close", () => { clearInterval(timer); off(); });
+          return;
+        }
+        return json(res, 200, { records: ctx.listening.list(device) });
+      }
       // Spoken clips. Unauthenticated like the other own-port surfaces, and
       // safe to be: the id is a content hash of text the phone was just told to
       // say, it is validated as hex before it touches a path, and guessing one
@@ -385,7 +393,7 @@ export function makeRequestHandler(ctx) {
         const language = (url.searchParams.get("language") ?? "").trim() || null;
         const startedAt = Date.now();
         try {
-          const result = await transcribeClip({ cfg, bytes, contentType, language, fetchImpl: cfg.fetchImpl ?? null });
+          const result = await transcribeClip({ cfg, bytes, contentType, language, fetchImpl: cfg.fetchImpl ?? null, messagesLane: url.searchParams.get("lane") === "messages" });
           counters.bump("stt_rest_transcribed");
           counters.observe("stt_rest_ms", Date.now() - startedAt);
           return json(res, 200, result);
@@ -444,61 +452,6 @@ export function makeRequestHandler(ctx) {
         });
         res.end(audio);
         return;
-      }
-
-      // ---- Text ingest (D24): another service's transcript segments. ----
-      // POST /capture/ingest/text { source: "omi", session_id, segments: [{text,
-      // speaker?, is_user?, start?, end?}] } -> 202 { session, accepted }. Opens
-      // or extends the socket-less text session "<source>:<session_id>", runs
-      // every segment through the shared echo guard (Zeca's own voice coming
-      // back through the Omi mic is not conversation), and hands what survives
-      // to the omi wake bus as finals - never to the companion or pendant
-      // buses, which key on their own capture sessions. Nothing is persisted:
-      // the forwarding channel keeps the memory path (no media log, no
-      // transcript, no capture_event), so a conversation is never ingested twice.
-      if (req.method === "POST" && p === "/capture/ingest/text") {
-        const auth = authorizeHttp(cfg, req, counters);
-        if (!auth.ok) return json(res, auth.status, { error: auth.reason });
-        const body = await readBody(req);
-        if (body === null) return json(res, 413, { error: "body too large" });
-        let parsed;
-        try {
-          parsed = JSON.parse(body);
-        } catch {
-          return json(res, 400, { error: "invalid JSON" });
-        }
-        const source = typeof parsed?.source === "string" ? parsed.source.trim() : "";
-        if (!TEXT_SOURCES.has(source)) {
-          return json(res, 400, { error: `source must be one of: ${[...TEXT_SOURCES].join(", ")}` });
-        }
-        const externalId = typeof parsed?.session_id === "string" ? parsed.session_id.trim() : "";
-        if (!TEXT_SESSION_ID_RE.test(externalId)) {
-          return json(res, 400, { error: "session_id is required (1-80 chars of [A-Za-z0-9_.:-])" });
-        }
-        if (!Array.isArray(parsed?.segments)) return json(res, 400, { error: "segments must be an array" });
-        counters.bump("text_ingest_calls");
-        const { session } = ctx.ingress.openTextSession({ source, sessionId: externalId });
-        const accepted = [];
-        for (const seg of parsed.segments) {
-          const text = typeof seg?.text === "string" ? seg.text.trim() : "";
-          if (!text) continue;
-          // The guard counts what it eats (realtime_echo_suppressed).
-          if (ctx.echoGuard.shouldSuppress(text)) continue;
-          accepted.push({
-            text,
-            final: true,
-            speaker: seg.speaker ?? null,
-            is_user: seg.is_user !== false,
-            start: typeof seg.start === "number" ? seg.start : null,
-            end: typeof seg.end === "number" ? seg.end : null
-          });
-        }
-        if (accepted.length > 0) counters.bump("text_ingest_segments", accepted.length);
-        ctx.ingress.noteTextSegments(session, accepted.length);
-        if (accepted.length > 0 && cfg.wakeEnabled && ctx.omiWakeBus) {
-          ctx.omiWakeBus.handleSegments({ sessionId: session.record.id, segments: accepted });
-        }
-        return json(res, 202, { session: session.record.id, accepted: accepted.length });
       }
 
       // ---- The active-conversation pin (D25). ----
@@ -760,9 +713,10 @@ export function makeRequestHandler(ctx) {
         const existing = registry.tokens.find((t) => t.token === token);
         if (existing) {
           existing.device_name = deviceName;
+          if (parsed.device_id) existing.device_id = String(parsed.device_id).slice(0, 80);
           counters.bump("devices_deduped");
         } else {
-          registry.tokens.push({ token, device_name: deviceName, registered_at: new Date().toISOString() });
+          registry.tokens.push({ token, ...(parsed.device_id ? { device_id: String(parsed.device_id).slice(0, 80) } : {}), device_name: deviceName, registered_at: new Date().toISOString() });
           counters.bump("devices_registered");
         }
         atomicWriteJSON(store.devicesFile, registry);
@@ -859,6 +813,8 @@ export function makeRequestHandler(ctx) {
         }
         const tag = typeof parsed.tag === "string" ? parsed.tag : "relay";
         const receipts = await ctx.notifier.deliver({
+          _messagesMirror: parsed._messagesMirror ?? null,
+          idempotencyKey,
           title: String(parsed.title ?? "Garrison").slice(0, 120),
           body: link && !text.includes(link) ? `${text}\n${link}` : text,
           link,
@@ -869,7 +825,8 @@ export function makeRequestHandler(ctx) {
           // A relayed confirmation/ask answers something the user did, so it
           // draws on the interactive budget too — otherwise the fan-out's
           // routine chatter silences it exactly as it did on 2026-08-15.
-          priority: priorityForTag(tag)
+          priority: parsed._messagesMirror && ["routine","interactive"].includes(parsed.priority) ? parsed.priority : priorityForTag(tag),
+          webFallback: parsed._messagesMirror ? parsed.webFallback !== false : true
         });
         if (receipts.some((r) => r.ok)) ctx.notifier.markDelivered(idempotencyKey);
         return json(res, 200, receipts);
@@ -880,10 +837,9 @@ export function makeRequestHandler(ctx) {
         return json(res, 400, { error: "websocket upgrade required" });
       }
 
-      // Anything else under /capture/ is a later milestone.
+      // Unknown capture routes, including retired cloud ingestion, do not exist.
       if (p.startsWith("/capture/")) {
-        counters.bump("requests_unimplemented");
-        return json(res, 501, { error: "not implemented yet" });
+        return json(res, 404, { error: "not found" });
       }
 
       // ---- The spoken-ack sink (kanban fanOutAck contract). Implementing
@@ -937,6 +893,8 @@ export async function startServer(cfg = loadConfig()) {
   const counters = new Counters(store.root, "server");
   const notifier = new CompanionNotifier({ cfg: live, store, counters, env: cfg.env ?? process.env });
 
+  const listening = new DeviceListening({ store, notifier, operative: () => live.operativeName || "Zeca" });
+
   // ONE echo guard per process, consulted in the segment path BEFORE the wake
   // gate (spec §2.5 defence 3): a returning spoken ack is not conversation and
   // must not become pre-wake "evidence". Registration arrives via POST /ack
@@ -989,7 +947,8 @@ export async function startServer(cfg = loadConfig()) {
           !ackSinkRef.claimReply(`${params.conversationId}:${params.stretchId}`, "native")) {
         return [{ means: "companion-speech", ok: true, deduplicated: true }];
       }
-      if (spokenFirst && text && ackSinkRef?.speakableSession()) {
+      const playbackSession = ackSinkRef?.speakableSession(params.sessionId ?? null) ?? ackSinkRef?.speakableSession();
+      if (spokenFirst && text && playbackSession) {
         const ackId = `wake-${ulid()}`;
         // Progress pings and "didn't catch that" are presence, not information:
         // spoken when someone is listening, never turned into a banner.
@@ -1004,17 +963,18 @@ export async function startServer(cfg = loadConfig()) {
         // to disqualify it from opening a window at all, so the one line whose
         // whole purpose is "say it again" was the one line that stopped
         // listening.
-        const wantsAnswer = params.reprompt === true || (!isProgress && text.endsWith("?"));
+        const wantsAnswer = template === "conversation_reply" || params.reprompt === true || (!isProgress && text.endsWith("?"));
         if (wantsAnswer && params.sessionId) {
-          for (const bus of answerBuses) {
-            bus.expectAnswer(params.sessionId, ackId, {
+          const bus = playbackSession.record.mode === "pendant" ? pendantWakeBus : wakeBus;
+          bus.session(playbackSession.record.id);
+          bus.expectAnswer(playbackSession.record.id, ackId, {
               lang: params.lang ?? null,
               rounds: params.followupRounds ?? 0,
               eventId: params.eventId ?? null,
               reprompt: params.reprompt === true,
-              spoken: text
-            });
-          }
+              spoken: text,
+              conversationId: params.conversationId ?? null
+          });
         }
         try {
           const res = await ackSinkRef.handleAck({
@@ -1022,6 +982,7 @@ export async function startServer(cfg = loadConfig()) {
             kind: "captured",
             severity: "info",
             templateId: template,
+            sessionId: playbackSession.record.id,
             text,
             ...(params.lang ? { lang: params.lang } : {})
           });
@@ -1114,7 +1075,13 @@ export async function startServer(cfg = loadConfig()) {
     board,
     memoryWriter: new MemoryWriter({ prefix: "companion", label: "Companion", env: cfg.env ?? process.env }),
     notifier: speakingNotifier,
-    source: COMPANION_WAKE_SOURCE
+    source: COMPANION_WAKE_SOURCE,
+    onLifecycle: (name, payload) => {
+      if (name === "wake_detected") {
+        const record = ingress.sessions.get(payload.sessionId)?.record;
+        if (record?.device_id) listening.wake(record.device_id, record.listening_source, payload.at);
+      }
+    }
   });
 
   // Pendant Direct: the feedback bus (ADR D7) plus a second WakeBus instance
@@ -1165,30 +1132,7 @@ export async function startServer(cfg = loadConfig()) {
     activeConversation,
     onLifecycle: (name, payload) => feedbackBus.emit(name, payload)
   });
-  // The omi bus (D24): fed by POST /capture/ingest/text, never by the
-  // transcription lane. Same deps as the companion bus and the same
-  // speakingNotifier, so an Omi request is answered where every other reply
-  // lands - spoken through the phone when a companion session can hear, else
-  // pushed. It has no socket of its own to speak into, so no speakFn: the
-  // discuss intent degrades to delegate here exactly as it did on omi-channel.
-  const omiWakeBus = new WakeBus({
-    cfg: live,
-    store,
-    counters,
-    runFn,
-    operativeFn,
-    board,
-    memoryWriter: new MemoryWriter({ prefix: "omi", label: "Omi", env: cfg.env ?? process.env }),
-    notifier: speakingNotifier,
-    source: OMI_TEXT_WAKE_SOURCE,
-    screenContextFn,
-    screenFramesFn,
-    conversationFn,
-    conversationWaitFn,
-    conversationTurnFn,
-    activeConversation
-  });
-  answerBuses.push(wakeBus, pendantWakeBus, omiWakeBus);
+  answerBuses.push(wakeBus, pendantWakeBus);
   // The interim wake watcher (ADR D8): fires the wake_detected FEEDBACK on
   // Deepgram interims so the pendant buzzes fast; the authoritative window
   // still runs on finals through the untouched WakeBus. The FeedbackBus
@@ -1206,11 +1150,15 @@ export async function startServer(cfg = loadConfig()) {
     // and the settled-close logic keys on smart_format punctuation. The one
     // interim consumer is the pendant's feedback-only wake watcher above.
     onSegment: (sessionId, segment) => {
+      ackSinkRef?.considerInterruption(sessionId, segment);
       // A cancellation is an ANSWER to a prompt Zeca just spoke, not a command,
       // so it is checked before the wake gate and before the discussion branch
       // and it needs no wake word.
       if (segment.final && confirmBus.consumeSegment(sessionId, segment.text)) return;
       const mode = ingress?.sessions.get(sessionId)?.record.mode ?? null;
+      if (!segment.final && live.wakeEnabled) {
+        (mode === "pendant" ? pendantWakeBus : wakeBus).observeFeedbackInterim(sessionId, segment);
+      }
       // Language is learned ONLY from speech aimed at Zeca: a segment carrying
       // the wake word, or one arriving while the capture window is open.
       // Ambient television in another language must never flip the cue.
@@ -1234,6 +1182,7 @@ export async function startServer(cfg = loadConfig()) {
     }
   });
   const ingress = new CaptureIngress({
+    listening,
     cfg: live,
     store,
     counters,
@@ -1297,8 +1246,12 @@ export async function startServer(cfg = loadConfig()) {
     counters.bump("wake_confirmation_push_after_timeout");
     void notifier.send(entry.payload).catch(() => []);
   };
-  ingress.onSpokenReceipt = (msg) => {
-    ackSink.handleSpokenReceipt(msg);
+  ackSink.onInterrupt = (ackId) => {
+    awaitingReceipt.delete(ackId);
+    for (const bus of answerBuses) bus.armAnswerWindow(ackId);
+  };
+  ingress.onSpokenReceipt = (msg, sessionId) => {
+    if (!ackSink.handleSpokenReceipt(msg, sessionId)) return;
     // The announcement has actually left the speaker now, so the microphone is
     // hearing the user again rather than us.
     if (msg?.ok) {
@@ -1372,14 +1325,14 @@ export async function startServer(cfg = loadConfig()) {
       transcriber,
       wakeBus,
       pendantWakeBus,
-      omiWakeBus,
       activeConversation,
       feedbackBus,
       echoGuard,
       notifier,
       voice,
       ackSink,
-      zeca
+      zeca,
+      listening
     })
   );
   server.on("upgrade", (req, socket, head) => ingress.handleUpgrade(req, socket, head));
@@ -1397,6 +1350,7 @@ export async function startServer(cfg = loadConfig()) {
 
   await new Promise((resolve) => server.listen(cfg.port, cfg.bindHost, resolve));
   live.port = server.address().port;
+  listening.start();
   await writeStatusFile(live);
   zeca.start();
   console.log(
@@ -1428,9 +1382,9 @@ export async function startServer(cfg = loadConfig()) {
     transcriber,
     wakeBus,
     pendantWakeBus,
-    omiWakeBus,
     activeConversation,
     feedbackBus,
+    listening,
     echoGuard,
     notifier,
     voice,

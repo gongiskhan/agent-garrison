@@ -23,6 +23,7 @@ beforeEach(() => {
   sandbox = mkdtempSync(path.join(os.tmpdir(), "shells-hooks-"));
   env = {
     ...process.env,
+    GARRISON_CLAUDE_HOME: undefined, CLAUDE_CONFIG_DIR: undefined, CODEX_HOME: undefined, GEMINI_CLI_HOME: undefined, GARRISON_SHARE_TARGET: undefined,
     HOME: sandbox,
     GARRISON_HOME: path.join(sandbox, "garrison"),
     GARRISON_CURSOR_HOME: path.join(sandbox, "cursor-home"),
@@ -42,7 +43,7 @@ describe("install-hooks.mjs", () => {
     mkdirSync(home, { recursive: true });
     const file = path.join(home, "settings.json");
     const unrelated = { type: "command", command: "echo existing" };
-    writeFileSync(file, JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "/tmp/agent-event-hook.sh agent-start claude" }, unrelated] }] } }));
+    writeFileSync(file, JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: `${env.GARRISON_HOME}/shells/agent-event-hook.sh agent-start claude` }, unrelated] }] } }));
     uninstallHooks(env, () => {});
     expect(readJson(file)).toEqual({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [unrelated] }] } });
   });
@@ -199,4 +200,30 @@ describe("uninstall-hooks.mjs", () => {
     const result = uninstallHooks(env, () => {});
     expect(result.removed).toBe(0);
   });
+});
+
+it("managed setup respects launcher homes and sharing is scoped to the requested runtime", () => {
+  const managed = { ...env, GARRISON_SHARE_TARGET: "garrison", GARRISON_CLAUDE_HOME: path.join(sandbox, "managed-claude"), CODEX_HOME: path.join(sandbox, "managed-codex"), GEMINI_CLI_HOME: path.join(sandbox, "managed-gemini") };
+  for (const home of [managed.GARRISON_CLAUDE_HOME, managed.CODEX_HOME, managed.GEMINI_CLI_HOME, env.GARRISON_SHELLS_CLAUDE_HOME!, env.GARRISON_CURSOR_HOME!]) mkdirSync(home, { recursive: true });
+  installHooks(managed, () => {});
+  expect(readJson(path.join(managed.GARRISON_CLAUDE_HOME, "settings.json"))).toHaveProperty("hooks.Stop.0._garrison", "fitting:remote-shell-runtime");
+  expect(readJson(path.join(managed.CODEX_HOME, "hooks.json"))).toHaveProperty("hooks.Stop.0._garrison", "fitting:remote-shell-runtime");
+  expect(() => readJson(path.join(env.GARRISON_CURSOR_HOME!, "hooks.json"))).toThrow();
+  expect(() => readJson(path.join(env.GARRISON_SHELLS_CLAUDE_HOME!, "settings.json"))).toThrow();
+  installHooks({ ...env, GARRISON_SHARE_TARGET: "user", GARRISON_SHARE_RUNTIMES: "claude-code" }, () => {});
+  expect(readJson(path.join(env.GARRISON_SHELLS_CLAUDE_HOME!, "settings.json"))).toHaveProperty("hooks.Stop");
+});
+it("uninstall preserves a user's identically named script and archives original groups", () => {
+  mkdirSync(env.GARRISON_SHELLS_CLAUDE_HOME!, { recursive: true });
+  const file = path.join(env.GARRISON_SHELLS_CLAUDE_HOME!, "settings.json");
+  const mine = { hooks: [{ command: "/my/agent-event-hook.sh agent-start claude" }] };
+  writeFileSync(file, JSON.stringify({ hooks: { Stop: [mine] } }));
+  installHooks(env, () => {}); uninstallHooks(env, () => {});
+  expect(readJson(file)).toEqual({ hooks: { Stop: [mine] } });
+});
+it("never replaces malformed user settings during sharing", () => {
+  mkdirSync(env.GARRISON_SHELLS_CLAUDE_HOME!, { recursive: true });
+  const file = path.join(env.GARRISON_SHELLS_CLAUDE_HOME!, "settings.json"); writeFileSync(file, "{partial");
+  expect(() => installHooks({ ...env, GARRISON_SHARE_TARGET: "user", GARRISON_SHARE_RUNTIMES: "claude-code" }, () => {})).toThrow();
+  expect(readFileSync(file, "utf8")).toBe("{partial");
 });

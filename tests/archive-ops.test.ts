@@ -1,0 +1,51 @@
+import { it,expect } from 'vitest';import fs from 'node:fs/promises';import path from 'node:path';import { scratch,fixture } from './archive-test-helpers';
+// @ts-ignore
+import { parseCard } from '../packages/archive/src/card.mjs';
+// @ts-ignore
+import { writeSidecar } from '../packages/archive/src/ingest/sidecar.mjs';
+it('J1.1 creates, uploads, covers, comments, renames, moves, trashes and restores a card',async()=>{const s=await scratch({seed:false});try{
+ const list=(await s.request('list','POST',{title:'Personal documents'})).data.path;const house=(await s.request('list','POST',{title:'House'})).data.path;let card=(await s.request('card','POST',{list,title:'Cartão de Cidadão Diogo',description:'Number, validity and where the original is kept.'})).data.path;
+ const form=new FormData();form.set('target',card);form.append('files[]',new Blob([await fs.readFile(path.join(fixture,'sample-document.jpg'))]),'frente.jpg');form.append('files[]',new Blob([await fs.readFile(path.join(fixture,'sample-house.jpg'))]),'verso.jpg');expect((await s.request('upload','POST',form)).status).toBe(200);
+ const get=async()=>(await s.request('card?path='+encodeURIComponent(card))).data;const patch=async(values:any)=>{const out=await s.request('card','PATCH',{path:card,baseSha:(await get()).sha,...values});expect(out.status).toBe(200);card=out.data.path;};
+ await patch({cover:'frente.jpg',tags:['documentos','filhos'],details:[{label:'Reference',value:'FAKE'}],links:[{title:'Portal',url:'https://example.org/'}],checklists:[{title:'Renewal',items:[{text:'Book',done:false}]}]});expect((await s.request('card/comment','POST',{path:card,text:'Original está na gaveta.'})).status).toBe(200);
+ await s.write(card+'/frente.jpg.md','---\ngarrison: derived\nsource: frente.jpg\nstatus: ok\n---\n## Text\nFAKE\n');await patch({title:'Diogo / Identity'});expect(card).toContain('Diogo - Identity');await patch({moveToList:house});expect(card).toBe('Archive/House/Diogo - Identity');expect(await s.read(card+'/frente.jpg.md')).toContain('source: frente.jpg');
+ const deleted=(await s.request('card','DELETE',{path:card})).data;expect(deleted.trashedTo).toMatch(/^\d{4}-\d\d-\d\dT/);expect((await s.request('card?path='+encodeURIComponent(card))).status).toBe(404);const restored=await s.request('trash/restore','POST',{entry:deleted.trashedTo});expect(restored.data.path).toBe(card);
+ const raw=await s.read(card+'/index.md'),parsed=parseCard(raw);expect(Object.keys(parsed.frontmatter)).toEqual(['garrison','title','order','created','updated','cover','tags']);expect(raw.match(/^## .+$/gm)).toEqual(['## Details','## Links','## Checklists','## Comments']);expect(parsed.frontmatter.order).toBe(10);expect(parsed.comments[0].author).toBe('Gonçalo');expect((await get()).attachments).toHaveLength(2);
+}finally{await s.close();}});
+it('refuses lost updates, invalid covers, nonempty list deletion and oversize uploads',async()=>{const s=await scratch({seed:false});try{
+ const list=(await s.request('list','POST',{title:'A'})).data.path,card=(await s.request('card','POST',{list,title:'C'})).data.path;const current=(await s.request('card?path='+card)).data;await s.write(card+'/index.md',(await s.read(card+'/index.md'))+'External\n');expect((await s.request('card','PATCH',{path:card,baseSha:current.sha,title:'Lost'})).status).toBe(409);expect((await s.request('list','DELETE',{path:list})).data.error).toBe('Move or delete its cards first.');const updated=(await s.request('card?path='+card)).data;expect((await s.request('card','PATCH',{path:card,baseSha:updated.sha,cover:'../../x.jpg'})).status).toBe(400);
+ const form=new FormData();form.set('target',card);form.append('files[]',new Blob([new Uint8Array(26*1024*1024)]),'large.pdf');const out=await s.request('upload','POST',form);expect(out.status).toBe(413);expect(out.data.error).toBe('large.pdf is 26 MB. The limit is 25 MB, so it was not added. Large files can be linked instead.');
+}finally{await s.close();}});
+it('moves an inbox source and sidecar together and preserves collisions on restore',async()=>{const s=await scratch({seed:false});try{
+ const list=(await s.request('list','POST',{title:'A'})).data.path,card=(await s.request('card','POST',{list,title:'C'})).data.path;
+ await s.write('Archive/Inbox/a.txt','Data');await s.write('Archive/Inbox/a.txt.md','---\ngarrison: derived\nsource: a.txt\nstatus: ok\n---\n## Text\nData');await s.write(card+'/a.txt','Other');const moved=(await s.request('inbox/file','POST',{path:'Archive/Inbox/a.txt',toCard:card})).data;expect(moved.path).toBe(card+'/a (2).txt');expect(await s.read(moved.path+'.md')).toContain('source: a (2).txt');expect(await fs.stat(path.join(s.vaultDir,'Archive/Inbox/a.txt.md')).catch(()=>null)).toBeNull();
+ const first=(await s.request('card','DELETE',{path:card})).data;await s.request('card','POST',{list,title:'C'});const restored=(await s.request('trash/restore','POST',{entry:first.trashedTo})).data;expect(restored.path).toBe(card+' (2)');expect(await s.read(restored.path+'/a (2).txt')).toBe('Data');expect((await s.request('trash')).data.entries).toHaveLength(0);
+}finally{await s.close();}});
+
+it('restores a colliding file with its extension and sidecar source intact',async()=>{const s=await scratch({seed:false});try{await s.write('Archive/Inbox/a.txt','First');await s.write('Archive/Inbox/a.txt.md','---\ngarrison: derived\nsource: a.txt\n---\n## Text\nFirst');const entry=(await s.request('file','DELETE',{path:'Archive/Inbox/a.txt'})).data.trashedTo;await s.write('Archive/Inbox/a.txt','Second');const result=(await s.request('trash/restore','POST',{entry})).data;expect(result.path).toBe('Archive/Inbox/a (2).txt');expect(await s.read(result.path+'.md')).toContain('source: a (2).txt');expect(await s.read('Archive/Inbox/a.txt')).toBe('Second');}finally{await s.close();}});
+
+it('duplicate uploads keep their extension and never replace an existing source or sidecar',async()=>{const s=await scratch({seed:false});try{await s.request('card','POST',{list:'Archive',title:'Photos'});await s.write('Archive/Photos/photo.jpg','Original');await s.write('Archive/Photos/photo (2).jpg.md','Authored collision');const form=new FormData();form.set('target','Archive/Photos');form.append('files[]',new Blob(['New image']),'photo.jpg');const out=await s.request('upload','POST',form);expect(out.data.files[0].path).toBe('Archive/Photos/photo (3).jpg');expect(await s.read('Archive/Photos/photo.jpg')).toBe('Original');expect(await s.read('Archive/Photos/photo (2).jpg.md')).toBe('Authored collision');}finally{await s.close();}});
+
+it('accepts a multiline comment beyond a title-sized limit',async()=>{const s=await scratch();try{const content='A detailed fixture comment.\n'.repeat(30);const out=await s.request('card/comment','POST',{path:'Archive/House/House maintenance',text:content});expect(out.status).toBe(200);expect((await s.request('card?path=Archive%2FHouse%2FHouse%20maintenance')).data.comments[0].markdown).toContain(content.trim());}finally{await s.close();}});
+
+it('restores an empty folder on a fresh node where Git preserved only its trash metadata',async()=>{
+ const s=await scratch({seed:false});try{
+  // Existing folders made by external editors can have no metadata file.
+  const p='Archive/Empty reference folder';await fs.mkdir(path.join(s.vaultDir,p));
+  const removed=await s.request('list','DELETE',{path:p});expect(removed.status).toBe(200);
+  // Git does not preserve empty directories. Simulate a fresh node's checkout.
+  const entry=path.join(s.vaultDir,'Archive/.trash',removed.data.trashedTo);
+  await fs.rm(path.join(entry,'content'),{recursive:true});
+  const restored=await s.request('trash/restore','POST',{entry:removed.data.trashedTo});expect(restored.status).toBe(200);expect(restored.data.path).toBe(p);expect(await fs.readdir(path.join(s.vaultDir,p))).toEqual([]);
+ }finally{await s.close();}
+});
+
+it('keeps the recovery entry and reports a missing nonempty payload instead of restoring an empty document',async()=>{
+ const s=await scratch({seed:false});try{
+  const p=(await s.request('card','POST',{list:'Archive',title:'Retained document'})).data.path;
+  const removed=await s.request('card','DELETE',{path:p});const entry=path.join(s.vaultDir,'Archive/.trash',removed.data.trashedTo);
+  await fs.rm(path.join(entry,'content'),{recursive:true});
+  expect((await s.request('trash/restore','POST',{entry:removed.data.trashedTo})).status).toBe(404);
+  expect(await fs.stat(path.join(s.vaultDir,p)).catch(()=>null)).toBeNull();expect(await fs.stat(path.join(entry,'entry.json'))).toBeTruthy();
+ }finally{await s.close();}
+});

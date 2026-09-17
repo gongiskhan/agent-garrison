@@ -15,7 +15,7 @@ log in [`PROGRESS.md`](./PROGRESS.md).
 - State: `$GARRISON_HOME/capture/` (override `GARRISON_CAPTURE_DIR`) —
   `sessions/` (deterministic session records), `transcripts/<id>.json`,
   `media/<id>/audio.log` + `frames/*.jpg`, `events/` (the shared triage
-  inbox; the store LAYOUT is the contract omi's tick reads),
+  inbox read by this fitting's triage tick),
   `index.json` (session -> event dedupe), `devices.json` (APNs tokens),
   `notify-ledger.json` (per-day push cap), `notify-seen.json` (idempotency),
   `acks-log.jsonl` (ids and outcomes only, never text), `counters-*.json`.
@@ -33,18 +33,6 @@ log in [`PROGRESS.md`](./PROGRESS.md).
   the Bearer from `CAPTURE_TOKEN`). A clip rendered by `/tts` is the same clip
   the phone fetches unauthenticated at `/speak/<id>.mp3`. `GET /health` carries
   `voice: {stt, tts, ttsBackend, restEnabled}` and `keyConfigured` (= `voice.stt`).
-- Text ingest (D24): omi-channel forwards its realtime segments to
-  `POST /capture/ingest/text` (Bearer `CAPTURE_TOKEN`; `{source: "omi",
-  session_id, segments: [{text, speaker?, is_user?, start?, end?}]}`; 202
-  `{session, accepted}`). Each `<source>:<session_id>` is a socket-less text
-  session in the ingress: no media log, no transcript, no session record on
-  disk and no capture_event when it ends - the idle timer
-  (`text_session_idle_ms`, default 2 min) drops it from memory and bumps
-  `text_sessions_closed`. Segments cross the shared echo guard, then feed the
-  omi wake bus only (source `omi`, memory prefix `omi`, the same
-  speak-first-then-push notifier as the companion and pendant buses), so a
-  spoken "Zeca, ..." picked up by the Omi device dispatches like one heard by
-  the phone.
 - Active conversation (D25): a delegate reply carries the gateway's
   `session_id`; for `active_conversation_window_ms` (default 5 min) the same
   bus resumes that conversation instead of its deterministic
@@ -66,10 +54,6 @@ log in [`PROGRESS.md`](./PROGRESS.md).
 | `tts_enabled` | spoken clips (phone acks AND `POST /tts`) | phone speaks acks in its own voice; `/tts` answers 503 and `/health` reports `voice.tts: false`; no TTS billing |
 | `tts_backend` | which engine speaks (`auto` / `elevenlabs` / `deepgram`) | not a switch but a selector: `auto` takes ElevenLabs when its key is sealed, else Deepgram Aura, else no TTS; an explicit engine without its key means no TTS (503 on `/tts`, phone-voice acks), never a silent swap. Cache ids carry the backend, so switching never replays the other engine's clip |
 
-`POST /capture/ingest/text` follows `enabled` (403) like the websocket; its
-segments only reach the wake bus while `wake_enabled` is on, so the kill switch
-covers the Omi device too.
-
 `POST /stt` has no flag of its own: it is off when `enabled` is off (403), or
 when `DEEPGRAM_API_KEY` is not sealed (503, `voice.stt: false`). Unsealing
 `CAPTURE_TOKEN` closes every authed surface at once (403 "not sealed").
@@ -77,7 +61,7 @@ when `DEEPGRAM_API_KEY` is not sealed (503, `voice.stt: false`). Unsealing
 Config changes apply at the next `up` (env-fingerprint heal) or immediately
 via `POST /api/fittings/capture-service/restart`.
 
-## The two model lanes (unchanged from omi — do not collapse them)
+## The model lanes (keep classification separate from delegation)
 
 Wake classification pins `classify_target` (default `cc-haiku-low`, ~6s);
 unpinned it lands on the composition's duty cell (measured 82s). Delegation
@@ -203,7 +187,7 @@ taken — it never falls back to a shifted port.
   `ambient`) applies ONLY to pendant sessions. Mic sessions never read it.
 - wake_only storage contract (asserted in tests/pendant-capture.test.ts):
   no media log, no transcript, no session record, no session capture_event.
-  The wake path persists exactly what omi's does: a wake_command event,
+  The wake path persists: a wake_command event,
   wake-results, the card. Counters carry everything else
   (`pendant_sessions_unpersisted`, `transcripts_dropped_policy`).
 - Feedback loop: server pushes {type:"feedback"} events (wake_detected,
@@ -219,9 +203,23 @@ taken — it never falls back to a shifted port.
   wire dialect: `node scripts/replay-client.mjs run --mode pendant
   --fixture pt-hellogarrison --cadence real`.
 - Pendant wake identity: source "pendant", origin pendant:wake:<event>,
-  thread pendant-reports; triage identity added additively in omi-channel's
+  thread pendant-reports; triage identity lives in this fitting's
   TRIAGE_SOURCES (ambient sessions only - wake commands never batch-triage).
 - BLE layer: docs/pendant-protocol.md is the wire truth; the Companion's
   transport does connect-by-retrieval, 200 ms chipset-level reconnect, and a
   4 s audio liveness watchdog (one forced CCCD re-arm) after every
   reconnect. Pairing-lost stops auto-reconnect and needs the user.
+
+## Capture triage ownership (2026-09-10)
+
+`triage_enabled` starts one `capture-triage-<node>` scheduler job per owner
+node. The default cadence is five minutes (`triage_cron`). Each tick reads
+only that node's `capture/events`; memory, cards, provenance, duplicate
+suppression and wait-for-context batching remain in this fitting. The
+retirement migration preserves previous triage settings, with the former
+batch model copied into `triage_classify_target` independently of the wake
+classifier. Fresh, unequipped installs keep triage off by default.
+
+The Omi fitting, webhook, MCP, outbound notifications and text-ingest endpoint
+are retired. Historical events and memory are retained on their owner; no
+Omi API client is needed to read them. Native BLE and Deepgram remain intact.

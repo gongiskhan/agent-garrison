@@ -73,7 +73,7 @@ x-garrison:
       description: full = software-engineering system prompt + cwd-confined file tools (coding roles); lean = minimal chat prompt, tools disabled (chat/classification roles, lower token floor).
     - key: maxTurns
       type: number
-      default: 12
+      default: 800
       description: Cap on the agentic loop - the loop has no natural bound, so an unbounded run would burn paid credits until stopped.
     - key: account
       type: string

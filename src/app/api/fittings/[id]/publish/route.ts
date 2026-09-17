@@ -1,3 +1,4 @@
+import {RETIRED_PROJECTS_FITTING} from "@/lib/composition-migrate";
 import { NextResponse } from "next/server";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -13,6 +14,7 @@ export const dynamic = "force-dynamic";
 // own-port fitting's port on the HTTPS tailnet on demand (issue #6), instead of
 // waiting for the next redeploy's batch publisher.
 export async function POST(_req: Request, { params }: { params: { id: string } }) {
+  if (params.id === RETIRED_PROJECTS_FITTING) return NextResponse.json({error: "not found"}, {status: 404});
   if (!isValidFittingId(params.id)) {
     return NextResponse.json({ error: "invalid fittingId" }, { status: 400 });
   }

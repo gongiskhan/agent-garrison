@@ -41,7 +41,7 @@ describe.skipIf(!RUN)("global-composition (real apm)", () => {
   it(
     "deploys a seed skill through the symlink AND preserves a pre-existing loose primitive",
     async () => {
-      const seed = path.resolve(REPO_ROOT, "fittings/seed/documents");
+      const seed = path.resolve(REPO_ROOT, "fittings/seed/pdf");
       expect(fs.existsSync(seed)).toBe(true);
 
       // The load-bearing property the whole architecture rests on: a hand-authored

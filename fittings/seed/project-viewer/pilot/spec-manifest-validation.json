@@ -105,7 +105,7 @@
           "id": "the-500",
           "title": "What failure costs",
           "kind": "db",
-          "asciiSample": "GET /api/compositions\n\n  entry            manifest      outcome\n  ---------------- ------------- ------------------------------------------\n  file-browser     present, ok   parsed\n  monitor-default  present, ok   parsed\n  <yours>          ABSENT        skipped, warning logged  -> survivable\n  <yours>          PRESENT, BAD  THROWS -> 500 -> whole Muster UI is down\n\n  (illustrative rows: the two right-hand outcomes are the two real\n   branches in readLibrary, not sampled request data)",
+          "asciiSample": "GET /api/compositions\n\n  entry            manifest      outcome\n  ---------------- ------------- ------------------------------------------\n  sample-view      present, ok   parsed\n  monitor-default  present, ok   parsed\n  <yours>          ABSENT        skipped, warning logged  -> survivable\n  <yours>          PRESENT, BAD  THROWS -> 500 -> whole Muster UI is down\n\n  (illustrative rows: the two right-hand outcomes are the two real\n   branches in readLibrary, not sampled request data)",
           "description": "The asymmetry is the thing worth remembering. A fitting missing from the registry is invisible and everything else keeps working. A fitting present in the registry with a manifest that will not parse takes down every route that reads the library — so the cheap failure and the expensive failure look almost identical from the outside.",
           "next": []
         }

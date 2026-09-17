@@ -42,7 +42,7 @@ x-garrison:
       description: full = claude_code preset + settingSources[project] + skills; coding = full PLUS the user's real ~/.claude profile (settingSources[user,project] - Anthropic providers only, others downgrade to full); lean = minimal system string, no CLAUDE.md/skills (chat roles, lower token floor).
     - key: maxTurns
       type: number
-      default: 12
+      default: 800
       description: Cap on the agentic loop — SDK sessions have no default turn limit, so an unbounded loop would run until stopped.
     - key: account
       type: string

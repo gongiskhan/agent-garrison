@@ -314,6 +314,7 @@ export interface ConnectorSetupHelp {
 }
 
 export interface ConnectorSpec {
+  messaging?: import("../../packages/messages/types").ProviderDescriptor;
   managed?: boolean;
   setup_help?: ConnectorSetupHelp;
   auth: "oauth2" | "api_key" | "none";
@@ -407,6 +408,7 @@ export interface GarrisonMetadata {
    * in metadata.ts for why membership is not free.
    */
   default_fit?: boolean;
+  shared_default?: SharedRuntime[];
   component_shape: FittingShape;
   platforms: PlatformId[];
   summary?: string;
@@ -420,6 +422,7 @@ export interface GarrisonMetadata {
   // runner and the Setup Instructions editor) always sees a list. `undefined`
   // when the fitting declares no setup.
   setup?: SetupStep[];
+  uninstall?: SetupStep[];
   // Duty specs for each kind:duty provision this Fitting declares (one per
   // provision; provision name === duty id). Empty for non-duty Fittings.
   duties?: DutySpec[];
@@ -593,9 +596,13 @@ export interface LibraryEntry {
   cloned_from?: string;
 }
 
+export const sharedRuntimes = ["claude-code", "codex", "gemini"] as const;
+export type SharedRuntime = (typeof sharedRuntimes)[number];
 export interface SelectedFitting {
   id: string;
   config: Record<string, string | number | boolean>;
+  // Also install primitives in the user's own runtime config; absent means Garrison-only.
+  shared?: SharedRuntime[];
 }
 
 export type FittingSelectionMap = Partial<Record<FacultyId, SelectedFitting[]>>;
@@ -607,6 +614,7 @@ export interface GuardrailsConfig {
 }
 
 export interface GlobalConfig {
+  archive?: { extract_target: string; max_file_mb: number; pdf_max_pages: number; author: string };
   projects_root: string;
   vault: string;
   platform: "claude-code";

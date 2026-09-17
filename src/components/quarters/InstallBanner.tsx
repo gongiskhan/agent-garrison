@@ -22,10 +22,8 @@ function fmt(ts: string | null): string {
   }
 }
 
-// Machine-level Install gate control for Garrison's management of ~/.claude.
-// Until Install runs, Garrison refuses every write to the user's Claude Code
-// config (reads still work — Quarters can SHOW it). Install first snapshots the
-// pristine config as the restore baseline, then enables management.
+// Existing install controls remain here until install moves to Mesh.
+// The managed config is now the Garrison home.
 export function InstallBanner() {
   const [status, setStatus] = useState<InstallStatus | null>(null);
   const [busy, setBusy] = useState<Action | null>(null);
@@ -60,9 +58,9 @@ export function InstallBanner() {
         setStatus(data as InstallStatus);
         setMsg(
           action === "install"
-            ? "Installed. Garrison now manages ~/.claude; your prior config was backed up."
+            ? "Installed. Garrison manages its own home; your prior config was backed up."
             : action === "disable"
-              ? "Management disabled. Garrison will not write to ~/.claude."
+              ? "Management disabled. Garrison will not update its runtime config."
               : "Backed up current config."
         );
       } else {
@@ -90,9 +88,8 @@ export function InstallBanner() {
         <div style={{ flex: 1 }}>
           <h5 style={{ margin: 0 }}>Garrison is not managing this machine</h5>
           <p style={{ margin: "4px 0 0" }}>
-            Your <code>~/.claude</code> config is untouched — Garrison refuses every write until you
-            install it here. Installing snapshots your current config first (a restore point), then
-            merges Garrison&apos;s pieces in without overwriting your settings.
+            Garrison keeps its runtime config in the Garrison home. Installing takes a backup of
+            your Claude Code config first; only fittings marked Shared are installed there.
             {msg ? <b style={{ marginLeft: 6 }} data-testid="install-msg">{msg}</b> : null}
           </p>
         </div>
@@ -127,7 +124,7 @@ export function InstallBanner() {
       }}
     >
       <span className="pill verified" style={{ fontSize: 10.5 }}>
-        managing ~/.claude
+        Garrison home
       </span>
       <div style={{ flex: 1, minWidth: 0, color: "var(--mute)" }}>
         {status.grandfathered ? (
@@ -163,7 +160,7 @@ export function InstallBanner() {
         data-testid="disable-button"
         disabled={busy !== null}
         onClick={() => void act("disable")}
-        title="Stop Garrison writing to ~/.claude. Nothing is removed or restored (full Uninstall is separate)."
+        title="Stop Garrison updating its runtime config. Shared fittings stay installed until unshared."
       >
         {busy === "disable" ? "Disabling…" : "Disable"}
       </button>

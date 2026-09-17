@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { startStateService } from "./state-service-harness";
 import { resetStateClient } from "@/lib/state-client";
-import { credentialNames, getAccessToken, oauthHealth, revokeOAuthGrant, scopedSecrets, setOAuthGrant, writeConnectorSecrets } from "@/lib/connector-auth";
+import { credentialNames, getAccessToken, oauthHealth, revokeOAuthGrant, scopedSecrets, setOAuthGrant, writeConnectorSecrets,
+  setConnectorOAuthAccount, listConnectorAccounts, getConnectorAccountToken } from "@/lib/connector-auth";
 import { ensureCaptureCredential } from "@/lib/capture-credential";
 
 let service: Awaited<ReturnType<typeof startStateService>>;
@@ -60,5 +61,18 @@ describe("mesh connector credentials", () => {
     resetStateClient();
     await expect(getAccessToken("google")).rejects.toThrow("not connected");
     expect(await oauthHealth()).toEqual([expect.objectContaining({ status: "revoked" })]);
+  });
+
+  it("keeps each mailbox grant separate while preserving the original default account", async () => {
+    const scopes = ["https://www.googleapis.com/auth/gmail.modify"];
+    await setConnectorOAuthAccount("multi-google", { id: "work@example.test", label: "Work", address: "work@example.test" }, { accessToken: "work-token", scopes });
+    await setConnectorOAuthAccount("multi-google", { id: "personal@example.test", label: "Personal", address: "personal@example.test" }, { accessToken: "personal-token", scopes });
+    const accounts = await listConnectorAccounts("multi-google");
+    expect(accounts).toHaveLength(2);
+    expect(JSON.stringify(accounts)).not.toContain("work-token");
+    expect(JSON.stringify(accounts)).not.toContain("personal-token");
+    expect(await getAccessToken("multi-google")).toBe("work-token");
+    expect(await getConnectorAccountToken("multi-google", "personal@example.test")).toBe("personal-token");
+    await expect(getConnectorAccountToken("multi-google", "missing@example.test")).rejects.toThrow("not connected");
   });
 });

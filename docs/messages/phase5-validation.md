@@ -1,0 +1,9 @@
+# Phase 5: WhatsApp
+
+The existing Baileys fitting registers a Messages descriptor, retains its established pairing and 60-second agent outbox, adds a durable 24-hour reconciliation journal, and exposes bounded read, media and action callbacks. User sends go immediately through the existing send path. After Messages registration, inbound bodies feed the store without automatic model dispatch.
+
+Two unique browser cases passed for the group-photo reply journey. Both profiles are covered: iPhone 390 by 844, device scale factor 3 and touch, and desktop 1440 by 900. They prove discovery through the fitting descriptor, the WhatsApp badge and group title, fitted and zoomed full-screen photos, and a user reply. The phase fixture batch recorded 19 passing WhatsApp tests.
+
+The lead viewed all eight final screenshots in `evidence/messages/p5`. The stems `group-inbox`, `photo-viewer`, `photo-viewer-zoomed` and `group-replied` each have an `-iphone.png` and `-desktop.png` capture. The zoomed capture intentionally shows a magnified image; the separate fitted capture proves the initial complete image view. The complete filename inventory is [ui-screenshot-inventory.json](../../evidence/messages/p8/ui-screenshot-inventory.json), and the final browser receipts are [ui-test-results.json](../../evidence/messages/p8/ui-test-results.json).
+
+The paired self-only live image, read, reply and delete checks pass after deployment. Read and delete are confirmed by exact-revision provider completion receipts. The original download exposed a cross-node proxy defect; after its correction, the same real image decodes at 320 by 240 on both browser profiles and the lead viewed it. Live receipts are in evidence/messages/live/whatsapp-confirmed/ and evidence/messages/live/madrid-live-media-proof.json. The final reviewed WhatsApp adapter bundle contains 22 passing tests. Phase 8 repeats the live smoke on the final deployed revision.

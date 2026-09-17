@@ -64,7 +64,7 @@ function isStrictlyInside(root: string, target: string): boolean {
 // Returns the realpath, which is the path already proven contained and the same
 // canonical identity the other dev-root scanners hand out - so the ~/dev vs
 // ~/Projects symlink pair cannot produce two spellings of one repo.
-export function resolveProjectName(
+function resolveDevRootChild(
   label: string,
   { devRoot = readDevRoot() }: { devRoot?: string } = {}
 ): string | null {
@@ -99,10 +99,30 @@ export function resolveProjectName(
   return real;
 }
 
+// The sole alias for a shell checkout outside its configured dev-root. Ordinary
+// resolution keeps matching the gateway; the core surface opts into this alias.
+export function selfCheckoutProject(): { project: string; root: string } {
+  return { project: "garrison", root: fs.realpathSync(process.cwd()) };
+}
+
+export function resolveProjectName(
+  label: string,
+  { devRoot = readDevRoot(), selfCheckout = false }: { devRoot?: string; selfCheckout?: boolean } = {}
+): string | null {
+  if (typeof label !== "string" || ["machines", "workspace"].includes(label.trim())) return null;
+  const root = resolveDevRootChild(label, { devRoot });
+  if (root || !selfCheckout) return root;
+  const checkout = selfCheckoutProject();
+  return label === checkout.project ? checkout.root : null;
+}
+
 // The dev-root child names resolveProjectName would accept, sorted. Every
 // candidate is re-run through the resolver so an offered name and an accepted
 // name cannot drift. Never throws: an unreadable dev-root yields [].
-export function listProjectNames(devRoot: string = readDevRoot()): string[] {
+export function listProjectNames(
+  devRoot: string = readDevRoot(),
+  { selfCheckout = false }: { selfCheckout?: boolean } = {}
+): string[] {
   const root = expandHome(devRoot);
   if (!fs.existsSync(root)) return [];
   let entries: fs.Dirent[];
@@ -115,6 +135,11 @@ export function listProjectNames(devRoot: string = readDevRoot()): string[] {
   for (const entry of entries) {
     if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
     if (resolveProjectName(entry.name, { devRoot: root })) names.push(entry.name);
+  }
+  if (selfCheckout) {
+    const checkout = selfCheckoutProject();
+    const listed = names.some(name => resolveProjectName(name, { devRoot: root }) === checkout.root);
+    if (!listed && !names.includes(checkout.project)) names.push(checkout.project);
   }
   names.sort((a, b) => a.localeCompare(b));
   return names;

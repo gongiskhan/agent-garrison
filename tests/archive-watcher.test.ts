@@ -1,0 +1,43 @@
+import { it,expect } from 'vitest';import fs from 'node:fs/promises';import path from 'node:path';import { scratch } from './archive-test-helpers';
+const until=async(test:()=>Promise<boolean>|boolean,ms=1000)=>{const end=Date.now()+ms;while(!await test()){if(Date.now()>end)throw new Error('Watcher deadline exceeded');await new Promise(r=>setTimeout(r,15));}};
+it('updates search within one second and removes orphan sidecars',async()=>{const s=await scratch({seed:false,watch:true});try{
+ const start=performance.now();await s.write('Memory/Fresh.md','# Freshnessneedle');await until(()=>s.service.index.query('Freshnessneedle').total===1);expect(performance.now()-start).toBeLessThan(1000);
+ await s.write('Archive/Inbox/orphan.txt.md','---\ngarrison: derived\nsource: orphan.txt\n---\n## Text\nOrphan');await until(async()=>!await fs.stat(path.join(s.vaultDir,'Archive/Inbox/orphan.txt.md')).catch(()=>null));
+}finally{await s.close();}},8000);
+it('repairs external moves and the UI carries the source-sidecar pair',async()=>{const s=await scratch({seed:false,watch:true});try{
+ await s.write('Archive/Inbox/old.txt','Move text');await s.write('Archive/Inbox/old.txt.md','---\ngarrison: derived\nsource: old.txt\nstatus: ok\n---\n## Text\nMove text');await new Promise(r=>setTimeout(r,700));await fs.rename(path.join(s.vaultDir,'Archive/Inbox/old.txt'),path.join(s.vaultDir,'Archive/Inbox/new.txt'));await until(async()=>!await fs.stat(path.join(s.vaultDir,'Archive/Inbox/old.txt.md')).catch(()=>null));await until(()=>s.service.jobs.list('done').some((j:any)=>j.kind==='ingest'&&j.input.path==='Archive/Inbox/new.txt'));await s.service.queue.idle();expect(await s.read('Archive/Inbox/new.txt.md')).toContain('source: new.txt');
+}finally{await s.close();}},8000);
+
+it('indexes a folder burst in one persisted snapshot while preserving existing notes',async()=>{
+ const s=await scratch({seed:false,watch:true});try{
+  s.service.queue.close();await s.write('Memory/Keep.md','# Existing watcher note');await until(()=>s.service.index.query('Existing').total===1);
+  let snapshots=0;const write=s.ctx.write;s.ctx.write=async(p:string,...rest:any[])=>{if(p.endsWith('/index.json'))snapshots++;return write(p,...rest);};
+  for(let n=0;n<20;n++)await s.write(`Archive/Burst/Card ${n}/index.md`,`---\ngarrison: card\ntitle: Watched ${n}\n---\nWatcher-burst-needle`);
+  await until(()=>s.service.index.query('Watcher-burst-needle').total===20,1500);
+  expect(snapshots).toBe(1);expect(s.service.index.query('Existing').total).toBe(1);
+ }finally{await s.close();}
+},8000);
+
+it('waits for a slow paired move before removing orphan sidecars',async()=>{
+ const s=await scratch({watch:true});try{
+  const original=s.ctx.write,source='Archive/Inbox/sample-document.jpg';let sourceSurvived=false;
+  s.ctx.write=async(file:string,data:any,options:any)=>{
+   if(file.includes('House maintenance')&&file.endsWith('.jpg.md')){await new Promise(r=>setTimeout(r,850));sourceSurvived=await fs.stat(path.join(s.vaultDir,source+'.md')).then(()=>true,()=>false);}
+   return original(file,data,options);
+  };
+  const result=await s.request('inbox/file','POST',{path:source,toCard:'Archive/House/House maintenance'});expect(result.status).toBe(200);expect(sourceSurvived).toBe(true);
+  expect(await s.read(result.data.path+'.md')).toContain('garrison: derived');await expect(fs.stat(path.join(s.vaultDir,source))).rejects.toMatchObject({code:'ENOENT'});
+ }finally{await s.close();}
+});
+
+it('keeps indexing external notes while an import waits for its remote board',async()=>{
+ let release!:(value:any)=>void;const board=new Promise(resolve=>{release=resolve;});
+ const s=await scratch({watch:true,credentials:async()=>({TRELLO_KEY:'fixture',TRELLO_TOKEN:'fixture'}),clientFactory:()=>({board:()=>board})});
+ try{
+  const {execFileSync}=await import('node:child_process');for(const args of [['init','-q'],['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','--allow-empty','-qm','Fixture']])execFileSync('git',['-C',s.vaultDir,...args],{stdio:'pipe'});
+  const job=(await s.request('import/trello/run','POST',{boardId:'fixture'})).data.jobId;
+  await until(()=>s.service.jobs.get(job).state==='running');await s.write('Memory/During import.md','# Importdoesnotblockindex');
+  await until(()=>s.service.index.query('Importdoesnotblockindex').total===1);
+  release({id:'fixture',shortLink:'fixture',name:'Fixture',lists:[],cards:[]});await until(()=>s.service.jobs.get(job).state==='done',3000);
+ }finally{release({id:'fixture',shortLink:'fixture',name:'Fixture',lists:[],cards:[]});await s.close();}
+},8000);

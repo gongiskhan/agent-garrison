@@ -248,8 +248,10 @@ afterAll(async () => {
 
 describe("Drill live run observability (S31)", () => {
   it("closes a run record orphaned by a dead server at boot", async () => {
-    const persisted = JSON.parse(readFileSync(path.join(ghome, "drill", "runs", `${ORPHAN_ID}.json`), "utf8"));
-    expect(persisted.endedAt).toBeTruthy();
+    const readPersisted = () => JSON.parse(readFileSync(path.join(ghome, "drill", "runs", `${ORPHAN_ID}.json`), "utf8"));
+    // Health becomes available before the asynchronous boot sweep finishes.
+    await expect.poll(() => readPersisted().endedAt, { timeout: 5000 }).toBeTruthy();
+    const persisted = readPersisted();
     expect(persisted.circuit).toMatchObject({ code: "drill-restarted-mid-run", component: "drill" });
     expect(persisted.infraErrors[0]).toMatchObject({ code: "drill-restarted-mid-run" });
   });

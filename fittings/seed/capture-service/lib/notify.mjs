@@ -10,6 +10,7 @@
 // unconfigured, capped or persistently failing.
 
 import path from "node:path";
+import { emitSystemMessage, isMessageMirror, systemInputFromNotification } from "@garrison/messages/system";
 import { readFileSync } from "node:fs";
 import os from "node:os";
 import { atomicWriteJSON, readJSON } from "./store.mjs";
@@ -224,8 +225,8 @@ export class CompanionNotifier {
     atomicWriteJSON(file, ledger);
   }
 
-  deviceTokens() {
-    return (readJSON(this.store.devicesFile, { tokens: [] }).tokens ?? []).map((t) => t.token);
+  deviceTokens(deviceId = null) {
+    return (readJSON(this.store.devicesFile, { tokens: [] }).tokens ?? []).filter(t => !deviceId || t.device_id === deviceId).map((t) => t.token);
   }
 
   pruneTokens(deadTokens) {
@@ -287,13 +288,30 @@ export class CompanionNotifier {
     });
   }
 
+  async sendListeningPush(payload) {
+    const dedupe = `listening/${payload.idempotencyKey}`;
+    if (this.alreadyDelivered(dedupe)) return { means: "companion-push", ok: true, deduped: true };
+    // The dry-run uses the same payload builder and durable dedupe, without APNs.
+    if (this.cfg.listeningPushDryRun) {
+      this.markDelivered(dedupe);
+      this.log.log(`listening push dry-run ${JSON.stringify(payload)}`);
+      return { means: "companion-push", ok: true, dryRun: true, payload };
+    }
+    this.markDelivered(dedupe);
+    return this.sendPush({ ...payload, priority: "interactive" });
+  }
+
   // The real chain: push, degrading to the Conversations thread. Receipts for
   // every means attempted, in delivery order.
-  async deliver({ title, body, link, path = null, tag, priority = "routine", webFallback = true }) {
+  async deliver({ title, body, link, path = null, tag, priority = "routine", webFallback = true, _messagesMirror = null, idempotencyKey = null }) {
+    if (!isMessageMirror({ _messagesMirror })) {
+      const message = await emitSystemMessage(systemInputFromNotification({ title, body, link, path, tag, idempotencyKey, mirrorContext: {priority,webFallback,...(tag?{tag}:{})} }, "capture"), { env: this.env, fetchImpl: this.fetchImpl });
+      return [{ means: "messages", ok: true, queued: true, messageId: message.id }];
+    }
     const push = await this.sendPush({ title, body, link, path, tag, priority });
     const receipts = [push];
     if (!push.ok) {
-      receipts.push(webFallback ? await this.sendWebChannelFallback(body) : { means: "web-channel", ok: false, skipped: "answer already in the conversation" });
+      receipts.push(webFallback ? await this.sendWebChannelFallback(body, _messagesMirror) : { means: "web-channel", ok: false, skipped: "answer already in the conversation" });
     }
     this.log.log(
       `[capture-service] notify ${tag ?? "message"} -> ${receipts
@@ -303,11 +321,11 @@ export class CompanionNotifier {
     return receipts;
   }
 
-  async sendPush({ title, body, link, path = null, tag, priority = "routine" }) {
+  async sendPush({ title, body, link, path = null, tag, priority = "routine", device_id = null }) {
     const means = "companion-push";
     if (!this.cfg.notifyEnabled) return { means, ok: false, skipped: "notify disabled" };
     if (!this.apns.enabled()) return { means, ok: false, skipped: "APNS_TEAM_ID/APNS_KEY_ID/APNS_P8 not sealed" };
-    const tokens = this.deviceTokens();
+    const tokens = this.deviceTokens(device_id);
     if (tokens.length === 0) return { means, ok: false, skipped: "no registered devices" };
     if (this.sentToday(priority) >= this.capFor(priority)) {
       this.counters.bump("notify_capped");
@@ -346,7 +364,11 @@ export class CompanionNotifier {
   // The degrade path: a message into the Conversations thread on the app (the
   // mobile-reachable surface), same thread-append contract omi uses. The
   // /api/* paths are served by both hosts conversationsBaseUrl can name.
-  async sendWebChannelFallback(message) {
+  async sendWebChannelFallback(message, _messagesMirror = null) {
+    if (!isMessageMirror({ _messagesMirror })) {
+      const stored = await emitSystemMessage({...systemInputFromNotification({ title: "Garrison", text: message }, "capture"), mirrorTargets:["web-channel-default"]}, { env: this.env, fetchImpl: this.fetchImpl });
+      return { means: "messages", ok: true, queued: true, messageId: stored.id };
+    }
     const means = "web-channel";
     const base = conversationsBaseUrl(this.env);
     if (!base) {

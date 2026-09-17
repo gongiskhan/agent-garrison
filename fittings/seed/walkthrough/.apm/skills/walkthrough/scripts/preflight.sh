@@ -36,11 +36,11 @@ WATCH_PY=""
 if [ -n "${WALKTHROUGH_WATCH_PY:-}" ] && [ -f "${WALKTHROUGH_WATCH_PY}" ]; then
   WATCH_PY="$WALKTHROUGH_WATCH_PY"
 else
-  for c in "$HOME/.claude/skills/watch/scripts/watch.py" "$HOME/.codex/skills/watch/scripts/watch.py"; do
+  for c in "${GARRISON_CLAUDE_HOME:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}/skills/watch/scripts/watch.py" "${CODEX_HOME:-$HOME/.codex}/skills/watch/scripts/watch.py"; do
     [ -f "$c" ] && WATCH_PY="$c" && break
   done
   if [ -z "$WATCH_PY" ]; then
-    WATCH_PY="$(find "$HOME/.claude/plugins" "$HOME/.claude/skills" -maxdepth 6 -name watch.py 2>/dev/null | grep -i watch | head -1)"
+    WATCH_PY="$(find "${GARRISON_CLAUDE_HOME:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}/plugins" "${GARRISON_CLAUDE_HOME:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}}/skills" -maxdepth 6 -name watch.py 2>/dev/null | grep -i watch | head -1)"
   fi
 fi
 if [ -n "$WATCH_PY" ]; then

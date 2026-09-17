@@ -1,0 +1,8 @@
+{
+  "name": "@garrison/archive",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/service.mjs", "./paths": "./src/paths.mjs", "./ui": "./ui/index.tsx" },
+  "peerDependencies": { "chokidar": "*", "minisearch": "*", "yaml": "*", "zod": "*", "react": "*" }
+}

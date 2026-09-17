@@ -68,6 +68,10 @@ export function segmentFromResults(msg) {
     // a phone mic. Used only to LABEL classifier context, never to gate.
     is_user: speaker === null || speaker === 0,
     final: Boolean(msg.is_final),
+    speech_final: Boolean(msg.speech_final),
+    speech_duration: alt?.words?.length
+      ? Math.max(0, (alt.words.at(-1).end ?? 0) - (alt.words[0].start ?? 0))
+      : (msg.duration ?? 0),
     // Stored for observability (transcripts are data, not logs — I5 applies
     // to logs/counters only): lets a bad session be triaged by confidence
     // without replaying audio.

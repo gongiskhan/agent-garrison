@@ -13,6 +13,7 @@ import { createHash } from "node:crypto";
 import { garrisonDir } from "./claude-home";
 import { writeFileAtomic } from "./atomic-write";
 import { readVaultSecrets, writeVaultSecrets, vaultStatus, isDevUnlock } from "./vault";
+import { stateEnrolled, withState } from "./state-client";
 import { recordVaultAccess } from "./vault-audit";
 import {
   accountAuthEnv,
@@ -362,6 +363,11 @@ async function addAccountLocked(options: AddAccountOptions): Promise<AccountMeta
 
   const next = secrets.filter((s) => s.key !== key);
   next.push({ key, value: token });
+  // Publish a re-login to the authority before the local copy, just like a
+  // Vault edit. Otherwise peers keep using the previous (possibly revoked) key.
+  if (stateEnrolled()) {
+    await withState((client) => client.putSecret(key, token));
+  }
   await writeVaultSecrets(next);
 
   const meta: AccountMeta = {

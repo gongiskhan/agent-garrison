@@ -83,18 +83,11 @@ spec's docs-beat-spec rule. Differences from the spec are in `DECISIONS.md`.
 - `GET /health`: `voice: {stt, tts, ttsBackend, restEnabled}` plus
   `keyConfigured` (= `voice.stt`) and `secrets.elevenLabsApiKey`.
 
-## This fitting's text ingest and active conversation (D24, D25)
+## Active conversation (D25)
 
-- `POST /capture/ingest/text`: Bearer `CAPTURE_TOKEN`; JSON `{source: "omi",
-  session_id, segments: [{text, speaker?, is_user?, start?, end?}]}`.
-  `source` must be in the allow-list (`omi`); `session_id` is 1-80 chars of
-  `[A-Za-z0-9_.:-]`; `segments` is an array (empty allowed - it only extends
-  the idle timer). 202 `{session: "<source>:<session_id>", accepted}` where
-  `accepted` counts the non-empty segments that survived the echo guard; 400
-  on invalid JSON or any missing/invalid field with the reason in `error`;
-  401 bad Bearer; 403 `enabled` off or `CAPTURE_TOKEN` not sealed; 413 over
-  the body cap. Idempotent for the session: the same key on the next call
-  reuses the live text session.
+The Omi cloud-only `POST /capture/ingest/text` endpoint was removed on
+2026-09-10 and returns 404. Phone and pendant audio use `/capture/stream`.
+
 - `GET /capture/conversation/active`: Bearer; 200 `{session_id, until}` with
   both `null` when nothing is pinned or the pin expired (`until` is ISO-8601).
 - `POST /capture/conversation/active`: Bearer; JSON `{session_id}` (1-200

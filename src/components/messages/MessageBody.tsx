@@ -1,0 +1,8 @@
+import { Fragment, useState } from 'react';
+import type { ReactNode } from 'react';
+import { Copy, Check } from 'lucide-react';
+import styles from './messages.module.css';
+
+function inline(text: string): ReactNode[] { return text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\(https?:\/\/[^\s)]+\))/g).filter(Boolean).map((part, index) => { if (part.startsWith('`')) return <code key={index}>{part.slice(1, -1)}</code>; if (part.startsWith('**')) return <strong key={index}>{part.slice(2, -2)}</strong>; if (part.startsWith('*')) return <em key={index}>{part.slice(1, -1)}</em>; const link = part.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/); return link ? <a key={index} href={link[2]} target="_blank" rel="noreferrer">{link[1]}</a> : part; }); }
+function CodeBlock({ text }: { text: string }) { const [copied, setCopied] = useState(false); return <div className={styles.codeBlock}><button aria-label="Copy code" onClick={() => void navigator.clipboard?.writeText(text).then(() => setCopied(true))}>{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? 'Copied' : 'Copy'}</button><pre><code>{text}</code></pre></div>; }
+export function MessageBody({ text, markdown }: { text: string; markdown: string | null }) { if (!markdown) return <div className={styles.body}>{text}</div>; const blocks = markdown.split(/```[^\n]*\n([\s\S]*?)```/g); return <div className={styles.body}>{blocks.map((block, index) => index % 2 ? <CodeBlock key={index} text={block.replace(/\n$/, '')} /> : <Fragment key={index}>{block.split(/\n\n+/).filter(Boolean).map((paragraph, i) => <p key={i}>{inline(paragraph)}</p>)}</Fragment>)}</div>; }

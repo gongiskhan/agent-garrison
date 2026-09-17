@@ -55,6 +55,7 @@ import type { SpeechBridge } from "./capture-feedback";
 import { ShellPanel, type ShellThreadBinding } from "./shell-panel";
 import { SessionUsage } from "./session-usage";
 import { ExternalSessionView } from "./session-view";
+import { mergeCursorRows, useCursorSessions } from './cursor-sessions';
 import { NewShellModal, type NewShellSpec } from "./new-shell-modal";
 import { errorCopy, resolveShellOrigin, shellApiBase, newShellRequestId, shellFetch, SHELL_START_TIMEOUT_MS, ShellOriginError } from "./shell-origin";
 import { useConversationLayout } from "./use-conversation-layout";
@@ -1125,7 +1126,9 @@ function ThreadedApp({
   // suppression the active-thread poll uses is declared further down this
   // component and is not needed here - a session-list refresh mid-turn costs
   // one harmless fetch, not a lost keystroke).
-  const [sessionsResult, setSessionsResult] = useState<SessionsListResult>(EMPTY_SESSIONS);
+  const [historySessionsResult, setSessionsResult] = useState<SessionsListResult>(EMPTY_SESSIONS);
+  const cursorRows = useCursorSessions();
+  const sessionsResult = useMemo(() => ({ ...historySessionsResult, rows: mergeCursorRows(historySessionsResult.rows, cursorRows) }), [historySessionsResult, cursorRows]);
   const sessionsRequest = useRef<{ controller: AbortController; promise: Promise<void> } | null>(null);
   const loadSessions = useCallback(() => {
     // Focus and timer refreshes share one request, so a slow earlier response
@@ -2106,7 +2109,9 @@ function ThreadedApp({
         {activeRshTransport && rshError && <div className="wc-rsh-error">Remote shell: {rshError}</div>}
         {(() => {
           if (activeSessionRow) {
-            const streamUrl = activeSessionRow.node === sessionsResult.self.node
+            const streamUrl = activeSessionRow.cursor
+              ? `/api/cursor/conversations/${encodeURIComponent(activeSessionRow.node)}/${encodeURIComponent(activeSessionRow.id)}/stream`
+              : activeSessionRow.node === sessionsResult.self.node
               ? `/api/sessions/${encodeURIComponent(activeSessionRow.id)}/stream`
               : `/api/mesh/nodes/${encodeURIComponent(activeSessionRow.node)}/sessions/${encodeURIComponent(activeSessionRow.id)}/stream`;
             return (

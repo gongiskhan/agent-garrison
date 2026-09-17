@@ -17,19 +17,22 @@ function cursorHome(env) {
 }
 
 function codexHome(env) {
-  // See install-hooks.mjs's header comment: deliberately not env.CODEX_HOME.
-  return env.GARRISON_SHELLS_CODEX_HOME?.trim() || path.join(homeDir(env), ".codex");
+  return env.CODEX_HOME?.trim() || env.GARRISON_SHELLS_CODEX_HOME?.trim() || path.join(homeDir(env), ".codex");
 }
 
 function geminiHome(env) {
-  return env.GARRISON_SHELLS_GEMINI_HOME?.trim() || path.join(homeDir(env), ".gemini");
+  return env.GEMINI_CLI_HOME?.trim() || env.GARRISON_SHELLS_GEMINI_HOME?.trim() || path.join(homeDir(env), ".gemini");
 }
 
 function readJson(file) {
   try {
-    return JSON.parse(fs.readFileSync(file, "utf8"));
-  } catch {
-    return null;
+    if (fs.lstatSync(file).isSymbolicLink()) throw new Error(`Refusing linked runtime config: ${file}`);
+    const value = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`Invalid runtime config: ${file}`);
+    return value;
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
   }
 }
 
@@ -37,7 +40,7 @@ function writeJson(file, obj) {
   fs.writeFileSync(file, `${JSON.stringify(obj, null, 2)}\n`);
 }
 
-function removeByCommandSubstring(hooks, marker) {
+function removeOwnedCommands(hooks, owned, record) {
   if (!hooks || typeof hooks !== "object") return false;
   let changed = false;
   for (const [event, list] of Object.entries(hooks)) {
@@ -45,10 +48,11 @@ function removeByCommandSubstring(hooks, marker) {
     const before = list.length;
     hooks[event] = list.filter((g) => {
       // Cursor shape: {command}. Claude/Codex/Gemini shape: {hooks:[{command}]}.
-      if (typeof g?.command === "string") return !g.command.includes(marker);
+      if (typeof g?.command === "string") { if (!owned(g.command)) return true; record(event, g); return false; }
       if (Array.isArray(g?.hooks)) {
-        const kept = g.hooks.filter((h) => !String(h?.command ?? "").includes(marker));
+        const kept = g.hooks.filter((h) => !owned(String(h?.command ?? "")));
         if (kept.length === g.hooks.length) return true;
+        record(event, g);
         changed = true;
         g.hooks = kept;
         return kept.length > 0;
@@ -62,18 +66,29 @@ function removeByCommandSubstring(hooks, marker) {
 }
 
 export function uninstallHooks(env = process.env, log = console.log) {
-  const marker = "agent-event-hook.sh";
+  const gh = env.GARRISON_HOME?.trim() || path.join(homeDir(env), ".garrison");
+  const marker = path.join(gh, "shells", "agent-event-hook.sh");
+  const owned = command => command.startsWith(marker + " ") && /^(agent-start|agent-stop|session-start|session-end) (claude|codex|gemini|cursor)$/.test(command.slice(marker.length + 1));
+  const quarantine = path.join(gh, "quarantine", new Date().toISOString().replace(/[:.]/g, "-"), "removed.json");
+  const removedItems = [];
   let removed = 0;
   for (const [name, home, key] of [
-    ["claude", env.GARRISON_SHELLS_CLAUDE_HOME?.trim() || path.join(homeDir(env), ".claude"), "settings.json"],
+    ["claude", env.GARRISON_CLAUDE_HOME?.trim() || env.CLAUDE_CONFIG_DIR?.trim() || env.GARRISON_SHELLS_CLAUDE_HOME?.trim() || path.join(homeDir(env), ".claude"), "settings.json"],
     ["cursor", cursorHome(env), "hooks.json"],
     ["codex", codexHome(env), "hooks.json"],
     ["gemini", geminiHome(env), "settings.json"]
   ]) {
+    const selected = new Set(String(env.GARRISON_SHARE_RUNTIMES || "").split(","));
+    if (env.GARRISON_SHARE_TARGET && name === "cursor") continue;
+    if (env.GARRISON_SHARE_TARGET === "user" && !selected.has(name === "claude" ? "claude-code" : name)) continue;
     const file = path.join(home, key);
     const cfg = readJson(file);
     if (!cfg) continue;
-    if (removeByCommandSubstring(cfg.hooks, marker)) {
+    if (removeOwnedCommands(cfg.hooks, owned, (event, value) => {
+      removedItems.push({ runtime: name === "claude" ? "claude-code" : name, kind: "hook", ref: event, source: file, value: structuredClone(value) });
+      fs.mkdirSync(path.dirname(quarantine), { recursive: true, mode: 0o700 });
+      fs.writeFileSync(quarantine, JSON.stringify({ version: 1, items: removedItems }, null, 2) + "\n", { mode: 0o600 });
+    })) {
       writeJson(file, cfg);
       removed++;
       log(`removed shells hooks from ${file}`);

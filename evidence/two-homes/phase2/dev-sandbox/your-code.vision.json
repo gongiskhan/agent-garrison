@@ -1,0 +1,9 @@
+{
+  "file": "/home/ggomes/dev/garrison/test-results/two-homes-live/two-homes-real-migrated-ho-b71f0-ill-listing-and-Mesh-status-desktop/your-code.png",
+  "imageSha": "43de2e6d7b0d302ea5554d288852f4d075d31580545811ecc212461d868f49ae",
+  "rubric": "Visible banner: Garrison does not manage this config. Everything here is yours. Items marked Shared were installed by a Garrison fitting and are removed when you unshare it or uninstall Garrison. A Shared \u00b7 basic-memory chip and my-notes row are visible. No Leak chip.",
+  "pass": true,
+  "reasons": [
+    "Inspected final PNG after actual CLI normalization: exact ownership banner is readable, Shared \u00b7 basic-memory now marks the hook as well as the MCP and skill, my-notes is preserved, and no Leak chip appears."
+  ]
+}

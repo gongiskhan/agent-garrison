@@ -45,6 +45,15 @@ function entry(
 }
 
 describe("renderCapabilitiesBlock", () => {
+  it.each(['full', 'index', 'names'] as const)('keeps the standing artifact contract in %s with no fittings', detail => {
+    const block = renderCapabilitiesBlock([], detail);
+    expect(block).toContain('core:projects');
+    for (const namespace of ['documents/', 'recordings/', 'runs/', 'uploads/']) expect(block).toContain(namespace);
+    expect(block).toContain('$GARRISON_FILEBROWSER_ROOT');
+    expect(block).toContain('Prefix filenames with the ISO date');
+    expect(block).toContain('Projects, under Garrison files');
+    expect(block.match(/The Garrison files view is the artifact surface/g)).toHaveLength(1);
+  });
   it("renders an empty placeholder when no provider Fittings are present", () => {
     const block = renderCapabilitiesBlock([]);
     expect(block).toContain("no Faculties currently installed");
@@ -70,8 +79,8 @@ describe("renderCapabilitiesBlock", () => {
       )
     ];
     const block = renderCapabilitiesBlock(entries);
-    expect(block).toContain("- channel:slack — Slack inbound/outbound");
-    expect(block).toContain("- connector:trello — Trello board access");
+    expect(block).toContain("- channel:slack - Slack inbound/outbound");
+    expect(block).toContain("- connector:trello - Trello board access");
     const channelIdx = block.indexOf("channel:slack");
     const dataIdx = block.indexOf("connector:trello");
     expect(channelIdx).toBeLessThan(dataIdx);
@@ -88,7 +97,7 @@ describe("renderCapabilitiesBlock", () => {
       "Use the Documents Faculty when in PM hat.\n- bullet one\n- bullet two"
     );
     const block = renderCapabilitiesBlock([docs]);
-    expect(block).toContain("- channel:project-documents — Documents workspace");
+    expect(block).toContain("- channel:project-documents - Documents workspace");
     expect(block).toContain("  Use the Documents Faculty when in PM hat.");
     expect(block).toContain("  - bullet one");
     expect(block).toContain("  - bullet two");
@@ -104,7 +113,7 @@ describe("renderCapabilitiesBlock", () => {
       "Trello board access"
     );
     const block = renderCapabilitiesBlock([trello]);
-    expect(block).toBe("- connector:trello — Trello board access");
+    expect(block).toContain("- connector:trello - Trello board access");
   });
 
   it("separates entries with a blank line when any provider ships for_consumers", () => {
@@ -129,17 +138,17 @@ describe("renderCapabilitiesBlock", () => {
     // Sorted by kind: channel comes before connector. The blank line
     // separator only kicks in once at least one provider ships for_consumers.
     expect(block).toContain(
-      "  Use this when capturing decisions.\n\n- connector:trello — Trello board access"
+      "  Use this when capturing decisions.\n\n- connector:trello - Trello board access"
     );
   });
 
   it("includes a derived view provider's for_consumers when it declares no provides (own_port surface)", () => {
-    // The file-browser pattern: provides: [] but an own-port surface plus
+    // The own-port pattern: provides: [] but an own-port surface plus
     // for_consumers guidance (the artifact-surface contract). The resolver
     // derives its `view` capability; the assembly must derive the matching
     // provider line or the guidance never reaches the Operative.
-    const fileBrowser = entry(
-      "file-browser-fixture",
+    const artifactView = entry(
+      "artifact-view-fixture",
       "surfaces",
       "script",
       "single",
@@ -147,9 +156,9 @@ describe("renderCapabilitiesBlock", () => {
       "Workspace file browser",
       "Write run outputs and documents under the workspace root."
     );
-    fileBrowser.metadata.own_port = true;
-    const block = renderCapabilitiesBlock([fileBrowser]);
-    expect(block).toContain("- view:file-browser-fixture");
+    artifactView.metadata.own_port = true;
+    const block = renderCapabilitiesBlock([artifactView]);
+    expect(block).toContain("- view:artifact-view-fixture");
     expect(block).toContain("Workspace file browser");
     expect(block).toContain("  Write run outputs and documents under the workspace root.");
   });

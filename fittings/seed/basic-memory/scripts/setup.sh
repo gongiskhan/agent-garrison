@@ -39,7 +39,7 @@ PROJECT_NAME="${BASIC_MEMORY_PROJECT_NAME:-main}"
 CAPTURE_ENABLED="${BASIC_MEMORY_CAPTURE_ENABLED:-true}"
 REGISTER_CG="${BASIC_MEMORY_REGISTER_CODEX_GEMINI:-true}"
 CLAUDE_HOME="${GARRISON_CLAUDE_HOME:-$HOME/.claude}"
-SETTINGS_FILE="${CLAUDE_SETTINGS_FILE:-$CLAUDE_HOME/settings.json}"
+SETTINGS_FILE="${GARRISON_CLAUDE_SETTINGS_PATH:-${CLAUDE_SETTINGS_FILE:-$CLAUDE_HOME/settings.json}}"
 HOOK_HOME="$CLAUDE_HOME/basic-memory"
 HOOK_PATH="$HOOK_HOME/capture-session.py"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -97,6 +97,9 @@ KANBAN_CAPTURE_STATE_FILE="$COMPOSITION_DIR/.garrison/basic-memory-kanban-captur
 SKILL_LOCAL_SRC="$SCRIPT_DIR_PARENT/.apm/skills/garrison-memory/SKILL.md"
 SKILL_CORTEX_SRC="$SCRIPT_DIR_PARENT/skill-variants/cortex/SKILL.md"
 SKILL_DEST="$COMPOSITION_DIR/.claude/skills/garrison-memory/SKILL.md"
+if [ "${GARRISON_SHARE_TARGET:-}" = "garrison" ]; then
+  SKILL_DEST="$GARRISON_CLAUDE_HOME/skills/garrison-memory/SKILL.md"
+fi
 # The record of which variant WE last installed, kept in the composition's own
 # Garrison state dir - a SIDECAR, deliberately not a marker inside the payload.
 # Two reasons, both learned the hard way:
@@ -190,6 +193,14 @@ else
   uv tool install basic-memory
 fi
 BM="$(command -v basic-memory)"
+
+# Shared setup is runtime-scoped. The primary pass already enrolled the vault
+# and owns scheduler jobs; explicit sharing also overrides the old all-or-none
+# register_codex_gemini setting.
+if [ "${GARRISON_SHARE_TARGET:-garrison}" = "user" ]; then
+  export BASIC_MEMORY_BIN="$BM"
+  exec node "$SCRIPT_DIR/share-setup.mjs"
+fi
 
 # 3. Register the vault as the Basic Memory project (idempotent).
 mkdir -p "$VAULT_DIR/$MEMORY_DIR"
@@ -319,7 +330,7 @@ fi
 # A partial bridge is a configuration error, never permission to restore raw
 # transcript capture. Only our historical capture entries are retired here.
 SHARED_CONTINUITY="$(python3 - "$SETTINGS_FILE" <<'PY_SHARED'
-import json, sys
+import json, sys, os
 from pathlib import Path
 sp = Path(sys.argv[1])
 if not sp.exists():
@@ -334,6 +345,7 @@ if shared:
     for event in ("SessionStart", "UserPromptSubmit", "PostToolUse", "PreCompact", "Stop", "SessionEnd"):
         if not any("agent-continuity.py" in command for command in commands(event)):
             raise SystemExit("Incomplete shared continuity hooks; rerun install-agent-continuity.py")
+if shared or os.environ.get("GARRISON_SHARE_TARGET") == "garrison":
     changed = False
     for event, groups in list(hooks.items()):
         kept = []
@@ -351,7 +363,7 @@ PY_SHARED
 )"
 # Install the legacy capture only on standalone installations without the
 # shared bridge; their shipped local/cortex behavior remains unchanged.
-if [ "$CAPTURE_ENABLED" = "true" ] && [ "$SHARED_CONTINUITY" != "true" ]; then
+if [ "$CAPTURE_ENABLED" = "true" ] && [ "$SHARED_CONTINUITY" != "true" ] && [ "${GARRISON_SHARE_TARGET:-}" != "garrison" ]; then
   mkdir -p "$HOOK_HOME"
   cp "$SCRIPT_DIR/capture-session.py" "$HOOK_PATH"
   chmod +x "$HOOK_PATH"
@@ -404,16 +416,41 @@ for event in ("SessionEnd", "PreCompact"):
                     added.append(event + " (updated)")
     if found:
         continue
-    bucket.append({"matcher": "", "hooks": [{"type": "command", "command": cmd, "timeout": 10}]})
+    bucket.append({"_garrison": "fitting:basic-memory", "matcher": "", "hooks": [{"type": "command", "command": cmd, "timeout": 10}]})
     added.append(event)
 sp.write_text(json.dumps(data, indent=2) + "\n")
 print("[basic-memory-setup] capture hook wired: " + (", ".join(added) if added else "already wired"))
 PY
+elif [ "${GARRISON_SHARE_TARGET:-}" = "garrison" ]; then
+  log "Garrison owns metadata-only session continuity; raw transcript capture is not installed"
 elif [ "$SHARED_CONTINUITY" = "true" ]; then
   log "shared agent continuity owns session capture; legacy transcript hooks retired"
 else
   log "capture hook disabled (capture_enabled=false)"
 fi
+
+# Install the core predicate beside the legacy capture hook for standalone use.
+ARCHIVE_PATHS="$(python3 - "$SCRIPT_DIR" <<'PY_ARCHIVE_PATH'
+from pathlib import Path
+import sys
+for parent in Path(sys.argv[1]).resolve().parents:
+    candidate = parent / "packages/archive/src/paths.mjs"
+    if candidate.exists():
+        print(candidate)
+        break
+PY_ARCHIVE_PATH
+)"
+if [ -n "$ARCHIVE_PATHS" ]; then
+  mkdir -p "$HOOK_HOME/archive/src"
+  cp "$ARCHIVE_PATHS" "$HOOK_HOME/archive/src/paths.mjs"
+  cp "$(dirname "$ARCHIVE_PATHS")/../label.mjs" "$HOOK_HOME/archive/label.mjs"
+fi
+
+# Archive ownership applies to every stationed Basic Memory composition, including
+# installations where the shared bridge owns capture.
+mkdir -p "$HOOK_HOME" "$STATE_DIR"
+cp "$SCRIPT_DIR/archive-guard.mjs" "$HOOK_HOME/archive-guard.mjs"
+node "$HOOK_HOME/archive-guard.mjs" --install "$SETTINGS_FILE" "$VAULT_DIR" "$GARRISON_ROOT" "$HOOK_HOME/archive-guard.mjs"
 
 # 7. Spool drain job. Registered exactly when spooling resolved to on above
 # (never on the default local+auto path), retired when it resolved to off.

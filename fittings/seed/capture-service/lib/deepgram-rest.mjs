@@ -65,17 +65,18 @@ async function upstreamText(res) {
 // from a browser MediaRecorder, audio/m4a from the phone). Throws UpstreamError
 // on a non-2xx answer or a transport failure; the caller decides what a
 // failure costs (the REST surface answers 502, never a fabricated transcript).
-export async function transcribeClip({ cfg, bytes, contentType = "audio/webm", language = null, fetchImpl = null, timeoutMs = LISTEN_TIMEOUT_MS }) {
+export async function transcribeClip({ cfg, bytes, contentType = "audio/webm", language = null, fetchImpl = null, timeoutMs = LISTEN_TIMEOUT_MS, messagesLane = false }) {
   if (!cfg?.secrets?.deepgramApiKey) throw new Error("DEEPGRAM_API_KEY not sealed");
   if (!Buffer.isBuffer(bytes) || bytes.length === 0) throw new Error("empty audio");
   const doFetch = fetchImpl ?? ((...args) => fetch(...args));
   const lang = String(language ?? "").trim() || cfg.sttRestLanguage || cfg.sttLanguage;
-  const model = cfg.sttModel;
+  const model = messagesLane ? "nova-2" : cfg.sttModel;
   const params = new URLSearchParams({ model, smart_format: "true", punctuate: "true", language: lang });
   // Same keyterm bias as the live lane (deepgram-live.mjs) - this lane was
   // missing it entirely, so a clip transcription got none of the lift a live
   // pendant session does for the same words.
-  for (const term of cfg.sttKeyterms ?? []) params.append("keyterm", term);
+  if (messagesLane) params.set("detect_language", "true");
+  for (const term of messagesLane ? [] : cfg.sttKeyterms ?? []) params.append("keyterm", term);
   let res;
   try {
     res = await doFetch(`${cfg.dgRestBaseUrl}/v1/listen?${params}`, {

@@ -1,0 +1,98 @@
+name: Phone listening validation
+on:
+  workflow_dispatch:
+    inputs:
+      ui_only:
+        description: Reuse accepted native results when only the UI harness changed
+        type: boolean
+        default: false
+jobs:
+  simulator:
+    runs-on: macos-15
+    timeout-minutes: 35
+    env:
+      GARRISON_SIMULATOR_VERSION: "26.2"
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.2"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm ci --ignore-scripts --prefix fittings/seed/agent-sdk-runtime
+      - run: npm ci --ignore-scripts --prefix fittings/seed/drill
+      - run: brew install xcodegen
+      - name: Start isolated Capture node
+        run: |
+          mkdir -p evidence/phone-listening
+          node scripts/phone-listening-simulator-node.mjs /tmp/listening-proof.json > evidence/phone-listening/simulator-node.log 2>&1 &
+          for n in $(seq 1 30); do test -s /tmp/listening-proof.json && break; sleep 1; done
+          node -e 'const f=require("fs");const c=JSON.parse(f.readFileSync("/tmp/listening-proof.json"));f.appendFileSync(process.env.GITHUB_ENV,`GARRISON_LISTENING_PROOF_URL=${c.url}\nGARRISON_LISTENING_PROOF_CONTROL=${c.control}\nGARRISON_LISTENING_PROOF_TOKEN=${c.token}\n`)'
+      - name: Start isolated shell
+        run: |
+          GARRISON_HOME_OVERRIDE=/tmp/listening-shell GARRISON_CLAUDE_HOME_OVERRIDE=/tmp/listening-claude NEXT_DIST_DIR=.next-listening bash scripts/garrison-instance.sh codex build > evidence/phone-listening/shell-build.log 2>&1
+          GARRISON_HOME_OVERRIDE=/tmp/listening-shell GARRISON_CLAUDE_HOME_OVERRIDE=/tmp/listening-claude NEXT_DIST_DIR=.next-listening bash scripts/garrison-instance.sh codex serve > evidence/phone-listening/shell.log 2>&1 &
+          node -e 'const fs=require("fs"),cp=require("child_process");const env=cp.execFileSync("bash",["scripts/garrison-instance.sh","codex","env"],{encoding:"utf8"});const port=env.match(/^GARRISON_APP_PORT=(.*)$/m)[1];fs.appendFileSync(process.env.GITHUB_ENV,`GARRISON_LISTENING_PROOF_SHELL=http://127.0.0.1:${port}\n`)'
+      - name: Verify shell navigation before simulator launch
+        run: |
+          node --input-type=module <<'JS'
+          for (const route of ['/talk', '/', '/capture', '/quarters']) {
+            let ready = false;
+            for (let attempt = 0; attempt < 5 && !ready; attempt++) {
+              try {
+                const response = await fetch(process.env.GARRISON_LISTENING_PROOF_SHELL + route, { signal: AbortSignal.timeout(90000) });
+                const body = await response.text();
+                if (!response.ok || !body.includes('<html')) throw new Error(`HTTP ${response.status}`);
+                ready = true;
+                console.log(`Shell ready: ${route}`);
+              } catch (error) { console.log(`Shell retry: ${route}: ${error.message}`); await new Promise(resolve => setTimeout(resolve, 1000)); }
+            }
+            if (!ready) throw new Error(`Shell unavailable: ${route}`);
+          }
+          JS
+      - name: Build and prepare simulator
+        id: simulator-build
+        working-directory: ios
+        run: |
+          xcodegen generate
+          DEVICE=$(node ../scripts/ios-simulator.mjs)
+          echo "$DEVICE" > /tmp/listening-simulator-id
+          echo "LISTENING_SIMULATOR_ID=$DEVICE" >> "$GITHUB_ENV"
+          xcodebuild build-for-testing -project Garrison.xcodeproj -scheme GarrisonApp -destination "platform=iOS Simulator,id=$DEVICE" -derivedDataPath /tmp/listening-build CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES > ../evidence/phone-listening/build.log 2>&1
+          xcrun simctl boot "$DEVICE" || true
+          xcrun simctl bootstatus "$DEVICE" -b
+          open -a Simulator --args -CurrentDeviceUDID "$DEVICE"
+          xcrun simctl install "$DEVICE" /tmp/listening-build/Build/Products/Debug-iphonesimulator/GarrisonApp.app
+          xcrun simctl privacy "$DEVICE" grant microphone com.gomes.garrison
+      - name: Native and shell tests
+        if: ${{ !inputs.ui_only }}
+        working-directory: ios
+        run: xcodebuild test-without-building -only-testing:GarrisonTests -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 300 -project Garrison.xcodeproj -scheme GarrisonApp -destination "platform=iOS Simulator,id=$LISTENING_SIMULATOR_ID" -derivedDataPath /tmp/listening-build -resultBundlePath ../evidence/phone-listening/native.xcresult CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES > ../evidence/phone-listening/xctest.log 2>&1
+      - name: Prepare simulator app switching
+        timeout-minutes: 2
+        if: ${{ !cancelled() && steps.simulator-build.outcome == 'success' }}
+        run: xcrun simctl launch "$LISTENING_SIMULATOR_ID" com.apple.Preferences > evidence/phone-listening/settings-start.log 2>&1
+      - name: End-to-end UI journey
+        timeout-minutes: 10
+        if: ${{ !cancelled() && steps.simulator-build.outcome == 'success' }}
+        working-directory: ios
+        run: xcodebuild test-without-building -only-testing:GarrisonUITests -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 300 -project Garrison.xcodeproj -scheme GarrisonApp -destination "platform=iOS Simulator,id=$LISTENING_SIMULATOR_ID" -derivedDataPath /tmp/listening-build -resultBundlePath ../evidence/phone-listening/ui.xcresult CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES > ../evidence/phone-listening/uitest.log 2>&1
+      - name: Export simulator screenshots
+        if: always()
+        run: |
+          for proof in native ui; do
+            xcrun xcresulttool export attachments --path "evidence/phone-listening/$proof.xcresult" --output-path "evidence/phone-listening/screenshots/$proof" || true
+          done
+      - name: Compile device target
+        working-directory: ios
+        run: xcodebuild build -project Garrison.xcodeproj -scheme GarrisonApp -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO > ../evidence/phone-listening/device-build.log 2>&1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phone-listening-evidence
+          path: evidence/phone-listening

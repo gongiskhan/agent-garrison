@@ -89,8 +89,30 @@ it("collects only dated evidence, includes explicit shared feedback and redacts 
 });
 it("quiet successful reviews remain valid, but a missing operational receipt is visible",async()=>{
   const {run}=await claimRun(store,{day:"2026-09-04",node:context.node});const model=vi.fn();
-  const result=await runReview({store,context,run,model,collect:async()=>({sources:[],errors:[],coverage:[]})});
+  const jobs=vi.spyOn(store.client,"listSchedulerJobs").mockResolvedValue([{id:"vault-git-sync",target:`node:${context.node}`,enabled:true}]);
+  let result;
+  try {result=await runReview({store,context,run,model,collect:async()=>({sources:[],errors:[],coverage:[]})});}
+  finally {jobs.mockRestore();}
   expect(model).not.toHaveBeenCalled();expect(result.status).toBe("partial");expect(result.summary).toContain("No new session evidence");expect(result.operationalErrors.join(" ")).toContain("vault sync");
+});
+it("does not require a vault on an unconfigured node, but reports disabled and failing configured sync",async()=>{
+  const {vaultSyncStatus}=await import("../packages/improver/src/service.mjs");
+  const client={listSchedulerJobs:async()=>[{id:"vault-git-sync",target:"node:other",enabled:true}],listSchedulerRuns:async()=>[]};
+  expect(await vaultSyncStatus(client,"peer")).toMatchObject({configured:false,state:"not-configured",error:null});
+  client.listSchedulerJobs=async()=>[{id:"vault-git-sync@peer",target:"node:peer",enabled:false}];
+  expect((await vaultSyncStatus(client,"peer")).error).toContain("disabled");
+  client.listSchedulerJobs=async()=>[{id:"vault-git-sync@peer",target:"node:peer",enabled:true}];
+  expect((await vaultSyncStatus(client,"peer")).error).toContain("no recent successful");
+});
+it("completes a healthy vault-less node review without inventing a branch error from absent telemetry",async()=>{
+  const nodes=vi.spyOn(store.client,"listNodes").mockResolvedValue([{name:context.node,health:{at:new Date().toISOString(),git:null,composition:{running:true},views:{unhealthy:[]}}}]);
+  const jobs=vi.spyOn(store.client,"listSchedulerJobs").mockResolvedValue([]);
+  try {
+    const {run}=await claimRun(store,{day:"2026-08-30",node:context.node});
+    const result=await runReview({store,context,run,collect:async()=>({sources:[],errors:[],coverage:[]})});
+    expect(result.status).toBe("complete");expect(result.operationalErrors).toEqual([]);
+    expect(result.operations.find(o=>o.kind==="vault-schedule")).toMatchObject({configured:false,state:"not-configured"});
+  } finally {nodes.mockRestore();jobs.mockRestore();}
 });
 it("migrates the existing scheduled card without a project loadout or duplicate template",async()=>{
   const card=await harness.client.createCard({id:"01K00000000000000000000002",title:"Nightly mesh convergence",list:"scheduled",status:"ok",systemKey:"mesh-convergence",scope:"default",placement:{target:"dev-madrid"},project:"garrison",schedule:{kind:"cron",cron:"0 3 * * *",timezone:"Europe/Lisbon",enabled:true,action:"run",targetList:"todo",nextAt:"2026-09-11T02:00:00Z"}});
@@ -124,26 +146,19 @@ it("Zeca failures and new activity never rotate away unreviewed work",async()=>{
   expect(result.rotated).toBeNull();expect(result.reason).toContain("New activity");expect(rotated).toBe(0);
 });
 
-it("zero-recipient HTTP success stays pending, and a native receipt makes delivery idempotent",async()=>{
-  const captureDir=path.join(home,"ui-fittings");await fs.mkdir(captureDir,{recursive:true});
-  await fs.writeFile(path.join(captureDir,"capture-service.json"),JSON.stringify({url:"http://capture"}));
-  const fetchImpl=vi.fn(async()=>Response.json({ok:true,pushed:0,reason:"no VAPID keys"}));
-  const failed=await notify(store,{...context,forwardedNotice:true,fetchImpl},"delivery-test","Review ready","One decision");
-  expect(failed.deliveredAt).toBeNull();expect(failed.deliveryError).toContain("no VAPID");
-  fetchImpl.mockImplementation(async(url)=>Response.json(url.startsWith("http://capture")?[{means:"companion-push",ok:true,target:"1/1 devices"}]:{ok:true,pushed:0}));
-  const success=await notify(store,{...context,forwardedNotice:true,fetchImpl},"delivery-test","Review ready","One decision");
-  expect(success.deliveredAt).toBeTruthy();expect(success.delivery.native[0].target).toBe("1/1 devices");
-  fetchImpl.mockClear();await notify(store,{...context,fetchImpl},"delivery-test","Review ready","One decision");
+it("persists an improver notice once and queues delivery without calling external channels",async()=>{
+  const fetchImpl=vi.fn();
+  const first=await notify(store,{...context,fetchImpl},"delivery-test","Review ready","One decision");
+  const repeated=await notify(store,{...context,fetchImpl},"delivery-test","Review ready","One decision");
+  expect(first).toMatchObject({queued:true,messageId:repeated.messageId});
+  const {messages}=await harness.client.request("GET","/v1/messages?categories=improver.decision");
+  expect(messages.filter(message=>message.externalId==="improver:delivery-test")).toHaveLength(1);
   expect(fetchImpl).not.toHaveBeenCalled();
-  await fs.rm(path.join(captureDir,"capture-service.json"));
 });
-it("a failed delivery cannot overwrite a concurrent successful receipt",async()=>{
-  const fetchImpl=async()=>{
-    await store.update("notice","delivery-race",n=>({...n,deliveredAt:new Date().toISOString(),delivery:{pushed:1},deliveryError:null}));
-    return Response.json({ok:true,pushed:0});
-  };
-  const result=await notify(store,{...context,forwardedNotice:true,fetchImpl},"delivery-race","Ready","Review");
-  expect(result.delivery.pushed).toBe(1);expect(result.deliveredAt).toBeTruthy();
+it("concurrent notification producers converge on the same durable system message",async()=>{
+  const results=await Promise.all([1,2].map(()=>notify(store,context,"delivery-race","Ready","Review")));
+  expect(results[0].messageId).toBe(results[1].messageId);
+  expect((await harness.client.request("GET",`/v1/messages/${results[0].messageId}`)).message).toMatchObject({category:"improver.decision",bodyText:"Review"});
 });
 it("review authentication falls back to sealed accounts, without overriding explicit pins",async()=>{
   const {callImproverInference}=await import("../fittings/seed/http-gateway/scripts/lib/improver-inference.mjs");
@@ -199,4 +214,16 @@ it("uses the configured standard review model instead of a cheap classifier",asy
   const call=vi.fn(async()=>'{"summary":"Grounded review","proposals":[]}');
   const result=await callImproverInference({executionRouteFor:async()=>({target}),executionModel:async()=>({}),resolveSecrets:()=>({})},{prompt:"Evidence"},{call});
   expect(result.inference.model).toBe("configured-review-model");expect(call.mock.calls[0][2].targetOverride.account).toBe("pinned");
+});
+it("constrains model citations to the current review without leaking another owner's source IDs",async()=>{
+  const {callImproverInference}=await import("../fittings/seed/http-gateway/scripts/lib/improver-inference.mjs");
+  const {REVIEW_SCHEMA}=await import("../packages/improver/src/contracts.mjs");
+  const target={provider:"anthropic",runtime:"agent-sdk",model:"review-model"};
+  const router={executionRouteFor:async()=>({target}),resolveSecrets:()=>({})};
+  const call=vi.fn(async()=>'{"summary":"Reviewed","proposals":[]}');
+  await callImproverInference(router,{prompt:JSON.stringify({evidence:[{id:"owner-a-source"},{id:"owner-a-source"}]})},{call});
+  await callImproverInference(router,{prompt:JSON.stringify({evidence:[{id:"owner-b-source"}]})},{call});
+  expect(call.mock.calls[0][2].schema.properties.proposals.items.properties.sourceIds.items.enum).toEqual(["owner-a-source"]);
+  expect(call.mock.calls[1][2].schema.properties.proposals.items.properties.sourceIds.items.enum).toEqual(["owner-b-source"]);
+  expect(REVIEW_SCHEMA.properties.proposals.items.properties.sourceIds.items.enum).toBeUndefined();
 });

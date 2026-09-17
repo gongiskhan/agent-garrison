@@ -224,7 +224,7 @@ A **Faculty** is a slot in a composition. It has a name, a cardinality (`single`
 | 6 | `memory` | single | Within-session + cross-session recall. |
 | 7 | `gateway` | single | MCP-speaking HTTP entry point. Channels POST to it. |
 | 8 | `data-sources` | multi | One-way fetch from external systems (Trello, Calendar, etc.). |
-| 9 | `knowledge-base` | multi | Readable references (docs, code, Documents Fitting). |
+| 9 | `knowledge-base` | multi | Readable references (docs, code, PDF and roadmap skills). |
 | 10 | `automations` | multi | Things the Operative can *do* in external systems (browser, desktop). |
 | 11 | `skills` | multi | Reusable agent skills (summariser, test author, etc.). |
 | 12 | `channels` | multi | Message surfaces (Slack, Web Channel). |
@@ -441,7 +441,7 @@ All tool-facing Fittings live under **own-port Faculties** (see [§5](#5-faculti
 
 A small middle ground exists: Fittings that render their UI **inside** the Garrison Next.js shell rather than on their own port. They declare views with `placement: faculty-tab` or `placement: sidebar-surface` under `x-garrison.ui.views[]`, and Garrison's static view registry (`src/components/fitting-views/registry.tsx`) maps `(fitting-id, view-id)` to a React component.
 
-Documents and Artifact Store are the canonical embedded-UI Fittings. They live at routes like `/fitting/documents/<doc-id>`. UI contract v2 spec is in [SPEC.md §9](./SPEC.md#9-ui-extensions) and the renderer details are in [UI-FITTINGS.md](./UI-FITTINGS.md).
+Roadmaps is an embedded-UI Fitting. Archive is a core surface at `/archive`, with board and notes lenses over Basic Memory. UI contract v2 spec is in [SPEC.md §9](./SPEC.md#9-ui-extensions) and the renderer details are in [UI-FITTINGS.md](./UI-FITTINGS.md).
 
 ```
 embedded UI (contract v2)    vs    own-port UI (Monitor pattern)
@@ -450,7 +450,7 @@ renders inside Garrison shell      renders on its own port
 static React registry              independent HTTP server
 build-time bundled                 ships its own dist/
 faculty-tab or sidebar-surface     sidebar Fittings link (external open)
-Documents, Artifact Store          Monitor, Dev Env, Browser, ...
+Roadmaps                          Monitor, Dev Env, Browser, ...
 ```
 
 The two patterns coexist and serve different use cases. Embedded for things that want tight integration with the Garrison shell. Own-port for things that benefit from being independently launchable, restartable, and writable in any framework.
@@ -582,7 +582,7 @@ The sidebar **Views** group in Garrison's chrome auto-populates per composition.
    │  Armory             │
    │                     │
    │  Views ▼            │
-   │   • Documents       │  ← embedded sidebar-surface (contract v2)
+   │   • Roadmaps        │  ← embedded sidebar-surface (contract v2)
    │   • Artifact Store  │  ← embedded sidebar-surface (contract v2)
    │   • Dev Env       ⤴ │  ← own-port link (port 27086)
    │   • Monitor       ⤴ │  ← own-port link (port 27077)
@@ -592,7 +592,7 @@ The sidebar **Views** group in Garrison's chrome auto-populates per composition.
 
 ### Cross-Fitting linking
 
-Fittings can emit `garrison://<fitting-id>/<rest>` URLs in chat replies, document bodies, etc. Renderers translate them to Next.js `<Link>`s pointing at `/fitting/<fitting-id>/<rest>`. `garrison://artifacts/<id>` for a markdown artifact resolves transparently to `garrison://documents/<id>`.
+Fittings can emit `garrison://<fitting-id>/<rest>` URLs in chat replies, document bodies, etc. Renderers translate them to Next.js `<Link>`s pointing at `/fitting/<fitting-id>/<rest>`. Archive links use `garrison://archive/<vault-relative path>` and resolve to the core card or note page.
 
 ### Why a static registry instead of dynamic disk loading
 
@@ -740,7 +740,6 @@ live registry and several entries below no longer exist. Use
 |---|---|---|
 | `basic-memory` | memory | Within-session recall + cross-session persistence in a plain-markdown Obsidian vault (`~/ObsidianVault`) indexed into a local SQLite knowledge graph, with write/search/read MCP tools shared across Claude, Codex, and Gemini. |
 | `projects-index` | knowledge-base | Lazy filesystem walk of `~/Projects` for dev-hat context. |
-| `documents` | knowledge-base | Markdown documents workspace layered on Artifact Store. Sidebar-surface UI. |
 | `artifact-store` | artifact-store | Filesystem-backed storage with namespaces (`documents/`, `automations/`, `voice/`). |
 
 ### Channels (talking to the user)
@@ -900,7 +899,7 @@ The runner:
 
 40 minutes later, `loop-heartbeat` ticks. It POSTs a synthetic job into the gateway. The Operative wakes, repeats the same flow autonomously.
 
-The user opens `/fitting/documents/` in the sidebar — the Operative may have captured a "today's plan" document there via the Documents Fitting.
+The user opens `/archive/notes` to read and edit Garrison memory. Their personal documents live under `Archive/` and agents read those only when asked.
 
 ### Step 5: hit Stop
 

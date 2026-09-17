@@ -160,7 +160,7 @@ function pidAlive(pid) {
 
 // Register at ~/.garrison/ui-fittings/<id>.json so the sidebar Views live-link
 // and the runner's lifecycle stop can find this instance. Never steal the slot
-// from a live sibling (the Monitor/file-browser status-file contract).
+// from a live sibling (the own-port status-file contract).
 function claimStatusFile(port, host) {
   try {
     const tracked = JSON.parse(readFileSync(STATUS_FILE, "utf8"));

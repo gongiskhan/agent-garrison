@@ -36,7 +36,7 @@ test("capture page: with the native bridge the controls render and the menu list
           info: resolve({ appVersion: "1.0", build: "0", platform: "ios", bundleId: "test" }),
           ...events()
         },
-        GarrisonCapture: { status: resolve(status), ...events() },
+        GarrisonCapture: { status: resolve(status), listeningIntent: resolve({}), listeningState: resolve({ device_id: "fixture-device", paired: false, records: [{ device_id: "fixture-device", device_name: "iPhone", source: "phone", intent: "off", actual: "off", reason: null, last_seen_at: null, intent_changed_at: "2026-09-11T12:00:00Z", actual_changed_at: "2026-09-11T12:00:00Z", stall_episode_id: null, stall_pushes_sent: 0, app_version: "1" }] }), ...events() },
         GarrisonPush: {
           status: resolve({ authorization: "notDetermined", registered: false, detail: "" }),
           pendingRoute: resolve({}),
@@ -53,7 +53,9 @@ test("capture page: with the native bridge the controls render and the menu list
   await expect(page.getByText("The app discovers every node automatically", { exact: false })).toBeVisible();
   await expect(page.getByTestId("capture-fallback")).toHaveCount(0);
   await expect(page.getByTestId("capture-phase")).toHaveText("idle");
-  await expect(page.getByRole("button", { name: "Record microphone" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Record screen audio" })).toBeVisible();
+  if (page.viewportSize()!.width <= 900) await expect(page.getByRole("button", { name: "Start listening" })).toBeVisible();
+  else await expect(page.getByTestId("listening-control")).toBeHidden();
   // Narrow viewports start with the menu drawer closed (the app bar opens it);
   // a collapsed desktop rail carries no rows either.
   const expand = page.getByRole("button", { name: /^(Open menu|Expand sidebar)$/ });
@@ -61,13 +63,14 @@ test("capture page: with the native bridge the controls render and the menu list
   await expect(page.locator('a[href="/capture"]')).not.toHaveCount(0);
 });
 
-// G5: the record button lives in the conversation composer only inside the app.
+// The record button lives in the standing Zeca conversation inside the app.
 // The stubbed GarrisonCapture records what `start` was called with, so the test
 // proves the conversation id travels with the recording request.
-test("conversation composer: the record button appears with the native bridge and passes the conversation id", async ({ page, request }) => {
-  const id = `e2e-rec-${Date.now().toString(36)}`;
-  const created = await request.post("/api/threads", { data: { id, title: "Record test", source: "e2e" } });
+test("Zeca composer: the record button appears with the native bridge and passes the conversation id", async ({ page, request }) => {
+  const created = await request.get("/api/zeca");
   expect(created.ok()).toBeTruthy();
+  const { conversationId: id } = await created.json();
+  expect(typeof id).toBe("string");
 
   await page.goto(`/talk/${id}`);
   await expect(page.locator(".cc-composer")).toBeVisible();
@@ -104,7 +107,7 @@ test("conversation composer: the record button appears with the native bridge an
     };
   });
   await page.goto(`/talk/${id}`);
-  const button = page.getByTestId("wc-rec-btn");
+  const button = page.getByTestId("wc-rec-btn").first();
   await expect(button).toBeVisible();
   await expect(button).toHaveAttribute("aria-label", "Record screen");
   await button.click();
@@ -153,7 +156,7 @@ test("capture page: a connected pendant shows its state and streams the session'
           info: resolve({ appVersion: "1.0", build: "0", platform: "ios", bundleId: "test" }),
           ...events()
         },
-        GarrisonCapture: { status: resolve(status), ...events() },
+        GarrisonCapture: { status: resolve(status), listeningIntent: resolve({}), listeningState: resolve({ device_id: "fixture-device", paired: false, records: [{ device_id: "fixture-device", device_name: "iPhone", source: "phone", intent: "off", actual: "off", reason: null, last_seen_at: null, intent_changed_at: "2026-09-11T12:00:00Z", actual_changed_at: "2026-09-11T12:00:00Z", stall_episode_id: null, stall_pushes_sent: 0, app_version: "1" }] }), ...events() },
         GarrisonPush: { status: resolve({ authorization: "notDetermined", registered: false, detail: "" }), pendingRoute: resolve({ path: null }), ...events() },
         GarrisonPendant: {
           status: resolve(pendant),
@@ -173,16 +176,14 @@ test("capture page: a connected pendant shows its state and streams the session'
   await expect(section.getByText("87%")).toBeVisible();
   await expect(section.getByText("streaming")).toBeVisible();
   await expect(section.getByText("Lost frames")).toBeVisible();
-  await expect(section.getByRole("button", { name: "Disconnect" })).toBeVisible();
+  await expect(section.getByRole("button", { name: "Disconnect" })).toHaveCount(0);
   await expect(section.getByRole("button", { name: "Forget" })).toBeVisible();
 
   const transcript = section.getByTestId("capture-pendant-transcript");
   await expect(transcript.locator("li")).toHaveText(["buy milk tomorrow"]);
   await expect(transcript).toContainText("done");
 
-  await section.getByRole("button", { name: "Disconnect" }).click();
-  await expect(section.getByTestId("capture-pendant-state")).toHaveText("disconnected");
-  await expect(section.getByRole("button", { name: "Connect" })).toBeVisible();
-  await expect(transcript).toHaveCount(0);
-  expect(await page.evaluate(() => (window as unknown as { __pendantCalls: string[] }).__pendantCalls)).toEqual(["disconnect"]);
+  // Start/stop is owned by ListeningControl; this panel only reports the BLE stream.
+  await expect(section.getByRole("button", { name: "Connect", exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { __pendantCalls: string[] }).__pendantCalls)).toEqual([]);
 });

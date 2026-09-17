@@ -1,5 +1,7 @@
 # Connectors + Automations — Build Brief
 
+> Archive supersedes the historical document workspace described below as of 2026-09-11. Current routes, migration and ownership rules: [Archive decision](../../decisions/2026-09-11-archive.md). Historical verification is retained as evidence.
+
 **Status:** spec, ready to build. Nothing built yet. Companion to the wireframe
 (`index.html` in this folder — open it; it is the visual + behavioral spec).
 This brief is the engineering source of truth: locked decisions, **verified code

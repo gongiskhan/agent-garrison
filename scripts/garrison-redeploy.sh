@@ -62,9 +62,17 @@ fi
 
 say() { printf "\n[redeploy] %s\n" "$*"; }
 
+# Serialize installation, build and restart: concurrent installers can remove
+# dependencies while another deployment or the running server is loading them.
+node "$SCRIPT_DIR/garrison-deployment-guard.mjs" acquire "$BASE" "$PROD_HOME" "$$"
+trap 'node "$SCRIPT_DIR/garrison-deployment-guard.mjs" release "$BASE" "$PROD_HOME" "$$"' EXIT
+
 # --- 1. build ---------------------------------------------------------------
 say "installing dependencies from the committed manifest and lockfile"
-npm install --ignore-scripts --no-audit --no-fund
+# Frozen dependencies: npm install rewrites platform-specific lock metadata
+# on macOS and then correctly trips the source-change guard below.
+# Run the locked packages' native builds and our spawn-helper permission repair.
+npm ci --no-audit --no-fund
 BUILD_RECEIPT="$REPO_ROOT/.next-prod/garrison-build-head"
 if [ -f "$REPO_ROOT/.next-prod/BUILD_ID" ] && [ "$(cat "$BUILD_RECEIPT" 2>/dev/null || true)" = "$DEPLOY_HEAD" ]; then
   say "reusing the verified build for this main revision"
@@ -82,9 +90,8 @@ fi
 
 printf '%s\n' "$DEPLOY_HEAD" > "$BUILD_RECEIPT"
 
-# Serialize mesh restarts and close new admissions before the final live check.
-node "$SCRIPT_DIR/garrison-deployment-guard.mjs" acquire "$BASE" "$PROD_HOME" "$$"
-trap 'node "$SCRIPT_DIR/garrison-deployment-guard.mjs" release "$BASE" "$PROD_HOME" "$$"' EXIT
+# Recheck live Conversations immediately before stopping services.
+node "$SCRIPT_DIR/garrison-deployment-guard.mjs" check "$BASE" "$PROD_HOME" "$$"
 
 # --- 2. stop the operative on the old code ----------------------------------
 # Best-effort: a prod server that is down (or a composition that was never up)

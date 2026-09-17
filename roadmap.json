@@ -1,7 +1,7 @@
 {
   "title": "Garrison roadmap: from stretches to a system that runs my work",
   "intro": "Order of the day: item one is talking to Zeca instead of opening the Claude app. It is the producer of everything else (conversations, cards, memory, decisions), so it comes before the Command Center that consumes them. Nothing in the Command Center category starts until c1 is in daily use on the phone. Work runs as multi-model, multi-provider, multi-account stretches; the cost benchmarks are closed and are not reopened. Everything that needs Gonçalo will land in one place once the Command Center exists; until then, Needs input and the home page are that place. Confirm before acting, everywhere, until a track has earned autonomy; then flip the lever for that track only. Read the notes before planning: they hold the decisions already taken and the ones deliberately not taken.",
-  "updatedAt": "2026-09-10T06:53:39.121Z",
+  "updatedAt": "2026-09-14T08:07:23.604Z",
   "categories": [
     {
       "id": "c1",
@@ -87,7 +87,7 @@
         },
         {
           "id": "c1.12",
-          "text": "Leave and come back. A long research turn or a long answer notifies Gonçalo on completion (web push, Companion, Omi) so he does not have to keep the screen open.",
+          "text": "Leave and come back. A long research turn or a long answer notifies Gonçalo on completion (web push and Garrison iOS) so he does not have to keep the screen open.",
           "done": false,
           "sentToKanban": null,
           "noteRef": null
@@ -223,14 +223,16 @@
           "text": "The Attention queue widget. One list of everything that needs Gonçalo, nearest deadline first, with the action inline: approve or cancel a send; answer a question or a permission prompt; confirm or correct a routing decision with the correction fields; resume or move a Needs input card; acknowledge a failed schedule or a skipped convergence; open the conversation. Each row shows source, node, age and deadline when known. The empty state is one line, never an empty panel.",
           "done": false,
           "sentToKanban": null,
-          "noteRef": "n-cc-queue"
+          "noteRef": "n-cc-queue",
+          "note": "Messages now exposes /api/messages/needs-me over actionable unanswered system messages. No separate Attention storage was found or added; Command Center integration remains open."
         },
         {
           "id": "c3.4",
           "text": "The attention read model. A single aggregator endpoint that unions producers into one item shape (id, kind, source, node, title, detail, deadline, actions, href) with a small enumerated action set that posts back to the owning producer. This is the only new server piece; it caches per producer, stays quiet when one is down, and never becomes a queue of its own.",
           "done": false,
           "sentToKanban": null,
-          "noteRef": "n-cc-queue"
+          "noteRef": "n-cc-queue",
+          "note": "Messages now exposes /api/messages/needs-me over actionable unanswered system messages. No separate Attention storage was found or added; Command Center integration remains open."
         },
         {
           "id": "c3.5",
@@ -300,21 +302,24 @@
           "text": "Communications inbox, phase 1: triage only. One channel first (the Ekoa mailbox, then his own Gmail), deterministic fetch every fifteen minutes, one batched cheap model call over what is new and none when nothing changed, every item classified into ignore, card, memory or needs reply, every classification logged and correctable from the Attention queue. No drafting, no sending. Two weeks of corpus and cost curve before phase 2.",
           "done": false,
           "sentToKanban": null,
-          "noteRef": "n-cc-inbox"
+          "noteRef": "n-cc-inbox",
+          "note": "Messages provides the shared store and structured outbox substrate. Model triage, drafting and autonomous sending remain separate work."
         },
         {
           "id": "c3.15",
           "text": "Communications inbox, phase 2: drafting. For needs-reply items, three or four suggested replies in his voice, learned from what he picks and how he edits; choosing or editing is the signal; sending is still by hand.",
           "done": false,
           "sentToKanban": null,
-          "noteRef": null
+          "noteRef": null,
+          "note": "Messages provides the shared store and structured outbox substrate. Model triage, drafting and autonomous sending remain separate work."
         },
         {
           "id": "c3.16",
           "text": "Communications inbox, phase 3: sending through hold windows. Sends go through the outbox with a hold window (zero for himself, ten minutes for collaborators, always ask for money, dates, commitments and first contacts). The middle autonomy band for an irreversible action is the hold window, not a binary switch.",
           "done": false,
           "sentToKanban": null,
-          "noteRef": null
+          "noteRef": null,
+          "note": "Messages provides the shared store and structured outbox substrate. Model triage, drafting and autonomous sending remain separate work."
         },
         {
           "id": "c3.17",
@@ -410,7 +415,7 @@
         {
           "id": "c4.7",
           "text": "Core Improver and Nightly Sync: shared decisions and user-controlled autonomy for orchestration, skills, Garrison, memory and operations; bounded daily owner-node reviews, verified memory authoring, implementation tasks, safe retries, outcome notices and legacy migration. Implementation and live validation: docs/decisions/2026-09-10-core-improver-nightly-sync.md.",
-          "done": false,
+          "done": true,
           "sentToKanban": null,
           "noteRef": null
         }
@@ -465,7 +470,7 @@
         },
         {
           "id": "c5.7",
-          "text": "Simplify connector setup: Google sign-in, Cortex base URL default https://app.ekoa.io, explain Remote capability CLI, and show credential acquisition instructions for every non-OAuth connector.",
+          "text": "Simplify connector setup: Google sign-in, editable Cortex base URL default https://staging.ekoa.io while the new API is on staging, explain Remote capability CLI, and show credential acquisition instructions for every non-OAuth connector.",
           "done": true,
           "sentToKanban": null,
           "noteRef": null
@@ -539,27 +544,34 @@
           "done": false,
           "sentToKanban": null,
           "noteRef": null
+        },
+        {
+          "id": "c6.10",
+          "text": "Projects as a core area: files and git for every project on every node, one resolver, one git module, the merge pump in the app, the file-browser fitting and the mesh git floor retired.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": "n-c6.10"
         }
       ]
     },
     {
       "id": "c7",
-      "title": "Ears and mouths: Omi, Companion, screen context",
+      "title": "Ears and mouths: pendant, Garrison iOS, screen context",
       "noteRef": "n-ears",
       "items": [
         {
           "id": "c7.1",
-          "text": "Omi channel to Garrison's standard. Pendant BLE direct in the Companion app (the app owns the connection and the speaker); device sound feedback by phase (wake heard, per segment, window closed, task created, failure); Deepgram transcription on Garrison's side; transcripts into memory. Validated end to end with a device mock before his device. Found: partial - the pendant-direct brief of 20 August shipped (docs/pendant-direct-report.md, docs/adr-pendant-direct.md) with configurable pipes and the Zeca wake word, but end-to-end validation against a device mock is not confirmed. Update 2026-09-02 (G7): the pendant reaches the app through the GarrisonPendant plugin with a mock harness on MockPendantTransport (ios/Tests/PendantPluginMockTests.swift) and the session words relayed to the capture page through /api/voice/sessions/<id>/events; the device criterion on a real phone is still the operator's (HANDOFF-garrison-app.md).",
+          "text": "Native pendant capture to Garrison's standard. Pendant BLE direct in the Companion app (the app owns the connection and the speaker); device sound feedback by phase (wake heard, per segment, window closed, task created, failure); Deepgram transcription on Garrison's side; transcripts into memory. Validated end to end with a device mock before his device. Found: partial - the pendant-direct brief of 20 August shipped (docs/pendant-direct-report.md, docs/adr-pendant-direct.md) with configurable pipes and the Zeca wake word, but end-to-end validation against a device mock is not confirmed. Update 2026-09-02 (G7): the pendant reaches the app through the GarrisonPendant plugin with a mock harness on MockPendantTransport (ios/Tests/PendantPluginMockTests.swift) and the session words relayed to the capture page through /api/voice/sessions/<id>/events; the device criterion on a real phone is still the operator's (HANDOFF-garrison-app.md).",
           "done": false,
           "sentToKanban": null,
           "noteRef": "n-pendant-recovery-20260909"
         },
         {
           "id": "c7.2",
-          "text": "Drop the Omi subscription and apps without breaking compatibility. Omi stays a supported channel (for Ekoa users later); the always-on is the responsibility of whoever chooses the device; a setup wizard makes the channel easy for others.",
-          "done": false,
+          "text": "Retire Omi cloud, apps, subscription integration, webhooks, MCP and public Funnels. Preserve the Omi hardware through native BLE in the Garrison iOS app, Capture, Deepgram, wake commands, speech, haptics and phone/pendant triage. Operator decision 2026-09-10 supersedes keeping Omi as a supported cloud channel; see docs/decisions/2026-09-10-omi-retirement.md.",
+          "done": true,
           "sentToKanban": null,
-          "noteRef": null
+          "noteRef": "n-c7.2"
         },
         {
           "id": "c7.3",
@@ -598,7 +610,7 @@
         },
         {
           "id": "c7.8",
-          "text": "Notifications, one behaviour everywhere. Web push from the PWA with a deep link to the card or conversation, Companion push, Omi push, Slack; no action buttons (iOS does not support them); tapping opens the Command Center row. Update 2026-09-02 (G4): native APNs push from the app with deep links into /talk and Kanban, no action buttons, web push kept as the fallback.",
+          "text": "Notifications, one behaviour everywhere. Web push from the PWA with a deep link to the card or conversation, Companion push, Slack; no action buttons (iOS does not support them); tapping opens the Command Center row. Update 2026-09-02 (G4): native APNs push from the app with deep links into /talk and Kanban, no action buttons, web push kept as the fallback.",
           "done": false,
           "sentToKanban": null,
           "noteRef": null
@@ -606,6 +618,20 @@
         {
           "id": "c7.9",
           "text": "Make capture credentials internal and automatic; discover every mesh node in iOS without a separate Capture node/token form. Preserve manual pause and verify native failover.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c7.10",
+          "text": "Deliver reliable phone listening through the existing native Capture plugin: separate intent and actual, phone and pendant watchdog pushes, automatic interruption recovery, shared Home/Capture controls and header badge, one wake tone, automated simulator acceptance and a TestFlight build. The 11 September 2026 brief supersedes the historical always-on phone deferral. Physical checks remain in docs/phone-listening-checklist.md; design and evidence are in docs/phone-listening.md.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c7.11",
+          "text": "Make spoken replies interruptible by confident speech after echo filtering, send captured commands directly without spoken repeat-back, and accept same-conversation feedback for 15 seconds after playback. Keep long replies on provider TTS with bounded clips. Automated native and server evidence and physical limitations are in docs/voice-conversation-controls.md.",
           "done": true,
           "sentToKanban": null,
           "noteRef": null
@@ -633,7 +659,7 @@
         },
         {
           "id": "c8.3",
-          "text": "The exception is written into the docs. The honesty rule stands for every capability except Signals, because no work happens in Garrison without it; other channels (Slack, Omi, Companion, voice) remain fittings with channel parity generalised, not special-cased. Done 2026-09-02: AGENTS.md \"The web channel exception\" and CLAUDE.md name Conversations as the one shell-hosted conversation surface; every other channel stays a fitting.",
+          "text": "The exception is written into the docs. The honesty rule stands for every capability except Signals, because no work happens in Garrison without it; other channels (Slack, Garrison iOS, voice) remain fittings with channel parity generalised, not special-cased. Done 2026-09-02: AGENTS.md \"The web channel exception\" and CLAUDE.md name Conversations as the one shell-hosted conversation surface; every other channel stays a fitting.",
           "done": true,
           "sentToKanban": null,
           "noteRef": null
@@ -710,7 +736,7 @@
         },
         {
           "id": "c10.2",
-          "text": "Capture from every ear with the source tagged: conversations through the background pass (c1.6), Omi and Companion transcripts after the wait-for-context batching, screen stories (c7.5 to c7.7). Nothing written without a source.",
+          "text": "Capture from every ear with the source tagged: conversations through the background pass (c1.6), native pendant and Garrison iOS transcripts after the wait-for-context batching, screen stories (c7.5 to c7.7). Nothing written without a source.",
           "done": false,
           "sentToKanban": null,
           "noteRef": null
@@ -759,7 +785,7 @@
         },
         {
           "id": "c11.3",
-          "text": "Ports back to Ekoa when proven in Garrison: the tasks app (Kanban concept), the Omi and Companion pipeline, the assistant register. Tracked in ekoa-code's own roadmap (its f3 and f4).",
+          "text": "Ports back to Ekoa when proven in Garrison: the tasks app (Kanban concept), the native pendant and Garrison iOS pipeline, the assistant register. Tracked in ekoa-code's own roadmap (its f3 and f4).",
           "done": false,
           "sentToKanban": null,
           "noteRef": null
@@ -812,6 +838,200 @@
           "done": false,
           "sentToKanban": null,
           "noteRef": null
+        }
+      ]
+    },
+    {
+      "id": "c13",
+      "title": "Archive",
+      "noteRef": "n-archive",
+      "items": [
+        {
+          "id": "c13.1",
+          "text": "Phase 0: Explore and bind; synthetic fixtures and real image proof.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c13.2",
+          "text": "Phase 1: File model, service, full API, ownership guard and pull-only exclusions.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c13.3",
+          "text": "Phase 2: Phone and desktop UI, deep links, real vision E2E.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c13.4",
+          "text": "Phase 3: Real ingestion, queue recovery, binary extraction and hourly budget.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c13.5",
+          "text": "Phase 4: Trello import, fixture recovery tests, live preview/import and sync.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c13.6",
+          "text": "Phase 5: Documents retirement, migration, instructions and documentation.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c13.7",
+          "text": "Phase 6: Full tests, real vision, fixture walkthrough, one scoped review and handoff.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c13.8",
+          "text": "Knowledge follow-up: compact document cards, reliable Back navigation, task-list cleanup, and verified assistant Archive search/read with source citations.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c13.9",
+          "text": "Folder browser follow-up: retire Inbox, fast shallow loading, document stars, alphabetical/recent sorting and thumbnails; deployed on four reachable nodes. Saved-document bookmarks supersede the earlier website-link interpretation in c13.10.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c13.10",
+          "text": "Unified Archive: bookmark documents and notes, browse all folders together, filter human and agent search, and fix long-note search latency; verify and deploy through normal guards.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c13.11",
+          "text": "Mobile attachment viewer: respect iPhone safe areas, compact PDF/file actions, usable image controls in portrait and landscape, and tested close/delete navigation.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c13.12",
+          "text": "Keep Archive inline and fenced code readable in light and dark themes, with measured contrast and phone/desktop visual checks.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        }
+      ]
+    },
+    {
+      "id": "c14",
+      "title": "Two homes, minimal flows and Mesh installation",
+      "noteRef": null,
+      "items": [
+        {
+          "id": "c14.1",
+          "text": "Phase 1: fresh consistent state snapshots, nightly peer ledgers, portable backup schedules and a live restore drill with shell evidence.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c14.2",
+          "text": "Phase 2: Garrison runtime homes, explicitly shared fittings, quarantine migration and leak reporting; isolated tests and sequential node acceptance.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c14.3",
+          "text": "Phase 3: minimal flows, recorded test handoffs, post-done duties and Improver learning; clean and findings journeys.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "c14.4",
+          "text": "Phase 4: Mesh install/uninstall and enrollment, sandbox and real-node round trips, scoped Drill sweep and the single final review.",
+          "done": false,
+          "sentToKanban": null,
+          "noteRef": null
+        }
+      ]
+    },
+    {
+      "id": "messages",
+      "title": "Messages",
+      "noteRef": null,
+      "items": [
+        {
+          "id": "m1",
+          "text": "Shared store, provider discovery, fenced ingest lease and system messages. Evidence: evidence/messages/p1/; docs/messages/README.md.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "m2",
+          "text": "Phone inbox, desktop conversation panes and inline system actions. Evidence: evidence/messages/p2/; docs/messages/README.md.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "m3",
+          "text": "Gmail account grants, incremental mail sync, HTML and mail actions. Evidence: evidence/messages/p3/; docs/messages/README.md.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null,
+          "note": "Implementation and fixtures accepted; live Gmail smoke remains pending Google mail read consent. See docs/messages/acceptance-report.md."
+        },
+        {
+          "id": "m4",
+          "text": "Slack user accounts, conversations, threads and files. Evidence: evidence/messages/p4/; docs/messages/README.md.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null,
+          "note": "Implementation and fixtures accepted; live Slack text and voice smokes remain pending a user grant. See docs/messages/acceptance-report.md."
+        },
+        {
+          "id": "m5",
+          "text": "Existing WhatsApp connection, events, media and held sends. Evidence: evidence/messages/p5/; docs/messages/README.md.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null,
+          "note": "WhatsApp self-only live checks and both browser media profiles pass after the final guarded rollout. Evidence: evidence/messages/live/whatsapp-final/ and evidence/messages/live/madrid-live-media-proof.json."
+        },
+        {
+          "id": "m6",
+          "text": "Shared composer, attachments, Drive, audio playback and transcripts. Evidence: evidence/messages/p6/; docs/messages/README.md.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null,
+          "note": "WhatsApp self-only live checks and both browser media profiles pass after the final guarded rollout. Slack voice remains consent pending. Evidence: evidence/messages/live/whatsapp-final/ and evidence/messages/live/madrid-live-media-proof.json."
+        },
+        {
+          "id": "m7",
+          "text": "Saved views, deterministic rules and provider settings. Evidence: evidence/messages/p7/; docs/messages/README.md.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null
+        },
+        {
+          "id": "m8",
+          "text": "Performance, offline behavior, retention, rollout and acceptance. Evidence: evidence/messages/p8/; docs/messages/README.md.",
+          "done": true,
+          "sentToKanban": null,
+          "noteRef": null,
+          "note": "Accepted with Google and Slack consent pending. 8981 runner tests and 58 browser cases pass. Air, Pro and Madrid are healthy at 40/40 and 15/15; Mini concurrent work and unavailable CSG are deferred. See docs/messages/acceptance-report.md."
         }
       ]
     }
@@ -996,6 +1216,26 @@
       "id": "n-zeca-resourcefulness-20260909",
       "title": "Zeca tries practical answer paths (9 September 2026)",
       "body": "Public web search and fetch are restored to the shared working-tool profile; capability guidance distinguishes installed providers from native tools. Zeca should seek current sources, try a suitable fallback, ask only for essential missing details, and give supported partial answers without fabricating access or facts. Responder follows the latest question without unrelated old work updates. 283 focused tests pass. Initial Pro deployment revealed deferred-tool discovery failure; the follow-up advertises the effective native inventory and exact-name tool discovery. Live Pro responders now perform web lookups and find alternative forecast sources. Final-answer guidance and SDK settled-message preservation address overwritten answers and internal handoff commentary. Deployed on the Pro as 667b1b3b: HTTPS saved-conversation acceptance retained a fresh sourced Portuguese forecast; the missing-location clarification passed. 43/43 startup checks and 17/17 views healthy. Model answer-quality limits remain documented; other nodes were not deployed. Evidence: docs/validation/2026-09-09-zeca-resourcefulness.md. This improves c1.5 without closing its broader research and reading scope."
+    },
+    {
+      "id": "n-c7.2",
+      "title": "Omi cloud retired; native pendant retained — 2026-09-10",
+      "body": "Shipped 02aacbb6: cloud fitting, webhook/Funnels, MCP, notification transport and Omi authority credentials retired. Native ios/ unchanged. Phone/pendant triage moved into capture-service; all four live owner jobs completed with exit 0. Madrid, Mini, Pro and Air each passed 15/15 live views plus native Capture bootstrap; CSG passed 10/10 and intentionally has no Capture. All five nodes audited with no public Funnels. Focused 459 tests passed; broad-suite limitations and remaining physical-phone/RustDesk checks are in docs/decisions/2026-09-10-omi-retirement.md. This supersedes plans to restore or keep an Omi cloud channel. Hardware remains supported and used daily."
+    },
+    {
+      "id": "n-approval-surfaces-20260911",
+      "title": "Routine approvals in To do, with conversation controls",
+      "body": "11 September 2026 operator decision: Needs attention is for problems and blockers, not every item needing human action. Routine approval cards remain in To do. Add Approve & continue beside the visible plan in the shared conversation banner, retain free-form replies and drafts, and use the existing owner-routed message transport. Validation and rollout: docs/validation/2026-09-11-conversation-approval.md."
+    },
+    {
+      "id": "n-archive",
+      "title": "Archive: accepted ownership and file model (11 September 2026)",
+      "body": "D1. Core, not a fitting. Archive lives in the shell: `packages/archive` + `src/app/api/archive/*` + `src/app/archive/*` + a Command item in the sidebar. Same pattern as Improver.\n\nD2. Files are the only source of truth. The vault (plain markdown and files, Obsidian-compatible, moved by git through `vault-git-sync`) holds everything the user sees. Any index, extracted text cache, job ledger or thumbnail is derived, local to the node, rebuildable from the files, and never synced.\n\nD3. Memory stays a faculty; basic-memory stays the provider (hooks, MCP tools, capture, Basic Memory index for agents). It gains no browsing UI; Archive is the UI. The `knowledge` faculty slot stays as it is for `roadmaps`, `pdf`, `project-viewer` (they are agent capabilities, not vault views). The `documents` fitting is retired (section 11.2). Nothing else in the default composition changes.\n\nD4. Two areas, one rule each. `Archive/` at the vault root is the owner's area: agents read it, never write it. Everything else in the vault is Garrison's area: agents write it, the owner reads and may edit or prune it. Provenance lives in frontmatter.\n\nD5. Pull-only for the owner's area. Nothing automatic (session capture, startup briefs, Claude native mirror, improver evidence collectors, Nightly Sync learnings) reads `Archive/`. Agents reach it only through explicit search or read in a conversation where the owner asked.\n\nD6. Ingestion writes sidecars next to the source file, marked derived, regenerable, never hand-edited. It is the only automatic writer inside `Archive/`.\n\nD7. One inbox folder (`Archive/Inbox/`) is the entry point for anything not yet filed: uploads from the UI, imports, and later any agent-fetched file. Connectors are out of scope for this task; the inbox is the seam they will use.\n\nD8. Trello is a one-shot import, never a live sync. Idempotent on card id so it can be re-run safely, but it does not watch Trello afterwards.\n\nD9. Board lens for the owner's area, notes lens for Garrison's area, by default. Either lens can be opened on any folder; the default is by area.\n\nD10. No Obsidian clone. No graph view, no plugin system, no wikilink resolution beyond rendering `[[name]]` as a search link. Monaco on desktop, a plain textarea with preview on the phone. Obsidian remains the heavy editor.\n\nD11. Phone-first. Designed at 390x844 first, then desktop at 1280x800. Runs inside the Garrison iOS webview unchanged.\n\nD12. The name is Archive. \"Vault\" is the credentials vault; \"Knowledge\" is a faculty. If the owner renames it later, the name is one constant (`ARCHIVE_LABEL`) plus the route.\n\nD13. Scope of this task: board, card page, notes lens, search, inbox, status strip, ingestion, Trello import, agent rules, retirements, docs, tests, walkthrough. Out of scope: connectors pulling files, shared/multi-user access, remote backends, Ekoa.\n\nPlan and bindings: docs/decisions/2026-09-11-archive.md. Each phase closes only after its acceptance tests and main commit."
+    },
+    {
+      "id": "n-c6.10",
+      "title": "Projects core area",
+      "body": "[Projects decision](docs/decisions/2026-09-13-projects.md)\n\nFiles and git remain available on every node while compositions are down."
     }
   ]
 }

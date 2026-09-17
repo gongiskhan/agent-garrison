@@ -1,0 +1,29 @@
+# Voice conversation controls
+
+The phone and pendant use the existing Capture ingress, Deepgram transcript, wake bus and standing Zeca conversation. Commands go directly to that conversation without the spoken repeat-back. Wake aggregation and card creation remain unchanged.
+
+## Interruption and feedback
+
+Native sessions advertise `speech_protocol: 1`. While a reply is pending on that session, the server rejects its own echo before considering interruption. Recognizable final speech requires confidence of at least 0.85 and 350 ms of speech; a single word requires 0.92 and 180 ms. Interim speech needs at least two words, confidence 0.9, 450 ms of speech, and stable text across two observations at least 250 ms apart. Empty input, noise markers and uncertain recognition do not interrupt. Confidence measures recognition accuracy, not identity. There is no enrolled voiceprint, so another person speaking clearly nearby can still interrupt.
+
+The existing socket sends `speech.interrupt` with the pending acknowledgement IDs for that stream. The native SpeechSink stops the current clip or synthesizer, cancels queued clips, and sends a `user-speech` receipt. Generation checks keep late downloads and callbacks from restarting speech. Older apps do not advertise support and retain their existing behavior.
+
+Every conversation reply registers a feedback window before playback is sent. Its successful completion receipt opens the window for exactly 15 seconds; interruption opens it immediately so the interrupting sentence becomes feedback. The existing conversation ID remains bound. Only confident final text is dispatched, after a 900 ms settling interval. Continued interim speech extends settling without dispatching provisional words. Speech begun inside the window can finish after expiry, with a 30-second utterance ceiling. Noise or silence produces no turn. After the window closes, a wake word is required again.
+
+## Voice quality
+
+On 12 September 2026 the active phone node selected ElevenLabs with no active fallback. The account subscription was active with 43,697 characters remaining. Its counters also recorded a long reply falling back to the system voice: provider rendering previously refused anything over 600 characters. This check rules out an exhausted account at that time, not every historical provider failure.
+
+Long replies now use ordered clips of at most 600 characters, with at most two concurrent renders per reply through the existing cached provider path. The phone plays the clips sequentially and reports completion after the final clip. Only a failed clip falls back to the system voice. Provider keys remain server-side. Relative clip URLs resolve against the phone's selected Capture node.
+
+## Verification
+
+Server regression coverage includes real authenticated WebSocket ingress for both sources, noise and echo rejection, interruption, same-conversation feedback, no repeat-back or interruption push, long-clip boundaries, and exact timeout behavior. Native tests cover ordered playback, cancellation during clips and synthesis, late callback rejection and wire decoding. The existing simulator validation workflow also exercises interruption through CaptureController and its real native upload socket against an isolated local node.
+
+Accepted on 12 September 2026: 293 server tests, followed by 40 focused tests after the short-feedback refinement; TypeScript checks passed. [Native validation](https://github.com/gongiskhan/agent-garrison/actions/runs/34681566106) passed 141 tests. Its broader UI run exposed a manual Resume test racing automatic reconnect; the isolated test driver now keeps the old stream blocked during that specific step. The [final simulator run](https://github.com/gongiskhan/agent-garrison/actions/runs/34682271065) passed the complete Home/Capture journey and physical-device target compilation. Logs and scoped receipts stay on Pro in `evidence/voice-conversation-controls/`.
+
+[TestFlight 1.0 build 42](https://github.com/gongiskhan/ios-thing/actions/runs/34681968322), frozen revision `e2b113e1ee88bf591da8967eb3d184e266c6d2f9`, finished Apple processing at 08:07:47 UTC. The release lane also passed native tests; its isolated-node journeys are covered by the dedicated validation runs above.
+
+The voice server changes are live on Madrid and Pro. Madrid reloaded only Capture at 08:40:20 UTC, preserving its shell and gateway. Pro's guarded deployment of `08c069fc` reached a running composition at 09:26:34 UTC with all 15 services healthy; published HTTPS checks confirmed ElevenLabs with no fallback. The Pro recovery also resolved a pre-existing vault transport failure under the Archive owner's rules, with recovery refs and no authored Archive delta. Receipts remain on their owner nodes, summarized in the shared Garrison Node Operations note. Mini remains at its prior server revision to preserve the stopped Cursor task's work, and Air deployment access is unavailable. Use Madrid or Pro for these voice controls until those rollout deferrals clear. No pending home migration was activated.
+
+Physical checks after installing build 42 and deploying the server: ask for a long answer, interrupt with a clear sentence, and confirm the old answer stays stopped; try nearby handling noise and confirm playback continues; speak feedback within 15 seconds of completion without saying Zeca; wait longer and confirm a wake word is needed. Audible voice quality and real acoustic separation require a device and are not claimed from synthetic transcripts.

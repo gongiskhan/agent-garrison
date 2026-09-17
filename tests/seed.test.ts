@@ -24,7 +24,6 @@ const seedIds = [
   "screen-share-default",
   "monitor-default",
   "browser-default",
-  "file-browser",
   "orchestrator",
   "taste",
   "opencode-runtime",

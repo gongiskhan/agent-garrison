@@ -34,7 +34,7 @@ export const PREFLIGHT_SH_PATH = path.join(HERE, "csg-node-preflight.sh");
 export const UNSTATION_SUGGESTED = [
   "codex-runtime", "gemini-runtime", "opencode-runtime", "browser-default",
   "screen-share-default", "snapshots-default", "basic-memory", "vault-git-sync",
-  "improver", "improver-nightly", "slack-channel", "email-channel", "omi-channel",
+  "slack-channel", "email-channel",
   "whatsapp-web", "capture-service", "trello", "google", "cortex-automations", "cortex-client"
 ];
 

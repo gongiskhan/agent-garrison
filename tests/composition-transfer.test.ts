@@ -202,6 +202,10 @@ describe("buildCompositionBundle", () => {
     const second = await buildCompositionBundle(SOURCE_ID);
     const strip = (bundle: CompositionBundle) => ({ ...bundle, exported_at: "" });
     expect(strip(second.bundle)).toEqual(strip(first.bundle));
+    expect(first.bundle.manifest).toEqual(yaml.load(await fs.readFile(path.join(SOURCE_DIR, "apm.yml"), "utf8")));
+    expect((first.bundle.manifest["x-garrison"] as any).composition.global_config.archive).toMatchObject({
+      extract_target: "cc-sonnet", max_file_mb: 25
+    });
   });
 
   it("refuses a composition that is not there", async () => {

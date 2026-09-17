@@ -38,7 +38,6 @@
 | `codex-runtime` | runtimes | runtime-delegate | verify-only | PASS | verify-only |
 | `deepgram-voice` | connectors | catalog-parse | PASS | PASS | PASS |
 | `dev-env` | sessions | http-health | PASS | PASS | PASS |
-| `file-browser` | sessions | http-health | verify-only | verify-only | verify-only |
 | `gemini-runtime` | runtimes | runtime-delegate | DEGRADED | DEGRADED | DEGRADED |
 | `http-gateway` | gateway | gateway-boot | PASS | PASS | PASS |
 | `improver` | observability | http-health | verify-only | verify-only | verify-only |
@@ -77,7 +76,6 @@ Every non-`pass` cell, with its cause. `verify-only` = the health hook passed bu
 | browser-default @ opencode | verify-only | own-port server not running on :27084 (harness does not 'up' the composition); verify hook is the health signal |
 | claude-code-runtime @ opencode | verify-only | no delegate bridge (primary-only runtime); health via probe |
 | codex-runtime @ opencode | verify-only | codex delegate round-trip is budget-gated to ONE call (spent in the codex column); read-only --probe here (CLI authed) |
-| file-browser @ opencode | verify-only | own-port server not running on :27091 (harness does not 'up' the composition); verify hook is the health signal |
 | gemini-runtime @ opencode | DEGRADED | bridge --probe ok (CLI present); a real delegate TURN is unauthed on this box (no Gemini credentials) — expected, documented degradation |
 | improver @ opencode | verify-only | own-port server not running on :27093 (harness does not 'up' the composition); verify hook is the health signal |
 | kanban-loop @ opencode | verify-only | own-port fitting; no port in composition config (not started by harness) |
@@ -89,7 +87,6 @@ Every non-`pass` cell, with its cause. `verify-only` = the health hook passed bu
 | automations @ codex | verify-only | own-port server not running on :27090 (harness does not 'up' the composition); verify hook is the health signal |
 | browser-default @ codex | verify-only | own-port server not running on :27084 (harness does not 'up' the composition); verify hook is the health signal |
 | claude-code-runtime @ codex | verify-only | no delegate bridge (primary-only runtime); health via probe |
-| file-browser @ codex | verify-only | own-port server not running on :27091 (harness does not 'up' the composition); verify hook is the health signal |
 | gemini-runtime @ codex | DEGRADED | bridge --probe ok (CLI present); a real delegate TURN is unauthed on this box (no Gemini credentials) — expected, documented degradation |
 | improver @ codex | verify-only | own-port server not running on :27093 (harness does not 'up' the composition); verify hook is the health signal |
 | kanban-loop @ codex | verify-only | own-port fitting; no port in composition config (not started by harness) |
@@ -101,7 +98,6 @@ Every non-`pass` cell, with its cause. `verify-only` = the health hook passed bu
 | browser-default @ claude-code | verify-only | own-port server not running on :27084 (harness does not 'up' the composition); verify hook is the health signal |
 | claude-code-runtime @ claude-code | verify-only | no delegate bridge (primary-only runtime); health via probe |
 | codex-runtime @ claude-code | verify-only | codex delegate round-trip is budget-gated to ONE call (spent in the codex column); read-only --probe here (CLI authed) |
-| file-browser @ claude-code | verify-only | own-port server not running on :27091 (harness does not 'up' the composition); verify hook is the health signal |
 | gemini-runtime @ claude-code | DEGRADED | bridge --probe ok (CLI present); a real delegate TURN is unauthed on this box (no Gemini credentials) — expected, documented degradation |
 | improver @ claude-code | verify-only | own-port server not running on :27093 (harness does not 'up' the composition); verify hook is the health signal |
 | kanban-loop @ claude-code | verify-only | own-port fitting; no port in composition config (not started by harness) |

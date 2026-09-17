@@ -50,14 +50,18 @@ LAUNCHD_LABEL="io.garrison.node"
 
 say() { printf "\n[reload] %s\n" "$*"; }
 
+# Serialize installation, build and restart: concurrent installers can remove
+# dependencies while another deployment or the running server is loading them.
+node "$SCRIPT_DIR/garrison-deployment-guard.mjs" acquire "$BASE" "$PROD_HOME" "$$"
+trap 'node "$SCRIPT_DIR/garrison-deployment-guard.mjs" release "$BASE" "$PROD_HOME" "$$"' EXIT
+
 # --- build ------------------------------------------------------------------
 # Fail here and prod keeps serving the last good build, exactly as redeploy does.
 say "building prod bundle (.next-prod)"
 bash scripts/garrison-instance.sh prod build
 
-# Serialize mesh restarts and close new admissions before the final live check.
-node "$SCRIPT_DIR/garrison-deployment-guard.mjs" acquire "$BASE" "$PROD_HOME" "$$"
-trap 'node "$SCRIPT_DIR/garrison-deployment-guard.mjs" release "$BASE" "$PROD_HOME" "$$"' EXIT
+# Recheck live Conversations immediately before stopping services.
+node "$SCRIPT_DIR/garrison-deployment-guard.mjs" check "$BASE" "$PROD_HOME" "$$"
 
 # --- swap the app server ----------------------------------------------------
 # Same OS detection as garrison-redeploy.sh: systemd user unit on Linux,

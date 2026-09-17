@@ -17,7 +17,7 @@ enum GarrisonPlugins {
     static func make(host: GarrisonBridgeViewController) -> [CAPPlugin & CAPBridgedPlugin] {
         [
             GarrisonNodePlugin(host: host),
-            GarrisonCapturePlugin(controller: CaptureController()),
+            GarrisonCapturePlugin(controller: CaptureController.shared),
             GarrisonSpeechPlugin(),
             GarrisonPushPlugin(),
             GarrisonPendantPlugin(),

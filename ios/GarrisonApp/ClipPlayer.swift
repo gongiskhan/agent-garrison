@@ -61,6 +61,7 @@ final class ClipPlayer: NSObject, ClipPlaying, AVAudioPlayerDelegate {
     private var completion: ((Bool) -> Void)?
     private var task: URLSessionDataTask?
     private var ownsSession = false
+    private var generation: UInt64 = 0
 
     func play(path: String, volume: Float, completion: @escaping (Bool) -> Void) {
         guard let base = AppGroup.baseURL,
@@ -70,16 +71,19 @@ final class ClipPlayer: NSObject, ClipPlaying, AVAudioPlayerDelegate {
             return
         }
         stop()
+        let token = generation
         self.completion = completion
         let request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 8)
         task = URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
-            guard let self else { return }
-            let ok = (response as? HTTPURLResponse)?.statusCode == 200
-            guard ok, let data, !data.isEmpty else {
-                self.finish(false)
-                return
+            DispatchQueue.main.async {
+                guard let self, self.generation == token else { return }
+                let ok = (response as? HTTPURLResponse)?.statusCode == 200
+                guard ok, let data, !data.isEmpty else {
+                    self.finish(false)
+                    return
+                }
+                self.start(data: data, volume: volume)
             }
-            DispatchQueue.main.async { self.start(data: data, volume: volume) }
         }
         task?.resume()
     }
@@ -92,7 +96,7 @@ final class ClipPlayer: NSObject, ClipPlaying, AVAudioPlayerDelegate {
             player.volume = volume
             self.player = player
             // With the in-app mic running the session is already
-            // .playAndRecord/.voiceChat with hardware echo cancellation, so
+            // .playAndRecord/.default, so
             // this plays while the mic stays hot and activateIfNeeded left it
             // untouched. On the pendant lane there was no session at all, which
             // is what activateIfNeeded has just claimed.
@@ -115,6 +119,7 @@ final class ClipPlayer: NSObject, ClipPlaying, AVAudioPlayerDelegate {
     }
 
     func stop() {
+        generation &+= 1
         task?.cancel()
         task = nil
         player?.stop()
@@ -127,10 +132,12 @@ final class ClipPlayer: NSObject, ClipPlaying, AVAudioPlayerDelegate {
     }
 
     func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        guard self.player === player else { return }
         finish(flag)
     }
 
     func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        guard self.player === player else { return }
         finish(false)
     }
 }

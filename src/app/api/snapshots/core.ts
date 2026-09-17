@@ -64,3 +64,18 @@ export function resolveScriptsDir(): string {
   }
   return path.join(SEED_FITTINGS_DIR, FITTING_ID, "scripts");
 }
+
+export interface RestoreDrillReport {
+  at: string;
+  ok: boolean;
+  state: { ageHours?: number; restored?: { cards: number; cardDocs: number }; live?: { cards: number; cardDocs: number } };
+  restic: { ageHours?: number; conversations?: { restored?: number; live?: number } };
+  failures: string[];
+}
+
+export function readRestoreDrill(stateDir = snapshotsStateDir()): RestoreDrillReport | null {
+  try {
+    const report = JSON.parse(fs.readFileSync(path.join(stateDir, "restore-drill.json"), "utf8"));
+    return typeof report.at === "string" && typeof report.ok === "boolean" && report.state && report.restic && Array.isArray(report.failures) ? report : null;
+  } catch { return null; }
+}

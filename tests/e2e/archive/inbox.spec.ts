@@ -1,0 +1,6 @@
+import fs from 'node:fs/promises';import path from 'node:path';import {test,expect,goto,checkpoint,fixtures} from './fixture';
+test('retired Inbox redirects to Yours and uploads go directly into a document',async({page,app},info)=>{
+ await goto(page,app,'/archive/inbox');await expect(page).toHaveURL(/archive\/notes\?path=Archive/);await expect(page.getByRole('link',{name:'Inbox',exact:true})).toHaveCount(0);expect(await fs.stat(path.join(app.vault,'Archive/Inbox')).catch(()=>null)).toBeNull();
+ await page.getByRole('button',{name:'Document',exact:true}).click();await page.getByLabel('Document title',{exact:true}).fill('Uploaded certificate');await page.getByRole('button',{name:'Continue',exact:true}).click();await expect(page.getByRole('heading',{name:'Uploaded certificate',exact:true})).toBeVisible();
+ await page.getByLabel('Add files',{exact:true}).setInputFiles(path.join(fixtures,'sample-document.jpg'));await expect(page.locator('.archive-attachment')).toContainText('Processed');await checkpoint(page,info,'direct-upload',app);expect(await fs.readFile(path.join(app.vault,'Archive/Uploaded certificate/sample-document.jpg.md'),'utf8')).toContain('TEST-48392017');expect(await fs.stat(path.join(app.vault,'Archive/Inbox')).catch(()=>null)).toBeNull();
+});

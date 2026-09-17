@@ -4,7 +4,7 @@
 // Drives the real journey a user takes (sidebar -> roadmap -> tick -> notes ->
 // manage -> send to the board) and captures a screenshot per step into
 // ~/.garrison/files/roadmaps-e2e so they are reachable through the
-// file-browser fitting from any machine on the tailnet.
+// Projects core area from any machine on the tailnet.
 //
 // Every mutation it makes is undone at the end: the task it adds is deleted,
 // the ticks are cleared, the cards it creates are removed from the board, and

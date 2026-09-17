@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { ConnectorView } from "@/lib/connectors-view";
 import type { VaultAuditEntry } from "@/lib/vault-audit";
 import styles from "./ConnectorsPanel.module.css";
+import { MessagesAccounts } from "./MessagesAccounts";
 
 interface ConnectorsResponse {
   connectors: ConnectorView[];
@@ -289,6 +290,7 @@ export function ConnectorsPanel() {
                   <div>{c.setupHelp.links?.map((link) => <a key={link.url} href={link.url} target="_blank" rel="noreferrer">{link.label}</a>)}</div>
                 </div>
               )}
+              {c.id === "slack" && <MessagesAccounts />}
               {c.baseUrl && openConnect !== c.id && <p>Base URL: <span style={{ overflowWrap: "anywhere" }}>{c.baseUrl}</span></p>}
 
               {/* Connect / revoke actions */}

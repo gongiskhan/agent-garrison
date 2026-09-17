@@ -381,6 +381,11 @@ describe("/api/voice/sessions/<id>/events live transcript relay", () => {
   beforeAll(async () => {
     sse = http.createServer((req, res) => {
       seen.push({ path: req.url ?? "", accept: req.headers.accept, authorization: req.headers.authorization });
+      if (req.url === "/capture/listening/events") {
+        res.setHeader("content-type", "text/event-stream");
+        res.end('data: {"type":"listening.state","device_id":"test-device","source":"phone","actual":"listening"}\n\n');
+        return;
+      }
       if (!/^\/sessions\/[A-Za-z0-9_-]{10,40}\/events$/.test(req.url ?? "")) {
         res.statusCode = 404;
         res.end();
@@ -414,6 +419,19 @@ describe("/api/voice/sessions/<id>/events live transcript relay", () => {
       expect(call.path).toBe("/sessions/pend_abcDEF123/events");
       expect(call.accept).toBe("text/event-stream");
       expect(call.authorization).toBe("Bearer cap-token");
+    } finally { await srv.close(); }
+  });
+
+  it("relays listening snapshots read-only without exposing the capture token", async () => {
+    writeStatus("capture-service", sseUrl);
+    const srv = await serveRouter({ fittingId: () => "capture-service", token: () => "cap-token" });
+    try {
+      const res = await fetch(`${srv.url}/api/voice/listening/events`);
+      expect(res.status).toBe(200);
+      const body = await res.text(); expect(body).toContain('"type":"listening.state"'); expect(body).not.toContain("cap-token");
+      expect(seen.at(-1)).toMatchObject({ path: "/capture/listening/events", authorization: "Bearer cap-token" });
+      const write = await fetch(`${srv.url}/api/voice/listening/events`, { method: "POST", body: '{}' });
+      expect(write.status).not.toBe(200);
     } finally { await srv.close(); }
   });
 

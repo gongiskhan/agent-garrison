@@ -1,3 +1,4 @@
+import { isArchivePath, hasArchiveReference, automationInputAllowed, automationVaultRoot } from "../../archive/src/paths.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -58,8 +59,9 @@ function walkFiles(dir, depth = 0) {
 export async function collectDailyEvidence({ day, node, home, env = process.env, client, shared = false, cap = 48 }) {
   const from = `${day}T00:00:00.000Z`, until = new Date(Date.parse(from) + 86400_000).toISOString();
   const sources = [], coverage = [], errors = [];
+  const vaultDir=automationVaultRoot({...env,GARRISON_HOME:home});
   const add = (kind, title, ref, at, excerpt, extra = {}) => {
-    if (!excerpt || sources.length >= cap) return;
+    if (!excerpt || sources.length >= cap || isArchivePath(vaultDir,ref) || hasArchiveReference(vaultDir,excerpt)) return;
     sources.push({ id: hash(`${node}:${kind}:${ref}:${day}`).slice(0,20), node, kind, title, ref, at, ...extra, excerpt: boundedExcerpt(redact(excerpt)) });
   };
   const roots = [
@@ -69,10 +71,11 @@ export async function collectDailyEvidence({ day, node, home, env = process.env,
   ];
   for (const { kind, root } of roots) {
     try {
-      const files = walkFiles(root).filter((file) => fs.statSync(file).mtimeMs >= Date.parse(from))
+      const files = (isArchivePath(vaultDir,root)?[]:walkFiles(root)).filter((file) => !isArchivePath(vaultDir,file) && fs.statSync(file).mtimeMs >= Date.parse(from))
         .sort((a,b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs).slice(0,40);
       let reviewed = 0;
       for (const file of files) {
+        if(!automationInputAllowed(vaultDir,file)) continue;
         const lines = linesFor(file, kind, from, until); if (!lines.length) continue;
         const id = kind === "conversation" ? path.basename(path.dirname(file)) : path.basename(file, ".jsonl");
         const ref = kind === "conversation" ? `/talk/${encodeURIComponent(id)}` : file;
@@ -84,7 +87,7 @@ export async function collectDailyEvidence({ day, node, home, env = process.env,
   }
   const reviewDir = path.join(home, "zeca", "reviews");
   for (const entry of entries(reviewDir).filter((e) => e.name.startsWith(day) && e.name.endsWith(".md")).slice(0,8)) {
-    const file = path.join(reviewDir, entry.name); add("zeca", "Zeca nightly review", file, day, readBounded(file, 6000));
+    const file = path.join(reviewDir, entry.name); if(!automationInputAllowed(vaultDir,file))continue; add("zeca", "Zeca nightly review", file, day, readBounded(file, 6000));
   }
   if (shared && client) {
     try {

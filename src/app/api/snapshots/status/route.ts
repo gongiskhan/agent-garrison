@@ -5,6 +5,7 @@ import { jsonError } from "@/lib/http";
 import {
   formatRestoreCommand,
   readSnapshotsState,
+  readRestoreDrill,
   resolveScriptsDir
 } from "../core";
 
@@ -19,6 +20,7 @@ interface Snapshot {
 }
 
 interface StatusEnvelope {
+  scheduling?: unknown;
   repository?: string;
   error?: string;
   snapshots?: Array<{ id?: string; short_id?: string; time?: string; paths?: string[]; hostname?: string }>;
@@ -33,6 +35,7 @@ export async function GET() {
     const state = readSnapshotsState();
     const scriptsDir = resolveScriptsDir();
 
+    let scheduling: unknown = null;
     let repository: string | null = null;
     let snapshots: Snapshot[] | null = null;
     let snapshotsError: string | undefined;
@@ -48,6 +51,7 @@ export async function GET() {
     } else if (typeof res.stdout === "string" && res.stdout.trim().length > 0) {
       try {
         const env = JSON.parse(res.stdout.trim()) as StatusEnvelope;
+        scheduling = env.scheduling ?? null;
         repository = env.repository && env.repository.length > 0 ? env.repository : null;
         if (env.error && env.error.length > 0) snapshotsError = env.error;
         if (Array.isArray(env.snapshots)) {
@@ -75,6 +79,8 @@ export async function GET() {
 
     return NextResponse.json({
       state,
+      restoreDrill: readRestoreDrill(),
+      scheduling,
       repository,
       snapshots,
       snapshotsError,

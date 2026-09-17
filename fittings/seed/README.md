@@ -6,6 +6,10 @@ contents are not the selectable catalogue. `data/library.json` is the
 authoritative live registry; each registered Fitting's `apm.yml` is the
 authoritative capability contract.
 
+## Projects
+
+Files and git are served by the core Projects area at `/projects`. Garrison files retains the artifact root and its standing capability guidance. No seed fitting is required; the merge request pump runs in the app process.
+
 ## Live role and capability vocabulary
 
 The exact vocabularies live in `src/lib/types.ts`:

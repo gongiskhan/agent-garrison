@@ -1,0 +1,796 @@
+{
+  "version": 1,
+  "at": "2026-09-12T07:57:48.766Z",
+  "node": "dev-madrid",
+  "homes": {
+    "claude-code": "/home/ggomes/.claude",
+    "codex": "/home/ggomes/.codex",
+    "gemini": "/home/ggomes/.gemini"
+  },
+  "items": [
+    {
+      "runtime": "claude-code",
+      "kind": "file",
+      "ref": "basic-memory",
+      "name": "basic-memory",
+      "owner": "basic-memory",
+      "hash": "da44811d9bf1ca5b5f5e59ef893f9dba2a37fc585515140da62b0a440a392643"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "hook",
+      "ref": "Notification#0",
+      "name": "Notification",
+      "owner": "dev-env",
+      "hash": "287b871f5cb81b2570879561a5f42d90a2b5551a5b394674055061d899f7c162"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "hook",
+      "ref": "PostToolUse#1",
+      "name": "PostToolUse",
+      "owner": null,
+      "hash": "6b113e60e77d5756fadba254611700254ec0785bd448ee00b31d65355ab499f0"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "hook",
+      "ref": "PostToolUse#2",
+      "name": "PostToolUse",
+      "owner": "dev-env",
+      "hash": "a4176c4f7ffd81530f11f24893b1e964f85c0398907afa29fd63b6d3dbd64b74"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "hook",
+      "ref": "PostToolUse#3",
+      "name": "PostToolUse",
+      "owner": "core:improver-probe",
+      "hash": "e554277bc767092533876681cdd39e3f46c47dd448736e8d8fa28521385585f2"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "hook",
+      "ref": "PreToolUse#1",
+      "name": "PreToolUse",
+      "owner": null,
+      "hash": "6b113e60e77d5756fadba254611700254ec0785bd448ee00b31d65355ab499f0"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "hook",
+      "ref": "PreToolUse#2",
+      "name": "PreToolUse",
+      "owner": "basic-memory",
+      "hash": "3239dd71c16ac50a9f46835a68017ca224f427d2a48428a68a3ca100ae65e208"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "hook",
+      "ref": "SessionEnd#2",
+      "name": "SessionEnd",
+      "owner": null,
+      "hash": "18f276e05b222cc060e64afc80a0c07f0623e599670809dc32056bb430458522"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "hook",
+      "ref": "SessionStart#2",
+      "name": "SessionStart",
+      "owner": null,
+      "hash": "44488d0962cb4e22c67ce6e1cfbfc304258b6f6447695ef317678dcbadb2c38f"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/design-taste-frontend",
+      "name": "design-taste-frontend",
+      "owner": "taste",
+      "hash": "062e1878678dad711395a0976c985b017269153b20ed4a26c0da5e5c3982e606"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/design-taste-frontend/LICENSE",
+      "name": "LICENSE",
+      "owner": "taste",
+      "hash": "4575a543ab88dad12ccea7d97e563d0bce5b448b06072e65d3264497dad326df"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/design-taste-frontend/SKILL.md",
+      "name": "SKILL.md",
+      "owner": "taste",
+      "hash": "aa194351b246b8b4799099d4ed7b033d29eab6e6e3d58d8d2172978be7b3ec89"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison",
+      "name": "garrison",
+      "owner": "garrison-skills",
+      "hash": "188a8ac9bd3841772252a4816aaef4f1d8b05545bd889998cb5705c77b7b5969"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-adversarial-review",
+      "name": "garrison-adversarial-review",
+      "owner": "garrison-skills",
+      "hash": "617a309128ec986b4f84252fd73c4d746db127f722016aa4710c6c50723ecb06"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-adversarial-review/SKILL.md",
+      "name": "SKILL.md",
+      "owner": "garrison-skills",
+      "hash": "d41530f381ae560b142cedc7cbbbf84e98d72b168ebf5fe33f6da2f8018f9810"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-adversarial-test",
+      "name": "garrison-adversarial-test",
+      "owner": "garrison-skills",
+      "hash": "45c636cbb8a3738344759f15dd6066e1e850f295cb3642dfc83b9015ef81031e"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-adversarial-test/SKILL.md",
+      "name": "SKILL.md",
+      "owner": "garrison-skills",
+      "hash": "dda8df3d1dd2771d80e43db0fe461ef1c4264fdcb42ea04d48ab690d42b4fb10"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-browser",
+      "name": "garrison-browser",
+      "owner": null,
+      "hash": "ff815115cd567fb77e15c190976a0a50025446502c7fbe6a5b682e40d6401187"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-codex-checkpoint",
+      "name": "garrison-codex-checkpoint",
+      "owner": "garrison-skills",
+      "hash": "0fa7dd178b78743c5531a79a6128aa0ba4c7d85e44d329c63d7b8117e3a2942c"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-codex-checkpoint/assets/codex-checkpoint.schema.json",
+      "name": "codex-checkpoint.schema.json",
+      "owner": "garrison-skills",
+      "hash": "81e2ff214b39befd4c7a0cec03297df6fd56e0b0b8b35acab37935492e9ba6ee"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-codex-checkpoint/references/codex-checkpoint.md",
+      "name": "codex-checkpoint.md",
+      "owner": "garrison-skills",
+      "hash": "20cc451a27aadc852092ca46e9b8b0122d451cefc6dcd8975c2c9731def6fe50"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-codex-checkpoint/SKILL.md",
+      "name": "SKILL.md",
+      "owner": "garrison-skills",
+      "hash": "66443379e18c080f9a581eb31b59c45f7cf1edafa9d1bc69862233ca35064099"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-implement",
+      "name": "garrison-implement",
+      "owner": "garrison-skills",
+      "hash": "f4478ce656adb0f6db884587ec4957928aa9e03655309eb8bc6ae3320c599580"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-implement/SKILL.md",
+      "name": "SKILL.md",
+      "owner": "garrison-skills",
+      "hash": "f4168f8cd6a886d05ac51fa6d16b6d6af16e1fcb89815b1ba8f227a4e0440268"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-parallel-work",
+      "name": "garrison-parallel-work",
+      "owner": "garrison-skills",
+      "hash": "feff492a7a3b871deb64e84c6ad4ac74f53910aaa4e98fb82345819198cd8fa1"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-parallel-work/SKILL.md",
+      "name": "SKILL.md",
+      "owner": "garrison-skills",
+      "hash": "7da108c692bb2f81c6bd890669ca04b4531175f2f68b776d45e98bd116212e30"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-plan",
+      "name": "garrison-plan",
+      "owner": "garrison-skills",
+      "hash": "09c2d7253de8a19b1af7df479fd4c4b9e9ab91897fb441aae795df379cd14cc9"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-plan/references/plan-mode-prompts.md",
+      "name": "plan-mode-prompts.md",
+      "owner": "garrison-skills",
+      "hash": "7dc2a937d07fa5e1f079e55ffeef73f9d80aa70a005a2ed1058a57bbe2ec7750"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-plan/SKILL.md",
+      "name": "SKILL.md",
+      "owner": "garrison-skills",
+      "hash": "18e8da734717a20ec319b31bd4f8dfa40c7987694f8e3bc675b5947bbffbe27e"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-project-foundation",
+      "name": "garrison-project-foundation",
+      "owner": "garrison-skills",
+      "hash": "fca5046d67128debd8a5fee4f9824c7b96511798bf5d84512830e3c027390df8"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-project-foundation/assets/area-skills/testing.SKILL.md",
+      "name": "testing.SKILL.md",
+      "owner": "garrison-skills",
+      "hash": "cec09c7831f397d1dbe06853597c68b6f1cc3f9f1678ba11695dad44e996704e"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-project-foundation/assets/CLAUDE.md.template",
+      "name": "CLAUDE.md.template",
+      "owner": "garrison-skills",
+      "hash": "1cd6528c9fb93dcc05e5734f361e8787eda7a5153f15b6a4a1f1db8d68c5b15d"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-project-foundation/assets/docs/architecture.md",
+      "name": "architecture.md",
+      "owner": "garrison-skills",
+      "hash": "09560c7bd417d783d1581db3a1767fc0673a64dc76d216ce1e95c350808851d3"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-project-foundation/assets/docs/conventions.md",
+      "name": "conventions.md",
+      "owner": "garrison-skills",
+      "hash": "450822737d159a956cc22a36a8555d95a676d909f7819e68b0637e606735bfa0"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-project-foundation/assets/docs/decisions.md",
+      "name": "decisions.md",
+      "owner": "garrison-skills",
+      "hash": "853405128d9a7742d998b74139a5448f972b78ded781144996aa7c3f066b7b4a"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-project-foundation/assets/docs/governance.md",
+      "name": "governance.md",
+      "owner": "garrison-skills",
+      "hash": "39850031b5161a6e01adf84ec13d64a941baa3fe7c47702afbeb6d356f8b8e9e"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-project-foundation/assets/docs/product-overview.md",
+      "name": "product-overview.md",
+      "owner": "garrison-skills",
+      "hash": "9856b56ef3955068ca044d64b537622bd7b44cc5caab67806981781be28912e2"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-project-foundation/references/generation.md",
+      "name": "generation.md",
+      "owner": "garrison-skills",
+      "hash": "f206cc973ca44ca15e63889308a49aa847f6e1f097bcde8721cb13225fe4549c"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-project-foundation/references/manifest.md",
+      "name": "manifest.md",
+      "owner": "garrison-skills",
+      "hash": "a8c5cbc1ca6259d717af329a396236ce582ec54b15ef162b0c855ffda36701e8"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-project-foundation/SKILL.md",
+      "name": "SKILL.md",
+      "owner": "garrison-skills",
+      "hash": "db7dd508878a96c73a5b88212ac2b576b098ac75bb7ae09623aeb61ea0b86871"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-report",
+      "name": "garrison-report",
+      "owner": "garrison-skills",
+      "hash": "82334f91fc28618c174a227a57f8efdc2328d93f245fe0c10b281ef22ec55a6c"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-report/scripts/notify.mjs",
+      "name": "notify.mjs",
+      "owner": "garrison-skills",
+      "hash": "af861d4915373eb4112a941b4fdb7c8aac5c1d4ca675b0ad9798dd1d14a204c3"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-report/scripts/prune-runs.mjs",
+      "name": "prune-runs.mjs",
+      "owner": "garrison-skills",
+      "hash": "0d13d2e02562cf4b77bb15bb1e2a0c892d1004f330ce10a1bae4011c1c33fd51"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-report/scripts/serve.mjs",
+      "name": "serve.mjs",
+      "owner": "garrison-skills",
+      "hash": "1043debea3274a5c1dd678628b8cf5da830ebbf75e369bc243e7f31e26ff7d5a"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-report/SKILL.md",
+      "name": "SKILL.md",
+      "owner": "garrison-skills",
+      "hash": "2f23a2c207f881908f9a2d1a15ed641e35b36dc51aee0ff109adc6747abb41da"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-review",
+      "name": "garrison-review",
+      "owner": "garrison-skills",
+      "hash": "e0296954c532f00e3a3701b925df458a29b2288739ddba9f94f835603fde40c3"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-review/SKILL.md",
+      "name": "SKILL.md",
+      "owner": "garrison-skills",
+      "hash": "3b7d613fbd68379ebf8065bdbdf81f4112c2176dc92b9667d538fc915ea0baff"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-security-review",
+      "name": "garrison-security-review",
+      "owner": "garrison-skills",
+      "hash": "f4f67fb06f4497ac482ee1e773be9aacb102e41817070831b45e0c1b4d458b71"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-security-review/SKILL.md",
+      "name": "SKILL.md",
+      "owner": "garrison-skills",
+      "hash": "303f0d5c06997fbce7cedc506fdfe2173ace4dc8fd6782e88c1b8aaf89e867d9"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-test",
+      "name": "garrison-test",
+      "owner": "garrison-skills",
+      "hash": "b646af7d03926fefc2a3a77c5ac8000f0834a7fec9d67e186536f92c1610d2d5"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-test/SKILL.md",
+      "name": "SKILL.md",
+      "owner": "garrison-skills",
+      "hash": "050ec56afe6bd2065767cbcbbd9cde3f88ff7d4704d8a6da77e957d99aff2fa8"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-ux-qa",
+      "name": "garrison-ux-qa",
+      "owner": "garrison-skills",
+      "hash": "5351c05f33e8c53a5b4620d88d5dfe540a24b6fe854a44339fd8cc41d8ee7107"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-ux-qa/SKILL.md",
+      "name": "SKILL.md",
+      "owner": "garrison-skills",
+      "hash": "9a8614cf8e42294b28e937a79c57f348d09da0c7ac92ceeb1c30af022f934f8f"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-validate",
+      "name": "garrison-validate",
+      "owner": "garrison-skills",
+      "hash": "a41c80e5289f552cde19eee6755fa367ecd9de5ef68831c467a9a64ceebb449f"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-validate/scripts/validate.mjs",
+      "name": "validate.mjs",
+      "owner": "garrison-skills",
+      "hash": "899089ba4f67fb4a924cbd359cbf91721749321a828598312626f147b39ead39"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-validate/SKILL.md",
+      "name": "SKILL.md",
+      "owner": "garrison-skills",
+      "hash": "a843c8eed7e6248a9932ae30d4fa3e82e80384d96a52da3e8e3cbfa7ff6c9f2c"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-walkthrough",
+      "name": "garrison-walkthrough",
+      "owner": "garrison-skills",
+      "hash": "4982e10603ce0b74c33b7f8dfc24af98ae8a0f3f5b3578ed7535f270b57b7400"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison-walkthrough/SKILL.md",
+      "name": "SKILL.md",
+      "owner": "garrison-skills",
+      "hash": "08929c80afd175976b1862540730db05d4db0bcf0781dac6c5c32860530b8ebe"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison/assets/codex-pwtest.schema.json",
+      "name": "codex-pwtest.schema.json",
+      "owner": "garrison-skills",
+      "hash": "c43475b6629e4276bee65fcf8e40d529fe586289c89706b0d1fc1f0ca8973b71"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison/assets/codex-review.schema.json",
+      "name": "codex-review.schema.json",
+      "owner": "garrison-skills",
+      "hash": "addc7bedc01051c765e7c07baf859a0e62d26602a0101337ad6d9f4842284f98"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison/assets/docs/FLOW_PLAN.md",
+      "name": "FLOW_PLAN.md",
+      "owner": "garrison-skills",
+      "hash": "e7f944af4c8e3cf057a2605422f03f52f0ecce50075f252fc229f8c1aa18697f"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison/assets/evidence-index.example.json",
+      "name": "evidence-index.example.json",
+      "owner": "garrison-skills",
+      "hash": "20e643f7a047d81871c4fbdfa577396adf04945746554df2c07e275d1a9963b2"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison/assets/gate-status.example.json",
+      "name": "gate-status.example.json",
+      "owner": "garrison-skills",
+      "hash": "7dfa886d9dedcb380f51c00c1b465efe77f18875be6825729befa3577e332ded"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison/hooks/garrison-goal-sessionstart.sh",
+      "name": "garrison-goal-sessionstart.sh",
+      "owner": "garrison-skills",
+      "hash": "8c2423a93bf7c3e852758c9fc860bec0acc669c96b99ff813d29bf6cb76aa4e8"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison/hooks/garrison-goal-stop.sh",
+      "name": "garrison-goal-stop.sh",
+      "owner": "garrison-skills",
+      "hash": "38f3a0cd8e772309582bee8e0614194788f976d06190d07e8429c197e5978b03"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison/hooks/install.sh",
+      "name": "install.sh",
+      "owner": "garrison-skills",
+      "hash": "4021d8a99a1a62784053ad6c2f8b2d9e71fe80d8472f941ebed2b0176ca8e36f"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison/hooks/probe.sh",
+      "name": "probe.sh",
+      "owner": "garrison-skills",
+      "hash": "f2dffd8c65bc775248c1d6b8794b6fa044c218d41b282949b569d3051779ed7b"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison/hooks/prune-legacy.sh",
+      "name": "prune-legacy.sh",
+      "owner": "garrison-skills",
+      "hash": "49e83e387769b48e64266e057bb7f99987bbe9f7fcc4900a042cfd4b5abf033a"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison/references/build-loop.md",
+      "name": "build-loop.md",
+      "owner": "garrison-skills",
+      "hash": "f004a1a699e4ecde7e4f01368224737f9b7f4feef2e87dfc3a424d8b2dd1e111"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison/references/codex-verification.md",
+      "name": "codex-verification.md",
+      "owner": "garrison-skills",
+      "hash": "4f1ecbc9638c8a7eae164a485b50b33c3e0150564a88042b7ae112bdf2eac8aa"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison/references/decisions.md",
+      "name": "decisions.md",
+      "owner": "garrison-skills",
+      "hash": "253c921c49506a2be425d8e867047cad5eaec9634f79bd9a4b9e8c167e9928f4"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/garrison/SKILL.md",
+      "name": "SKILL.md",
+      "owner": "garrison-skills",
+      "hash": "f748c88f35024e900379926357e71e50af878cde2e01c9fa301ee6db027f12d6"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/redesign-existing-projects",
+      "name": "redesign-existing-projects",
+      "owner": "taste",
+      "hash": "05207760c70c99fb65ad689323a608ce2ab0c76f59159db7cfec3bc83df19cb0"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/redesign-existing-projects/LICENSE",
+      "name": "LICENSE",
+      "owner": "taste",
+      "hash": "4575a543ab88dad12ccea7d97e563d0bce5b448b06072e65d3264497dad326df"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/redesign-existing-projects/SKILL.md",
+      "name": "SKILL.md",
+      "owner": "taste",
+      "hash": "98ad3e5b051bfb71b2795f7e8a6aa0d32b51ee095606c098a4b2822ac07926c9"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/scroll-world",
+      "name": "scroll-world",
+      "owner": "scroll-world",
+      "hash": "6b74792616a223d8f901c67d4c86aa37e6e0c695d75114c3e1721817b44b3652"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/scroll-world/LICENSE",
+      "name": "LICENSE",
+      "owner": "scroll-world",
+      "hash": "c4b96a7a050b85026eb68ac5b5fee2778384b14371aaeac50891dbadd848d309"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/scroll-world/references/gotchas.md",
+      "name": "gotchas.md",
+      "owner": "scroll-world",
+      "hash": "8082dce403a450ce68aef34d419b308de676ea48e084fb9df4d115be14763cba"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/scroll-world/references/index-template.html",
+      "name": "index-template.html",
+      "owner": "scroll-world",
+      "hash": "fdc21f24d44188ad2bd59bc94cc6e96682a3f44ee04da49b6d9d2f28298656cb"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/scroll-world/references/knockout.py",
+      "name": "knockout.py",
+      "owner": "scroll-world",
+      "hash": "c06bfc916592ba4f3dfd3e37070b20529298707ca3f94c9dcc51d508222e7792"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/scroll-world/references/pipeline.md",
+      "name": "pipeline.md",
+      "owner": "scroll-world",
+      "hash": "e3e2ddc48b117bbbe1ecae11259dc34f5bd60a380d44f42ffd89c98f723f392c"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/scroll-world/references/prompts.md",
+      "name": "prompts.md",
+      "owner": "scroll-world",
+      "hash": "b39bd0804febb732c8a5d8d00dcca477c3dedc204992ab25df39bd5452a53e95"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/scroll-world/references/scrub-engine.js",
+      "name": "scrub-engine.js",
+      "owner": "scroll-world",
+      "hash": "2c2a4bb81db16c2e0c787349e1f3a36846cf22619a8234f02078d1604083edfb"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "skill",
+      "ref": "skills/scroll-world/SKILL.md",
+      "name": "SKILL.md",
+      "owner": "scroll-world",
+      "hash": "ef0936e22d24e9ce04a7bba3c79cb22977285dd855149ced48459e27d83a672c"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "hook",
+      "ref": "Stop#0",
+      "name": "Stop",
+      "owner": null,
+      "hash": "2c9875af0a410fbf87bf2a569091d43332ee9eabca036c070410cdec86241ceb"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "hook",
+      "ref": "Stop#4",
+      "name": "Stop",
+      "owner": null,
+      "hash": "d3e80fa03feccb823dc651399130849cf1fb43f614b7b5c54541bb9e9f99c375"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "hook",
+      "ref": "Stop#5",
+      "name": "Stop",
+      "owner": "dev-env",
+      "hash": "743dc510aeb883af295d92440ee5a1a009fae3489c15cf49035abf239788441d"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "hook",
+      "ref": "Stop#6",
+      "name": "Stop",
+      "owner": "core:improver-probe",
+      "hash": "46ddeccc8a62e4f7c8e86232f086e8297e980613d09ef0a9dd08a10ac9cabdcd"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "hook",
+      "ref": "UserPromptSubmit#4",
+      "name": "UserPromptSubmit",
+      "owner": null,
+      "hash": "6b113e60e77d5756fadba254611700254ec0785bd448ee00b31d65355ab499f0"
+    },
+    {
+      "runtime": "claude-code",
+      "kind": "hook",
+      "ref": "UserPromptSubmit#5",
+      "name": "UserPromptSubmit",
+      "owner": "dev-env",
+      "hash": "293e1968615c1c79343ccb9557eb3fa693f29ee1569590650683665a3e75912b"
+    },
+    {
+      "runtime": "codex",
+      "kind": "hook",
+      "ref": "SessionEnd#1",
+      "name": "SessionEnd",
+      "owner": null,
+      "hash": "8cc9939eeb00373082cbb0ec1adc55a1c40cb106d72d1dcc3836dbf63b1d4520"
+    },
+    {
+      "runtime": "codex",
+      "kind": "hook",
+      "ref": "SessionStart#1",
+      "name": "SessionStart",
+      "owner": null,
+      "hash": "65b3032cab45c7485be089dcca0e15250c473b90f62cbd0fa1b50ebe3fd2df4a"
+    },
+    {
+      "runtime": "codex",
+      "kind": "hook",
+      "ref": "Stop#1",
+      "name": "Stop",
+      "owner": null,
+      "hash": "18330321bca9a6212073cf54d7691a473dd79eacd0955b5e8ed2511b3c0e0f1f"
+    },
+    {
+      "runtime": "codex",
+      "kind": "hook",
+      "ref": "UserPromptSubmit#1",
+      "name": "UserPromptSubmit",
+      "owner": null,
+      "hash": "5686bf89065fcd97aab9fe3ebcb7c1dd50a91660bf0bace78825f394a7632045"
+    },
+    {
+      "runtime": "gemini",
+      "kind": "hook",
+      "ref": "AfterAgent#0",
+      "name": "AfterAgent",
+      "owner": null,
+      "hash": "1ce4c2379c2345dad109037913232c7a329726b3624b5021d818c8f6fa2b32d0"
+    },
+    {
+      "runtime": "gemini",
+      "kind": "hook",
+      "ref": "BeforeAgent#0",
+      "name": "BeforeAgent",
+      "owner": null,
+      "hash": "23cc3468f8e50e7f66d650e346b7a256c3d0c555c756479ea80fec70e974f84a"
+    },
+    {
+      "runtime": "gemini",
+      "kind": "hook",
+      "ref": "SessionEnd#0",
+      "name": "SessionEnd",
+      "owner": null,
+      "hash": "a2c870b19ea93676a095537de9545e67a9f4bf8356875e360ed87a62a52e4d65"
+    },
+    {
+      "runtime": "gemini",
+      "kind": "hook",
+      "ref": "SessionStart#0",
+      "name": "SessionStart",
+      "owner": null,
+      "hash": "5b4ba44cd80b1664638bea9a84429dfa6745f3737872cf910403953b74bd4436"
+    }
+  ]
+}

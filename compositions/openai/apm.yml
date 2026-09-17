@@ -14,7 +14,6 @@ dependencies:
     - path: ../../fittings/seed/cortex-client
     - path: ../../fittings/seed/dev-env
     - path: ../../fittings/seed/drill
-    - path: ../../fittings/seed/file-browser
     - path: ../../fittings/seed/garrison-assistant
     - path: ../../fittings/seed/garrison-call
     - path: ../../fittings/seed/gemini-runtime
@@ -27,7 +26,6 @@ dependencies:
     - path: ../../fittings/seed/loop-heartbeat
     - path: ../../fittings/seed/mcp-gateway
     - path: ../../fittings/seed/monitor-default
-    - path: ../../fittings/seed/omi-channel
     - path: ../../fittings/seed/openai-agents-runtime
     - path: ../../fittings/seed/opencode-runtime
     - path: ../../fittings/seed/openrouter-runtime
@@ -60,6 +58,11 @@ x-garrison:
       permissions_mode: auto
       observability_config:
         log_sink: runner
+      archive:
+        extract_target: cc-sonnet
+        max_file_mb: 25
+        pdf_max_pages: 30
+        author: Gonçalo
     selections:
       orchestrator:
         - id: orchestrator
@@ -70,18 +73,9 @@ x-garrison:
             slack_port: 9512
             gateway_url: http://127.0.0.1:5777
             chat_timeout_ms: 600000
-        - id: omi-channel
-          config:
-            port: 8094
-            bind_host: 127.0.0.1
-            enabled: true
-            triage_enabled: true
-            wake_enabled: true
-            notify_enabled: true
-            # Wake tuning moved with the wake bus to capture-service (2026-09-02);
-            # this fitting only forwards transcripts there now.
         - id: capture-service
           config:
+            triage_enabled: true
             port: 8097
             bind_host: 127.0.0.1
             enabled: true
@@ -112,7 +106,7 @@ x-garrison:
             provider: chatgpt-subscription
             model: gpt-5.6-terra
             promptMode: coding
-            maxTurns: 500
+            maxTurns: 800
             account: codex-gmail
         - id: claude-code-runtime
           config:
@@ -135,7 +129,7 @@ x-garrison:
             provider: anthropic
             model: ''
             promptMode: coding
-            maxTurns: 500
+            maxTurns: 800
             account: auto
         - id: openrouter-runtime
           config:
@@ -201,11 +195,6 @@ x-garrison:
           config:
             port: 8086
             bind_host: 127.0.0.1
-        - id: file-browser
-          config:
-            port: 8091
-            bind_host: 127.0.0.1
-            root: ~/.garrison/files
         - id: vault-git-sync
           config:
             cron: 0 4 * * *
@@ -290,8 +279,7 @@ x-garrison:
               target: sol
               effort: high
           - description: >-
-              deep: architecture, cross-cutting refactors, tricky bugs with unclear cause,
-              security-sensitive or multi-subsystem work
+              deep: architecture, cross-cutting refactors, tricky bugs with unclear cause, security-sensitive or multi-subsystem work
             cell:
               target: sol
               effort: xhigh
@@ -507,8 +495,7 @@ x-garrison:
       - id: security-review
         title: Security Review
         description: >-
-          The security-boundary rubric: authorization, injection, secrets, tenancy, input
-          validation.
+          The security-boundary rubric: authorization, injection, secrets, tenancy, input validation.
         levels:
           - description: 'quick: the boundary checklist on the diff'
             cell:
@@ -635,7 +622,7 @@ x-garrison:
         params:
           type: runtime-target
           promptMode: coding
-          maxTurns: 500
+          maxTurns: 800
       - id: terra
         runtime: openai-agents
         model: gpt-5.6-terra
@@ -643,7 +630,7 @@ x-garrison:
         params:
           type: runtime-target
           promptMode: coding
-          maxTurns: 500
+          maxTurns: 800
       - id: sol
         runtime: openai-agents
         model: gpt-5.6-sol
@@ -651,7 +638,7 @@ x-garrison:
         params:
           type: runtime-target
           promptMode: coding
-          maxTurns: 500
+          maxTurns: 800
       - id: sec-gemini
         runtime: gemini
         model: gemini-2.5-flash

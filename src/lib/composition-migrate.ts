@@ -1,7 +1,10 @@
+// @ts-ignore The retirement ID is shared with plain ESM scripts.
+import {RETIRED_FITTING_ID} from '../../packages/projects/src/retirement.mjs';
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import yaml from "js-yaml";
+import { parseDocument, isMap, isSeq } from "yaml";
 import { pathExists } from "./fs-utils";
 
 // Composition v3 -> v4 migrator (MARATHON-V3 S3b1, migration discipline
@@ -323,4 +326,73 @@ function diffLines(a: string[], b: string[]): DiffOp[] {
     j++;
   }
   return ops;
+}
+
+// Additive schema-4 defaults. Existing Archive choices are never rewritten.
+export const ARCHIVE_DEFAULTS = Object.freeze({ extract_target: "cc-sonnet", max_file_mb: 25, pdf_max_pages: 30, author: "Gonçalo" });
+export function migrateArchiveManifest(manifest: { "x-garrison"?: { composition?: Record<string, unknown> } }): boolean {
+  const composition = manifest["x-garrison"]?.composition;
+  if (!composition || composition.schema !== 4) return false;
+  const config = (composition.global_config ??= {}) as Record<string, unknown>;
+  if (Object.prototype.hasOwnProperty.call(config, "archive")) return false;
+  config.archive = { ...ARCHIVE_DEFAULTS };
+  return true;
+}
+
+// Insert only the new block in normal block-style manifests. This leaves
+// authored comments, duty prose and scalar wrapping byte-for-byte intact.
+export function migrateArchiveYaml(raw: string): string {
+  const document = parseDocument(raw);
+  const value = document.toJS();
+  if (!migrateArchiveManifest(value)) return raw;
+  const config = document.getIn(["x-garrison", "composition", "global_config"]);
+  if (isMap(config) && !config.flow && config.range && config.items.length) {
+    const first = config.items[0].key as { range?: number[] };
+    const start = first.range?.[0] ?? config.range[0];
+    const indent = start - raw.lastIndexOf("\n", start - 1) - 1;
+    const end = config.range[1];
+    const block = yaml.dump({ archive: ARCHIVE_DEFAULTS }, { lineWidth: -1 }).trimEnd().split("\n").map(line => " ".repeat(indent) + line).join("\n") + "\n";
+    return raw.slice(0, end) + (raw[end - 1] === "\n" ? "" : "\n") + block + raw.slice(end);
+  }
+  document.setIn(["x-garrison", "composition", "global_config", "archive"], ARCHIVE_DEFAULTS);
+  return document.toString({ lineWidth: 0 });
+}
+
+// Run only after artifact migration, so custom storage roots remain available
+// until every document has landed. Unrelated selections are preserved verbatim.
+export function retireDocumentsYaml(raw:string):string {
+  const doc=parseDocument(raw);if(doc.errors.length)throw doc.errors[0];let changed=false;
+  const selections=doc.getIn(['x-garrison','composition','selections']);
+  if(isMap(selections))for(const pair of selections.items){if(!isSeq(pair.value))continue;for(let i=pair.value.items.length-1;i>=0;i--){const item=pair.value.items[i];if(isMap(item)&&item.get('id')==='documents'){pair.value.delete(i);changed=true;}}}
+  const dependencies=doc.getIn(['dependencies','apm']);
+  if(isSeq(dependencies))for(let i=dependencies.items.length-1;i>=0;i--){const item=dependencies.items[i];const value=isMap(item)?item.get('path'):item;if(typeof value==='string'&&/(?:^|\/)fittings\/seed\/documents\/?$/.test(value)){dependencies.delete(i);changed=true;}}
+  return changed?doc.toString({lineWidth:0}):raw;
+}
+
+export const RETIRED_PROJECTS_FITTING = RETIRED_FITTING_ID;
+
+/** Remove only the retired Projects surface, preserving other selections. */
+export function retireProjectsYaml(raw: string): string {
+  const document = parseDocument(raw);
+  if (document.errors.length) throw document.errors[0];
+  let changed = false;
+  const selections = document.getIn(['x-garrison', 'composition', 'selections']);
+  if (isMap(selections)) for (const pair of selections.items) {
+    if (!isSeq(pair.value)) continue;
+    for (let i = pair.value.items.length - 1; i >= 0; i--) {
+      const item = pair.value.items[i];
+      if (isMap(item) && item.get('id') === RETIRED_PROJECTS_FITTING) {pair.value.delete(i); changed = true;}
+    }
+  }
+  const dependencies = document.getIn(['dependencies', 'apm']);
+  if (isSeq(dependencies)) for (let i = dependencies.items.length - 1; i >= 0; i--) {
+    const item = dependencies.items[i], value = isMap(item) ? item.get('path') : item;
+    const retiredPath = `fittings/seed/${RETIRED_PROJECTS_FITTING}`;
+    if (typeof value === 'string' && (value.replace(/\/$/, '') === retiredPath || value.replace(/\/$/, '').endsWith(`/${retiredPath}`))) {dependencies.delete(i); changed = true;}
+  }
+  const unfitted = document.getIn(['x-garrison', 'composition', 'unfitted']);
+  if (isSeq(unfitted)) for (let i = unfitted.items.length - 1; i >= 0; i--) {
+    if (String(unfitted.items[i]) === RETIRED_PROJECTS_FITTING) {unfitted.delete(i); changed = true;}
+  }
+  return changed ? document.toString({lineWidth: 0}) : raw;
 }

@@ -176,6 +176,9 @@ final class PendantPluginMockTests: XCTestCase {
             if payload["battery"] as? Int == 87 { batteryEvent.fulfill() }
         }
 
+        // Initial subscription snapshot is off before the user starts.
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        states.removeAll()
         let immediate = await invoke(plugin.connect, named: "connect")
         XCTAssertNotNil(immediate["connectionState"] as? String, "connect resolves with a status payload")
 
