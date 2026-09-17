@@ -2,14 +2,15 @@ import { describe, it, expect } from "vitest";
 // The core is a pure .mjs module with no type declarations; single-line import
 // so the @ts-ignore anchors to the module specifier and suppresses TS7016.
 // @ts-ignore
-import { parseManifest, parseComposition, crossCheckLibrary, buildPortClaims, findPortCollisions, servePort, assessVerifyResults, assessSweepResults, serveCoverage, classifyOrphans, assessDrift, scanKinds, summarize } from "../fittings/seed/preflight/lib/preflight-core.mjs";
+import { parseManifest, parseComposition, crossCheckLibrary, buildPortClaims, findPortCollisions, findOrphanServeMappings, findHookCwdAsymmetry, resolveScriptPaths, checkConfigProjection, setupEnvName, runtimeEnvName, servePort, assessVerifyResults, assessSweepResults, serveCoverage, classifyOrphans, assessDrift, demote, scanKinds, summarize } from "../fittings/seed/preflight/lib/preflight-core.mjs";
 // @ts-ignore
 import { parseSsListeners } from "../fittings/seed/preflight/lib/collect.mjs";
 
-type Finding = { check: string; id: string; status: "pass" | "warn" | "fail"; detail: string; evidence?: string; fix?: string; action?: { id: string; params: Record<string, unknown>; command: string } };
+type Finding = { check: string; id: string; status: "info" | "pass" | "warn" | "fail"; detail: string; evidence?: string; fix?: string; action?: { id: string; params: Record<string, unknown>; command: string } };
 
 const fails = (f: Finding[]) => f.filter((x) => x.status === "fail");
 const warns = (f: Finding[]) => f.filter((x) => x.status === "warn");
+const infos = (f: Finding[]) => f.filter((x) => x.status === "info");
 
 // ---------------------------------------------------------------------------
 // parsers
@@ -152,17 +153,21 @@ describe("port claims + collisions", () => {
       { id: "agree", ownPort: true, defaultPort: 8088, portKeys: [{ key: "port", default: 8088 }], kinds: [] },
       { id: "sched", ownPort: false, defaultPort: null, portKeys: [{ key: "health_port", default: 8099 }], kinds: [] }
     ]);
-    expect(claims).toEqual([
+    // Claims now carry the scope a pin would override (key/stationedIn/pins);
+    // the identity of the claim itself is what this test pins down.
+    expect(claims.map(({ port, claimant, source }: any) => ({ port, claimant, source }))).toEqual([
       { port: 8088, claimant: "agree", source: "default_port" },
       { port: 8099, claimant: "sched", source: "config_schema health_port" }
     ]);
+    expect(claims[0].stationedIn).toEqual([]);
   });
 
   it("includes composition pins as claims", () => {
     const claims = buildPortClaims([], [
       { compositionId: "default-2", parsed: { selections: [{ faculty: "channels", id: "slack-channel", pins: [{ key: "slack_port", value: 9512 }] }], unfitted: [] } }
     ]);
-    expect(claims).toEqual([{ port: 9512, claimant: "slack-channel", source: "default-2 pin slack_port" }]);
+    expect(claims.map(({ port, claimant, source }: any) => ({ port, claimant, source })))
+      .toEqual([{ port: 9512, claimant: "slack-channel", source: "default-2 pin slack_port" }]);
   });
 
   it("fails a canonical collision between two fittings", () => {
@@ -193,6 +198,76 @@ describe("port claims + collisions", () => {
     ) as Finding[];
     expect(warns(f)).toHaveLength(1);
     expect(warns(f)[0].detail).toContain("111");
+  });
+
+  // B3: the live axis used to require a status file that DISAGREED, so the one
+  // holder that is never Garrison's — a process registering nothing at all —
+  // was the only case it could not see. That is the 8080/java incident this
+  // fitting's own manifest cites as the reason it sits on 8076.
+  it("warns when a claimed port is held by a process that registered nothing", () => {
+    const f = findPortCollisions(
+      [{ port: 8080, claimant: "whatsapp-web", source: "default_port" }],
+      [{ port: 8080, pid: 999, command: "java" }],
+      []
+    ) as Finding[];
+    expect(warns(f)).toHaveLength(1);
+    expect(warns(f)[0].id).toBe("live:8080");
+    expect(warns(f)[0].detail).toContain("whatsapp-web");
+    expect(warns(f)[0].detail).toContain("999");
+  });
+
+  // The regression guard for the noise that fix could have introduced: the
+  // scheduler daemon holds its health port and registers NOWHERE, so absence of
+  // a record must not by itself read as a squatter.
+  it("stays silent when the holder's command line names the claimant", () => {
+    const f = findPortCollisions(
+      [{ port: 8099, claimant: "scheduler", source: "composition pin health_port" }],
+      [{ port: 8099, pid: 29843, command: "node", cmdline: "node /repo/fittings/seed/scheduler/scripts/scheduler.mjs daemon --health-port 8099" }],
+      []
+    ) as Finding[];
+    expect(warns(f)).toHaveLength(0);
+    expect(f[0].status).toBe("pass");
+  });
+
+  // lsof emits one row per socket, so a dual-stack listener appears twice.
+  it("reports a squatted port once even when the listener is dual-stack", () => {
+    const f = findPortCollisions(
+      [{ port: 8080, claimant: "whatsapp-web", source: "default_port" }],
+      [{ port: 8080, pid: 999, command: "java" }, { port: 8080, pid: 999, command: "java" }],
+      []
+    ) as Finding[];
+    expect(warns(f)).toHaveLength(1);
+  });
+
+  // B2: resolving a collision the supported way (pinning one side) used to
+  // leave the collision reported as a failure forever.
+  it("a pin that moves one claimant away downgrades the declared collision", () => {
+    const manifests = [
+      { id: "a", ownPort: true, defaultPort: 8090, portKeys: [], kinds: [] },
+      { id: "b", ownPort: true, defaultPort: 8090, portKeys: [], kinds: [] }
+    ];
+    const comps = [{ compositionId: "c1", parsed: { selections: [
+      { faculty: "f", id: "a", pins: [] },
+      { faculty: "f", id: "b", pins: [{ key: "port", value: 8091 }] }
+    ], unfitted: [] } }];
+    const f = findPortCollisions(buildPortClaims(manifests, comps)) as Finding[];
+    expect(fails(f)).toEqual([]);
+    expect(warns(f).map((x) => x.id)).toEqual(["canonical:8090"]);
+    expect(warns(f)[0].detail).toContain("b");
+  });
+
+  it("still fails when nothing pins the collision away", () => {
+    const manifests = [
+      { id: "a", ownPort: true, defaultPort: 8090, portKeys: [], kinds: [] },
+      { id: "b", ownPort: true, defaultPort: 8090, portKeys: [], kinds: [] }
+    ];
+    expect(fails(findPortCollisions(buildPortClaims(manifests, [])) as Finding[]).map((x) => x.id)).toEqual(["canonical:8090"]);
+  });
+
+  // The real publishers refuse 443 as well as 8443-8445.
+  it("treats 443 as reserved on the serve axis", () => {
+    const f = findPortCollisions([{ port: 8043, claimant: "x", source: "default_port" }]) as Finding[];
+    expect(fails(f).map((x) => x.id)).toEqual(["serve-reserved:8443"]);
   });
 
   it("passes a clean inventory", () => {
@@ -311,6 +386,156 @@ describe("serveCoverage", () => {
 // ---------------------------------------------------------------------------
 // check 5 — orphans
 // ---------------------------------------------------------------------------
+// The converse of check 4: a mapping that leads nowhere is the same blank page
+// as a view with no mapping.
+describe("findOrphanServeMappings", () => {
+  it("reports mappings whose local port has no listener", () => {
+    const f = findOrphanServeMappings({ 8076: "https://h:8476", 8093: "https://h:8493" }, [{ port: 8076, pid: 1 }]) as Finding[];
+    expect(warns(f)).toHaveLength(1);
+    expect(warns(f)[0].detail).toContain("8093");
+    expect(warns(f)[0].detail).not.toContain("8076");
+  });
+
+  it("ignores tethered peer forwards, which are published on purpose", () => {
+    const f = findOrphanServeMappings({ 7086: "https://h:7086" }, [], new Set([7086])) as Finding[];
+    expect(f).toEqual([]);
+  });
+
+  it("says nothing when every mapping leads somewhere", () => {
+    expect(findOrphanServeMappings({ 8076: "https://h:8476" }, [{ port: 8076, pid: 1 }]) as Finding[]).toEqual([]);
+  });
+});
+
+// The runner runs setup from the seed dir and verify from the composition dir,
+// so any path a script derives from its own location means two things.
+// The runner projects a fitting's config under two DIFFERENT manglings, and
+// confusing them produces a variable that is absent forever rather than wrong
+// once -- the declared default then silently wins.
+describe("checkConfigProjection", () => {
+  it("knows both manglings apart", () => {
+    expect(runtimeEnvName("file-browser", "root")).toBe("GARRISON_FILEBROWSER_ROOT");
+    expect(setupEnvName("file-browser", "root")).toBe("FILE_BROWSER_ROOT");
+  });
+
+  const entry = (envNames: string[]) => ({
+    id: "file-browser", ownPort: true,
+    configKeys: [{ key: "root", type: "string", default: "" }], envNames
+  });
+
+  it("fails a name that keeps the separators the runner drops", () => {
+    const f = checkConfigProjection([entry(["GARRISON_FILE_BROWSER_ROOT"])]) as Finding[];
+    expect(fails(f).map((x) => x.id)).toEqual(["file-browser:GARRISON_FILE_BROWSER_ROOT"]);
+    expect(fails(f)[0].detail).toContain("GARRISON_FILEBROWSER_ROOT");
+  });
+
+  // Matching on the key suffix alone flags every generic variable that happens
+  // to end the same way. These are read on purpose and are not this fitting's.
+  it("ignores instance-wide variables that merely end with the same word", () => {
+    const f = checkConfigProjection([{
+      id: "capture-service", ownPort: true,
+      configKeys: [{ key: "port", type: "integer", default: "8083" }, { key: "enabled", type: "boolean", default: "true" }],
+      envNames: ["GARRISON_BIND_HOST", "GARRISON_GATEWAY_PORT", "GARRISON_CAPTURESERVICE_TRANSCRIBE_ENABLED"]
+    }]) as Finding[];
+    expect(fails(f)).toEqual([]);
+  });
+
+  it("demotes a mangled name when a correct one is read too", () => {
+    const f = checkConfigProjection([entry(["GARRISON_FILE_BROWSER_ROOT", "GARRISON_FILEBROWSER_ROOT"])]) as Finding[];
+    expect(fails(f)).toEqual([]);
+    expect(infos(f)[0].detail).toContain("still arrives");
+  });
+
+  it("warns a non-scalar config key, which neither projection carries", () => {
+    const f = checkConfigProjection([{
+      id: "x", ownPort: false, configKeys: [{ key: "rules", type: "array", default: null }], envNames: []
+    }]) as Finding[];
+    expect(warns(f).map((x) => x.id)).toEqual(["x:rules"]);
+  });
+
+  it("passes a fitting that reads exactly what the runner projects", () => {
+    const f = checkConfigProjection([entry(["GARRISON_FILEBROWSER_ROOT"])]) as Finding[];
+    expect(f.map((x) => x.status)).toEqual(["pass"]);
+  });
+});
+
+describe("findHookCwdAsymmetry", () => {
+  const v = (over: Record<string, unknown> = {}) => ({
+    name: "KANBAN_FITTING_DIR", expr: "$MODULES_DIR/_local/kanban-loop",
+    setupPath: "/repo/fittings/_local/kanban-loop",
+    verifyPath: "/repo/compositions/c/apm_modules/_local/kanban-loop",
+    setupExists: false, verifyExists: true, guarded: false, ...over
+  });
+
+  it("fails when the derived path exists for one hook and not the other", () => {
+    const f = findHookCwdAsymmetry([{ id: "basic-memory", vars: [v()] }]) as Finding[];
+    expect(fails(f).map((x) => x.id)).toEqual(["basic-memory:KANBAN_FITTING_DIR"]);
+    expect(fails(f)[0].detail).toContain("missing");
+    expect(fails(f)[0].detail).toContain("present");
+  });
+
+  // True, but nothing can branch differently on it today.
+  it("demotes a divergence both hooks currently agree about", () => {
+    const f = findHookCwdAsymmetry([{ id: "x", vars: [v({ setupExists: true, verifyExists: true })] }]) as Finding[];
+    expect(fails(f)).toEqual([]);
+    expect(warns(f)).toEqual([]);
+    expect(infos(f)).toHaveLength(1);
+  });
+
+  it("recognises a script that checks what its derived root resolved to", () => {
+    const f = findHookCwdAsymmetry([{ id: "x", vars: [v({ guarded: true })] }]) as Finding[];
+    expect(fails(f)).toEqual([]);
+    expect(infos(f)[0].detail).toContain("checks what it resolved to");
+  });
+
+  it("says nothing when the two roots agree", () => {
+    const same = v({ setupPath: "/same", verifyPath: "/same" });
+    const f = findHookCwdAsymmetry([{ id: "x", vars: [same] }]) as Finding[];
+    expect(f.map((x) => x.status)).toEqual(["pass"]);
+  });
+});
+
+describe("resolveScriptPaths", () => {
+  const join = (base: string, rel: string) => {
+    const parts = (base + "/" + rel).split("/");
+    const out: string[] = [];
+    for (const p of parts) {
+      if (p === "" || p === ".") continue;
+      if (p === "..") out.pop();
+      else out.push(p);
+    }
+    return "/" + out.join("/");
+  };
+  // The exact idiom basic-memory uses in BOTH of its scripts.
+  const script = [
+    'MODULES_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"',
+    'KANBAN_FITTING_DIR="$MODULES_DIR/_local/kanban-loop"'
+  ].join("\n");
+
+  it("resolves an ancestor walk and everything derived from it", () => {
+    const setup = resolveScriptPaths(script, "/repo/fittings/seed/basic-memory/scripts", join);
+    const verify = resolveScriptPaths(script, "/repo/compositions/c/apm_modules/_local/basic-memory/scripts", join);
+    expect(setup.get("MODULES_DIR").path).toBe("/repo/fittings");
+    expect(verify.get("MODULES_DIR").path).toBe("/repo/compositions/c/apm_modules");
+    expect(setup.get("KANBAN_FITTING_DIR").path).toBe("/repo/fittings/_local/kanban-loop");
+    expect(verify.get("KANBAN_FITTING_DIR").path).toBe("/repo/compositions/c/apm_modules/_local/kanban-loop");
+  });
+});
+
+describe("demote", () => {
+  it("turns a warn into an info and records why", () => {
+    const d = demote({ check: "c", id: "i", status: "warn", detail: "something" }, "not the active composition");
+    expect(d.status).toBe("info");
+    expect(d.detail).toContain("not the active composition");
+  });
+
+  // The invariant the whole ranking scheme rests on: a bug in a caller must
+  // never be able to quiet a failure.
+  it("refuses to demote a fail or a pass", () => {
+    expect(demote({ check: "c", id: "i", status: "fail", detail: "x" }, "r").status).toBe("fail");
+    expect(demote({ check: "c", id: "i", status: "pass", detail: "x" }, "r").status).toBe("pass");
+  });
+});
+
 describe("classifyOrphans", () => {
   const alive = new Set([100, 200]);
   const isAlive = (pid: number) => alive.has(pid);
@@ -358,11 +583,13 @@ describe("assessDrift", () => {
     expect(warns(f).some((x) => x.id === "default-2:stale")).toBe(true);
   });
 
-  it("treats an uncommitted addition as reviewable drift rather than an automatic removal", () => {
+  it("folds uncommitted additions into one informational row naming them", () => {
     const f = assessDrift({ ...base, diskSelections: ["a", "vault-git-sync"], headSelections: ["a"] }) as Finding[];
     expect(fails(f)).toEqual([]);
-    expect(warns(f).map((x) => x.id)).toEqual(["default-2:vault-git-sync"]);
-    expect(warns(f)[0].action).toBeUndefined();
+    expect(warns(f)).toEqual([]);
+    expect(infos(f).map((x) => x.id)).toEqual(["default-2:uncommitted"]);
+    expect(infos(f)[0].detail).toContain("vault-git-sync");
+    expect(infos(f)[0].action).toBeUndefined();
   });
 
   it("passes a deliberate unfit (absent from disk AND recorded unfitted)", () => {
@@ -372,12 +599,30 @@ describe("assessDrift", () => {
 
   it("warns a removal WITHOUT an unfitted record (it will come back)", () => {
     const f = assessDrift({ ...base, diskSelections: ["a"], headSelections: ["a", "gone"], unfitted: [] }) as Finding[];
-    expect(warns(f).map((x) => x.id)).toEqual(["default-2:gone"]);
+    expect(warns(f).map((x) => x.id)).toEqual(["default-2:restation:gone"]);
   });
 
-  it("warns on no last-up record", () => {
+  // A silent re-station is a CORRECTNESS fact, not a readiness one: it is never
+  // demoted for being someone else's composition.
+  it("keeps a silent re-station at full severity in a non-active composition", () => {
+    const f = assessDrift({ ...base, activeCompositionId: "other", diskSelections: ["a"], headSelections: ["a", "gone"] }) as Finding[];
+    expect(warns(f).map((x) => x.id)).toEqual(["default-2:restation:gone"]);
+  });
+
+  // "never brought up" belongs to the verify-results check; saying it twice is
+  // how the report grew warnings nobody read.
+  it("does not repeat the missing last-up record the verify check already reports", () => {
     const f = assessDrift({ ...base, lastUp: null }) as Finding[];
-    expect(warns(f).some((x) => x.id === "default-2:no-record")).toBe(true);
+    expect(f.some((x) => x.id.includes("no-record"))).toBe(false);
+    expect(f.map((x) => x.status)).toEqual(["pass"]);
+  });
+
+  it("demotes staleness in a composition that is not the active one", () => {
+    const stale = { ...base, manifestMtimesMs: { "apm.yml": Date.parse("2026-09-02T12:00:00Z") } };
+    expect(warns(assessDrift(stale) as Finding[]).map((x) => x.id)).toEqual(["default-2:stale"]);
+    const other = assessDrift({ ...stale, activeCompositionId: "elsewhere" }) as Finding[];
+    expect(warns(other)).toEqual([]);
+    expect(infos(other).map((x) => x.id)).toEqual(["default-2:stale"]);
   });
 });
 
@@ -404,6 +649,9 @@ describe("summarize", () => {
     expect(summarize([mkf("pass"), mkf("warn")]).overall).toBe("warn");
     expect(summarize([mkf("warn"), mkf("fail")]).overall).toBe("fail");
     expect(summarize([mkf("pass")]).overall).toBe("pass");
-    expect(summarize([mkf("pass"), mkf("fail"), mkf("fail")]).counts).toEqual({ pass: 1, warn: 0, fail: 2 });
+    expect(summarize([mkf("pass"), mkf("fail"), mkf("fail")]).counts).toEqual({ info: 0, pass: 1, warn: 0, fail: 2 });
+    // info is counted but must never decide the verdict.
+    expect(summarize([mkf("pass"), mkf("info")]).overall).toBe("pass");
+    expect(summarize([mkf("info")]).counts.info).toBe(1);
   });
 });

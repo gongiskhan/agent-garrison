@@ -25,9 +25,9 @@ x-garrison:
   platforms:
     - claude-code
   summary: >-
-    One page + CLI answering "why won't my composition come up". Seven checks,
+    One page + CLI answering "why won't my composition come up". Nine checks,
     each born from a real incident: complete verify-result reporting (up()
-    stops at the first failure and hides the rest — this shows all of them),
+    reports only the first failing fitting in its error — this shows all of them),
     library-registration cross-check (an unregistered fitting is silently
     dropped by the resolver), two-axis port collision inventory (canonical AND
     serve = 8400 + port % 1000, counting config_schema defaults), tailscale
@@ -43,15 +43,39 @@ x-garrison:
     - key: port
       type: integer
       default: 8076
-      description: HTTP port. The server exits non-zero when it is taken rather than shifting, because a silent shift would leave the sidebar pointing at nothing.
+      description: HTTP port. The server exits non-zero when it is taken rather than shifting, because a silent shift would leave the sidebar pointing at nothing - and the verify probe checks THIS port, treating "already held by our own recorded pid" as ok so a restart still verifies.
     - key: bind_host
       type: string
       default: 127.0.0.1
       description: Bind host; 0.0.0.0 to expose beyond loopback.
+    - key: app_url
+      type: string
+      default: ""
+      description: Garrison app base URL. Empty = use the runner-projected GARRISON_APP_URL, else discover the port via scripts/garrison-instance.sh for the resolved profile (node unless GARRISON_INSTANCE_ID says otherwise). Only set this to reach an app the runner did not tell us about.
+    - key: file_cards
+      type: boolean
+      default: false
+      description: Offer a button that files a failing finding as a Kanban card in backlog. Off by default - a doctor whose value is working when everything else is down must not acquire a mandatory dependency on another fitting. Deduped by origin_id, and the dedupe probe refuses rather than risking a duplicate.
+    - key: data_dir
+      type: string
+      default: ""
+      description: Where the finding ledger and repair journal live. Empty = ~/.garrison/preflight/ (GARRISON_PREFLIGHT_DATA_DIR). The legacy flat ~/.garrison/preflight-fixes.jsonl is still read, so history survived the move.
+    - key: report_cache_ms
+      type: integer
+      default: 15000
+      description: How long the HTTP server may reuse a built report. Concurrent misses share one build. The CLI never caches, and neither does the repair revalidation, which must always measure fresh reality.
+    - key: profile
+      type: string
+      default: ""
+      description: Instance profile for port-offset reasoning (node|dev|codex). Empty = GARRISON_INSTANCE_ID, else node. Deliberately NOT the app's default of dev - preflight audits this machine, whose committed port map is the node map at offset 0.
     - key: repo_root
       type: string
       default: ""
       description: Garrison repo root. Empty = auto-discover by walking up from the fitting dir until data/library.json and fittings/seed/ are both found (works from fittings/seed and from apm_modules/_local placements).
+    - key: language
+      type: string
+      default: en
+      description: Default interface language, en or pt. Only a default - the operator flips it with the toggle in the page header, remembered per browser. English is the source language, every diagnostic is authored in English at the check that emits it, and Portuguese is a translation table (lib/messages.pt.mjs). The CLI is always English.
   provides: []
   consumes: []
   ui:
@@ -70,8 +94,11 @@ x-garrison:
     timeout_ms: 10000
   for_consumers: |
     Diagnostic-first doctor. GET /api/report returns {findings[], summary,
-    degraded, appUp, compositions[], generatedAt}; findings are {check, id,
-    status: pass|warn|fail, detail, evidence?, fix?, action?}. GET
+    degraded, appUp, compositions[], activeComposition, generatedAt}; findings
+    are {check, id, status: info|pass|warn|fail, detail, evidence?, fix?,
+    action?}. `info` means "checked, nothing to do" and never decides the
+    verdict; findings are ranked against activeComposition, and that ranking
+    never removes a finding and never touches a fail. GET
     /api/report?checks=a,b runs a subset. Two endpoints accept explicit
     mutations: POST /api/verify-sweep {compositionId} proxies the app's own
     /api/runner/<id>/verify (heavy: flips runner status, may run apm install,
@@ -80,7 +107,8 @@ x-garrison:
     params} runs ONLY the whitelisted fixers in lib/fixers.mjs
     (tailscale-serve-map through the supported node publisher,
     unstation-fitting through the app's authority-backed manifest writer,
-    library-add-entry, library-remove-entry, git-commit-library). Finding
+    library-add-entry, library-remove-entry, git-commit-library, and file-card
+    when the file_cards key is on). Finding
     repairs must still match a fresh report. Registry commits require the
     current report's libraryDiffHash and the full diff reviewed in the UI;
     they commit only library.json and never push. Mutations are serialized,
