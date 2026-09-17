@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/react/cjs/react.development.js
+// ../../../node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "node_modules/react/cjs/react.development.js"(exports, module) {
+  "../../../node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     if (true) {
       (function() {
@@ -1095,7 +1095,7 @@ var require_react_development = __commonJS({
           var dispatcher = resolveDispatcher();
           return dispatcher.useReducer(reducer, initialArg, init);
         }
-        function useRef(initialValue) {
+        function useRef2(initialValue) {
           var dispatcher = resolveDispatcher();
           return dispatcher.useRef(initialValue);
         }
@@ -1889,7 +1889,7 @@ var require_react_development = __commonJS({
         exports.useLayoutEffect = useLayoutEffect;
         exports.useMemo = useMemo2;
         exports.useReducer = useReducer;
-        exports.useRef = useRef;
+        exports.useRef = useRef2;
         exports.useState = useState2;
         exports.useSyncExternalStore = useSyncExternalStore;
         exports.useTransition = useTransition;
@@ -1902,9 +1902,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// node_modules/react/index.js
+// ../../../node_modules/react/index.js
 var require_react = __commonJS({
-  "node_modules/react/index.js"(exports, module) {
+  "../../../node_modules/react/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -1914,9 +1914,9 @@ var require_react = __commonJS({
   }
 });
 
-// node_modules/scheduler/cjs/scheduler.development.js
+// ../../../node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "../../../node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -2364,9 +2364,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// node_modules/scheduler/index.js
+// ../../../node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "node_modules/scheduler/index.js"(exports, module) {
+  "../../../node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -2376,9 +2376,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// node_modules/react-dom/cjs/react-dom.development.js
+// ../../../node_modules/react-dom/cjs/react-dom.development.js
 var require_react_dom_development = __commonJS({
-  "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+  "../../../node_modules/react-dom/cjs/react-dom.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -23540,9 +23540,9 @@ var require_react_dom_development = __commonJS({
   }
 });
 
-// node_modules/react-dom/index.js
+// ../../../node_modules/react-dom/index.js
 var require_react_dom = __commonJS({
-  "node_modules/react-dom/index.js"(exports, module) {
+  "../../../node_modules/react-dom/index.js"(exports, module) {
     "use strict";
     if (false) {
       checkDCE();
@@ -23553,9 +23553,9 @@ var require_react_dom = __commonJS({
   }
 });
 
-// node_modules/react-dom/client.js
+// ../../../node_modules/react-dom/client.js
 var require_client = __commonJS({
-  "node_modules/react-dom/client.js"(exports) {
+  "../../../node_modules/react-dom/client.js"(exports) {
     "use strict";
     var m = require_react_dom();
     if (false) {
@@ -23584,9 +23584,9 @@ var require_client = __commonJS({
   }
 });
 
-// node_modules/react/cjs/react-jsx-runtime.development.js
+// ../../../node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "../../../node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     if (true) {
       (function() {
@@ -24477,9 +24477,9 @@ var require_react_jsx_runtime_development = __commonJS({
   }
 });
 
-// node_modules/react/jsx-runtime.js
+// ../../../node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "node_modules/react/jsx-runtime.js"(exports, module) {
+  "../../../node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -24489,27 +24489,270 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
-// fittings/seed/preflight/ui/main.tsx
+// ui/main.tsx
 var import_react = __toESM(require_react());
 var import_client = __toESM(require_client());
-var import_jsx_runtime = __toESM(require_jsx_runtime());
-var CHECK_TITLES = {
-  "app-reachable": "Garrison app",
-  "repo-root": "Repo root",
-  "verify-results": "1 \xB7 Verify results (last up)",
-  "verify-sweep": "1b \xB7 Live verify sweep",
-  "library-crosscheck": "2 \xB7 Library registration",
-  "port-collisions": "3 \xB7 Ports (both axes)",
-  "serve-coverage": "4 \xB7 Tailscale serve coverage",
-  "orphans": "5 \xB7 Orphan processes",
-  "drift": "6 \xB7 Composition drift",
-  "kind-vocabulary": "7 \xB7 Capability kinds"
-};
-var CHECK_ORDER = Object.keys(CHECK_TITLES);
-function StatusPip({ status }) {
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `pip pip-${status}`, title: status });
+
+// lib/i18n.mjs
+var LANGS = ["en", "pt"];
+var DEFAULT_LANG = "en";
+function normaliseLang(value, fallback = DEFAULT_LANG) {
+  const raw = String(value ?? "").toLowerCase().trim();
+  if (!raw) return fallback;
+  const base = raw.split(/[-_]/)[0];
+  return LANGS.includes(base) ? base : fallback;
 }
-function FixButton({ f, onSweep }) {
+var LOCALE = { en: "en-GB", pt: "pt-PT" };
+var formatters = /* @__PURE__ */ new Map();
+function formatter(lang, options) {
+  const key = `${lang}|${JSON.stringify(options)}`;
+  if (!formatters.has(key)) formatters.set(key, new Intl.DateTimeFormat(LOCALE[normaliseLang(lang)], options));
+  return formatters.get(key);
+}
+function fmtDateTime(lang, iso) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? String(iso ?? "") : formatter(lang, { dateStyle: "short", timeStyle: "medium" }).format(d);
+}
+function fmtTime(lang, iso) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? String(iso ?? "") : formatter(lang, { timeStyle: "medium" }).format(d);
+}
+function fill(template, vars, lang, table) {
+  let out = template;
+  for (const [name, value] of Object.entries(vars ?? {})) {
+    const text = value && typeof value === "object" && typeof value.key === "string" ? lookup(table, lang, value.key, value.vars) : String(value ?? "");
+    out = out.split(`{${name}}`).join(text);
+  }
+  return out;
+}
+function lookup(table, lang, key, vars) {
+  const n = vars && typeof vars.n === "number" ? vars.n : null;
+  const plural = n !== null ? table[`${key}.${n === 1 ? "one" : "other"}`] : void 0;
+  const template = plural ?? table[key];
+  if (typeof template !== "string") return key;
+  return fill(template, vars, lang, table);
+}
+var CHROME = {
+  en: {
+    "app.title": "Preflight",
+    "app.subtitle": "Composition doctor",
+    "overall.pass": "PASS",
+    "overall.warn": "WARN",
+    "overall.fail": "FAIL",
+    "counts": "{pass} pass \xB7 {warn} warn \xB7 {fail} fail",
+    "info.chip": "{n} info \u2014 checked, nothing to do",
+    "active.chip": "active: {id}",
+    "degraded.chip": "degraded \u2014 app down",
+    "refresh": "Refresh",
+    "refresh.busy": "Refreshing\u2026",
+    "generated.at": "at {time}",
+    "lang.title": "Ler a interface em portugu\xEAs",
+    "lang.en": "EN",
+    "lang.pt": "PT",
+    "status.info": "info",
+    "status.pass": "pass",
+    "status.warn": "warn",
+    "status.fail": "fail",
+    "resolved.since": "Resolved since the last run:",
+    "headline.failing.one": "{n} fitting failing verify:",
+    "headline.failing.other": "{n} fittings failing verify:",
+    "headline.none": "No fitting is failing verify",
+    "headline.other": "Other issues:",
+    "other.library-crosscheck": "registry",
+    "other.port-collisions": "port",
+    "other.serve-coverage": "serve",
+    "other.orphans": "orphan",
+    "other.drift": "drift",
+    "other.kind-vocabulary": "kind",
+    "other.repo-root": "setup",
+    "chip.title": "Show every finding that mentions {id}",
+    "filter.about": "Everything about",
+    "filter.showAll": "Show all checks",
+    "sweep.label": "Verify sweep",
+    "sweep.run": "Run full verify sweep",
+    "sweep.running": "Sweeping\u2026 (can take minutes)",
+    "sweep.note": "Requires a stopped composition. Runs setup and every verify hook.",
+    "sweep.title.stop": "Stop the composition first; the sweep runs setup and every verify hook",
+    "sweep.title.appDown": "Needs the Garrison app up",
+    "sweep.needsStopped": "Stop the composition before running its verify sweep. Refresh if its state has changed.",
+    "sweep.confirm": 'Run the FULL verify sweep for "{id}"?\n\nThis is heavy: it flips the runner status, may run apm install, and runs every setup + verify hook. It is the same code path up() uses.',
+    "check.app-reachable": "Garrison app",
+    "check.repo-root": "Repo root",
+    "check.manifest-parse": "Manifests",
+    "check.ledger": "Finding ledger",
+    "check.verify-results": "1 \xB7 Verify results (last up)",
+    "check.verify-sweep": "1b \xB7 Live verify sweep",
+    "check.library-crosscheck": "2 \xB7 Library registration",
+    "check.port-collisions": "3 \xB7 Ports (both axes)",
+    "check.serve-coverage": "4 \xB7 Tailscale serve coverage",
+    "check.orphans": "5 \xB7 Orphan processes",
+    "check.drift": "6 \xB7 Composition drift",
+    "check.kind-vocabulary": "7 \xB7 Capability kinds",
+    "check.hook-cwd": "8 \xB7 Hook working directories",
+    "check.config-projection": "9 \xB7 Config projection",
+    "section.rows.one": "{n} row",
+    "section.rows.other": "{n} rows",
+    "fix.label": "fix:",
+    "fix.button": "Fix it",
+    "fix.running": "Fixing\u2026",
+    "fix.retry": "Retry repair",
+    "fix.done": "{message} \u2014 refresh to re-check",
+    "fix.confirm": 'Fix "{id}"?\n\nThis will run:\n{command}',
+    "card.button": "File as card",
+    "card.running": "Filing\u2026",
+    "card.confirm": 'File "{check}/{id}" as a Kanban card in backlog?',
+    "evidence.show": "Show evidence",
+    "evidence.hide": "Hide evidence",
+    "age.new": "new",
+    "age.regressed": "regressed from {status}",
+    "journal.title": "Recent fixes (what the doctor did)",
+    "journal.uncommitted": "uncommitted",
+    "journal.review": "Review every change below before committing library.json.",
+    "journal.commit": "Commit library.json",
+    "journal.committing": "Committing\u2026",
+    "journal.commitConfirm": "Commit the full data/library.json diff shown below?\n\nThis includes every change shown, including edits made elsewhere. The server refuses if the diff or git state has changed. Other staged files stay staged; nothing is pushed.",
+    "journal.failed": "FAILED: {error}",
+    "journal.params": "params:",
+    "res.ok": "resolved \u2713 re-checked",
+    "res.bad": "NOT resolved \u2014 re-check failed",
+    "error.load": "Could not load Preflight: {error}",
+    "error.retry": "Retry",
+    "loading": "Building the report\u2026",
+    "loading.note": "Reading every manifest, the live listeners and the tailnet. The next open is instant."
+  },
+  pt: {
+    "app.title": "Preflight",
+    "app.subtitle": "M\xE9dico da composi\xE7\xE3o",
+    "overall.pass": "OK",
+    "overall.warn": "AVISO",
+    "overall.fail": "FALHA",
+    "counts": "{pass} ok \xB7 {warn} avisos \xB7 {fail} falhas",
+    "info.chip": "{n} info \u2014 verificado, nada a fazer",
+    "active.chip": "ativa: {id}",
+    "degraded.chip": "degradado \u2014 app em baixo",
+    "refresh": "Atualizar",
+    "refresh.busy": "A atualizar\u2026",
+    "generated.at": "\xE0s {time}",
+    "lang.title": "Read the interface in English",
+    "lang.en": "EN",
+    "lang.pt": "PT",
+    "status.info": "info",
+    "status.pass": "ok",
+    "status.warn": "aviso",
+    "status.fail": "falha",
+    "resolved.since": "Resolvido desde a \xFAltima execu\xE7\xE3o:",
+    "headline.failing.one": "{n} fitting a falhar o verify:",
+    "headline.failing.other": "{n} fittings a falhar o verify:",
+    "headline.none": "Nenhum fitting est\xE1 a falhar o verify",
+    "headline.other": "Outros problemas:",
+    "other.library-crosscheck": "registo",
+    "other.port-collisions": "porta",
+    "other.serve-coverage": "serve",
+    "other.orphans": "\xF3rf\xE3o",
+    "other.drift": "drift",
+    "other.kind-vocabulary": "kind",
+    "other.repo-root": "setup",
+    "chip.title": "Mostrar tudo o que menciona {id}",
+    "filter.about": "Tudo sobre",
+    "filter.showAll": "Mostrar todos os checks",
+    "sweep.label": "Varredura de verify",
+    "sweep.run": "Correr a varredura completa",
+    "sweep.running": "A correr\u2026 (pode demorar minutos)",
+    "sweep.note": "Exige uma composi\xE7\xE3o parada. Corre o setup e todos os hooks de verify.",
+    "sweep.title.stop": "Para a composi\xE7\xE3o primeiro; a varredura corre o setup e todos os hooks de verify",
+    "sweep.title.appDown": "Precisa da app Garrison a correr",
+    "sweep.needsStopped": "Para a composi\xE7\xE3o antes de correr a varredura de verify. Atualiza se o estado dela mudou.",
+    "sweep.confirm": 'Correr a varredura COMPLETA de verify para "{id}"?\n\n\xC9 pesado: muda o estado do runner, pode correr apm install e corre todos os hooks de setup + verify. \xC9 o mesmo caminho que o up() usa.',
+    "check.app-reachable": "App Garrison",
+    "check.repo-root": "Raiz do reposit\xF3rio",
+    "check.manifest-parse": "Manifestos",
+    "check.ledger": "Hist\xF3rico de findings",
+    "check.verify-results": "1 \xB7 Resultados do verify (\xFAltimo up)",
+    "check.verify-sweep": "1b \xB7 Varredura de verify ao vivo",
+    "check.library-crosscheck": "2 \xB7 Registo na library",
+    "check.port-collisions": "3 \xB7 Portas (ambos os eixos)",
+    "check.serve-coverage": "4 \xB7 Cobertura do tailscale serve",
+    "check.orphans": "5 \xB7 Processos \xF3rf\xE3os",
+    "check.drift": "6 \xB7 Drift da composi\xE7\xE3o",
+    "check.kind-vocabulary": "7 \xB7 Kinds de capacidade",
+    "check.hook-cwd": "8 \xB7 Diret\xF3rios de trabalho dos hooks",
+    "check.config-projection": "9 \xB7 Proje\xE7\xE3o da config",
+    "section.rows.one": "{n} linha",
+    "section.rows.other": "{n} linhas",
+    "fix.label": "solu\xE7\xE3o:",
+    "fix.button": "Corrigir",
+    "fix.running": "A corrigir\u2026",
+    "fix.retry": "Tentar de novo",
+    "fix.done": "{message} \u2014 atualiza para voltar a verificar",
+    "fix.confirm": 'Corrigir "{id}"?\n\nIsto vai executar:\n{command}',
+    "card.button": "Criar cart\xE3o",
+    "card.running": "A criar\u2026",
+    "card.confirm": 'Criar um cart\xE3o no backlog do Kanban para "{check}/{id}"?',
+    "evidence.show": "Mostrar evid\xEAncia",
+    "evidence.hide": "Esconder evid\xEAncia",
+    "age.new": "novo",
+    "age.regressed": "regrediu de {status}",
+    "journal.title": "Corre\xE7\xF5es recentes (o que o m\xE9dico fez)",
+    "journal.uncommitted": "por commitar",
+    "journal.review": "Rev\xEA todas as altera\xE7\xF5es abaixo antes de commitar o library.json.",
+    "journal.commit": "Commitar library.json",
+    "journal.committing": "A commitar\u2026",
+    "journal.commitConfirm": "Commitar o diff completo do data/library.json mostrado abaixo?\n\nInclui todas as altera\xE7\xF5es mostradas, mesmo as feitas noutro lado. O servidor recusa se o diff ou o estado do git tiverem mudado. Outros ficheiros em stage ficam em stage; nada \xE9 enviado (push).",
+    "journal.failed": "FALHOU: {error}",
+    "journal.params": "par\xE2metros:",
+    "res.ok": "resolvido \u2713 reverificado",
+    "res.bad": "N\xC3O resolvido \u2014 a reverifica\xE7\xE3o falhou",
+    "error.load": "N\xE3o foi poss\xEDvel carregar o Preflight: {error}",
+    "error.retry": "Tentar de novo",
+    "loading": "A construir o relat\xF3rio\u2026",
+    "loading.note": "A ler todos os manifestos, os listeners ativos e a tailnet. A pr\xF3xima abertura \xE9 instant\xE2nea."
+  }
+};
+function t(lang, key, vars) {
+  const table = CHROME[normaliseLang(lang)] ?? CHROME[DEFAULT_LANG];
+  const n = vars && typeof vars.n === "number" ? vars.n : null;
+  const variant = n !== null ? `${key}.${n === 1 ? "one" : "other"}` : null;
+  const template = (variant && (table[variant] ?? CHROME[DEFAULT_LANG][variant])) ?? table[key] ?? CHROME[DEFAULT_LANG][key] ?? key;
+  return fill(template, vars, lang, table);
+}
+
+// ui/main.tsx
+var import_jsx_runtime = __toESM(require_jsx_runtime());
+var CHECK_ORDER = [
+  "app-reachable",
+  "repo-root",
+  "manifest-parse",
+  "verify-results",
+  "verify-sweep",
+  "library-crosscheck",
+  "port-collisions",
+  "serve-coverage",
+  "orphans",
+  "drift",
+  "kind-vocabulary",
+  "hook-cwd",
+  "config-projection",
+  "ledger"
+];
+var LANG_KEY = "preflight.lang";
+function readStoredLang() {
+  try {
+    const raw = window.localStorage.getItem(LANG_KEY);
+    return raw ? normaliseLang(raw) : null;
+  } catch {
+    return null;
+  }
+}
+function storeLang(lang) {
+  try {
+    window.localStorage.setItem(LANG_KEY, lang);
+  } catch {
+  }
+}
+function StatusPip({ status, t: t2 }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `pip pip-${status}`, title: t2(`status.${status}`) });
+}
+function FixButton({ f, t: t2, lang, onSweep }) {
   const [state, setState] = (0, import_react.useState)("idle");
   const [message, setMessage] = (0, import_react.useState)("");
   const run = async () => {
@@ -24518,13 +24761,10 @@ function FixButton({ f, onSweep }) {
       onSweep?.(String(f.action.params.compositionId));
       return;
     }
-    if (!window.confirm(`Fix "${f.id}"?
-
-This will run:
-${f.action.command}`)) return;
+    if (!window.confirm(t2("fix.confirm", { id: f.id, command: f.action.command }))) return;
     setState("running");
     try {
-      const res = await fetch("/api/fix", {
+      const res = await fetch(`/api/fix?lang=${lang}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ actionId: f.action.id, params: f.action.params })
@@ -24532,7 +24772,7 @@ ${f.action.command}`)) return;
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.error || `HTTP ${res.status}`);
       setState("done");
-      setMessage(data.detail || "done");
+      setMessage(data.detail || "ok");
     } catch (err) {
       setState("error");
       setMessage(String(err.message || err));
@@ -24540,22 +24780,21 @@ ${f.action.command}`)) return;
   };
   if (state === "done") return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fix-result fix-ok", children: [
     "\u2713 ",
-    message,
-    " \u2014 refresh to re-check"
+    t2("fix.done", { message })
   ] });
   if (state === "error") return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fix-result fix-err", children: [
     "\u2717 ",
     message,
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("br", {}),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fix-btn", onClick: run, children: "Retry repair" })
+    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fix-btn", onClick: run, children: t2("fix.retry") })
   ] });
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fix-btn", onClick: run, disabled: state === "running", title: f.action?.command, children: state === "running" ? "fixing\u2026" : "Fix it" });
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fix-btn", onClick: run, disabled: state === "running", title: f.action?.command, children: state === "running" ? t2("fix.running") : t2("fix.button") });
 }
-function FileCardButton({ f }) {
+function FileCardButton({ f, t: t2 }) {
   const [state, setState] = (0, import_react.useState)("idle");
   const [message, setMessage] = (0, import_react.useState)("");
   const run = async () => {
-    if (!window.confirm(`File "${f.check}/${f.id}" as a Kanban card in backlog?`)) return;
+    if (!window.confirm(t2("card.confirm", { check: f.check, id: f.id }))) return;
     setState("running");
     try {
       const res = await fetch("/api/fix", {
@@ -24566,7 +24805,7 @@ function FileCardButton({ f }) {
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.error || `HTTP ${res.status}`);
       setState("done");
-      setMessage(data.detail || "filed");
+      setMessage(data.detail || "ok");
     } catch (err) {
       setState("error");
       setMessage(String(err.message || err));
@@ -24580,64 +24819,63 @@ function FileCardButton({ f }) {
     "\u2717 ",
     message
   ] });
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fix-btn", onClick: run, disabled: state === "running", children: state === "running" ? "filing\u2026" : "File as card" });
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fix-btn", onClick: run, disabled: state === "running", children: state === "running" ? t2("card.running") : t2("card.button") });
 }
-function FindingRow({ f, onSweep, fileCards }) {
+function FindingRow({ f, t: t2, lang, onSweep, fileCards }) {
   const [open, setOpen] = (0, import_react.useState)(false);
   const parts = f.id.includes(":") ? f.id.split(":") : null;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: `finding finding-${f.status}`, children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding-head", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StatusPip, { status: f.status }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StatusPip, { status: f.status, t: t2 }),
       parts ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "finding-id", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "comp-badge", children: parts[0] }),
         parts.slice(1).join(":")
       ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-id", children: f.id }),
-      f.age === "new" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "age-chip age-new", children: "new" }),
-      f.age === "regressed" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "age-chip age-regressed", children: [
-        "regressed from ",
-        f.previousStatus
-      ] }),
+      f.age === "new" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "age-chip age-new", children: t2("age.new") }),
+      f.age === "regressed" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "age-chip age-regressed", children: t2("age.regressed", { status: f.previousStatus }) }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-detail", children: f.detail })
     ] }),
     f.fix && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding-fix", children: [
-      "fix: ",
+      t2("fix.label"),
+      " ",
       f.fix
     ] }),
-    f.action && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FixButton, { f, onSweep }),
-    !f.action && f.status === "fail" && fileCards && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FileCardButton, { f }),
+    f.action && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FixButton, { f, t: t2, lang, onSweep }),
+    !f.action && f.status === "fail" && fileCards && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FileCardButton, { f, t: t2 }),
     f.evidence && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "linkish", onClick: () => setOpen(!open), children: open ? "hide evidence" : "show evidence" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "linkish", onClick: () => setOpen(!open), children: open ? t2("evidence.hide") : t2("evidence.show") }),
       open && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "evidence", children: f.evidence })
     ] })
   ] });
 }
-function Section({ check, findings, onSweep, fileCards }) {
+function Section({ check, findings, t: t2, lang, onSweep, fileCards }) {
   const RANK = { info: 0, pass: 1, warn: 2, fail: 3 };
   const worst = findings.reduce((acc, f) => RANK[f.status] > RANK[acc] ? f.status : acc, "info");
   const [open, setOpen] = (0, import_react.useState)(RANK[worst] > 1);
   (0, import_react.useEffect)(() => setOpen(RANK[worst] > 1), [worst]);
+  const title = t2(`check.${check}`);
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "check", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", { className: "check-head", onClick: () => setOpen(!open), children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StatusPip, { status: worst }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: CHECK_TITLES[check] || check }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "count", children: findings.length }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", { className: `check-head${open ? " open" : ""}`, onClick: () => setOpen(!open), children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StatusPip, { status: worst, t: t2 }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: title === `check.${check}` ? check : title }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "count", children: t2("section.rows", { n: findings.length }) }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chev", children: open ? "\u25BE" : "\u25B8" })
     ] }),
-    open && findings.map((f, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FindingRow, { f, onSweep, fileCards }, `${f.id}:${i}`))
+    open && findings.map((f, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FindingRow, { f, t: t2, lang, onSweep, fileCards }, `${f.id}:${i}`))
   ] });
 }
-function ResolvedBadge({ resolved }) {
-  if (resolved === true) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "res-badge res-ok", children: "resolved \u2713 re-checked" });
-  if (resolved === false) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "res-badge res-bad", children: "NOT resolved \u2014 re-check failed" });
+function ResolvedBadge({ resolved, t: t2 }) {
+  if (resolved === true) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "res-badge res-ok", children: t2("res.ok") });
+  if (resolved === false) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "res-badge res-bad", children: t2("res.bad") });
   return null;
 }
-function FixJournal({ entries, libraryDiff, libraryDiffHash, onChanged }) {
+function FixJournal({ entries, libraryDiff, libraryDiffHash, t: t2, lang, onChanged }) {
   const [open, setOpen] = (0, import_react.useState)(true);
   const [committing, setCommitting] = (0, import_react.useState)(false);
   const [commitMsg, setCommitMsg] = (0, import_react.useState)(null);
   const commitLibrary = async () => {
     if (!libraryDiffHash) return;
-    if (!window.confirm("Commit the full data/library.json diff shown below?\n\nThis includes every change shown, including edits made elsewhere. The server refuses if the diff or git state has changed. Other staged files stay staged; nothing is pushed.")) return;
+    if (!window.confirm(t2("journal.commitConfirm"))) return;
     setCommitting(true);
     setCommitMsg(null);
     try {
@@ -24656,38 +24894,55 @@ function FixJournal({ entries, libraryDiff, libraryDiffHash, onChanged }) {
     }
   };
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "check journal", children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", { className: "check-head", onClick: () => setOpen(!open), children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", { className: `check-head${open ? " open" : ""}`, onClick: () => setOpen(!open), children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "pip pip-pass" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: "Recent fixes (what the doctor did)" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "count", children: entries.length }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: t2("journal.title") }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "count", children: t2("section.rows", { n: entries.length }) }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chev", children: open ? "\u25BE" : "\u25B8" })
     ] }),
     open && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
       libraryDiff && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding pending-commit", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding-head", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "pip pip-warn" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-id", children: "uncommitted" }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-detail", children: "Review every change below before committing library.json." })
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-id", children: t2("journal.uncommitted") }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-detail", children: t2("journal.review") })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "evidence", children: libraryDiff }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fix-btn", onClick: commitLibrary, disabled: committing || !libraryDiffHash, children: committing ? "committing\u2026" : "Commit library.json" }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fix-btn", onClick: commitLibrary, disabled: committing || !libraryDiffHash, children: committing ? t2("journal.committing") : t2("journal.commit") }),
         commitMsg && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "finding-fix", children: commitMsg })
       ] }),
       entries.map((e, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding", children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding-head", children: [
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `pip pip-${e.ok ? "pass" : "fail"}` }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-id", children: e.actionId }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-detail", children: e.ok ? e.detail : `FAILED: ${e.error}` }),
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ResolvedBadge, { resolved: e.resolved })
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-detail", children: e.ok ? e.detail : t2("journal.failed", { error: e.error }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ResolvedBadge, { resolved: e.resolved, t: t2 })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding-fix", children: [
-          new Date(e.at).toLocaleString(),
-          " \xB7 params: ",
+          fmtDateTime(lang, e.at),
+          " \xB7 ",
+          t2("journal.params"),
+          " ",
           JSON.stringify(e.params)
         ] })
       ] }, i))
     ] })
   ] });
+}
+function TopBar({ t: t2, lang, onLang, onRefresh, busy }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "topbar", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "topbar-inner", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", { children: t2("app.title") }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: "sub", children: t2("app.subtitle") })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "topbar-actions", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "lang-toggle", role: "group", "aria-label": "language", title: t2("lang.title"), children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { "aria-pressed": lang === "en", onClick: () => onLang("en"), disabled: busy, children: t2("lang.en") }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { "aria-pressed": lang === "pt", onClick: () => onLang("pt"), disabled: busy, children: t2("lang.pt") })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: onRefresh, disabled: busy, children: busy ? t2("refresh.busy") : t2("refresh") })
+    ] })
+  ] }) });
 }
 function App() {
   const [report, setReport] = (0, import_react.useState)(null);
@@ -24696,24 +24951,37 @@ function App() {
   const [sweep, setSweep] = (0, import_react.useState)(null);
   const [comp, setComp] = (0, import_react.useState)("");
   const [fittingFilter, setFittingFilter] = (0, import_react.useState)(null);
+  const [lang, setLang] = (0, import_react.useState)(() => readStoredLang());
+  const inflight = (0, import_react.useRef)(null);
+  const uiLang = lang ?? DEFAULT_LANG;
+  const t2 = (0, import_react.useCallback)((key, vars) => t(uiLang, key, vars), [uiLang]);
+  (0, import_react.useEffect)(() => {
+    document.documentElement.lang = LOCALE[uiLang];
+  }, [uiLang]);
   const refresh = (0, import_react.useCallback)(async () => {
+    inflight.current?.abort();
+    const ctrl = new AbortController();
+    inflight.current = ctrl;
     try {
-      const res = await fetch("/api/report");
+      const res = await fetch(`/api/report${lang ? `?lang=${lang}` : ""}`, { signal: ctrl.signal });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
       if (!Array.isArray(data?.findings) || !data?.summary?.counts || typeof data.summary.overall !== "string") {
         throw new Error("Preflight returned an invalid report");
       }
+      if (ctrl.signal.aborted) return;
       setReport(data);
       setError(null);
+      if (!lang && typeof data.lang === "string") setLang(normaliseLang(data.lang));
       if (!comp && data.compositions?.length) {
         const preferred = data.activeComposition && data.compositions.includes(data.activeComposition) && data.activeComposition || data.sweepableCompositions?.[0] || data.compositions[0];
         setComp(preferred);
       }
     } catch (err) {
+      if (err?.name === "AbortError") return;
       setError(String(err));
     }
-  }, [comp]);
+  }, [comp, lang]);
   (0, import_react.useEffect)(() => {
     refresh();
     const id = setInterval(() => {
@@ -24721,23 +24989,25 @@ function App() {
     }, 3e4);
     return () => clearInterval(id);
   }, [refresh, sweeping]);
+  const flipLang = (0, import_react.useCallback)((next) => {
+    if (next === lang) return;
+    storeLang(next);
+    setSweep(null);
+    setLang(next);
+  }, [lang]);
   const runSweep = (0, import_react.useCallback)(async (target) => {
     const id = target ?? comp;
     if (!id) return;
     if (!report?.sweepableCompositions?.includes(id)) {
-      setSweep({ compositionId: id, findings: [{ check: "verify-sweep", id, status: "warn", detail: "Stop the composition before running its verify sweep. Refresh if its state has changed." }] });
+      setSweep({ compositionId: id, findings: [{ check: "verify-sweep", id, status: "warn", detail: t2("sweep.needsStopped") }] });
       return;
     }
     if (target) setComp(target);
-    if (!window.confirm(
-      `Run the FULL verify sweep for "${id}"?
-
-This is heavy: it flips the runner status, may run apm install, and runs every setup + verify hook. It is the same code path up() uses.`
-    )) return;
+    if (!window.confirm(t2("sweep.confirm", { id }))) return;
     setSweeping(true);
     setSweep(null);
     try {
-      const res = await fetch("/api/verify-sweep", {
+      const res = await fetch(`/api/verify-sweep?lang=${uiLang}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ compositionId: id })
@@ -24750,7 +25020,7 @@ This is heavy: it flips the runner status, may run apm install, and runs every s
     } finally {
       setSweeping(false);
     }
-  }, [comp, report?.sweepableCompositions]);
+  }, [comp, report?.sweepableCompositions, t2, uiLang]);
   const grouped = (0, import_react.useMemo)(() => {
     const all = [...report?.findings ?? [], ...sweep?.findings ?? []];
     const map = /* @__PURE__ */ new Map();
@@ -24762,12 +25032,36 @@ This is heavy: it flips the runner status, may run apm install, and runs every s
       (a, b) => (CHECK_ORDER.indexOf(a[0]) + 99) % 99 - (CHECK_ORDER.indexOf(b[0]) + 99) % 99
     );
   }, [report, sweep]);
-  if (error) return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "banner banner-fail", children: [
-    "Could not load Preflight: ",
-    error,
-    /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: refresh, children: "Retry" })
-  ] });
-  if (!report) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "banner", children: "loading\u2026" });
+  const topbar = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TopBar, { t: t2, lang: uiLang, onLang: flipLang, onRefresh: refresh, busy: sweeping });
+  if (error) {
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+      topbar,
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("main", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "banner banner-fail", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: t2("overall.fail") }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: t2("error.load", { error }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: refresh, children: t2("error.retry") })
+      ] }) })
+    ] });
+  }
+  if (!report) {
+    return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+      topbar,
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", { children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "banner banner-info", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "counts", children: t2("loading") }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "loading-note", children: t2("loading.note") })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", { className: "check", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "skeleton-row w60" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "skeleton-row w40" })
+        ] }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", { className: "check", children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "skeleton-row w60" }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "skeleton-row w40" })
+        ] }) })
+      ] })
+    ] });
+  }
   const { overall, counts } = report.summary;
   const allFindings = [...report.findings, ...sweep?.findings ?? []];
   const failingFittings = [...new Set(
@@ -24779,97 +25073,78 @@ This is heavy: it flips the runner status, may run apm install, and runs every s
       failsByCheck.set(f.check, (failsByCheck.get(f.check) ?? 0) + 1);
     }
   }
-  const OTHER_LABELS = {
-    "library-crosscheck": "registry",
-    "port-collisions": "port",
-    "serve-coverage": "serve",
-    "orphans": "orphan",
-    "drift": "drift",
-    "kind-vocabulary": "kind",
-    "repo-root": "setup"
-  };
-  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: `banner banner-${overall}`, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: overall.toUpperCase() }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-        counts.pass,
-        " pass \xB7 ",
-        counts.warn,
-        " warn \xB7 ",
-        counts.fail,
-        " fail"
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+    topbar,
+    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: `banner banner-${overall}`, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: t2(`overall.${overall}`) }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "counts", children: t2("counts", { pass: counts.pass, warn: counts.warn, fail: counts.fail }) }),
+        !!counts.info && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip chip-info", children: t2("info.chip", { n: counts.info }) }),
+        report.activeComposition && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: t2("active.chip", { id: report.activeComposition }) }),
+        report.degraded && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: t2("degraded.chip") }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "ts", children: t2("generated.at", { time: fmtTime(uiLang, report.generatedAt) }) })
       ] }),
-      !!counts.info && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "chip chip-info", children: [
-        counts.info,
-        " info \u2014 checked, nothing to do"
+      !!report.resolved?.length && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "headline", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "headline-fittings ok", children: t2("resolved.since") }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "headline-other", children: report.resolved.map((r) => r.key).join(" \xB7 ") })
       ] }),
-      report.activeComposition && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "chip", children: [
-        "active: ",
-        report.activeComposition
+      (failingFittings.length > 0 || failsByCheck.size > 0) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "headline", children: [
+        failingFittings.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "headline-fittings", children: [
+          t2("headline.failing", { n: failingFittings.length }),
+          " ",
+          failingFittings.map((id) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            "button",
+            {
+              className: `fitting-chip${fittingFilter === id ? " active" : ""}`,
+              title: t2("chip.title", { id }),
+              onClick: () => setFittingFilter(fittingFilter === id ? null : id),
+              children: id
+            },
+            id
+          ))
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "headline-fittings ok", children: t2("headline.none") }),
+        failsByCheck.size > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "headline-other", children: [
+          t2("headline.other"),
+          " ",
+          [...failsByCheck].map(([check, n]) => {
+            const label = t2(`other.${check}`);
+            return `${n} ${label === `other.${check}` ? check : label}`;
+          }).join(" \xB7 ")
+        ] })
       ] }),
-      report.degraded && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: "degraded \u2014 app down" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "ts", children: new Date(report.generatedAt).toLocaleTimeString() }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: refresh, disabled: sweeping, children: "refresh" })
-    ] }),
-    !!report.resolved?.length && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "headline", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "headline-fittings ok", children: "resolved since the last run:" }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "headline-other", children: report.resolved.map((r) => r.key).join(" \xB7 ") })
-    ] }),
-    (failingFittings.length > 0 || failsByCheck.size > 0) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "headline", children: [
-      failingFittings.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "headline-fittings", children: [
-        failingFittings.length,
-        " fitting",
-        failingFittings.length > 1 ? "s" : "",
-        " failing verify:",
-        " ",
-        failingFittings.map((id) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      fittingFilter && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "filter-view", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "filter-head", children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("strong", { children: [
+            t2("filter.about"),
+            " ",
+            /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { children: fittingFilter })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "linkish", onClick: () => setFittingFilter(null), children: t2("filter.showAll") })
+        ] }),
+        allFindings.filter((f) => f.id.includes(fittingFilter) || f.detail.includes(fittingFilter) || (f.fix ?? "").includes(fittingFilter)).map((f, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "filter-check-label", children: t2(`check.${f.check}`) === `check.${f.check}` ? f.check : t2(`check.${f.check}`) }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FindingRow, { f, t: t2, lang: uiLang, onSweep: runSweep, fileCards: report.fileCards })
+        ] }, `flt:${i}`))
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "sweep-bar", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [
+          t2("sweep.label"),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", { value: comp, onChange: (e) => setComp(e.target.value), disabled: sweeping, children: (report.compositions ?? []).map((c) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: c, children: c }, c)) })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
           "button",
           {
-            className: `fitting-chip${fittingFilter === id ? " active" : ""}`,
-            title: `show every finding that mentions ${id}`,
-            onClick: () => setFittingFilter(fittingFilter === id ? null : id),
-            children: id
-          },
-          id
-        ))
-      ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "headline-fittings ok", children: "no fitting is failing verify" }),
-      failsByCheck.size > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "headline-other", children: [
-        "other issues:",
-        " ",
-        [...failsByCheck].map(([check, n]) => `${n} ${OTHER_LABELS[check] ?? check}`).join(" \xB7 ")
-      ] })
-    ] }),
-    fittingFilter && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "filter-view", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "filter-head", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("strong", { children: [
-          "everything about ",
-          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { children: fittingFilter })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "linkish", onClick: () => setFittingFilter(null), children: "show all checks" })
+            onClick: () => runSweep(),
+            disabled: sweeping || !report.appUp || !report.sweepableCompositions?.includes(comp),
+            title: report.appUp ? t2("sweep.title.stop") : t2("sweep.title.appDown"),
+            children: sweeping ? t2("sweep.running") : t2("sweep.run")
+          }
+        ),
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "sweep-note", children: t2("sweep.note") })
       ] }),
-      allFindings.filter((f) => f.id.includes(fittingFilter) || f.detail.includes(fittingFilter) || (f.fix ?? "").includes(fittingFilter)).map((f, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "filter-check-label", children: CHECK_TITLES[f.check] || f.check }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FindingRow, { f, onSweep: runSweep, fileCards: report.fileCards })
-      ] }, `flt:${i}`))
-    ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "sweep-bar", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", { children: [
-        "Verify sweep:",
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", { value: comp, onChange: (e) => setComp(e.target.value), disabled: sweeping, children: (report.compositions ?? []).map((c) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", { value: c, children: c }, c)) })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
-        "button",
-        {
-          onClick: () => runSweep(),
-          disabled: sweeping || !report.appUp || !report.sweepableCompositions?.includes(comp),
-          title: report.appUp ? "Stop the composition first; the sweep runs setup and every verify hook" : "Needs the Garrison app up",
-          children: sweeping ? "sweeping\u2026 (can take minutes)" : "Run full verify sweep"
-        }
-      ),
-      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "sweep-note", children: "Requires a stopped composition. Runs setup and every verify hook." })
-    ] }),
-    !fittingFilter && grouped.map(([check, findings]) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Section, { check, findings, onSweep: runSweep, fileCards: report.fileCards }, check)),
-    ((report.recentFixes?.length ?? 0) > 0 || report.libraryDiff) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FixJournal, { entries: report.recentFixes ?? [], libraryDiff: report.libraryDiff, libraryDiffHash: report.libraryDiffHash, onChanged: refresh })
+      !fittingFilter && grouped.map(([check, findings]) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Section, { check, findings, t: t2, lang: uiLang, onSweep: runSweep, fileCards: report.fileCards }, check)),
+      ((report.recentFixes?.length ?? 0) > 0 || report.libraryDiff) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FixJournal, { entries: report.recentFixes ?? [], libraryDiff: report.libraryDiff, libraryDiffHash: report.libraryDiffHash, t: t2, lang: uiLang, onChanged: refresh })
+    ] })
   ] });
 }
 (0, import_client.createRoot)(document.getElementById("root")).render(/* @__PURE__ */ (0, import_jsx_runtime.jsx)(App, {}));

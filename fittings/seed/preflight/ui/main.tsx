@@ -1,8 +1,18 @@
-// Preflight UI — one page: overall banner, seven collapsible check sections,
-// each finding with its fix beside it, and the explicit (heavy) verify sweep.
+// Preflight UI — one page: a dark topbar with the language toggle, the verdict
+// banner, the headline naming WHAT is broken, collapsible check sections with
+// each finding's fix beside it, the explicit (heavy) verify sweep, and the
+// journal of what the doctor did.
+//
+// Chrome strings come from lib/i18n.mjs and flip client-side; diagnostic prose
+// arrives from the server already rendered in the requested language, so a
+// language flip is a refetch, never a client-side retranslation.
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+// @ts-ignore — the fitting's standalone module deliberately has no TS dependency.
+import { DEFAULT_LANG, LOCALE, fmtDateTime, fmtTime, normaliseLang, t as translate } from "../lib/i18n.mjs";
+
+type Lang = "en" | "pt";
 
 type Finding = {
   check: string;
@@ -23,6 +33,7 @@ type Report = {
   summary: { overall: string; counts: { info?: number; pass: number; warn: number; fail: number } };
   degraded: boolean;
   appUp: boolean;
+  lang?: string;
   compositions?: string[];
   sweepableCompositions?: string[];
   activeComposition?: string | null;
@@ -34,29 +45,36 @@ type Report = {
   generatedAt: string;
 };
 
-const CHECK_TITLES: Record<string, string> = {
-  "app-reachable": "Garrison app",
-  "repo-root": "Repo root",
-  "verify-results": "1 · Verify results (last up)",
-  "verify-sweep": "1b · Live verify sweep",
-  "library-crosscheck": "2 · Library registration",
-  "port-collisions": "3 · Ports (both axes)",
-  "serve-coverage": "4 · Tailscale serve coverage",
-  "orphans": "5 · Orphan processes",
-  "drift": "6 · Composition drift",
-  "kind-vocabulary": "7 · Capability kinds"
-};
+const CHECK_ORDER = [
+  "app-reachable", "repo-root", "manifest-parse", "verify-results", "verify-sweep", "library-crosscheck",
+  "port-collisions", "serve-coverage", "orphans", "drift", "kind-vocabulary", "hook-cwd", "config-projection", "ledger"
+];
 
-const CHECK_ORDER = Object.keys(CHECK_TITLES);
+// The per-browser preference. The server's `language` config is only the
+// default a fresh browser adopts; once the operator has flipped, this wins.
+// No cookie: the page is a static SPA that already sends ?lang= on the API
+// call, so a cookie would be a second source of truth for the same fact.
+const LANG_KEY = "preflight.lang";
+function readStoredLang(): Lang | null {
+  try {
+    const raw = window.localStorage.getItem(LANG_KEY);
+    return raw ? (normaliseLang(raw) as Lang) : null;
+  } catch { return null; }
+}
+function storeLang(lang: Lang) {
+  try { window.localStorage.setItem(LANG_KEY, lang); } catch { /* private mode: the flip still applies this session */ }
+}
 
-function StatusPip({ status }: { status: string }) {
-  return <span className={`pip pip-${status}`} title={status} />;
+type T = (key: string, vars?: Record<string, unknown>) => string;
+
+function StatusPip({ status, t }: { status: string; t: T }) {
+  return <span className={`pip pip-${status}`} title={t(`status.${status}`)} />;
 }
 
 // Executes a finding's whitelisted fix action after an explicit confirm that
 // shows exactly what will run. The refresh happens on the next poll (or the
 // refresh button) so the row's outcome is visible immediately in place.
-function FixButton({ f, onSweep }: { f: Finding; onSweep?: (compositionId: string) => void }) {
+function FixButton({ f, t, lang, onSweep }: { f: Finding; t: T; lang: Lang; onSweep?: (compositionId: string) => void }) {
   const [state, setState] = useState<"idle" | "running" | "done" | "error">("idle");
   const [message, setMessage] = useState("");
   const run = async () => {
@@ -67,10 +85,10 @@ function FixButton({ f, onSweep }: { f: Finding; onSweep?: (compositionId: strin
       onSweep?.(String(f.action.params.compositionId));
       return;
     }
-    if (!window.confirm(`Fix "${f.id}"?\n\nThis will run:\n${f.action.command}`)) return;
+    if (!window.confirm(t("fix.confirm", { id: f.id, command: f.action.command }))) return;
     setState("running");
     try {
-      const res = await fetch("/api/fix", {
+      const res = await fetch(`/api/fix?lang=${lang}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ actionId: f.action.id, params: f.action.params })
@@ -78,28 +96,28 @@ function FixButton({ f, onSweep }: { f: Finding; onSweep?: (compositionId: strin
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.error || `HTTP ${res.status}`);
       setState("done");
-      setMessage(data.detail || "done");
+      setMessage(data.detail || "ok");
     } catch (err) {
       setState("error");
       setMessage(String((err as Error).message || err));
     }
   };
-  if (state === "done") return <div className="fix-result fix-ok">✓ {message} — refresh to re-check</div>;
-  if (state === "error") return <div className="fix-result fix-err">✗ {message}<br /><button className="fix-btn" onClick={run}>Retry repair</button></div>;
+  if (state === "done") return <div className="fix-result fix-ok">✓ {t("fix.done", { message })}</div>;
+  if (state === "error") return <div className="fix-result fix-err">✗ {message}<br /><button className="fix-btn" onClick={run}>{t("fix.retry")}</button></div>;
   return (
     <button className="fix-btn" onClick={run} disabled={state === "running"} title={f.action?.command}>
-      {state === "running" ? "fixing…" : "Fix it"}
+      {state === "running" ? t("fix.running") : t("fix.button")}
     </button>
   );
 }
 
 // Offered only on failures that carry no mechanical repair, so it never
 // competes with a "Fix it" that would actually solve the problem.
-function FileCardButton({ f }: { f: Finding }) {
+function FileCardButton({ f, t }: { f: Finding; t: T }) {
   const [state, setState] = useState<"idle" | "running" | "done" | "error">("idle");
   const [message, setMessage] = useState("");
   const run = async () => {
-    if (!window.confirm(`File "${f.check}/${f.id}" as a Kanban card in backlog?`)) return;
+    if (!window.confirm(t("card.confirm", { check: f.check, id: f.id }))) return;
     setState("running");
     try {
       const res = await fetch("/api/fix", {
@@ -110,7 +128,7 @@ function FileCardButton({ f }: { f: Finding }) {
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.error || `HTTP ${res.status}`);
       setState("done");
-      setMessage(data.detail || "filed");
+      setMessage(data.detail || "ok");
     } catch (err) {
       setState("error");
       setMessage(String((err as Error).message || err));
@@ -118,10 +136,10 @@ function FileCardButton({ f }: { f: Finding }) {
   };
   if (state === "done") return <div className="fix-result fix-ok">✓ {message}</div>;
   if (state === "error") return <div className="fix-result fix-err">✗ {message}</div>;
-  return <button className="fix-btn" onClick={run} disabled={state === "running"}>{state === "running" ? "filing…" : "File as card"}</button>;
+  return <button className="fix-btn" onClick={run} disabled={state === "running"}>{state === "running" ? t("card.running") : t("card.button")}</button>;
 }
 
-function FindingRow({ f, onSweep, fileCards }: { f: Finding; onSweep?: (compositionId: string) => void; fileCards?: boolean }) {
+function FindingRow({ f, t, lang, onSweep, fileCards }: { f: Finding; t: T; lang: Lang; onSweep?: (compositionId: string) => void; fileCards?: boolean }) {
   const [open, setOpen] = useState(false);
   // Ids in verify/drift checks are "composition:fitting" — render the
   // composition as a muted prefix badge so the FITTING reads as the subject
@@ -130,7 +148,7 @@ function FindingRow({ f, onSweep, fileCards }: { f: Finding; onSweep?: (composit
   return (
     <div className={`finding finding-${f.status}`}>
       <div className="finding-head">
-        <StatusPip status={f.status} />
+        <StatusPip status={f.status} t={t} />
         {parts ? (
           <span className="finding-id">
             <span className="comp-badge">{parts[0]}</span>
@@ -139,17 +157,17 @@ function FindingRow({ f, onSweep, fileCards }: { f: Finding; onSweep?: (composit
         ) : (
           <span className="finding-id">{f.id}</span>
         )}
-        {f.age === "new" && <span className="age-chip age-new">new</span>}
-        {f.age === "regressed" && <span className="age-chip age-regressed">regressed from {f.previousStatus}</span>}
+        {f.age === "new" && <span className="age-chip age-new">{t("age.new")}</span>}
+        {f.age === "regressed" && <span className="age-chip age-regressed">{t("age.regressed", { status: f.previousStatus })}</span>}
         <span className="finding-detail">{f.detail}</span>
       </div>
-      {f.fix && <div className="finding-fix">fix: {f.fix}</div>}
-      {f.action && <FixButton f={f} onSweep={onSweep} />}
-      {!f.action && f.status === "fail" && fileCards && <FileCardButton f={f} />}
+      {f.fix && <div className="finding-fix">{t("fix.label")} {f.fix}</div>}
+      {f.action && <FixButton f={f} t={t} lang={lang} onSweep={onSweep} />}
+      {!f.action && f.status === "fail" && fileCards && <FileCardButton f={f} t={t} />}
       {f.evidence && (
         <div>
           <button className="linkish" onClick={() => setOpen(!open)}>
-            {open ? "hide evidence" : "show evidence"}
+            {open ? t("evidence.hide") : t("evidence.show")}
           </button>
           {open && <pre className="evidence">{f.evidence}</pre>}
         </div>
@@ -158,22 +176,23 @@ function FindingRow({ f, onSweep, fileCards }: { f: Finding; onSweep?: (composit
   );
 }
 
-function Section({ check, findings, onSweep, fileCards }: { check: string; findings: Finding[]; onSweep?: (compositionId: string) => void; fileCards?: boolean }) {
+function Section({ check, findings, t, lang, onSweep, fileCards }: { check: string; findings: Finding[]; t: T; lang: Lang; onSweep?: (compositionId: string) => void; fileCards?: boolean }) {
   // info ranks BELOW pass: a section holding only informational rows is not a
   // green success, it is "checked, nothing to do" — and it stays collapsed.
   const RANK: Record<string, number> = { info: 0, pass: 1, warn: 2, fail: 3 };
   const worst = findings.reduce<string>((acc, f) => (RANK[f.status] > RANK[acc] ? f.status : acc), "info");
   const [open, setOpen] = useState(RANK[worst] > 1);
   useEffect(() => setOpen(RANK[worst] > 1), [worst]);
+  const title = t(`check.${check}`);
   return (
     <section className="check">
-      <header className="check-head" onClick={() => setOpen(!open)}>
-        <StatusPip status={worst} />
-        <h2>{CHECK_TITLES[check] || check}</h2>
-        <span className="count">{findings.length}</span>
+      <header className={`check-head${open ? " open" : ""}`} onClick={() => setOpen(!open)}>
+        <StatusPip status={worst} t={t} />
+        <h2>{title === `check.${check}` ? check : title}</h2>
+        <span className="count">{t("section.rows", { n: findings.length })}</span>
         <span className="chev">{open ? "▾" : "▸"}</span>
       </header>
-      {open && findings.map((f, i) => <FindingRow key={`${f.id}:${i}`} f={f} onSweep={onSweep} fileCards={fileCards} />)}
+      {open && findings.map((f, i) => <FindingRow key={`${f.id}:${i}`} f={f} t={t} lang={lang} onSweep={onSweep} fileCards={fileCards} />)}
     </section>
   );
 }
@@ -181,20 +200,20 @@ function Section({ check, findings, onSweep, fileCards }: { check: string; findi
 // The persistent trace of what the doctor DID. A fixed row disappears from
 // the checks on refresh — that means the detector re-measured and passes —
 // but the action itself stays visible and auditable here.
-function ResolvedBadge({ resolved }: { resolved?: boolean | null }) {
-  if (resolved === true) return <span className="res-badge res-ok">resolved ✓ re-checked</span>;
-  if (resolved === false) return <span className="res-badge res-bad">NOT resolved — re-check failed</span>;
+function ResolvedBadge({ resolved, t }: { resolved?: boolean | null; t: T }) {
+  if (resolved === true) return <span className="res-badge res-ok">{t("res.ok")}</span>;
+  if (resolved === false) return <span className="res-badge res-bad">{t("res.bad")}</span>;
   return null;
 }
 
-function FixJournal({ entries, libraryDiff, libraryDiffHash, onChanged }: { entries: FixEntry[]; libraryDiff?: string | null; libraryDiffHash?: string | null; onChanged: () => void }) {
+function FixJournal({ entries, libraryDiff, libraryDiffHash, t, lang, onChanged }: { entries: FixEntry[]; libraryDiff?: string | null; libraryDiffHash?: string | null; t: T; lang: Lang; onChanged: () => void }) {
   const [open, setOpen] = useState(true);
   const [committing, setCommitting] = useState(false);
   const [commitMsg, setCommitMsg] = useState<string | null>(null);
 
   const commitLibrary = async () => {
     if (!libraryDiffHash) return;
-    if (!window.confirm("Commit the full data/library.json diff shown below?\n\nThis includes every change shown, including edits made elsewhere. The server refuses if the diff or git state has changed. Other staged files stay staged; nothing is pushed.")) return;
+    if (!window.confirm(t("journal.commitConfirm"))) return;
     setCommitting(true);
     setCommitMsg(null);
     try {
@@ -215,10 +234,10 @@ function FixJournal({ entries, libraryDiff, libraryDiffHash, onChanged }: { entr
 
   return (
     <section className="check journal">
-      <header className="check-head" onClick={() => setOpen(!open)}>
+      <header className={`check-head${open ? " open" : ""}`} onClick={() => setOpen(!open)}>
         <span className="pip pip-pass" />
-        <h2>Recent fixes (what the doctor did)</h2>
-        <span className="count">{entries.length}</span>
+        <h2>{t("journal.title")}</h2>
+        <span className="count">{t("section.rows", { n: entries.length })}</span>
         <span className="chev">{open ? "▾" : "▸"}</span>
       </header>
       {open && (
@@ -227,12 +246,12 @@ function FixJournal({ entries, libraryDiff, libraryDiffHash, onChanged }: { entr
             <div className="finding pending-commit">
               <div className="finding-head">
                 <span className="pip pip-warn" />
-                <span className="finding-id">uncommitted</span>
-                <span className="finding-detail">Review every change below before committing library.json.</span>
+                <span className="finding-id">{t("journal.uncommitted")}</span>
+                <span className="finding-detail">{t("journal.review")}</span>
               </div>
               <pre className="evidence">{libraryDiff}</pre>
               <button className="fix-btn" onClick={commitLibrary} disabled={committing || !libraryDiffHash}>
-                {committing ? "committing…" : "Commit library.json"}
+                {committing ? t("journal.committing") : t("journal.commit")}
               </button>
               {commitMsg && <div className="finding-fix">{commitMsg}</div>}
             </div>
@@ -242,17 +261,37 @@ function FixJournal({ entries, libraryDiff, libraryDiffHash, onChanged }: { entr
               <div className="finding-head">
                 <span className={`pip pip-${e.ok ? "pass" : "fail"}`} />
                 <span className="finding-id">{e.actionId}</span>
-                <span className="finding-detail">{e.ok ? e.detail : `FAILED: ${e.error}`}</span>
-                <ResolvedBadge resolved={e.resolved} />
+                <span className="finding-detail">{e.ok ? e.detail : t("journal.failed", { error: e.error })}</span>
+                <ResolvedBadge resolved={e.resolved} t={t} />
               </div>
               <div className="finding-fix">
-                {new Date(e.at).toLocaleString()} · params: {JSON.stringify(e.params)}
+                {fmtDateTime(lang, e.at)} · {t("journal.params")} {JSON.stringify(e.params)}
               </div>
             </div>
           ))}
         </>
       )}
     </section>
+  );
+}
+
+function TopBar({ t, lang, onLang, onRefresh, busy }: { t: T; lang: Lang; onLang: (l: Lang) => void; onRefresh: () => void; busy: boolean }) {
+  return (
+    <div className="topbar">
+      <div className="topbar-inner">
+        <div>
+          <h1>{t("app.title")}</h1>
+          <p className="sub">{t("app.subtitle")}</p>
+        </div>
+        <div className="topbar-actions">
+          <div className="lang-toggle" role="group" aria-label="language" title={t("lang.title")}>
+            <button aria-pressed={lang === "en"} onClick={() => onLang("en")} disabled={busy}>{t("lang.en")}</button>
+            <button aria-pressed={lang === "pt"} onClick={() => onLang("pt")} disabled={busy}>{t("lang.pt")}</button>
+          </div>
+          <button onClick={onRefresh} disabled={busy}>{busy ? t("refresh.busy") : t("refresh")}</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -263,17 +302,36 @@ function App() {
   const [sweep, setSweep] = useState<{ compositionId: string; findings: Finding[] } | null>(null);
   const [comp, setComp] = useState<string>("");
   const [fittingFilter, setFittingFilter] = useState<string | null>(null);
+  // null until either the stored preference or the server's default is known;
+  // the chrome renders in English for that first instant, never the wrong
+  // language for a whole report.
+  const [lang, setLang] = useState<Lang | null>(() => readStoredLang());
+  const inflight = useRef<AbortController | null>(null);
+
+  const uiLang: Lang = lang ?? (DEFAULT_LANG as Lang);
+  const t = useCallback<T>((key, vars) => translate(uiLang, key, vars), [uiLang]);
+
+  useEffect(() => { document.documentElement.lang = LOCALE[uiLang]; }, [uiLang]);
 
   const refresh = useCallback(async () => {
+    // A flip aborts the outstanding fetch: an English report must never land
+    // after the Portuguese one and stick.
+    inflight.current?.abort();
+    const ctrl = new AbortController();
+    inflight.current = ctrl;
     try {
-      const res = await fetch("/api/report");
+      const res = await fetch(`/api/report${lang ? `?lang=${lang}` : ""}`, { signal: ctrl.signal });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
       if (!Array.isArray(data?.findings) || !data?.summary?.counts || typeof data.summary.overall !== "string") {
         throw new Error("Preflight returned an invalid report");
       }
+      if (ctrl.signal.aborted) return;
       setReport(data);
       setError(null);
+      // First load with no stored preference: adopt the node's configured
+      // default, which the server echoes beside the findings it rendered in it.
+      if (!lang && typeof data.lang === "string") setLang(normaliseLang(data.lang) as Lang);
       // Never default to compositions[0]: that is whatever sorts first, and it
       // left the heavy-sweep button armed on a composition nobody uses. The
       // ACTIVE composition is the one the operator means; when it is running
@@ -286,9 +344,10 @@ function App() {
         setComp(preferred);
       }
     } catch (err) {
+      if ((err as Error)?.name === "AbortError") return;
       setError(String(err));
     }
-  }, [comp]);
+  }, [comp, lang]);
 
   useEffect(() => {
     refresh();
@@ -298,21 +357,29 @@ function App() {
     return () => clearInterval(id);
   }, [refresh, sweeping]);
 
+  const flipLang = useCallback((next: Lang) => {
+    if (next === lang) return;
+    storeLang(next);
+    // Sweep rows were rendered server-side in the old language and cannot be
+    // retranslated here; the toggle is disabled WHILE sweeping, so only a
+    // finished sweep is ever dropped — and it is one button press away.
+    setSweep(null);
+    setLang(next);
+  }, [lang]);
+
   const runSweep = useCallback(async (target?: string) => {
     const id = target ?? comp;
     if (!id) return;
     if (!report?.sweepableCompositions?.includes(id)) {
-      setSweep({ compositionId: id, findings: [{ check: "verify-sweep", id, status: "warn", detail: "Stop the composition before running its verify sweep. Refresh if its state has changed." }] });
+      setSweep({ compositionId: id, findings: [{ check: "verify-sweep", id, status: "warn", detail: t("sweep.needsStopped") }] });
       return;
     }
     if (target) setComp(target);
-    if (!window.confirm(
-      `Run the FULL verify sweep for "${id}"?\n\nThis is heavy: it flips the runner status, may run apm install, and runs every setup + verify hook. It is the same code path up() uses.`
-    )) return;
+    if (!window.confirm(t("sweep.confirm", { id }))) return;
     setSweeping(true);
     setSweep(null);
     try {
-      const res = await fetch("/api/verify-sweep", {
+      const res = await fetch(`/api/verify-sweep?lang=${uiLang}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ compositionId: id })
@@ -325,7 +392,7 @@ function App() {
     } finally {
       setSweeping(false);
     }
-  }, [comp, report?.sweepableCompositions]);
+  }, [comp, report?.sweepableCompositions, t, uiLang]);
 
   const grouped = useMemo(() => {
     const all = [...(report?.findings ?? []), ...(sweep?.findings ?? [])];
@@ -339,8 +406,37 @@ function App() {
     );
   }, [report, sweep]);
 
-  if (error) return <div className="banner banner-fail">Could not load Preflight: {error}<button onClick={refresh}>Retry</button></div>;
-  if (!report) return <div className="banner">loading…</div>;
+  const topbar = <TopBar t={t} lang={uiLang} onLang={flipLang} onRefresh={refresh} busy={sweeping} />;
+
+  if (error) {
+    return (
+      <>
+        {topbar}
+        <main>
+          <div className="banner banner-fail">
+            <strong>{t("overall.fail")}</strong>
+            <span>{t("error.load", { error })}</span>
+            <button onClick={refresh}>{t("error.retry")}</button>
+          </div>
+        </main>
+      </>
+    );
+  }
+  if (!report) {
+    return (
+      <>
+        {topbar}
+        <main>
+          <div className="banner banner-info">
+            <span className="counts">{t("loading")}</span>
+            <span className="loading-note">{t("loading.note")}</span>
+          </div>
+          <section className="check"><div className="finding"><div className="skeleton-row w60" /><div className="skeleton-row w40" /></div></section>
+          <section className="check"><div className="finding"><div className="skeleton-row w60" /><div className="skeleton-row w40" /></div></section>
+        </main>
+      </>
+    );
+  }
 
   const { overall, counts } = report.summary;
 
@@ -359,100 +455,96 @@ function App() {
       failsByCheck.set(f.check, (failsByCheck.get(f.check) ?? 0) + 1);
     }
   }
-  const OTHER_LABELS: Record<string, string> = {
-    "library-crosscheck": "registry",
-    "port-collisions": "port",
-    "serve-coverage": "serve",
-    "orphans": "orphan",
-    "drift": "drift",
-    "kind-vocabulary": "kind",
-    "repo-root": "setup"
-  };
 
   return (
-    <main>
-      <div className={`banner banner-${overall}`}>
-        <strong>{overall.toUpperCase()}</strong>
-        <span>{counts.pass} pass · {counts.warn} warn · {counts.fail} fail</span>
-        {!!counts.info && <span className="chip chip-info">{counts.info} info — checked, nothing to do</span>}
-        {report.activeComposition && <span className="chip">active: {report.activeComposition}</span>}
-        {report.degraded && <span className="chip">degraded — app down</span>}
-        <span className="ts">{new Date(report.generatedAt).toLocaleTimeString()}</span>
-        <button onClick={refresh} disabled={sweeping}>refresh</button>
-      </div>
-
-      {!!report.resolved?.length && (
-        <div className="headline">
-          <span className="headline-fittings ok">resolved since the last run:</span>
-          <span className="headline-other">{report.resolved.map((r) => r.key).join(" · ")}</span>
+    <>
+      {topbar}
+      <main>
+        <div className={`banner banner-${overall}`}>
+          <strong>{t(`overall.${overall}`)}</strong>
+          <span className="counts">{t("counts", { pass: counts.pass, warn: counts.warn, fail: counts.fail })}</span>
+          {!!counts.info && <span className="chip chip-info">{t("info.chip", { n: counts.info })}</span>}
+          {report.activeComposition && <span className="chip">{t("active.chip", { id: report.activeComposition })}</span>}
+          {report.degraded && <span className="chip">{t("degraded.chip")}</span>}
+          <span className="ts">{t("generated.at", { time: fmtTime(uiLang, report.generatedAt) })}</span>
         </div>
-      )}
 
-      {(failingFittings.length > 0 || failsByCheck.size > 0) && (
-        <div className="headline">
-          {failingFittings.length > 0 ? (
-            <span className="headline-fittings">
-              {failingFittings.length} fitting{failingFittings.length > 1 ? "s" : ""} failing verify:{" "}
-              {failingFittings.map((id) => (
-                <button
-                  key={id}
-                  className={`fitting-chip${fittingFilter === id ? " active" : ""}`}
-                  title={`show every finding that mentions ${id}`}
-                  onClick={() => setFittingFilter(fittingFilter === id ? null : id)}
-                >
-                  {id}
-                </button>
-              ))}
-            </span>
-          ) : (
-            <span className="headline-fittings ok">no fitting is failing verify</span>
-          )}
-          {failsByCheck.size > 0 && (
-            <span className="headline-other">
-              other issues:{" "}
-              {[...failsByCheck].map(([check, n]) => `${n} ${OTHER_LABELS[check] ?? check}`).join(" · ")}
-            </span>
-          )}
-        </div>
-      )}
-
-      {fittingFilter && (
-        <div className="filter-view">
-          <div className="filter-head">
-            <strong>everything about <code>{fittingFilter}</code></strong>
-            <button className="linkish" onClick={() => setFittingFilter(null)}>show all checks</button>
+        {!!report.resolved?.length && (
+          <div className="headline">
+            <span className="headline-fittings ok">{t("resolved.since")}</span>
+            <span className="headline-other">{report.resolved.map((r) => r.key).join(" · ")}</span>
           </div>
-          {allFindings
-            .filter((f) => f.id.includes(fittingFilter) || f.detail.includes(fittingFilter) || (f.fix ?? "").includes(fittingFilter))
-            .map((f, i) => (
-              <div key={`flt:${i}`}>
-                <div className="filter-check-label">{CHECK_TITLES[f.check] || f.check}</div>
-                <FindingRow f={f} onSweep={runSweep} fileCards={report.fileCards} />
-              </div>
-            ))}
+        )}
+
+        {(failingFittings.length > 0 || failsByCheck.size > 0) && (
+          <div className="headline">
+            {failingFittings.length > 0 ? (
+              <span className="headline-fittings">
+                {t("headline.failing", { n: failingFittings.length })}{" "}
+                {failingFittings.map((id) => (
+                  <button
+                    key={id}
+                    className={`fitting-chip${fittingFilter === id ? " active" : ""}`}
+                    title={t("chip.title", { id })}
+                    onClick={() => setFittingFilter(fittingFilter === id ? null : id)}
+                  >
+                    {id}
+                  </button>
+                ))}
+              </span>
+            ) : (
+              <span className="headline-fittings ok">{t("headline.none")}</span>
+            )}
+            {failsByCheck.size > 0 && (
+              <span className="headline-other">
+                {t("headline.other")}{" "}
+                {[...failsByCheck].map(([check, n]) => {
+                  const label = t(`other.${check}`);
+                  return `${n} ${label === `other.${check}` ? check : label}`;
+                }).join(" · ")}
+              </span>
+            )}
+          </div>
+        )}
+
+        {fittingFilter && (
+          <div className="filter-view">
+            <div className="filter-head">
+              <strong>{t("filter.about")} <code>{fittingFilter}</code></strong>
+              <button className="linkish" onClick={() => setFittingFilter(null)}>{t("filter.showAll")}</button>
+            </div>
+            {allFindings
+              .filter((f) => f.id.includes(fittingFilter) || f.detail.includes(fittingFilter) || (f.fix ?? "").includes(fittingFilter))
+              .map((f, i) => (
+                <div key={`flt:${i}`}>
+                  <div className="filter-check-label">{t(`check.${f.check}`) === `check.${f.check}` ? f.check : t(`check.${f.check}`)}</div>
+                  <FindingRow f={f} t={t} lang={uiLang} onSweep={runSweep} fileCards={report.fileCards} />
+                </div>
+              ))}
+          </div>
+        )}
+
+        <div className="sweep-bar">
+          <label>
+            {t("sweep.label")}
+            <select value={comp} onChange={(e) => setComp(e.target.value)} disabled={sweeping}>
+              {(report.compositions ?? []).map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </label>
+          <button onClick={() => runSweep()} disabled={sweeping || !report.appUp || !report.sweepableCompositions?.includes(comp)}
+            title={report.appUp ? t("sweep.title.stop") : t("sweep.title.appDown")}>
+            {sweeping ? t("sweep.running") : t("sweep.run")}
+          </button>
+          <span className="sweep-note">{t("sweep.note")}</span>
         </div>
-      )}
 
-      <div className="sweep-bar">
-        <label>
-          Verify sweep:
-          <select value={comp} onChange={(e) => setComp(e.target.value)} disabled={sweeping}>
-            {(report.compositions ?? []).map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </label>
-        <button onClick={() => runSweep()} disabled={sweeping || !report.appUp || !report.sweepableCompositions?.includes(comp)}
-          title={report.appUp ? "Stop the composition first; the sweep runs setup and every verify hook" : "Needs the Garrison app up"}>
-          {sweeping ? "sweeping… (can take minutes)" : "Run full verify sweep"}
-        </button>
-        <span className="sweep-note">Requires a stopped composition. Runs setup and every verify hook.</span>
-      </div>
+        {!fittingFilter && grouped.map(([check, findings]) => <Section key={check} check={check} findings={findings} t={t} lang={uiLang} onSweep={runSweep} fileCards={report.fileCards} />)}
 
-      {!fittingFilter && grouped.map(([check, findings]) => <Section key={check} check={check} findings={findings} onSweep={runSweep} fileCards={report.fileCards} />)}
-
-      {((report.recentFixes?.length ?? 0) > 0 || report.libraryDiff) && (
-        <FixJournal entries={report.recentFixes ?? []} libraryDiff={report.libraryDiff} libraryDiffHash={report.libraryDiffHash} onChanged={refresh} />
-      )}
-    </main>
+        {((report.recentFixes?.length ?? 0) > 0 || report.libraryDiff) && (
+          <FixJournal entries={report.recentFixes ?? []} libraryDiff={report.libraryDiff} libraryDiffHash={report.libraryDiffHash} t={t} lang={uiLang} onChanged={refresh} />
+        )}
+      </main>
+    </>
   );
 }
 
