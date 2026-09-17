@@ -3,21 +3,21 @@ version: 0.1.0
 target: claude
 dependencies:
   apm:
+    - path: ../../fittings/seed/agent-sdk-runtime
     - path: ../../fittings/seed/automations
     - path: ../../fittings/seed/browser-default
+    - path: ../../fittings/seed/claude-code-runtime
     - path: ../../fittings/seed/dev-env
     - path: ../../fittings/seed/drill
     - path: ../../fittings/seed/duty-discuss
-    - path: ../../fittings/seed/garrison-assistant
-    - path: ../../fittings/seed/orchestrator
     - path: ../../fittings/seed/google
     - path: ../../fittings/seed/http-gateway
-    - path: ../../fittings/seed/improver
     - path: ../../fittings/seed/jarvis-os
     - path: ../../fittings/seed/kanban-loop
     - path: ../../fittings/seed/knowledge
     - path: ../../fittings/seed/local-voice
     - path: ../../fittings/seed/monitor-default
+    - path: ../../fittings/seed/orchestrator
     - path: ../../fittings/seed/ports-default
     - path: ../../fittings/seed/power-default
     - path: ../../fittings/seed/screen-share-default
@@ -119,14 +119,6 @@ x-garrison:
         - id: automations
           config:
             bind_host: 127.0.0.1
-        - id: improver
-          config:
-            bind_host: 127.0.0.1
-            cron: 30 3 * * *
-            vault_dir: ~/ObsidianVault
-            memory_primary: true
-            checkpoint_retention_days: 14
-            dream_model: haiku
         - id: monitor-default
           config:
             bind_host: 127.0.0.1
@@ -140,9 +132,6 @@ x-garrison:
         - id: vault-git-sync
           config:
             vault_dir: ~/ObsidianVault
-        - id: garrison-assistant
-          config:
-            bind_host: 127.0.0.1
         - id: snapshots-default
           config:
             projects_root: ~/dev
