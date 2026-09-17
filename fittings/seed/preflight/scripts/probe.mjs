@@ -92,7 +92,13 @@ async function main() {
 
   // Same resolution the server uses, so the two can never disagree about which
   // port is "the" port.
-  const { port, host } = server.parseArgs([]);
+  // Verify runs inside the app's environment, where the generic PORT is the
+  // APP's port (8777) - not ours. The runner only sets GARRISON_PREFLIGHT_PORT
+  // on the server's own spawn, so without it fall back to the manifest default.
+  const pinned = process.env.GARRISON_PREFLIGHT_PORT ?? process.env.PREFLIGHT_PORT;
+  const manifestDefault = readFileSync(new URL("../apm.yml", import.meta.url), "utf8")
+    .match(/- key: port\s+type: integer\s+default: (\d+)/)?.[1];
+  const { port, host } = server.parseArgs(["--port", String(pinned ?? manifestDefault ?? 0)]);
   const failure = await tryBind(port, host);
   if (!failure) {
     console.log("ok");
