@@ -165,17 +165,32 @@ export function createRequestHandler(deps = {}) {
   let cached = { key: null, at: 0, inflight: null, value: null };
   const invalidateReport = () => { cached = { key: null, at: 0, inflight: null, value: null }; };
 
+  const rebuild = (key, checks) => {
+    const inflight = Promise.resolve(api.buildReport({ checks, ledger: "update" })).then(
+      (value) => { cached = { key, at: Date.now(), inflight: null, value }; return value; },
+      (err) => { if (cached.inflight === inflight) invalidateReport(); throw err; }
+    );
+    return inflight;
+  };
+
   const cachedReport = (checks, fresh) => {
     const key = (checks ?? []).slice().sort().join(",") || "*";
     if (!fresh && cached.key === key) {
       // Concurrent misses share one build instead of racing several.
-      if (cached.inflight) return cached.inflight;
-      if (cached.value && Date.now() - cached.at < cacheTtlMs) return Promise.resolve(cached.value);
+      if (cached.inflight && !cached.value) return cached.inflight;
+      if (cached.value) {
+        // Stale-while-revalidate: a report that exists is served at once, and a
+        // stale one is rebuilt BEHIND the response. The page never waits for a
+        // rebuild it did not ask for — the 30s poll used to block each tab for
+        // the full collector run. fresh=1 and a repair still force a wait.
+        if (Date.now() - cached.at >= cacheTtlMs && !cached.inflight) {
+          cached.inflight = rebuild(key, checks);
+          cached.inflight.catch(() => {});
+        }
+        return Promise.resolve(cached.value);
+      }
     }
-    const inflight = Promise.resolve(api.buildReport({ checks, ledger: "update" })).then(
-      (value) => { cached = { key, at: Date.now(), inflight: null, value }; return value; },
-      (err) => { invalidateReport(); throw err; }
-    );
+    const inflight = rebuild(key, checks);
     cached = { key, at: Date.now(), inflight, value: null };
     return inflight;
   };

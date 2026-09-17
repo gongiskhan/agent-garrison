@@ -251,6 +251,32 @@ describe("Preflight report cache", () => {
     expect(deps.buildReport).toHaveBeenCalledTimes(2);
   });
 
+  // A stale report is served at once and rebuilt behind the response: the page's
+  // 30s poll must never block a tab for the full collector run.
+  it("serves a stale report immediately and rebuilds it in the background", async () => {
+    let builds = 0;
+    const second = gate();
+    const buildReport = vi.fn(async () => {
+      builds += 1;
+      if (builds === 2) await second.promise;
+      return { findings: [], summary: { overall: "pass" }, build: builds };
+    });
+    const deps = dependencies({ reportCacheMs: 0, buildReport });
+    const { port } = await listen(deps);
+    const first = await request(port, "/api/report");
+    expect(JSON.parse(first.text).build).toBe(1);
+    // TTL 0: the cached value is already stale. The read returns it without
+    // waiting on the second build, which is still gated open.
+    const stale = await request(port, "/api/report");
+    expect(JSON.parse(stale.text).build).toBe(1);
+    expect(buildReport).toHaveBeenCalledTimes(2);
+    second.release();
+    await vi.waitFor(() => expect(buildReport.mock.results[1]?.value).toBeDefined());
+    await buildReport.mock.results[1].value;
+    const rebuilt = await request(port, "/api/report");
+    expect(JSON.parse(rebuilt.text).build).toBe(2);
+  });
+
   it("honours an explicit fresh read", async () => {
     const deps = dependencies({ reportCacheMs: 60_000 });
     const { port } = await listen(deps);
