@@ -47,12 +47,6 @@ dependencies:
     .claude/skills/duty-discuss/SKILL.md: sha256:8c8d9b62033dbcfa4e9aee558fa47d417ca62cb9b96d4e8c753cd568a7b77712
   source: local
   local_path: ../../fittings/seed/duty-discuss
-- repo_url: _local/file-browser
-  name: file-browser
-  version: 0.1.0
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/file-browser
 - repo_url: _local/garrison-assistant
   name: garrison-assistant
   version: 0.1.0

@@ -1266,11 +1266,7 @@ export async function startOperativeBoundFittings(
   // without this it logs "Start on agent lists is disabled" and the run loop is dead.
   const gatewayBaseUrl = getRecord(compositionId).gateway?.baseUrl;
   // Selection config per fitting id, projected into the spawn env (see
-  // ownPortConfigEnv) so servers read their composition config - e.g. the
-  // file-browser's `root` lands as GARRISON_FILEBROWSER_ROOT instead of the
-  // apm.yml value being decorative, and local-voice's
-  // whisper_lang/whisper_model/kokoro_voice reach the process instead of it
-  // silently running on server.mjs defaults.
+  // ownPortConfigEnv) so servers read the selected values from their spawn env.
   const configById = new Map<string, Record<string, unknown>>();
   for (const items of Object.values(composition.selections)) {
     for (const item of items ?? []) {

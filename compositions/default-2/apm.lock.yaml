@@ -65,12 +65,6 @@ dependencies:
     .claude/skills/garrison-drill/SKILL.md: sha256:d08cbd8011b1e01f23abcc35701f9c57a2da194470fb4455761ba516ac5e7ab7
   source: local
   local_path: ../../fittings/seed/drill
-- repo_url: _local/file-browser
-  name: file-browser
-  version: 0.1.0
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/file-browser
 - repo_url: _local/garrison-assistant
   name: garrison-assistant
   version: 0.1.0
@@ -167,12 +161,6 @@ dependencies:
     .claude/skills/morning-briefing/SKILL.md: sha256:f44ee80f0eb9911a76e35ba98f73490e6e0e158b3e9fcdaec3789cd4fa9b85dd
   source: local
   local_path: ../../fittings/seed/morning-briefing
-- repo_url: _local/omi-channel
-  name: omi-channel
-  version: 0.1.0
-  package_type: invalid
-  source: local
-  local_path: ../../fittings/seed/omi-channel
 - repo_url: _local/openrouter-runtime
   name: openrouter-runtime
   version: 0.1.0

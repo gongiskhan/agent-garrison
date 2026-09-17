@@ -11,7 +11,6 @@ dependencies:
     - path: ../../fittings/seed/codex-runtime
     - path: ../../fittings/seed/dev-env
     - path: ../../fittings/seed/drill
-    - path: ../../fittings/seed/file-browser
     - path: ../../fittings/seed/garrison-assistant
     - path: ../../fittings/seed/garrison-call
     - path: ../../fittings/seed/gemini-runtime
@@ -27,7 +26,6 @@ dependencies:
     - path: ../../fittings/seed/mcp-gateway
     - path: ../../fittings/seed/monitor-default
     - path: ../../fittings/seed/morning-briefing
-    - path: ../../fittings/seed/omi-channel
     - path: ../../fittings/seed/opencode-runtime
     - path: ../../fittings/seed/openrouter-runtime
     - path: ../../fittings/seed/orchestrator
@@ -73,11 +71,6 @@ x-garrison:
           config:
             bind_host: 127.0.0.1
             gateway_url: ''
-        - id: omi-channel
-          config:
-            bind_host: 127.0.0.1
-            public_base_url: https://dev-madrid.tail31efa.ts.net:8443
-            enabled: true
         - id: whatsapp-web
           config:
             bind_host: 127.0.0.1
@@ -217,10 +210,6 @@ x-garrison:
         - id: dev-env
           config:
             bind_host: 127.0.0.1
-        - id: file-browser
-          config:
-            bind_host: 127.0.0.1
-            root: ~/.garrison/files
         - id: snapshots-default
           config:
             projects_root: ~/dev
