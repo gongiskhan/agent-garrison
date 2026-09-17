@@ -116,6 +116,24 @@ creation into — keyed `preflight:<check>:<id>` so the same finding is filed
 once. The dedupe probe **throws** rather than reading a transient failure as
 "no card exists", because that would file a duplicate on every report.
 
+## Language
+
+The page reads in English or European Portuguese. The `language` config key
+is only the default a fresh browser adopts; the EN/PT toggle in the header wins
+afterwards and is remembered per browser (`localStorage`, no cookie — the page
+already sends `?lang=` on every API call, so a cookie would be a second source
+of truth). Never inferred from `Accept-Language`: the interface language is a
+choice, not a browser setting.
+
+English is the source language. Every diagnostic is authored in English at the
+`mk()` call that emits it, tagged with a message key and the values it
+interpolated; `lib/i18n.mjs` re-renders the prose from `lib/messages.pt.mjs`
+and strips the tag before the finding leaves `buildReport`, so English output
+is byte-identical to a build without the tags and the wire shape is the same
+in every language. `evidence`, `action.id` and `action.params` are never
+translated. The CLI, the Kanban cards and the repair journal stay English:
+they are what gets pasted upstream or shared, not one operator's view.
+
 ## CLI
 
 ```bash

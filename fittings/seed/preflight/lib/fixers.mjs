@@ -143,7 +143,9 @@ export function createFixRunner({
   fetchImpl = fetch,
   board = null,
   // ledger stays off: revalidation measures fresh reality, it does not record history.
-  getReport = async () => (await import("./report.mjs")).buildReport({ startDir: suppliedRoot, ledger: "off" })
+  // English on purpose: a Kanban card is a shared artifact, not one operator's
+  // view, and the revalidation compares identifiers, never prose.
+  getReport = async () => (await import("./report.mjs")).buildReport({ startDir: suppliedRoot, ledger: "off", lang: "en" })
 } = {}) {
   let tail = Promise.resolve();
   const run = async (actionId, params) => {

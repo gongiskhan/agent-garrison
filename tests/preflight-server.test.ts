@@ -277,6 +277,25 @@ describe("Preflight report cache", () => {
     expect(JSON.parse(rebuilt.text).build).toBe(2);
   });
 
+  // A report is rendered prose, so the language is part of the key. An omitted
+  // ?lang= and a named default share one build; junk falls back, never 400s.
+  it("keys the cache by the resolved language", async () => {
+    const deps = dependencies({ reportCacheMs: 60_000 });
+    const { port } = await listen(deps);
+    await request(port, "/api/report");
+    await request(port, "/api/report?lang=en");
+    expect(deps.buildReport).toHaveBeenCalledTimes(1);
+    await request(port, "/api/report?lang=pt");
+    expect(deps.buildReport).toHaveBeenCalledTimes(2);
+    expect(deps.buildReport).toHaveBeenLastCalledWith({ checks: null, ledger: "update", lang: "pt" });
+    await request(port, "/api/report?lang=pt-BR");
+    expect(deps.buildReport).toHaveBeenCalledTimes(2);
+    const junk = await request(port, "/api/report?lang=zz");
+    expect(junk.status).toBe(200);
+    expect(deps.buildReport).toHaveBeenCalledTimes(3);
+    expect(deps.buildReport).toHaveBeenLastCalledWith({ checks: null, ledger: "update", lang: "en" });
+  });
+
   it("honours an explicit fresh read", async () => {
     const deps = dependencies({ reportCacheMs: 60_000 });
     const { port } = await listen(deps);
@@ -315,7 +334,7 @@ describe("Preflight read-only surface", () => {
     const { port } = await listen(deps);
     expect((await request(port, "/api/report?checks=ports,drift")).status).toBe(200);
     // The server records history; the repair revalidation deliberately does not.
-    expect(deps.buildReport).toHaveBeenCalledWith({ checks: ["ports", "drift"], ledger: "update" });
+    expect(deps.buildReport).toHaveBeenCalledWith({ checks: ["ports", "drift"], ledger: "update", lang: "en" });
     expect((await request(port, "/")).text).toBe("fixture view");
     expect((await request(port, "/", undefined, {}, "HEAD")).text).toBe("");
     for (const route of ["/../dist-sibling/secret.txt", "/%2e%2e/dist-sibling/secret.txt", "/escape.txt", "/missing"]) {

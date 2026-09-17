@@ -40,6 +40,15 @@ describe("Preflight CLI entry point", () => {
     expect(res.stdout).toContain("kind-vocabulary");
   });
 
+  // The CLI is what gets pasted into an issue upstream: English whatever the
+  // node's `language` default says.
+  it("stays English under a Portuguese node default", () => {
+    const res = run(["--checks", "kind-vocabulary"], { GARRISON_PREFLIGHT_LANGUAGE: "pt" });
+    expect(res.stdout).toContain("kind-vocabulary");
+    expect(res.stdout).toMatch(/manifests|vocabulary|retired/);
+    expect(res.stdout).not.toMatch(/manifestos|vocabulário/);
+  });
+
   // B7: a sweep flips runner status, may run `apm install` and runs every setup
   // hook. It used to fall back to compositions[0] — whatever sorts first.
   it("refuses --sweep without an explicit --composition", () => {

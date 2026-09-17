@@ -72,6 +72,10 @@ x-garrison:
       type: string
       default: ""
       description: Garrison repo root. Empty = auto-discover by walking up from the fitting dir until data/library.json and fittings/seed/ are both found (works from fittings/seed and from apm_modules/_local placements).
+    - key: language
+      type: string
+      default: en
+      description: Default interface language, en or pt. Only a default - the operator flips it with the toggle in the page header, remembered per browser. English is the source language, every diagnostic is authored in English at the check that emits it, and Portuguese is a translation table (lib/messages.pt.mjs). The CLI is always English.
   provides: []
   consumes: []
   ui:

@@ -42,6 +42,16 @@ import {
 import { isAppUp, fetchViews, fetchRunnerState, appUrl } from "./app-client.mjs";
 import { readFixJournal, libraryChange } from "./fixers.mjs";
 import { readLedger, writeLedger, reconcile } from "./ledger.mjs";
+import { DEFAULT_LANG, localiseFindings, normaliseLang } from "./i18n.mjs";
+
+// The language the report is rendered in when the caller does not say: the
+// composition's `language` config key, projected by the runner. English is the
+// source language and the upstream default; a node that reads Portuguese pins
+// `language: pt` in its composition. Never inferred from Accept-Language —
+// the interface language is a choice, not a browser setting.
+export function defaultLang(env = process.env) {
+  return normaliseLang(env.GARRISON_PREFLIGHT_LANGUAGE, DEFAULT_LANG);
+}
 
 // Every side effect this module performs, in one injectable bag. The fitting
 // already does this twice — createRequestHandler(deps) and createFixRunner({..})
@@ -75,32 +85,39 @@ function annotateResolution(entries, ctx) {
 
 // `ledger`: "off" (default) | "read" | "update". The repair revalidation must
 // stay "off" — it exists to measure fresh reality, not to record history.
-export async function buildReport({ startDir = FITTING_DIR, checks = null, collectors = {}, ledger = "off" } = {}) {
+export async function buildReport({ startDir = FITTING_DIR, checks = null, collectors = {}, ledger = "off", lang = null } = {}) {
   const c = { ...DEFAULT_COLLECTORS, ...collectors };
   const wanted = checks && checks.length ? new Set(checks) : null;
   const run = (name) => !wanted || wanted.has(name);
   const findings = [];
+  // Resolved once, echoed in the payload, so the page learns the node's default
+  // on its first load — before it has any stored preference of its own.
+  const language = lang ? normaliseLang(lang, defaultLang()) : defaultLang();
 
   const root = c.findRepoRoot(startDir);
   if (!root) {
     findings.push(mk("repo-root", "preflight", "fail",
       `Could not locate the Garrison repo root walking up from ${startDir} (needs data/library.json + fittings/seed/).`,
-      { fix: "Set the repo_root config key (GARRISON_PREFLIGHT_REPO_ROOT) to the repo checkout." }));
-    return { findings, summary: summarize(findings), degraded: true, appUp: false, root: null, generatedAt: new Date().toISOString() };
+      { fix: "Set the repo_root config key (GARRISON_PREFLIGHT_REPO_ROOT) to the repo checkout.",
+        i18n: { key: "repo-root.missing", vars: { startDir } } }));
+    const localised = localiseFindings(findings, language);
+    return { findings: localised, summary: summarize(localised), degraded: true, appUp: false, root: null, lang: language, generatedAt: new Date().toISOString() };
   }
 
   const appUp = await c.isAppUp();
   if (!appUp) {
     findings.push(mk("app-reachable", "garrison-app", "warn",
       `Garrison app not reachable at ${c.appUrl()} — running in degraded mode (verify sweep unavailable; serve coverage checked directly against tailscale).`,
-      { fix: "Start the app (npm run dev / the launchd agent) for the enriched checks. Everything below still ran from the filesystem." }));
+      { fix: "Start the app (npm run dev / the launchd agent) for the enriched checks. Everything below still ran from the filesystem.",
+        i18n: { key: "app-reachable.down", vars: { url: c.appUrl() } } }));
   }
 
   const manifests = c.readSeedManifests(root);
   for (const m of manifests.filter((x) => x.parseError)) {
     findings.push(mk("manifest-parse", m.id, "fail",
       `fittings/seed/${m.id}/apm.yml could not be read (${m.parseError}) — its port claims and capability kinds are invisible to every check below.`,
-      { fix: "Repair or remove the manifest; a seed nobody can parse is a seed the resolver cannot station either." }));
+      { fix: "Repair or remove the manifest; a seed nobody can parse is a seed the resolver cannot station either.",
+        i18n: { key: "manifest-parse.failed", vars: { id: m.id, error: m.parseError } } }));
   }
   const compositions = await c.readCompositions(root);
   // Which composition the operator actually means. Everything else is ranked
@@ -151,7 +168,8 @@ export async function buildReport({ startDir = FITTING_DIR, checks = null, colle
       // same thing as a pile of failures.
       findings.push(mk("serve-coverage", "tailscale", "warn",
         "tailscale binary not found or `serve status --json` failed — serve coverage could not be checked, so unmapped views are unknown rather than broken.",
-        { fix: "Install tailscale, or ignore this check on a node deliberately off the tailnet." }));
+        { fix: "Install tailscale, or ignore this check on a node deliberately off the tailnet.",
+          i18n: { key: "serve-coverage.tailscaleMissing", vars: {} } }));
     } else {
       const views = appUp ? await c.fetchViews() : null;
       if (views) {
@@ -198,18 +216,25 @@ export async function buildReport({ startDir = FITTING_DIR, checks = null, colle
     } catch (err) {
       findings.push(mk("ledger", "preflight-ledger", "warn",
         `The finding ledger could not be used (${err?.message || err}) — "new since last run" is unavailable this run.`,
-        { fix: "Inspect or delete the ledger file; preflight starts a fresh one on the next run." }));
+        { fix: "Inspect or delete the ledger file; preflight starts a fresh one on the next run.",
+          i18n: { key: "ledger.unusable", vars: { error: err?.message || err } } }));
     }
   }
+
+  // The last step, after the ledger has keyed everything by check:id: prose is
+  // re-rendered in the requested language and the message tags are stripped,
+  // so the wire shape is identical in every language.
+  const localised = localiseFindings(findings, language);
 
   const pendingLibrary = await c.libraryChange(root);
   return {
     resolved,
-    findings,
-    summary: summarize(findings),
+    findings: localised,
+    summary: summarize(localised),
     degraded: !appUp,
     appUp,
     root,
+    lang: language,
     activeComposition: activeCompositionId,
     // Off unless the composition turns it on; the UI only offers the button
     // when the board is actually a dependency this node accepted.

@@ -89,6 +89,18 @@ describe("a healthy machine reports PASS", () => {
   });
 });
 
+describe("the report's language", () => {
+  it("echoes the language it rendered in, English unless asked, and strips every tag", async () => {
+    const en = await report(healthy());
+    expect(en.lang).toBe("en");
+    const pt = await buildReport({ startDir: "/fixture", collectors: healthy(), lang: "pt" });
+    expect(pt.lang).toBe("pt");
+    for (const f of [...en.findings, ...pt.findings] as Finding[]) expect(f).not.toHaveProperty("i18n");
+    expect((pt.findings as Finding[]).map((f) => f.detail)).not.toEqual((en.findings as Finding[]).map((f) => f.detail));
+    expect(pt.summary).toEqual(en.summary);
+  });
+});
+
 describe("real problems survive the ranking", () => {
   it("keeps a failing verify in a NON-active composition at full severity", async () => {
     const collectors = healthy({

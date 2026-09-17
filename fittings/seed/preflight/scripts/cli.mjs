@@ -99,7 +99,9 @@ async function runGate(report, args) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const report = await buildReport({ checks: args.checks, ledger: "update" });
+  // Always English, whatever the node's `language` default: the CLI is what
+  // gets pasted into an issue or a chat with upstream.
+  const report = await buildReport({ checks: args.checks, ledger: "update", lang: "en" });
 
   if (args.gate) {
     process.exit(await runGate(report, args));
