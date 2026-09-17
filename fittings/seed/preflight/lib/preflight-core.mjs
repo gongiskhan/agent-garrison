@@ -3,17 +3,28 @@
 // is what tests/preflight-fitting.test.ts exercises with plain fixtures.
 //
 // Finding shape (mirrors scripts/integration-check.mjs, plus `fix`):
-//   { check, id, status: "pass" | "warn" | "fail", detail, evidence?, fix? }
+//   { check, id, status: "info" | "pass" | "warn" | "fail", detail, evidence?, fix? }
+//
+// `info` means "true, checked, and nothing to do about it right now". It exists
+// so a fact can stay on the page without being counted against the machine —
+// a doctor that reports FAIL every day for things nobody can act on trains you
+// to stop reading it, which is the one failure mode it cannot afford.
 // A check that finds nothing wrong emits a single pass row so the report
 // always shows all seven sections, never a silent absence.
-
-const STATUS_RANK = { pass: 0, warn: 1, fail: 2 };
 
 // Historical skeletons deliberately excluded from the registry after the
 // faculties-as-roles pivot (tests/seed.test.ts). Registering them is not a repair.
 export const RETIRED_SEED_IDS = new Set([
   "coding-subagent", "documents", "projects-index", "testing", "tier-classifier"
 ]);
+
+// Demotion is NEVER suppression. The finding keeps its place in the report and
+// its text, and gains the reason it was demoted. Only `warn` may be demoted, so
+// a bug in a caller can never turn a real failure into a whisper.
+export function demote(finding, reason) {
+  if (finding.status !== "warn") return finding;
+  return { ...finding, status: "info", detail: `${finding.detail} (${reason})` };
+}
 
 export function mk(check, id, status, detail, extra = {}) {
   const finding = { check, id, status, detail };
@@ -35,6 +46,23 @@ export function mk(check, id, status, detail, extra = {}) {
 
 const PORT_KEY = /(^|_)port$/i;
 
+// The lines under `config_schema:` — everything indented deeper than the key
+// itself, whatever depth that key sits at.
+function configSchemaBlock(text) {
+  const lines = text.split(/\r?\n/);
+  const start = lines.findIndex((l) => /^\s*config_schema:\s*$/.test(l));
+  if (start < 0) return null;
+  const indent = lines[start].length - lines[start].trimStart().length;
+  const out = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) { out.push(line); continue; }
+    if (line.length - line.trimStart().length <= indent) break;
+    out.push(line);
+  }
+  return out.length ? out.join("\n") : null;
+}
+
 // Extract what preflight needs from one fitting apm.yml.
 export function parseManifest(text, id = "") {
   const ownPort = /^\s*own_port:\s*true\b/m.test(text);
@@ -42,19 +70,28 @@ export function parseManifest(text, id = "") {
   const defaultPort = dp ? Number(dp[1]) : null;
 
   // config_schema entries: `- key: X` ... `default: Y` until the next `- key:`.
+  // Scanned by indentation rather than matched by one regex: the old lookahead
+  // assumed the block was nested under x-garrison and silently found NOTHING
+  // for a top-level config_schema — a silent miss in the very check that exists
+  // because improver hid a port claim in a config_schema default.
   const portKeys = [];
-  const schema = text.match(/^\s*config_schema:\s*$([\s\S]*?)(?=^\s{0,2}\S|\n?$(?![\s\S]))/m);
-  if (schema) {
-    const items = schema[1].split(/^\s*-\s+key:/m).slice(1);
+  const configKeys = [];
+  const block = configSchemaBlock(text);
+  if (block) {
+    const items = block.split(/^\s*-\s+key:/m).slice(1);
     for (const item of items) {
       const key = (item.match(/^\s*([\w.-]+)/) || [])[1];
+      if (!key) continue;
+      const type = (item.match(/^\s*type:\s*([\w-]+)\s*$/m) || [])[1] || null;
+      const rawDefault = (item.match(/^\s*default:\s*(.*?)\s*$/m) || [])[1] ?? null;
+      configKeys.push({ key, type, default: rawDefault });
       const def = item.match(/^\s*default:\s*(\d+)\s*$/m);
-      if (key && PORT_KEY.test(key) && def) portKeys.push({ key, default: Number(def[1]) });
+      if (PORT_KEY.test(key) && def) portKeys.push({ key, default: Number(def[1]) });
     }
   }
 
   const kinds = [...text.matchAll(/^\s*-\s*kind:\s*([\w-]+)/gm)].map((m) => m[1]);
-  return { id, ownPort, defaultPort, portKeys, kinds };
+  return { id, ownPort, defaultPort, portKeys, configKeys, kinds };
 }
 
 // Extract selections + unfitted from a composition apm.yml. Returns
@@ -162,33 +199,68 @@ export function servePort(localPort) {
 
 // Serve ports tailscale/mesh reserve for itself; a fitting whose derived serve
 // port lands here collides with infrastructure, not another fitting.
-const RESERVED_SERVE = new Set([8443, 8444, 8445]);
+// What the real publishers refuse: src/lib/tailnet-publish.ts:83 and
+// scripts/tailnet-serve-views.mjs:60 both skip 8443/8444/8445 AND 443.
+const RESERVED_SERVE = new Set([443, 8443, 8444, 8445]);
 
 // manifests: parseManifest() outputs; compositions: [{compositionId, parsed}]
 // where parsed is parseComposition() output.
 export function buildPortClaims(manifests, compositions = []) {
   const claims = [];
+  // Where each fitting is stationed, and which of its port keys each
+  // composition overrides. A composition pin is an OVERRIDE of the manifest
+  // default, not an extra claim beside it: treating it as an extra claim meant
+  // that resolving a collision the supported way (pinning one side) left the
+  // collision being reported as a failure forever.
+  const stationedIn = new Map();
+  const pinsByKey = new Map();
+  for (const c of compositions) {
+    for (const sel of c.parsed.selections) {
+      if (!stationedIn.has(sel.id)) stationedIn.set(sel.id, []);
+      stationedIn.get(sel.id).push(c.compositionId);
+      for (const pin of sel.pins) {
+        const k = `${sel.id}:${pin.key}`;
+        if (!pinsByKey.has(k)) pinsByKey.set(k, []);
+        pinsByKey.get(k).push({ compositionId: c.compositionId, port: pin.value });
+      }
+    }
+  }
+  const scoped = (claim, id, key) => ({
+    ...claim, key,
+    stationedIn: stationedIn.get(id) ?? [],
+    pins: pinsByKey.get(`${id}:${key}`) ?? []
+  });
   for (const m of manifests) {
     if (m.defaultPort != null) {
-      claims.push({ port: m.defaultPort, claimant: m.id, source: "default_port" });
+      claims.push(scoped({ port: m.defaultPort, claimant: m.id, source: "default_port" }, m.id, "port"));
     }
     for (const pk of m.portKeys) {
       // default_port and a config_schema `port` default that agree are ONE
       // claim; when they disagree, or the schema adds health_port etc., each
       // distinct number is its own claim (the improver-hides-8093 lesson).
       if (pk.default !== m.defaultPort) {
-        claims.push({ port: pk.default, claimant: m.id, source: `config_schema ${pk.key}` });
+        claims.push(scoped({ port: pk.default, claimant: m.id, source: `config_schema ${pk.key}` }, m.id, pk.key));
       }
     }
   }
   for (const c of compositions) {
     for (const sel of c.parsed.selections) {
       for (const pin of sel.pins) {
-        claims.push({ port: pin.value, claimant: sel.id, source: `${c.compositionId} pin ${pin.key}` });
+        claims.push({ port: pin.value, claimant: sel.id, source: `${c.compositionId} pin ${pin.key}`, key: pin.key, pinned: true, stationedIn: [c.compositionId], pins: [] });
       }
     }
   }
   return claims;
+}
+
+// A manifest default that EVERY composition stationing the fitting overrides
+// with a pin is a number the fitting never actually binds.
+function bindsItsDeclaredPort(claim) {
+  if (claim.pinned) return true;
+  const stationed = claim.stationedIn ?? [];
+  if (!stationed.length) return true;
+  const pinnedAway = new Set((claim.pins ?? []).map((p) => p.compositionId));
+  return stationed.some((cid) => !pinnedAway.has(cid));
 }
 
 export function findPortCollisions(claims, liveListeners = [], statusFiles = []) {
@@ -201,10 +273,17 @@ export function findPortCollisions(claims, liveListeners = [], statusFiles = [])
   // Canonical axis.
   for (const [port, list] of [...byPort].sort((a, b) => a[0] - b[0])) {
     const names = new Set(list.map((c) => c.claimant));
-    if (names.size > 1) {
+    if (names.size <= 1) continue;
+    const effective = list.filter(bindsItsDeclaredPort);
+    if (new Set(effective.map((c) => c.claimant)).size > 1) {
       findings.push(mk("port-collisions", `canonical:${port}`, "fail",
         `Port ${port} is claimed by ${[...names].join(" and ")} (${list.map((c) => `${c.claimant} via ${c.source}`).join("; ")}).`,
         { fix: "Move one claimant to a free base port (8070-8075 were free at authoring time); remember the canonical port counts config_schema defaults too." }));
+    } else {
+      const pinnedAway = list.filter((c) => !effective.includes(c));
+      findings.push(mk("port-collisions", `canonical:${port}`, "warn",
+        `Port ${port} is declared by ${[...names].join(" and ")}, but ${[...new Set(pinnedAway.map((c) => c.claimant))].join(", ")} is pinned to another port in every composition that stations it, so nothing binds ${port} twice today.`,
+        { fix: `Nothing to do while those pins stand. Removing or changing the pin in ${[...new Set(pinnedAway.flatMap((c) => (c.pins ?? []).map((p) => p.compositionId)))].join(", ") || "the composition"} makes this a real collision again.` }));
     }
   }
   // Serve axis: distinct canonical ports mapping to the same serve port.
@@ -218,8 +297,8 @@ export function findPortCollisions(claims, liveListeners = [], statusFiles = [])
     if (ports.size > 1) {
       const desc = [...ports].map(([p, list]) => `${p} (${[...new Set(list.map((c) => c.claimant))].join(", ")})`).join(" and ");
       findings.push(mk("port-collisions", `serve:${sp}`, "fail",
-        `Canonical ports ${desc} both derive serve port ${sp} (8400 + port % 1000).`,
-        { fix: "A port must be free on BOTH axes: pick a canonical port whose serve derivation is also unclaimed." }));
+        `Canonical ports ${desc} both derive serve port ${sp} (8400 + port % 1000). The publisher will NOT fail — it bumps the second past ${sp} — and that is the damage: the mesh assumes a peer's view URL is computable as 8400 + port % 1000 without asking the peer, so a bumped mapping becomes unreachable at the address other nodes compute for it.`,
+        { fix: "Pick a canonical port whose serve derivation is also unclaimed, so no bump is needed (scripts/tailnet-serve-views.mjs:50-57; the invariant is pinned by tests/mesh-serve-ports.test.ts)." }));
     }
     if (RESERVED_SERVE.has(sp)) {
       const desc = [...ports].map(([p, list]) => `${p} (${[...new Set(list.map((c) => c.claimant))].join(", ")})`).join(", ");
@@ -231,14 +310,32 @@ export function findPortCollisions(claims, liveListeners = [], statusFiles = [])
   // Live axis: a listener on a claimed port owned by a different pid than the
   // fitting's own status file says.
   const statusByPort = new Map(statusFiles.map((s) => [s.port, s]));
+  const seenLive = new Set();
   for (const l of liveListeners) {
     const claimsHere = byPort.get(l.port);
-    if (!claimsHere) continue;
+    // lsof reports one row per socket, so a dual-stack listener appears twice.
+    if (!claimsHere || seenLive.has(l.port)) continue;
+    seenLive.add(l.port);
     const status = statusByPort.get(l.port);
     if (status && status.pid !== l.pid) {
       findings.push(mk("port-collisions", `live:${l.port}`, "warn",
         `Port ${l.port} is held by pid ${l.pid} (${l.command || "?"}) but ${status.fittingId}'s status file records pid ${status.pid}.`,
         { fix: `Check whether ${status.fittingId} crashed and something else took its port, or the status file is stale.` }));
+    } else if (!status) {
+      // The 8080-held-by-an-unrelated-Java-service incident this fitting's own
+      // manifest cites. Requiring a status file to disagree meant the squatter
+      // that registers NOTHING — the only kind that is never Garrison's — was
+      // the one case the check could not see.
+      const claimants = [...new Set(claimsHere.map((c) => c.claimant))];
+      // Some Garrison processes register nowhere (the scheduler daemon writes
+      // no status file and no pid record), so absence of a record is not proof
+      // of a squatter. If the command line names the claimant, it IS the
+      // claimant — reporting that every run would be exactly the permanent
+      // noise this check is supposed to cut through.
+      if (l.cmdline && claimants.some((id) => l.cmdline.includes(id))) continue;
+      findings.push(mk("port-collisions", `live:${l.port}`, "warn",
+        `Port ${l.port} is claimed by ${claimants.join(" and ")} but is already held by pid ${l.pid} (${l.command || "?"}), which registered no status file — the claimant cannot bind it.`,
+        { fix: `Identify the holder with \`lsof -nP -iTCP:${l.port} -sTCP:LISTEN\`, then stop it or move the claimant to a free port (both axes).` }));
     }
   }
   if (!findings.length) {
@@ -248,11 +345,35 @@ export function findPortCollisions(claims, liveListeners = [], statusFiles = [])
   return findings;
 }
 
+// A listener on a claimed port SHIFTED by another profile's offset is that
+// profile's sandbox, not a squatter — dev runs the same fittings at +10000.
+// Reported so the ports page accounts for every listener it can explain, and
+// deliberately informational: a running sandbox is not a problem.
+export function attributeSandboxListeners(claims, liveListeners, { profile = "node", offsets = {} } = {}) {
+  const findings = [];
+  const byPort = new Map();
+  for (const c of claims) if (!byPort.has(c.port)) byPort.set(c.port, c.claimant);
+  const seen = new Set();
+  for (const l of liveListeners) {
+    if (byPort.has(l.port) || seen.has(l.port)) continue;
+    for (const [name, offset] of Object.entries(offsets)) {
+      if (name === profile || !offset) continue;
+      const base = l.port - offset;
+      if (!byPort.has(base)) continue;
+      seen.add(l.port);
+      findings.push(mk("port-collisions", `sandbox:${l.port}`, "info",
+        `Port ${l.port} is ${byPort.get(base)}'s base port ${base} shifted by the ${name} profile (+${offset}) — the ${name} sandbox is running, which is expected and not a conflict.`));
+      break;
+    }
+  }
+  return findings;
+}
+
 // ---------------------------------------------------------------------------
 // Check 1 — verify results (passive from last-up.json, active from a sweep)
 // ---------------------------------------------------------------------------
 
-export function assessVerifyResults(records) {
+export function assessVerifyResults(records, { activeCompositionId = null } = {}) {
   // records: [{compositionId, lastUp: {ok, at, verifyResults[]} | null,
   //            runnerState: {status, verifyResults[], lastError} | null}]
   //
@@ -271,14 +392,19 @@ export function assessVerifyResults(records) {
         ? { results: r.lastUp.verifyResults || [], label: `the last up (${r.lastUp.at})` }
         : null;
     if (!source) {
-      findings.push(mk("verify-results", r.compositionId, "warn",
+      // A composition nobody is running having never been brought up is not a
+      // problem with the machine, and offering it an armed heavy-sweep button
+      // is the same hazard as defaulting the sweep target to it.
+      const isActive = !activeCompositionId || activeCompositionId === r.compositionId;
+      const row = mk("verify-results", r.compositionId, "warn",
         `${r.compositionId} has no verify record — no .garrison/last-up.json and no live runner state (it has never been brought up, or the app restarted since).`,
         {
           fix: "Run the verify sweep to get a first complete picture without attempting a full up().",
           // Not a fixers.mjs action: the UI routes this one to the existing
           // sweep flow (own endpoint, own confirm, own busy-guard).
-          action: { id: "verify-sweep", params: { compositionId: r.compositionId }, command: `run EVERY fitting's verify for ${r.compositionId} via the app's own verify endpoint (heavy: flips runner status, may run apm install, runs setup hooks)` }
-        }));
+          ...(isActive ? { action: { id: "verify-sweep", params: { compositionId: r.compositionId }, command: `run EVERY fitting's verify for ${r.compositionId} via the app's own verify endpoint (heavy: flips runner status, may run apm install, runs setup hooks)` } } : {})
+        });
+      findings.push(isActive ? row : demote(row, `${r.compositionId} is not the active composition — nothing to assess until it is brought up`));
       continue;
     }
     const failed = source.results.filter((v) => !v.ok);
@@ -287,7 +413,7 @@ export function assessVerifyResults(records) {
         `${v.fittingId} failed verify at ${source.label}: exit ${v.exitCode}, expected "${v.expect}" from \`${v.command}\`.`,
         {
           evidence: [v.stderr, v.stdout].filter(Boolean).join("\n").slice(0, 2000),
-          fix: `Fix ${v.fittingId}'s verify and re-run the sweep — or unstation it so up() can proceed without it (one failing fitting blocks the whole composition). Unlike up(), this list is complete.`,
+          fix: `Fix ${v.fittingId}'s verify and re-run the sweep — or unstation it so up() can proceed without it (one failing fitting blocks the whole composition). Unlike up()'s error, which names only the first, this list is complete.`,
           // The clickable half: parking the broken fitting. Repairing the
           // fitting itself (a missing repo, binary, credential) stays human.
           action: { id: "unstation-fitting", params: { compositionId: r.compositionId, fittingId: v.fittingId }, command: `UNSTATION ${v.fittingId} from ${r.compositionId} (through Garrison's manifest writer) — the composition runs without this fitting until you re-add it via Muster` }
@@ -367,6 +493,179 @@ export function serveCoverage(input) {
   return findings;
 }
 
+// A serve mapping whose local port has nothing listening is a reachable tailnet
+// URL that renders nothing. Check 4 asks "does this running view have a
+// mapping?"; this asks the converse, "does this mapping still lead anywhere?",
+// and only the pair covers the blank-page failure in both directions.
+export function findOrphanServeMappings(serveMap, liveListeners, tetheredPorts = new Set()) {
+  const findings = [];
+  const live = new Set(liveListeners.map((l) => l.port));
+  const orphans = Object.keys(serveMap || {}).map(Number)
+    .filter((p) => Number.isInteger(p) && !live.has(p) && !tetheredPorts.has(p))
+    .sort((a, b) => a - b);
+  if (orphans.length) {
+    findings.push(mk("serve-coverage", "orphan-mappings", "warn",
+      `${orphans.length} tailscale serve mapping(s) point at a local port with no listener: ${orphans.join(", ")}. Each is a reachable tailnet URL that renders nothing.`,
+      { fix: "Remove the stale mappings with `tailscale serve --https=<servePort> off`, or start what should be behind them. Preflight never edits the tailnet." }));
+  }
+  return findings;
+}
+
+// ---------------------------------------------------------------------------
+// Check 8 — setup/verify hook cwd asymmetry
+//
+// The runner runs a fitting's SETUP from the seed directory (runner.ts:1465)
+// and its VERIFY from the composition directory (runner.ts:1625). Any path a
+// script derives by walking up from its own location therefore resolves to two
+// different places in the two hooks — and a script that BRANCHES on such a
+// path will take opposite branches in setup and verify.
+//
+// This is not hypothetical: basic-memory computes the same
+// MODULES_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)" in both scripts, so setup
+// looks for the kanban fitting under fittings/ (never there) and tears its
+// consumer down, while verify looks under <composition>/apm_modules (present)
+// and demands that consumer exists. The composition has been unable to come up
+// since.
+// ---------------------------------------------------------------------------
+
+// `NAME="$(cd "$SCRIPT_DIR/../.." && pwd)"` — an ancestor walk from the script.
+const WALK_UP = /^[ \t]*([A-Za-z_][A-Za-z0-9_]*)="\$\(cd "\$([A-Za-z_][A-Za-z0-9_]*)((?:\/\.\.)+)"[ \t]*&&[ \t]*pwd\)"/gm;
+// `NAME="$OTHER/suffix"` — a path derived from one of the above.
+const DERIVED = /^[ \t]*([A-Za-z_][A-Za-z0-9_]*)="\$([A-Za-z_][A-Za-z0-9_]*)(\/[^"$]*)"/gm;
+
+// The guard basic-memory already applies to ONE of its blocks (setup.sh:274):
+// checking what the derived root actually is before trusting it.
+const GUARD = /basename[ \t]+"\$([A-Za-z_][A-Za-z0-9_]*)"/;
+
+// Resolve every ancestor-walk / derived variable in a script, given where that
+// script's own directory is. Returns Map<name, {path, expr}>.
+export function resolveScriptPaths(text, scriptDir, join) {
+  const vars = new Map([["SCRIPT_DIR", { path: scriptDir, expr: "$SCRIPT_DIR" }]]);
+  const walks = [...text.matchAll(WALK_UP)];
+  const derived = [...text.matchAll(DERIVED)];
+  for (const [, name, base, dots] of walks) {
+    const from = vars.get(base);
+    if (!from) continue;
+    vars.set(name, { path: join(from.path, dots), expr: `$${base}${dots}` });
+  }
+  for (const [, name, base, suffix] of derived) {
+    const from = vars.get(base);
+    if (!from || vars.has(name)) continue;
+    vars.set(name, { path: join(from.path, suffix), expr: `$${base}${suffix}` });
+  }
+  return vars;
+}
+
+// entries: [{ id, vars: [{name, expr, setupPath, verifyPath, setupExists,
+//            verifyExists, guarded}] }]
+export function findHookCwdAsymmetry(entries) {
+  const findings = [];
+  for (const entry of entries) {
+    for (const v of entry.vars || []) {
+      if (v.setupPath === v.verifyPath) continue;
+      if (v.guarded) {
+        findings.push(mk("hook-cwd", `${entry.id}:${v.name}`, "info",
+          `${entry.id}'s ${v.name} resolves differently in setup and verify, but the script checks what it resolved to before trusting it.`));
+        continue;
+      }
+      // Both hooks agreeing that the path is absent (or present) is a
+      // divergence that no branch can currently act on differently.
+      // A divergence both hooks currently agree about (both present, or both
+      // missing) is true and unactionable — the informational band, not a
+      // warning that would be there every single day.
+      const decisive = v.setupExists !== v.verifyExists;
+      const row = mk("hook-cwd", `${entry.id}:${v.name}`, decisive ? "fail" : "warn",
+        decisive
+          ? `${entry.id} derives ${v.name} as ${v.expr}, which EXISTS for one hook and not the other: setup sees ${v.setupPath} (${v.setupExists ? "present" : "missing"}), verify sees ${v.verifyPath} (${v.verifyExists ? "present" : "missing"}). Setup runs from the seed directory and verify from the composition directory, so any branch on ${v.name} takes opposite paths in the two hooks.`
+          : `${entry.id} derives ${v.name} as ${v.expr}, which resolves differently in setup (${v.setupPath}) and verify (${v.verifyPath}). Both are currently ${v.setupExists ? "present" : "missing"}, so nothing diverges today.`,
+        {
+          fix: decisive
+            ? `Guard the branch the way basic-memory guards its skill block — test \`basename "$${v.name}"\` (or the equivalent) before treating the path as authoritative — or derive the path from an env var the runner projects instead of from the script's own location.`
+            : "Worth knowing before either root changes; no action needed while both agree."
+        });
+      findings.push(decisive ? row : demote(row, "both hooks agree on this path today"));
+    }
+  }
+  if (!findings.length) {
+    findings.push(mk("hook-cwd", "all", "pass",
+      `${entries.length} fittings with both hooks derive no path that differs between the seed and composition roots.`));
+  }
+  return findings;
+}
+
+// ---------------------------------------------------------------------------
+// Check 9 — declared config vs the env it will actually be projected as
+//
+// STATIC by necessity: the env a running fitting actually received is exposed
+// by no API and persisted nowhere (only a one-way sha256 lands in the spawn
+// record, src/lib/own-port-lifecycle.ts:103-127). So this compares the DECLARED
+// config against the two projection rules and flags what will silently fail to
+// arrive. It cannot and does not read a live process.
+//
+// Two different manglings exist, and confusing them is the whole point:
+//   setup/verify hooks  runner.ts:1400  NORM(id)_NORM(key), no GARRISON_ prefix
+//   runtime spawn       own-port-lifecycle.ts:73  GARRISON_ + id with separators
+//                                                 REMOVED + _NORM(key)
+// ---------------------------------------------------------------------------
+
+const normKey = (key) => key.replace(/[^A-Za-z0-9]+/g, "_").toUpperCase();
+export const setupEnvName = (id, key) => `${normKey(id)}_${normKey(key)}`;
+export const runtimeEnvName = (id, key) => `GARRISON_${id.replace(/[^A-Za-z0-9]/g, "").toUpperCase()}_${normKey(key)}`;
+
+const LOOPBACK = /^(?:127\.0\.0\.1|localhost|::1|\[::1\])$/i;
+
+// entries: [{ id, ownPort, configKeys: [{key,type,default}], envNames: string[] }]
+export function checkConfigProjection(entries) {
+  const findings = [];
+  for (const entry of entries) {
+    for (const { key, type, default: value } of entry.configKeys || []) {
+      const correct = runtimeEnvName(entry.id, key);
+      const suffix = `_${normKey(key)}`;
+      const bareId = entry.id.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+      // The expensive mistake, and ONLY it: a name whose prefix is this
+      // fitting's id spelled with separators kept (GARRISON_FILE_BROWSER_ROOT)
+      // where the runner drops them (GARRISON_FILEBROWSER_ROOT). Matching on
+      // the key suffix alone is far too broad — it flags GARRISON_BIND_HOST and
+      // GARRISON_GATEWAY_PORT, which are instance-wide variables a fitting
+      // reads on purpose, and GARRISON_<ID>_TRANSCRIBE_ENABLED, which is simply
+      // a different setting that happens to end the same way.
+      // A fitting that ALSO reads a correct name has a dead fallback, not a
+      // silent failure: dev-env reads GARRISON_DEVENV_PORT first and only then
+      // the mangled spelling, so the value does arrive.
+      const readsCorrect = (entry.envNames || []).includes(correct) || (entry.envNames || []).includes(setupEnvName(entry.id, key));
+      const wrong = (entry.envNames || []).filter((n) => {
+        if (n === correct || !n.startsWith("GARRISON_") || !n.endsWith(suffix)) return false;
+        const prefix = n.slice("GARRISON_".length, n.length - suffix.length);
+        return prefix.replace(/_/g, "") === bareId && prefix !== bareId;
+      });
+      for (const name of wrong) {
+        const row = mk("config-projection", `${entry.id}:${name}`, readsCorrect ? "warn" : "fail",
+          `${entry.id} reads ${name}, but the runner projects its "${key}" config as ${correct} — the id is uppercased with separators REMOVED, not underscored, so ${name} is never set.`,
+          { fix: readsCorrect
+              ? `Harmless today because ${entry.id} also reads a correct name, but the dead fallback invites the next reader to copy it. Delete it.`
+              : `Read ${correct} (runtime) or ${setupEnvName(entry.id, key)} (setup/verify hooks); today the declared default silently wins instead.` });
+        findings.push(readsCorrect ? demote(row, "a correct name is read too, so the value still arrives") : row);
+      }
+      if (type === "object" || type === "array") {
+        findings.push(mk("config-projection", `${entry.id}:${key}`, "warn",
+          `${entry.id} declares "${key}" as ${type}, and neither projection carries non-scalar values — it will never reach the process.`,
+          { fix: "Flatten it into scalar keys, or read it from a file the setup hook writes." }));
+      }
+      // Deliberately NOT reported: a loopback bind_host default (dropped on
+      // purpose so the instance-wide GARRISON_BIND_HOST governs) and a
+      // synthesised port. Both are true of nearly every fitting, so a row for
+      // each is filler, not signal.
+      void LOOPBACK;
+      void value;
+    }
+  }
+  if (!findings.length) {
+    findings.push(mk("config-projection", "all", "pass",
+      `${entries.length} fittings read their config under the names the runner actually projects.`));
+  }
+  return findings;
+}
+
 // ---------------------------------------------------------------------------
 // Check 5 — orphan processes (report only, never kill)
 // ---------------------------------------------------------------------------
@@ -402,10 +701,11 @@ export function classifyOrphans(statusFiles, spawnRecords, isAlive) {
 export function assessDrift(input) {
   // input: {compositionId, lastUp: {at, ok}|null, manifestMtimesMs: {}|null,
   //         diskSelections: string[]|null, headSelections: string[]|null,
-  //         unfitted: string[], diffStat: string|null}
+  //         unfitted: string[], diffStat: string|null, activeCompositionId?}
   const findings = [];
   const cid = input.compositionId;
   const unfit = new Set(input.unfitted || []);
+  const isActive = !input.activeCompositionId || input.activeCompositionId === cid;
 
   if (input.lastUp && input.manifestMtimesMs) {
     const upAt = Date.parse(input.lastUp.at);
@@ -413,25 +713,29 @@ export function assessDrift(input) {
       .filter(([, ms]) => ms != null && Number.isFinite(upAt) && ms > upAt)
       .map(([f]) => f);
     if (stale.length) {
-      findings.push(mk("drift", `${cid}:stale`, "warn",
+      const row = mk("drift", `${cid}:stale`, "warn",
         `${cid} changed since its last verified up (${input.lastUp.at}): ${stale.join(", ")} newer than the last-up record — the fast path will NOT apply and a full install/setup/verify will run.`,
-        { fix: "Expected after edits; run the verify sweep before up() to see what the changes broke." }));
+        { fix: "Expected after edits; run the verify sweep before up() to see what the changes broke." });
+      findings.push(isActive ? row : demote(row, `${cid} is not the active composition, so a slow next up() costs nothing today`));
     }
   }
 
+  // Selections present on disk but not at HEAD are an UNCOMMITTED EDIT, which
+  // is the same fact as the diffstat below — they used to be reported once per
+  // fitting plus once for the file. Collect them and say it once.
+  const added = [];
   if (input.diskSelections && input.headSelections) {
     const disk = new Set(input.diskSelections);
     const head = new Set(input.headSelections);
     for (const id of [...disk].sort()) {
-      if (!head.has(id) && !unfit.has(id)) {
-        findings.push(mk("drift", `${cid}:${id}`, "warn",
-          `${id} is selected on disk but not at git HEAD. This may be a deliberate uncommitted addition; git history alone cannot establish an unwanted re-station.`,
-          { fix: "Review the composition diff and commit deliberate changes." }));
-      }
+      if (!head.has(id) && !unfit.has(id)) added.push(id);
     }
+    // A removal with no `unfitted` record is a CORRECTNESS fact, not a
+    // readiness one: the next read silently re-adds the fitting. It keeps full
+    // severity in every composition, active or not, and is never demoted.
     for (const id of [...head].sort()) {
       if (!disk.has(id) && !unfit.has(id)) {
-        findings.push(mk("drift", `${cid}:${id}`, "warn",
+        findings.push(mk("drift", `${cid}:restation:${id}`, "warn",
           `${id} was removed from ${cid}'s selections but is NOT in \`unfitted\` — the next read will re-add it and silently undo the removal.`,
           {
             fix: `PUT the composition without ${id} in selections so it lands in \`unfitted\`, or accept that it will come back.`,
@@ -441,19 +745,25 @@ export function assessDrift(input) {
     }
   }
 
-  if (input.diffStat && input.diffStat.trim()) {
-    findings.push(mk("drift", `${cid}:uncommitted`, "warn",
-      `${cid}/apm.yml differs from git HEAD (the runner re-authors this file; a diff here may be legitimate or may be an unwanted rewrite).`,
-      { evidence: input.diffStat.trim().slice(0, 2000), fix: "Review the diff; commit deliberate changes, restore unwanted ones." }));
+  const diffStat = input.diffStat && input.diffStat.trim() ? input.diffStat.trim() : null;
+  if (diffStat || added.length) {
+    // Permanently informational on purpose: this check openly cannot tell a
+    // deliberate edit from an unwanted rewrite, and a row nobody can ever
+    // action must not spend the operator's attention as a warning.
+    findings.push(demote(mk("drift", `${cid}:uncommitted`, "warn",
+      `${cid}/apm.yml differs from git HEAD${added.length ? ` — it adds ${added.join(", ")}` : ""}. The runner re-authors this file, so a diff here may be a deliberate edit or an unwanted rewrite.`,
+      { ...(diffStat ? { evidence: diffStat.slice(0, 2000) } : {}), fix: "Review the diff; commit deliberate changes, restore unwanted ones." }),
+      "git history alone cannot tell a deliberate edit from a rewrite"));
   }
 
-  if (!input.lastUp) {
-    findings.push(mk("drift", `${cid}:no-record`, "warn",
-      `${cid} has no last-up record — drift against the last verified state cannot be assessed.`));
-  }
+  // No `:no-record` row: "has never been brought up" is already reported by
+  // the verify-results check, and saying the same fact twice in two sections
+  // is how a report acquires warnings nobody reads.
 
   if (!findings.length) {
-    findings.push(mk("drift", cid, "pass", `${cid} matches its last verified up and git HEAD.`));
+    findings.push(mk("drift", cid, "pass", input.lastUp
+      ? `${cid} matches its last verified up and git HEAD.`
+      : `${cid} matches git HEAD (it has no last-up record; the verify-results check reports that).`));
   }
   return findings;
 }
@@ -464,20 +774,27 @@ export function assessDrift(input) {
 
 export const RETIRED_KINDS = ["agent-skill", "soul"];
 
-export function scanKinds(manifests, retired = RETIRED_KINDS) {
+// Asking "is this kind still in the vocabulary?" instead of "is it on my list
+// of retired ones?" means the next retirement is caught without preflight being
+// edited. The retired list survives only to explain WHY a kind is gone.
+export function scanKinds(manifests, { vocabulary = null, retired = RETIRED_KINDS } = {}) {
   const findings = [];
-  const bad = new Set(retired);
+  const known = vocabulary instanceof Set && vocabulary.size ? vocabulary : null;
+  const wasRetired = new Set(retired);
   for (const m of manifests) {
-    const hits = [...new Set((m.kinds || []).filter((k) => bad.has(k)))];
+    const hits = [...new Set((m.kinds || []).filter((k) => (known ? !known.has(k) : wasRetired.has(k))))];
     for (const k of hits) {
       findings.push(mk("kind-vocabulary", m.id, "fail",
-        `${m.id} declares retired capability kind "${k}" — registering it 500s /api/compositions and takes the whole Muster UI down.`,
-        { fix: `Replace "${k}" with the current kind for this shape (it was dropped in the Quarters pivot).` }));
+        `${m.id} declares capability kind "${k}", which is not in the current vocabulary — registering an unknown kind 500s /api/compositions and takes the whole Muster UI down.`,
+        { fix: wasRetired.has(k)
+            ? `"${k}" was dropped in the Quarters pivot; replace it with the current kind for this shape.`
+            : `Replace "${k}" with a kind listed in capabilityKinds (src/lib/types.ts).` }));
     }
   }
   if (!findings.length) {
-    findings.push(mk("kind-vocabulary", "all", "pass",
-      `${manifests.length} manifests, no retired kinds (${retired.join(", ")}).`));
+    findings.push(mk("kind-vocabulary", "all", "pass", known
+      ? `${manifests.length} manifests, every declared kind is in the current vocabulary (${known.size} kinds).`
+      : `${manifests.length} manifests, no retired kinds (${retired.join(", ")}) — the current vocabulary could not be read, so this fell back to the retired list.`));
   }
   return findings;
 }
@@ -487,12 +804,11 @@ export function scanKinds(manifests, retired = RETIRED_KINDS) {
 // ---------------------------------------------------------------------------
 
 export function summarize(findings) {
-  const counts = { pass: 0, warn: 0, fail: 0 };
+  // `info` is counted but never decides `overall`: it is explicitly the band
+  // for things that are true and not actionable.
+  const counts = { info: 0, pass: 0, warn: 0, fail: 0 };
   for (const f of findings) counts[f.status] = (counts[f.status] || 0) + 1;
   const overall = counts.fail ? "fail" : counts.warn ? "warn" : "pass";
   return { overall, counts };
 }
 
-export function worstOf(a, b) {
-  return STATUS_RANK[a] >= STATUS_RANK[b] ? a : b;
-}

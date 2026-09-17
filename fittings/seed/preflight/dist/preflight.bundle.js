@@ -24551,7 +24551,38 @@ ${f.action.command}`)) return;
   ] });
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fix-btn", onClick: run, disabled: state === "running", title: f.action?.command, children: state === "running" ? "fixing\u2026" : "Fix it" });
 }
-function FindingRow({ f, onSweep }) {
+function FileCardButton({ f }) {
+  const [state, setState] = (0, import_react.useState)("idle");
+  const [message, setMessage] = (0, import_react.useState)("");
+  const run = async () => {
+    if (!window.confirm(`File "${f.check}/${f.id}" as a Kanban card in backlog?`)) return;
+    setState("running");
+    try {
+      const res = await fetch("/api/fix", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ actionId: "file-card", params: { check: f.check, id: f.id } })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      setState("done");
+      setMessage(data.detail || "filed");
+    } catch (err) {
+      setState("error");
+      setMessage(String(err.message || err));
+    }
+  };
+  if (state === "done") return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fix-result fix-ok", children: [
+    "\u2713 ",
+    message
+  ] });
+  if (state === "error") return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "fix-result fix-err", children: [
+    "\u2717 ",
+    message
+  ] });
+  return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "fix-btn", onClick: run, disabled: state === "running", children: state === "running" ? "filing\u2026" : "File as card" });
+}
+function FindingRow({ f, onSweep, fileCards }) {
   const [open, setOpen] = (0, import_react.useState)(false);
   const parts = f.id.includes(":") ? f.id.split(":") : null;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: `finding finding-${f.status}`, children: [
@@ -24561,6 +24592,11 @@ function FindingRow({ f, onSweep }) {
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "comp-badge", children: parts[0] }),
         parts.slice(1).join(":")
       ] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-id", children: f.id }),
+      f.age === "new" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "age-chip age-new", children: "new" }),
+      f.age === "regressed" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "age-chip age-regressed", children: [
+        "regressed from ",
+        f.previousStatus
+      ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "finding-detail", children: f.detail })
     ] }),
     f.fix && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "finding-fix", children: [
@@ -24568,19 +24604,18 @@ function FindingRow({ f, onSweep }) {
       f.fix
     ] }),
     f.action && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FixButton, { f, onSweep }),
+    !f.action && f.status === "fail" && fileCards && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FileCardButton, { f }),
     f.evidence && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "linkish", onClick: () => setOpen(!open), children: open ? "hide evidence" : "show evidence" }),
       open && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", { className: "evidence", children: f.evidence })
     ] })
   ] });
 }
-function Section({ check, findings, onSweep }) {
-  const worst = findings.reduce(
-    (acc, f) => f.status === "fail" || acc === "fail" ? "fail" : f.status === "warn" || acc === "warn" ? "warn" : "pass",
-    "pass"
-  );
-  const [open, setOpen] = (0, import_react.useState)(worst !== "pass");
-  (0, import_react.useEffect)(() => setOpen(worst !== "pass"), [worst]);
+function Section({ check, findings, onSweep, fileCards }) {
+  const RANK = { info: 0, pass: 1, warn: 2, fail: 3 };
+  const worst = findings.reduce((acc, f) => RANK[f.status] > RANK[acc] ? f.status : acc, "info");
+  const [open, setOpen] = (0, import_react.useState)(RANK[worst] > 1);
+  (0, import_react.useEffect)(() => setOpen(RANK[worst] > 1), [worst]);
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: "check", children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", { className: "check-head", onClick: () => setOpen(!open), children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)(StatusPip, { status: worst }),
@@ -24588,7 +24623,7 @@ function Section({ check, findings, onSweep }) {
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "count", children: findings.length }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chev", children: open ? "\u25BE" : "\u25B8" })
     ] }),
-    open && findings.map((f, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FindingRow, { f, onSweep }, `${f.id}:${i}`))
+    open && findings.map((f, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FindingRow, { f, onSweep, fileCards }, `${f.id}:${i}`))
   ] });
 }
 function ResolvedBadge({ resolved }) {
@@ -24671,7 +24706,10 @@ function App() {
       }
       setReport(data);
       setError(null);
-      if (!comp && data.compositions?.length) setComp(data.compositions[0]);
+      if (!comp && data.compositions?.length) {
+        const preferred = data.activeComposition && data.compositions.includes(data.activeComposition) && data.activeComposition || data.sweepableCompositions?.[0] || data.compositions[0];
+        setComp(preferred);
+      }
     } catch (err) {
       setError(String(err));
     }
@@ -24761,9 +24799,21 @@ This is heavy: it flips the runner status, may run apm install, and runs every s
         counts.fail,
         " fail"
       ] }),
+      !!counts.info && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "chip chip-info", children: [
+        counts.info,
+        " info \u2014 checked, nothing to do"
+      ] }),
+      report.activeComposition && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "chip", children: [
+        "active: ",
+        report.activeComposition
+      ] }),
       report.degraded && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "chip", children: "degraded \u2014 app down" }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "ts", children: new Date(report.generatedAt).toLocaleTimeString() }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { onClick: refresh, disabled: sweeping, children: "refresh" })
+    ] }),
+    !!report.resolved?.length && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "headline", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "headline-fittings ok", children: "resolved since the last run:" }),
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "headline-other", children: report.resolved.map((r) => r.key).join(" \xB7 ") })
     ] }),
     (failingFittings.length > 0 || failsByCheck.size > 0) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "headline", children: [
       failingFittings.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { className: "headline-fittings", children: [
@@ -24799,7 +24849,7 @@ This is heavy: it flips the runner status, may run apm install, and runs every s
       ] }),
       allFindings.filter((f) => f.id.includes(fittingFilter) || f.detail.includes(fittingFilter) || (f.fix ?? "").includes(fittingFilter)).map((f, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "filter-check-label", children: CHECK_TITLES[f.check] || f.check }),
-        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FindingRow, { f, onSweep: runSweep })
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FindingRow, { f, onSweep: runSweep, fileCards: report.fileCards })
       ] }, `flt:${i}`))
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "sweep-bar", children: [
@@ -24818,7 +24868,7 @@ This is heavy: it flips the runner status, may run apm install, and runs every s
       ),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "sweep-note", children: "Requires a stopped composition. Runs setup and every verify hook." })
     ] }),
-    !fittingFilter && grouped.map(([check, findings]) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Section, { check, findings, onSweep: runSweep }, check)),
+    !fittingFilter && grouped.map(([check, findings]) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Section, { check, findings, onSweep: runSweep, fileCards: report.fileCards }, check)),
     ((report.recentFixes?.length ?? 0) > 0 || report.libraryDiff) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FixJournal, { entries: report.recentFixes ?? [], libraryDiff: report.libraryDiff, libraryDiffHash: report.libraryDiffHash, onChanged: refresh })
   ] });
 }

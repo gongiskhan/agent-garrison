@@ -7,22 +7,27 @@ import { createRoot } from "react-dom/client";
 type Finding = {
   check: string;
   id: string;
-  status: "pass" | "warn" | "fail";
+  status: "info" | "pass" | "warn" | "fail";
   detail: string;
   evidence?: string;
   fix?: string;
   action?: { id: string; params: Record<string, unknown>; command: string };
+  age?: "new" | "ongoing" | "regressed";
+  previousStatus?: string;
 };
 
 type FixEntry = { at: string; actionId: string; params: Record<string, unknown>; ok: boolean; detail?: string; error?: string; resolved?: boolean | null };
 
 type Report = {
   findings: Finding[];
-  summary: { overall: string; counts: { pass: number; warn: number; fail: number } };
+  summary: { overall: string; counts: { info?: number; pass: number; warn: number; fail: number } };
   degraded: boolean;
   appUp: boolean;
   compositions?: string[];
   sweepableCompositions?: string[];
+  activeComposition?: string | null;
+  fileCards?: boolean;
+  resolved?: { key: string; lastStatus: string; lastSeenAt: string }[];
   recentFixes?: FixEntry[];
   libraryDiff?: string | null;
   libraryDiffHash?: string | null;
@@ -88,7 +93,35 @@ function FixButton({ f, onSweep }: { f: Finding; onSweep?: (compositionId: strin
   );
 }
 
-function FindingRow({ f, onSweep }: { f: Finding; onSweep?: (compositionId: string) => void }) {
+// Offered only on failures that carry no mechanical repair, so it never
+// competes with a "Fix it" that would actually solve the problem.
+function FileCardButton({ f }: { f: Finding }) {
+  const [state, setState] = useState<"idle" | "running" | "done" | "error">("idle");
+  const [message, setMessage] = useState("");
+  const run = async () => {
+    if (!window.confirm(`File "${f.check}/${f.id}" as a Kanban card in backlog?`)) return;
+    setState("running");
+    try {
+      const res = await fetch("/api/fix", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ actionId: "file-card", params: { check: f.check, id: f.id } })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      setState("done");
+      setMessage(data.detail || "filed");
+    } catch (err) {
+      setState("error");
+      setMessage(String((err as Error).message || err));
+    }
+  };
+  if (state === "done") return <div className="fix-result fix-ok">✓ {message}</div>;
+  if (state === "error") return <div className="fix-result fix-err">✗ {message}</div>;
+  return <button className="fix-btn" onClick={run} disabled={state === "running"}>{state === "running" ? "filing…" : "File as card"}</button>;
+}
+
+function FindingRow({ f, onSweep, fileCards }: { f: Finding; onSweep?: (compositionId: string) => void; fileCards?: boolean }) {
   const [open, setOpen] = useState(false);
   // Ids in verify/drift checks are "composition:fitting" — render the
   // composition as a muted prefix badge so the FITTING reads as the subject
@@ -106,10 +139,13 @@ function FindingRow({ f, onSweep }: { f: Finding; onSweep?: (compositionId: stri
         ) : (
           <span className="finding-id">{f.id}</span>
         )}
+        {f.age === "new" && <span className="age-chip age-new">new</span>}
+        {f.age === "regressed" && <span className="age-chip age-regressed">regressed from {f.previousStatus}</span>}
         <span className="finding-detail">{f.detail}</span>
       </div>
       {f.fix && <div className="finding-fix">fix: {f.fix}</div>}
       {f.action && <FixButton f={f} onSweep={onSweep} />}
+      {!f.action && f.status === "fail" && fileCards && <FileCardButton f={f} />}
       {f.evidence && (
         <div>
           <button className="linkish" onClick={() => setOpen(!open)}>
@@ -122,13 +158,13 @@ function FindingRow({ f, onSweep }: { f: Finding; onSweep?: (compositionId: stri
   );
 }
 
-function Section({ check, findings, onSweep }: { check: string; findings: Finding[]; onSweep?: (compositionId: string) => void }) {
-  const worst = findings.reduce<string>(
-    (acc, f) => (f.status === "fail" || acc === "fail" ? "fail" : f.status === "warn" || acc === "warn" ? "warn" : "pass"),
-    "pass"
-  );
-  const [open, setOpen] = useState(worst !== "pass");
-  useEffect(() => setOpen(worst !== "pass"), [worst]);
+function Section({ check, findings, onSweep, fileCards }: { check: string; findings: Finding[]; onSweep?: (compositionId: string) => void; fileCards?: boolean }) {
+  // info ranks BELOW pass: a section holding only informational rows is not a
+  // green success, it is "checked, nothing to do" — and it stays collapsed.
+  const RANK: Record<string, number> = { info: 0, pass: 1, warn: 2, fail: 3 };
+  const worst = findings.reduce<string>((acc, f) => (RANK[f.status] > RANK[acc] ? f.status : acc), "info");
+  const [open, setOpen] = useState(RANK[worst] > 1);
+  useEffect(() => setOpen(RANK[worst] > 1), [worst]);
   return (
     <section className="check">
       <header className="check-head" onClick={() => setOpen(!open)}>
@@ -137,7 +173,7 @@ function Section({ check, findings, onSweep }: { check: string; findings: Findin
         <span className="count">{findings.length}</span>
         <span className="chev">{open ? "▾" : "▸"}</span>
       </header>
-      {open && findings.map((f, i) => <FindingRow key={`${f.id}:${i}`} f={f} onSweep={onSweep} />)}
+      {open && findings.map((f, i) => <FindingRow key={`${f.id}:${i}`} f={f} onSweep={onSweep} fileCards={fileCards} />)}
     </section>
   );
 }
@@ -238,7 +274,17 @@ function App() {
       }
       setReport(data);
       setError(null);
-      if (!comp && data.compositions?.length) setComp(data.compositions[0]);
+      // Never default to compositions[0]: that is whatever sorts first, and it
+      // left the heavy-sweep button armed on a composition nobody uses. The
+      // ACTIVE composition is the one the operator means; when it is running
+      // (and so not sweepable) a disabled button is the correct answer.
+      if (!comp && data.compositions?.length) {
+        const preferred =
+          (data.activeComposition && data.compositions.includes(data.activeComposition) && data.activeComposition) ||
+          data.sweepableCompositions?.[0] ||
+          data.compositions[0];
+        setComp(preferred);
+      }
     } catch (err) {
       setError(String(err));
     }
@@ -328,10 +374,19 @@ function App() {
       <div className={`banner banner-${overall}`}>
         <strong>{overall.toUpperCase()}</strong>
         <span>{counts.pass} pass · {counts.warn} warn · {counts.fail} fail</span>
+        {!!counts.info && <span className="chip chip-info">{counts.info} info — checked, nothing to do</span>}
+        {report.activeComposition && <span className="chip">active: {report.activeComposition}</span>}
         {report.degraded && <span className="chip">degraded — app down</span>}
         <span className="ts">{new Date(report.generatedAt).toLocaleTimeString()}</span>
         <button onClick={refresh} disabled={sweeping}>refresh</button>
       </div>
+
+      {!!report.resolved?.length && (
+        <div className="headline">
+          <span className="headline-fittings ok">resolved since the last run:</span>
+          <span className="headline-other">{report.resolved.map((r) => r.key).join(" · ")}</span>
+        </div>
+      )}
 
       {(failingFittings.length > 0 || failsByCheck.size > 0) && (
         <div className="headline">
@@ -372,7 +427,7 @@ function App() {
             .map((f, i) => (
               <div key={`flt:${i}`}>
                 <div className="filter-check-label">{CHECK_TITLES[f.check] || f.check}</div>
-                <FindingRow f={f} onSweep={runSweep} />
+                <FindingRow f={f} onSweep={runSweep} fileCards={report.fileCards} />
               </div>
             ))}
         </div>
@@ -392,7 +447,7 @@ function App() {
         <span className="sweep-note">Requires a stopped composition. Runs setup and every verify hook.</span>
       </div>
 
-      {!fittingFilter && grouped.map(([check, findings]) => <Section key={check} check={check} findings={findings} onSweep={runSweep} />)}
+      {!fittingFilter && grouped.map(([check, findings]) => <Section key={check} check={check} findings={findings} onSweep={runSweep} fileCards={report.fileCards} />)}
 
       {((report.recentFixes?.length ?? 0) > 0 || report.libraryDiff) && (
         <FixJournal entries={report.recentFixes ?? []} libraryDiff={report.libraryDiff} libraryDiffHash={report.libraryDiffHash} onChanged={refresh} />

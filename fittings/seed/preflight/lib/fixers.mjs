@@ -6,6 +6,8 @@ import { readFile, writeFile, rename, unlink, mkdir, appendFile, open, stat } fr
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
 import { findRepoRoot, GARRISON_HOME } from "./collect.mjs";
+import { dataDir } from "./ledger.mjs";
+import { BoardClient } from "./board-client.mjs";
 import { RETIRED_SEED_IDS } from "./preflight-core.mjs";
 import { appUrl } from "./app-client.mjs";
 
@@ -18,7 +20,8 @@ const ACTION_KEYS = {
   "unstation-fitting": ["compositionId", "fittingId"],
   "library-add-entry": ["fittingId"],
   "library-remove-entry": ["entryId"],
-  "git-commit-library": ["diffHash"]
+  "git-commit-library": ["diffHash"],
+  "file-card": ["check", "id"]
 };
 
 export function execOk(cmd, args, opts = {}) {
@@ -88,6 +91,9 @@ function validParams(actionId, params) {
   if (Object.keys(params).some((key) => !keys.includes(key)) || keys.some((key) => !Object.hasOwn(params, key))) return false;
   if (actionId === "tailscale-serve-map") return Number.isInteger(params.port) && params.port > 0 && params.port < 65536;
   if (actionId === "git-commit-library") return typeof params.diffHash === "string" && /^[a-f0-9]{64}$/.test(params.diffHash);
+  // A finding id carries composition:fitting pairs and port literals, so it is
+  // looser than ID_RE — but still a shape, never free text from the UI.
+  if (actionId === "file-card") return ["check", "id"].every((k) => typeof params[k] === "string" && /^[\w][\w.:-]{0,199}$/.test(params[k]));
   return keys.every((key) => typeof params[key] === "string" && ID_RE.test(params[key]));
 }
 
@@ -99,30 +105,45 @@ async function appendJournal(home, entry) {
   } catch { /* A failed audit append cannot undo an already completed repair. */ }
 }
 
-export async function readFixJournal(limit = 20, { home = GARRISON_HOME } = {}) {
-  const count = Math.min(100, Math.max(0, Math.floor(limit)));
-  if (!count) return [];
-  let file;
+async function tailLines(file, count) {
+  let handle;
   try {
-    file = await open(path.join(home, "preflight-fixes.jsonl"), "r");
-    const { size } = await file.stat();
+    handle = await open(file, "r");
+    const { size } = await handle.stat();
     const start = Math.max(0, size - 256_000);
     const buffer = Buffer.alloc(size - start);
-    await file.read(buffer, 0, buffer.length, start);
+    await handle.read(buffer, 0, buffer.length, start);
     const lines = buffer.toString("utf8").split("\n");
     if (start) lines.shift();
-    return lines.filter(Boolean).slice(-count).reverse()
-      .map((line) => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean);
-  } catch { return []; } finally { await file?.close(); }
+    return lines.filter(Boolean).slice(-count);
+  } catch { return []; } finally { await handle?.close(); }
+}
+
+// Reads the current journal AND the flat legacy path this fitting used before
+// its state moved into ~/.garrison/preflight/, so history does not vanish the
+// day the location changed.
+export async function readFixJournal(limit = 20, { home = dataDir(), legacyHome = GARRISON_HOME } = {}) {
+  const count = Math.min(100, Math.max(0, Math.floor(limit)));
+  if (!count) return [];
+  const current = path.join(home, "preflight-fixes.jsonl");
+  const legacy = path.join(legacyHome, "preflight-fixes.jsonl");
+  const lines = [
+    ...(current === legacy ? [] : await tailLines(legacy, count)),
+    ...(await tailLines(current, count))
+  ];
+  return lines.slice(-count).reverse()
+    .map((line) => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean);
 }
 
 export function createFixRunner({
   root: suppliedRoot,
-  home = GARRISON_HOME,
+  home = dataDir(),
   env = process.env,
   exec = execOk,
   fetchImpl = fetch,
-  getReport = async () => (await import("./report.mjs")).buildReport({ startDir: suppliedRoot || process.cwd() })
+  board = null,
+  // ledger stays off: revalidation measures fresh reality, it does not record history.
+  getReport = async () => (await import("./report.mjs")).buildReport({ startDir: suppliedRoot, ledger: "off" })
 } = {}) {
   let tail = Promise.resolve();
   const run = async (actionId, params) => {
@@ -131,7 +152,10 @@ export function createFixRunner({
     try {
       const root = suppliedRoot || findRepoRoot(process.cwd());
       if (!root) throw new Error("Garrison repo root not found");
-      if (actionId !== "git-commit-library") {
+      // git-commit-library and file-card are operator actions ABOUT the report
+      // rather than a finding's own offered repair, and each revalidates in its
+      // own terms below.
+      if (!["git-commit-library", "file-card"].includes(actionId)) {
         const report = await getReport();
         const current = report?.findings?.some((finding) => finding.action?.id === actionId && canonical(finding.action.params) === canonical(params));
         if (!current) throw new Error("This finding has changed or no longer needs repair; refresh the report");
@@ -201,6 +225,29 @@ export function createFixRunner({
           if (await exists(path.join(root, "fittings", "seed", match[1]))) throw new Error("The seed directory exists; refresh and inspect its manifest instead");
           await saveLibrary(snapshot, snapshot.entries.filter((item) => item.id !== params.entryId));
           result = { ok: true, detail: `Removed missing seed ${params.entryId}; review the full library diff before committing` };
+          break;
+        }
+        case "file-card": {
+          // The card's text is rendered HERE from the live report's matching
+          // finding: the revalidation above already proved it exists, and no
+          // free text crosses from the browser.
+          if (String(env.GARRISON_PREFLIGHT_FILE_CARDS ?? "").trim().toLowerCase() !== "true") {
+            throw new Error("Filing cards is off; set the file_cards config key to enable it");
+          }
+          const report = await getReport();
+          const finding = report?.findings?.find((f) => f.check === params.check && f.id === params.id);
+          if (!finding) throw new Error("This finding is gone; refresh the report");
+          const client = board || new BoardClient({ env, fetchImpl });
+          const originId = `preflight:${params.check}:${params.id}`;
+          const existing = await client.findByOriginId(originId);
+          if (existing.length) throw new Error(`Already filed as card ${existing[0]?.id ?? "(unknown)"}`);
+          const card = await client.createCard({
+            title: `preflight: ${params.check} — ${params.id}`,
+            description: [finding.detail, finding.fix ? `\nfix: ${finding.fix}` : ""].join("\n").trim(),
+            targetList: "backlog",
+            origin_id: originId
+          });
+          result = { ok: true, detail: `Filed as card ${card?.id ?? "(created)"} in backlog` };
           break;
         }
         case "git-commit-library": {
