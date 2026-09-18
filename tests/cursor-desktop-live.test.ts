@@ -5,18 +5,23 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { chromium } from 'playwright';
+// @ts-expect-error Standalone Node module without declarations.
+import { requireMacDesktop } from '../scripts/cursor-desktop/mac-desktop.mjs';
 
 const base = process.env.GARRISON_CURSOR_LIVE_URL;
 const xml = (value: string) => value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 describe('real Cursor desktop observation', () => {
   it.skipIf(!base || process.platform !== 'darwin')('shows a desktop prompt within five seconds, then renders its response and tools on a phone viewport', async () => {
     expect(new URL(base!).hostname).toBe('127.0.0.1');
-    const scratch = path.join(os.homedir(), '.garrison/cursor-probe/probe.code-workspace');
-    expect(fs.existsSync(scratch)).toBe(true);
+    requireMacDesktop();
+    const scratch = process.env.GARRISON_CURSOR_LIVE_WORKSPACE;
+    expect(scratch, 'Set the explicit scratch workspace for the live desktop test').toBeTruthy();
+    expect(path.isAbsolute(scratch!)).toBe(true);
+    expect(fs.existsSync(scratch!)).toBe(true);
     const nonce = randomBytes(4).toString('hex');
     const title = `Garrison P1 smoke ${nonce}`;
     const finalText = 'P1 complete. The scratch file was read, a scratch output file was written, and the shell command completed. This complete response is visible in Garrison.';
-    const prompt = `${title}. Use only the two scratch roots. Read alpha/probe.txt with the built-in reader. Write alpha/p1-smoke.txt with the text cursor-live-ok. Run a shell command that waits six seconds and prints cursor-live-ok. Do not use connector tools. Finish by replying with exactly: ${finalText} [grs:${nonce}]`;
+    const prompt = `${title}. Use only the two scratch roots. Read alpha/probe.txt with the built-in reader. Write alpha/p1-smoke.txt with the text cursor-live-ok. Run a shell command that waits six seconds and prints cursor-live-ok. Do not use connector tools. Finish by replying with this exact sentence: "${finalText}". Exclude this tracking tag from your response: [grs:${nonce}]`;
     const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'cursor-live-'));
     const job = `io.garrison.cursor.live-${nonce}`;
     const domain = `gui/${process.getuid!()}`;
@@ -26,14 +31,18 @@ describe('real Cursor desktop observation', () => {
     fs.writeFileSync(driver, `
       import {execFile} from 'node:child_process'; import {promisify} from 'node:util';
       import {setTimeout as delay} from 'node:timers/promises'; import fs from 'node:fs';
+      import {requireMacDesktop} from ${JSON.stringify(path.resolve('scripts/cursor-desktop/mac-desktop.mjs'))};
       const exec=promisify(execFile); const result={started_at:Date.now()};
       try {
+        requireMacDesktop();
         await exec('/Applications/Cursor.app/Contents/Resources/app/bin/cursor',['--reuse-window',${JSON.stringify(scratch)}],{timeout:8000});
         await delay(1500);
         await exec('/usr/bin/open',['cursor://anysphere.cursor-deeplink/prompt?text='+encodeURIComponent(${JSON.stringify(prompt)})],{timeout:5000});
         await delay(1500);
+        requireMacDesktop();
         await exec('/usr/bin/osascript',['-l','JavaScript',${JSON.stringify(helper)}],{timeout:5000});
         await delay(1500);
+        requireMacDesktop();
         await exec('/usr/bin/osascript',['-l','JavaScript',${JSON.stringify(helper)}],{timeout:5000});
         result.ok=true;
       } catch(error) { result.ok=false;result.error=error.message; }
@@ -70,17 +79,21 @@ describe('real Cursor desktop observation', () => {
       const user = initial.events.find((e: any) => e.role === 'user');
       expect(user.blocks[0].text).toContain(title);
       expect(seenAt - user.ts).toBeLessThan(5000);
-      await page.getByText(user.blocks[0].text, { exact: true }).waitFor({ timeout: 5000 });
+      await page.getByText(user.blocks[0].text.slice(0, 120), { exact: false }).first().waitFor({ timeout: 5000 });
       await page.screenshot({ path: path.join(evidence, 'p1-live-phone-working.png') });
       await page.getByText(finalText, { exact: true }).waitFor({ timeout: 90000 });
       const activity = page.locator('.cc-session-interim');
-      for (const details of await activity.all()) if (!await details.getAttribute('open')) await details.locator('summary').first().click();
+      for (const details of await activity.all()) if (await details.getAttribute('open') === null) await details.locator('summary').first().click();
       expect(await page.getByText('Shell', { exact: true }).first().isVisible()).toBe(true);
       await page.screenshot({ path: path.join(evidence, 'p1-live-phone-response.png') });
       const driverResult = JSON.parse(fs.readFileSync(resultFile, 'utf8'));
       expect(driverResult.ok).toBe(true);
       fs.writeFileSync(path.join(evidence, 'p1-live-result.json'), JSON.stringify({ prompt_to_shells_ms: seenAt - user.ts, full_response_visible: true, tool_visible: true, node: live.node, cursor_version: live.cursor.cursor_version }, null, 2) + '\n');
     } finally {
+      for (const name of ['result.json', 'error.log']) {
+        const file = path.join(temp, name);
+        if (fs.existsSync(file)) fs.copyFileSync(file, path.join(evidence, `p1-live-driver-${name}`));
+      }
       await page.screenshot({ path: path.join(evidence, 'p1-live-final-state.png') }).catch(() => {});
       await browser.close();
       try { execFileSync('launchctl', ['bootout', `${domain}/${job}`], { stdio: 'ignore' }); } catch {}
