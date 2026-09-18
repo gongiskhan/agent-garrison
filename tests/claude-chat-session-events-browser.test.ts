@@ -129,6 +129,9 @@ beforeAll(async () => {
         };
       `,
     },
+    // Next App Router ships its compiled React DOM; plain React 18 does not
+    // reproduce its innerHTML writes when only the wrapper object changes.
+    alias: { react: "next/dist/compiled/react", "react-dom": "next/dist/compiled/react-dom" },
     bundle: true,
     write: false,
     platform: "browser",
@@ -1032,6 +1035,29 @@ describe("manual session output scrolling on a phone", () => {
     expect((await position()).top).toBeCloseTo(settled.top, 0);
     expect((await position()).gap).toBeGreaterThan(200);
     expect(await page.getByRole("button", { name: "Jump to bottom", exact: true }).isVisible()).toBe(true);
+  });
+
+  it("keeps unchanged markdown DOM and images in place during parent refreshes", async () => {
+    const events = history.map(event => event.id === "reader-answer-5"
+      ? { ...event, blocks: [{ type: "text", text: "Stable paragraph with [a link](https://example.com).\n\n![Saved image](data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7)" }] } : event);
+    await page.evaluate(events => (window as any).__mountStream(events, false, { live: false }), events);
+    await page.locator(".wc-xscript-body").evaluate(el => { el.scrollTop = 220; });
+    await page.evaluate(() => {
+      const paragraphs = Array.from(document.querySelectorAll(".cc-session-md p"));
+      const paragraph = paragraphs.find(el => el.textContent?.startsWith("Stable paragraph"))!;
+      (window as any).__stableMarkdown = { paragraph, image: document.querySelector('.cc-session-md img[alt="Saved image"]') };
+    });
+    for (let index = 0; index < 3; index++) {
+      // The session rail refreshes its row object while the transcript is idle.
+      await page.evaluate(events => (window as any).__mountStream(events, false, { live: false }), events);
+    }
+    expect(await page.evaluate(() => {
+      const { paragraph, image } = (window as any).__stableMarkdown;
+      return { paragraph: paragraph.isConnected, image: image?.isConnected };
+    })).toEqual({ paragraph: true, image: true });
+    expect((await position()).top).toBeCloseTo(220, 0);
+    await emit({ type: "events", events: [{ ...events[11], revision: 1, blocks: [{ type: "text", text: "Updated paragraph." }] }] });
+    expect(await page.getByText("Updated paragraph.", { exact: true }).count()).toBe(1);
   });
 
   it("keeps the reading position on reconnect and initializes a newly opened session", async () => {

@@ -192,10 +192,20 @@ function permissionSuggestionDestinations(suggestions: unknown[]): string[] {
   return [...destinations];
 }
 
+function MarkdownContent({ html, className }: { html: string; className: string }) {
+  // Next's App Router renderer writes innerHTML when this wrapper changes,
+  // even if the HTML string is identical. Preserve it across rail/scroll
+  // refreshes so images, selections and the reader's layout stay in place.
+  // Key by rendered HTML (not just source text): a newly loaded host map can
+  // legitimately change the links without changing the message text.
+  const content = useMemo(() => ({ __html: html }), [html]);
+  return <div className={className} dangerouslySetInnerHTML={content} />;
+}
+
 function TextBlock({
   text,
   role,
-  renderMarkdown = (value) => md.parse(value) as string,
+  renderMarkdown = renderTranscriptMarkdown,
 }: {
   text: string;
   role: string;
@@ -207,11 +217,11 @@ function TextBlock({
     return (
       <details className="cc-session-longtext">
         <summary>{head}…</summary>
-        <div className="cc-session-md cc-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />
+        <MarkdownContent className="cc-session-md cc-md" html={renderMarkdown(text)} />
       </details>
     );
   }
-  return <div className="cc-session-md cc-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(text || "") }} />;
+  return <MarkdownContent className="cc-session-md cc-md" html={renderMarkdown(text || "")} />;
 }
 
 /** Opens while an activity is live, then collapses on its completed transition. */
@@ -1590,9 +1600,9 @@ function ConversationStateBanner({ activity, onApprove }: { activity: Conversati
       <div className="cc-conv-state cc-conv-state-done">
         <div className="cc-conv-state-title">Conversation complete</div>
         {activity.summary && (
-          <div
+          <MarkdownContent
             className="cc-conv-state-summary cc-md"
-            dangerouslySetInnerHTML={{ __html: md.parse(activity.summary) as string }}
+            html={renderTranscriptMarkdown(activity.summary)}
           />
         )}
       </div>
