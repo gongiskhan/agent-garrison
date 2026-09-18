@@ -225,4 +225,21 @@ This removes only its marker-owned entries and preserves unrelated changes.
 Active measurement processes must first finish or receive SIGTERM; uninstalling
 configuration alone does not cancel a process that is already holding.
 
+## Overnight hold outcome, 13 September
+
+E9b on Cursor 3.20.17 completed at its requested deadline after 28800.057
+seconds. The local probe recorded a normal return with followup_message.
+The scratch transcript contains that followup as a user turn, the assistant's
+exact response `acknowledged`, and a successful turn end. The probe process is
+gone. No Cursor-imposed cap was observed, so automatic rearm remains off.
+This verifies the eight-hour hook lifetime and desktop followup behavior;
+the production seven-hour phone delivery journey remains a Phase 2 gate.
+
+The resumed Phase 1 live test found the Mini desktop locked. The existing
+foreground guard refused input with `cursor_not_focused`; no Enter was sent.
+The live test now checks the public IORegistry console state before focusing
+Cursor and before each Enter, returning `desktop_locked` immediately. The
+operator must unlock the desktop for the required live gate. No input is sent
+to unlock it. No services were restarted during this resumption.
+
 Public contract reference: [Cursor hook documentation](https://cursor.com/docs/hooks).
