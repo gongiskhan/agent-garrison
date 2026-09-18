@@ -9,7 +9,10 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     // {full: true} forces install + setup hooks + verify even when the
     // composition is unchanged (the fast path skips them otherwise).
     const body = await request.json().catch(() => ({}));
-    return NextResponse.json({ state: await up(params.id, { full: body?.full === true }) });
+    return NextResponse.json({ state: await up(params.id, {
+      full: body?.full === true,
+      ...(typeof body?.restoreRunId === "string" ? { restoreRunId: body.restoreRunId } : {})
+    }) });
   } catch (error) {
     return jsonError(error, 400);
   }

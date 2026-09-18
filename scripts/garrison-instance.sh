@@ -259,9 +259,10 @@ case "$mode" in
         echo "node: $NEXT_DIST_DIR missing — run '$0 node build' first" >&2
         exit 1
       fi
-      exec concurrently --kill-others-on-fail --names next,scheduler \
+      exec concurrently --kill-others-on-fail --names next,scheduler,startup \
         "next start -H $GARRISON_BIND_HOST -p $GARRISON_APP_PORT" \
-        "$scheduler_cmd"
+        "$scheduler_cmd" \
+        "node \"$REPO_ROOT/scripts/garrison-node-startup.mjs\""
     fi
     exec concurrently --kill-others-on-fail --names next,scheduler \
       "next dev -H $GARRISON_BIND_HOST -p $GARRISON_APP_PORT" \

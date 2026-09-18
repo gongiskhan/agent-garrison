@@ -216,3 +216,21 @@ active Conversations and unavailable peers defer the job. Documentation, tests
 and native-only changes sync without restarting the node. A failed deployment
 backs off for ten minutes, and the node-local `main-sync.json` receipt records
 the outcome. Success requires the running composition and all views healthy.
+
+
+### Recovery after a node restart
+
+The node launcher starts `garrison-node-startup.mjs` beside the app and scheduler.
+It restores only compositions with a successful running receipt from the prior
+process. These owner-local runtime receipts live under
+`$GARRISON_HOME/runtime-startup/`, alongside the existing PID and launch evidence;
+they carry no secrets or shared configuration. An explicit Stop writes a cancelled
+receipt before terminating children. A failed first launch creates no running
+receipt. Development and Codex profiles do not run this recovery helper.
+
+Recovery uses the normal `up` endpoint, so state authority, composition ownership,
+installation and verification still apply. It waits through app/network startup,
+deployments and active Conversations. A generation check under the runner's
+operation lock prevents a delayed recovery from overriding a later Stop or Run.
+Already running compositions are left alone. After deploying this feature, a
+successful Run/redeploy seeds the receipt for the next node restart.

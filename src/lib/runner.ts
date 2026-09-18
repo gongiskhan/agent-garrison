@@ -1,4 +1,8 @@
 import { type ChildProcessWithoutNullStreams } from "node:child_process";
+// @ts-ignore Runtime receipts are shared with the node's ESM startup helper.
+import { readStartupReceipt, writeStartupReceipt } from "../../packages/claude-pty/src/startup-receipt.mjs";
+// @ts-ignore Shared process-local Conversation/deployment guard.
+import { deploymentDraining, localConversationActivity } from "../../packages/claude-pty/src/deployment-guard.mjs";
 // @ts-ignore The standing capability is also consumed as ESM.
 import { PROJECTS_CAPABILITIES } from "../../packages/projects/src/capabilities.mjs";
 import { spawnTracked } from "./spawn";
@@ -423,10 +427,23 @@ export function subscribeLogs(
 
 export async function up(
   compositionId: string,
-  options: { devMode?: boolean; full?: boolean } = {}
+  options: { devMode?: boolean; full?: boolean; restoreRunId?: string } = {}
 ): Promise<RunnerState> {
   assertGarrisonHome();
-  return withRunnerOperation(compositionId, () => upUnlocked(compositionId, options));
+  return withRunnerOperation(compositionId, async () => {
+    if (options.restoreRunId !== undefined) {
+      const receipt = await readStartupReceipt(compositionId);
+      if (!receipt?.running || receipt.runId !== options.restoreRunId || runtime().records.get(compositionId)?.state.status === "running") {
+        return getRecord(compositionId).state;
+      }
+      if (deploymentDraining() || process.env.GARRISON_CONVERSATION_ID || localConversationActivity().length) {
+        throw new Error("Startup recovery deferred for deployment or active Conversation");
+      }
+    }
+    const state = await upUnlocked(compositionId, options);
+    if (state.status === "running") await writeStartupReceipt(compositionId, true);
+    return state;
+  });
 }
 
 async function upUnlocked(
@@ -1104,7 +1121,12 @@ async function upUnlocked(
 }
 
 export async function down(compositionId: string): Promise<RunnerState> {
-  return withRunnerOperation(compositionId, () => downUnlocked(compositionId));
+  return withRunnerOperation(compositionId, async () => {
+    // Persist the user's Stop before terminating children, so an interrupted
+    // shutdown cannot turn into an unwanted restart on the next node boot.
+    await writeStartupReceipt(compositionId, false);
+    return downUnlocked(compositionId);
+  });
 }
 
 async function downUnlocked(compositionId: string): Promise<RunnerState> {
