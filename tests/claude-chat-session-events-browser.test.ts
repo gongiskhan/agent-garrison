@@ -3,7 +3,7 @@ import path from "node:path";
 import http, { type ServerResponse } from "node:http";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { build } from "esbuild";
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
+import { chromium, webkit, type Browser, type BrowserContext, type Page } from "playwright";
 
 const REPO = path.resolve(__dirname, "..");
 let browser: Browser;
@@ -57,12 +57,13 @@ beforeAll(async () => {
           }));
           return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         };
-        window.__mountStream = (events, announceLiveUpdates) => {
+        window.__mountStream = (events, announceLiveUpdates, options = {}) => {
           if (!root) root = createRoot(document.getElementById("root"));
           root.render(React.createElement(SessionStream, {
             url: "/fixture-session",
             live: true,
             announceLiveUpdates,
+            ...options,
           }));
           return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
             .then(() => {
@@ -159,7 +160,7 @@ beforeAll(async () => {
     define: { "process.env.NODE_ENV": '"production"' },
   });
   nativeBundle = nativeBuilt.outputFiles[0].text;
-  browser = await chromium.launch({ headless: true });
+  browser = await (process.env.GARRISON_TEST_BROWSER === "webkit" ? webkit : chromium).launch({ headless: true });
   context = await browser.newContext({ viewport: { width: 320, height: 700 }, hasTouch: true, isMobile: true });
   page = await context.newPage();
 }, 30_000);
@@ -981,5 +982,81 @@ describe("claude-chat canonical timeline in a real browser", () => {
     });
     expect(ratios.input).toBeGreaterThanOrEqual(4.5);
     expect(ratios.result).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+
+describe("manual session output scrolling on a phone", () => {
+  const history = Array.from({ length: 24 }, (_, index) => [
+    { id: `reader-user-${index}`, role: "user", turnId: `reader-${index}`, order: index * 2, ts: index * 2, revision: 0,
+      blocks: [{ type: "text", text: `Question ${index}` }] },
+    { id: `reader-answer-${index}`, role: "assistant", turnId: `reader-${index}`, order: index * 2 + 1, ts: index * 2 + 1, revision: 0,
+      blocks: [{ type: "text", text: `Answer ${index}. ` + "Output to read without being pulled away. ".repeat(8) }] },
+  ]).flat();
+  const position = () => page.locator(".wc-xscript-body").evaluate(el => ({ top: el.scrollTop, gap: el.scrollHeight - el.clientHeight - el.scrollTop }));
+  const emit = (payload: unknown) => page.evaluate(payload => (window as any).__emitSession(payload), payload);
+  const append = (id: string, order: number) => emit({ type: "events", events: [
+    { id, role: "assistant", turnId: id, ts: order, order, revision: 0,
+      blocks: [{ type: "text", text: "New output. ".repeat(90) }] },
+  ] });
+
+  it("jumps on load and tap, but never follows later output or layout growth", async () => {
+    await page.evaluate(events => (window as any).__mountStream(events), history);
+    await page.waitForFunction(() => { const el = document.querySelector(".wc-xscript-body")!; return el.scrollTop > 100 && el.scrollHeight - el.clientHeight - el.scrollTop < 4; });
+    const loaded = await position();
+    await append("first-new-output", 100);
+    await page.waitForTimeout(800); // Let streaming text and any old follow loop run.
+    expect((await position()).top).toBeCloseTo(loaded.top, 0);
+    expect((await position()).gap).toBeGreaterThan(100);
+    await page.getByRole("button", { name: "Jump to bottom", exact: true }).tap();
+    expect((await position()).gap).toBeLessThan(4);
+    const jumped = await position();
+    await append("second-new-output", 101);
+    await page.waitForTimeout(800);
+    // Chromium may anchor past the 18px role label when the old live turn
+    // settles. That preserves the passage; following the new output does not.
+    expect(Math.abs((await position()).top - jumped.top)).toBeLessThan(24);
+    expect((await position()).gap).toBeGreaterThan(100);
+
+    // Reading an older passage on a touch device must survive new frames too.
+    await page.locator(".wc-xscript-body").evaluate(el => { el.scrollTop = 220; });
+    await append("third-new-output", 102);
+    await page.waitForTimeout(800);
+    expect((await position()).top).toBeCloseTo(220, 0);
+    await emit({ type: "init", available: true, live: false, events: history });
+    await page.getByRole("button", { name: "Jump to bottom", exact: true }).tap();
+    const settled = await position();
+    // Equivalent to late image/markdown layout growth after an idle snapshot.
+    await page.locator(".cc-session-scroll").evaluate(el => { el.style.paddingBottom = "300px"; });
+    await page.waitForTimeout(200);
+    expect((await position()).top).toBeCloseTo(settled.top, 0);
+    expect((await position()).gap).toBeGreaterThan(200);
+    expect(await page.getByRole("button", { name: "Jump to bottom", exact: true }).isVisible()).toBe(true);
+  });
+
+  it("keeps the reading position on reconnect and initializes a newly opened session", async () => {
+    await page.evaluate(events => (window as any).__mountStream(events), history);
+    await page.locator(".wc-xscript-body").evaluate(el => { el.scrollTop = 220; });
+    await page.evaluate(() => (window as any).__sessionSource.onerror());
+    await page.waitForFunction(() => (window as any).__sessionSources.length === 2);
+    expect((await position()).top).toBeCloseTo(220, 0);
+    await emit({ type: "init", available: true, live: true, events: history });
+    await page.waitForTimeout(200);
+    expect((await position()).top).toBeCloseTo(220, 0);
+    await page.evaluate(events => (window as any).__mountStream(events, false, { url: "/another-session" }), history);
+    expect((await position()).gap).toBeLessThan(4);
+    expect((await position()).top).toBeGreaterThan(100);
+  });
+
+  it("preserves an explicit search landing when output arrives", async () => {
+    const searchable = history.map(event => event.id === "reader-answer-5"
+      ? { ...event, blocks: [{ type: "error", text: "Searchable earlier activity" }] } : event);
+    await page.evaluate(events => (window as any).__mountStream(events, false, { focusEventId: "reader-answer-5" }), searchable);
+    const focused = await position();
+    expect(focused.top).toBeGreaterThan(100);
+    expect(focused.gap).toBeGreaterThan(100);
+    await append("after-search", 100);
+    await page.waitForTimeout(800);
+    expect((await position()).top).toBeCloseTo(focused.top, 0);
   });
 });

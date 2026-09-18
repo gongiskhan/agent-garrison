@@ -2298,9 +2298,9 @@ body:has(> #root > .cc-root) { height: 100%; margin: 0; }
 .cc-conv-state-summary > :last-child { margin-bottom: 0; }
 
 /* Floats over the tail while the reader is scrolled up; disappears the moment
-   they are back at the bottom (it only renders while unpinned). The wrapper is
+   they are back at the bottom. The wrapper is
    sticky-bottom with ZERO height, so appearing and disappearing never shifts
-   the content the reader unpinned to read; the pill overflows upward out of it.
+   the content being read; the pill overflows upward out of it.
    Sticky, not fixed: the scroll container belongs to the HOST, and sticky
    follows whichever ancestor actually scrolls. */
 .cc-session-jumpwrap {

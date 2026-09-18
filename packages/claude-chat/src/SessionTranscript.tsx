@@ -60,12 +60,11 @@ const FOCUS_FLASH_CLASS = "cc-focus-flash";
 /**
  * Land a jump: once the event carrying `focusEventId` has rendered inside
  * `containerRef`, scroll it into view and flash it. The returned ref reads true
- * while the landing is still pending, so a LIVE stream can suppress its
- * stick-to-bottom until the jump has happened - without that the two fight and
- * the hit is scrolled off screen the instant it appears.
+ * while the landing is still pending, so the stream can suppress its initial
+ * jump to the bottom and keep the requested event in view.
  *
  * An id that never renders is not an error: nothing scrolls, nothing flashes, and
- * the stream keeps behaving normally. The match is done by walking the stamped
+ * the reader keeps control of the scroll position. The match is done by walking the stamped
  * nodes rather than through a selector, so an id carrying quotes or a colon (a
  * conversation id does) needs no escaping dance.
  */
@@ -124,9 +123,8 @@ export interface SessionStreamProps {
   /**
    * Land on one event instead of on live: after the stream renders, the element
    * stamped with this `data-session-event-id` is scrolled into view and flashed,
-   * and the stick-to-bottom is suppressed for that landing (a jump that is
-   * immediately scrolled away from is not a jump). Absent → exactly the previous
-   * behaviour. An id no event carries is inert.
+   * instead of the initial jump to the bottom. Later updates preserve the
+   * reading position. An id no event carries is inert.
    */
   focusEventId?: string;
   /**
@@ -1624,6 +1622,7 @@ export function SessionStream({
   onApprove,
 }: SessionStreamProps) {
   const [events, setEvents] = useState<SessionEvent[]>([]);
+  const [eventsUrl, setEventsUrl] = useState<string | null>(null);
   const [title, setTitle] = useState<string | null>(titleProp ?? null);
   const [status, setStatus] = useState<StreamStatus>("connecting");
   const [retryToken, setRetryToken] = useState(0);
@@ -1633,28 +1632,10 @@ export function SessionStream({
   const [modalImage, setModalImage] = useState<{ image: SessionImage; label: string } | null>(null);
   const [relatedView, setRelatedView] = useState<RelatedTask | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  /** Whether the view is FOLLOWING the stream (pinned to the tail). Intent-based:
-   * an upward wheel/drag unpins instantly; returning to the bottom (or the pill)
-   * re-pins. The ref is the authority; the state mirrors it for rendering. */
-  const pinnedRef = useRef(true);
-  const [stuck, setStuck] = useState(true);
-  /** The ONE scrolling ancestor this component animates. Resolved lazily - the
-   * host owns the scroll container (ClaudeChat's .cc-scroll, a sheet, a pane),
-   * and scrolling anything else is how the whole modal used to lurch. */
+  const [atBottom, setAtBottom] = useState(true);
   const scrollerRef = useRef<HTMLElement | null>(null);
-  const lastWrittenTopRef = useRef(-1);
-  const followActiveRef = useRef(false);
-  const hadContentRef = useRef(false);
-  /** A pill-click descent in flight. While set, position-based unpin signals
-   * are ignored - a settling turn can collapse layout mid-descent and the
-   * browser's scroll anchoring then moves scrollTop up, which reads exactly
-   * like a drag-up. Only real reader input (wheel/touch) cancels a jump. */
-  const jumpingRef = useRef(false);
-  /** A pointer is currently held down. A position regression is a reader's
-   * scrollbar drag ONLY while this is true - without it, the browser's scroll
-   * anchoring (layout collapsing above the viewport as a turn settles) writes
-   * the same upward jolt and must never read as intent. */
-  const pointerDownRef = useRef(false);
+  const initialScrollDone = useRef(false);
+  const readerMoved = useRef(false);
   const liveRef = useRef(live);
   const previousLiveRef = useRef(live);
   liveRef.current = live;
@@ -1696,17 +1677,18 @@ export function SessionStream({
 
   useEffect(() => {
     const changedUrl = connectedUrl.current !== url;
-    if (!reconnect || changedUrl) setEvents([]);
-    if (changedUrl) reconnectAttempts.current = 0;
+    if (changedUrl) {
+      setEvents([]);
+      setEventsUrl(null);
+      reconnectAttempts.current = 0;
+      initialScrollDone.current = false;
+      readerMoved.current = false;
+      scrollerRef.current = null;
+    }
     connectedUrl.current = url;
     setTitle(titleProp ?? null);
     setStatus("connecting");
     setRelatedView(null);
-    // A pending jump owns the scroll position for this mount: sticking to the
-    // bottom would scroll straight past the hit the reader asked to land on.
-    pinnedRef.current = !focusPendingRef.current;
-    setStuck(pinnedRef.current);
-    hadContentRef.current = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     const retryWhileLive = () => {
       if (retryTimer) return;
@@ -1726,6 +1708,7 @@ export function SessionStream({
         return;
       }
       if (payload.type === "init") {
+        setEventsUrl(url);
         if (payload.available !== false) reconnectAttempts.current = 0;
         setEvents(Array.isArray(payload.events) ? mergeSessionEvents([], payload.events.filter(isSessionEvent)) : []);
         if (payload.title) setTitle(String(payload.title));
@@ -1766,207 +1749,69 @@ export function SessionStream({
     };
   }, [url, titleProp, retryToken, reconnect]);
 
-  // ── Smooth stream-follow ────────────────────────────────────────────────────
-  // This component does not own the scroll container: the host does (ClaudeChat's
-  // .cc-scroll, a sheet, a pane). Two rules make the stream readable:
-  //
-  //   1. ONE element scrolls. The nearest scrollable ancestor is resolved once
-  //      and only its scrollTop is ever written - scrollIntoView walked EVERY
-  //      ancestor, which is how the whole modal used to lurch.
-  //   2. Following is smooth and UNPINNING is intent-based. While pinned, a
-  //      per-frame loop eases scrollTop toward the bottom (steady streaming
-  //      reads like a teleprompter; a sudden block eases in over ~250ms instead
-  //      of teleporting). The instant the reader wheels or drags UPWARD the
-  //      follow stops dead - nothing may move a transcript someone is reading -
-  //      and it resumes only when they return to the bottom or press the pill.
-  const setPinned = useCallback((value: boolean) => {
-    pinnedRef.current = value;
-    setStuck(value);
-  }, []);
+  // Output is a reading surface: opening it lands at the latest content once.
+  // Updates, reconnects and layout changes only refresh the jump button; they
+  // never move the reader. Only an explicit jump writes scrollTop after load.
   const resolveScroller = useCallback((): HTMLElement | null => {
+    const content = scrollRef.current;
     const cached = scrollerRef.current;
-    if (cached && cached.isConnected && cached.scrollHeight > cached.clientHeight + 1) return cached;
-    let node: HTMLElement | null = scrollRef.current;
+    if (cached?.isConnected && content && cached.contains(content)) return cached;
+    let node: HTMLElement | null = content;
     while (node) {
-      if (node.scrollHeight > node.clientHeight + 1) {
-        const overflowY = getComputedStyle(node).overflowY;
-        if (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") {
-          scrollerRef.current = node;
-          return node;
-        }
+      const overflowY = getComputedStyle(node).overflowY;
+      if (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") {
+        scrollerRef.current = node;
+        return node;
       }
       node = node.parentElement;
     }
     return null;
   }, []);
-  const snapToBottom = useCallback(() => {
+  const updateBottomState = useCallback(() => {
     const el = resolveScroller();
-    if (!el) return;
-    const target = el.scrollHeight - el.clientHeight;
-    lastWrittenTopRef.current = target;
-    el.scrollTop = target;
+    setAtBottom(!el || el.scrollHeight - el.scrollTop - el.clientHeight < 4);
   }, [resolveScroller]);
+  const jumpToLatest = useCallback(() => {
+    const el = resolveScroller();
+    if (el) el.scrollTop = el.scrollHeight - el.clientHeight;
+    updateBottomState();
+  }, [resolveScroller, updateBottomState]);
 
-  // Reader-intent listeners. The first cut bound these to the RESOLVED
-  // scroller once content appeared - but a fresh conversation has not
-  // overflowed its container yet, resolveScroller returned null, the
-  // listeners bound to NOTHING, and the follow loop then overwrote every
-  // wheel-up the reader tried, forever ("scrolling up is not allowed").
-  // Bind wheel/touch to OUR OWN content root instead (it always exists, and
-  // pointer events bubble through it regardless of which ancestor scrolls),
-  // and catch scroll in the CAPTURE phase on window (scroll does not bubble;
-  // capture sees every scroller, filtered to the one holding this transcript).
   useEffect(() => {
     const content = scrollRef.current;
     if (!content) return;
-    const onWheel = (event: WheelEvent) => {
-      // A trackpad keeps delivering decaying wheel events for a few hundred ms
-      // after the reader lifts their fingers. The reader who scrolled UP to
-      // read, then clicked "Jump to bottom", is exactly the reader whose
-      // upward momentum is still trailing off - an unthresholded deltaY<0 read
-      // that residue as a fresh scroll-up and cancelled the jump before it had
-      // moved, which is what "the button does not work" actually was. Real
-      // wheel ticks clear this by a wide margin; residue does not.
-      if (event.deltaY < -2) {
-        jumpingRef.current = false;
-        setPinned(false);
-      }
-    };
-    let touchY = 0;
-    const onTouchStart = (event: TouchEvent) => {
-      touchY = event.touches[0]?.clientY ?? 0;
-    };
-    const onTouchMove = (event: TouchEvent) => {
-      const y = event.touches[0]?.clientY ?? 0;
-      if (y > touchY + 4) {
-        jumpingRef.current = false;
-        setPinned(false);
-      }
-      touchY = y;
-    };
+    const markReaderMoved = () => { readerMoved.current = true; };
     const onScroll = (event: Event) => {
-      const el = event.target;
-      if (!(el instanceof HTMLElement) || !el.contains(content)) return;
-      if (el.scrollHeight - el.scrollTop - el.clientHeight < 4) {
-        if (!pinnedRef.current) setPinned(true);
-      } else if (
-        pointerDownRef.current &&
-        !jumpingRef.current &&
-        lastWrittenTopRef.current >= 0 &&
-        el.scrollTop < lastWrittenTopRef.current - 4
-      ) {
-        // Moved UP from where the follow last wrote WITH the pointer held -
-        // a scrollbar drag, which fires neither wheel nor touch.
-        setPinned(false);
-      }
+      if (event.target === resolveScroller()) updateBottomState();
     };
-    const onPointerDown = () => { pointerDownRef.current = true; };
-    const onPointerUp = () => { pointerDownRef.current = false; };
-    content.addEventListener("wheel", onWheel, { passive: true });
-    content.addEventListener("touchstart", onTouchStart, { passive: true });
-    content.addEventListener("touchmove", onTouchMove, { passive: true });
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateBottomState);
+    observer?.observe(content, { box: "border-box" });
+    const scroller = resolveScroller();
+    if (scroller && scroller !== content) observer?.observe(scroller, { box: "border-box" });
+    content.addEventListener("wheel", markReaderMoved, { passive: true });
+    content.addEventListener("touchmove", markReaderMoved, { passive: true });
     window.addEventListener("scroll", onScroll, { capture: true, passive: true });
-    window.addEventListener("mousedown", onPointerDown, { capture: true, passive: true });
-    window.addEventListener("mouseup", onPointerUp, { capture: true, passive: true });
+    updateBottomState();
     return () => {
-      content.removeEventListener("wheel", onWheel);
-      content.removeEventListener("touchstart", onTouchStart);
-      content.removeEventListener("touchmove", onTouchMove);
-      window.removeEventListener("scroll", onScroll, { capture: true } as EventListenerOptions);
-      window.removeEventListener("mousedown", onPointerDown, { capture: true } as EventListenerOptions);
-      window.removeEventListener("mouseup", onPointerUp, { capture: true } as EventListenerOptions);
+      observer?.disconnect();
+      content.removeEventListener("wheel", markReaderMoved);
+      content.removeEventListener("touchmove", markReaderMoved);
+      window.removeEventListener("scroll", onScroll, { capture: true });
     };
-  }, [setPinned]);
+  }, [url, resolveScroller, updateBottomState]);
 
-  // First contentful paint lands AT the bottom instantly - animating a whole
-  // history on open would be two seconds of scrolling nobody asked for.
   useEffect(() => {
-    if (hadContentRef.current || events.length === 0) return;
-    hadContentRef.current = true;
-    if (pinnedRef.current && !focusPendingRef.current) snapToBottom();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [events]);
+    // A URL change can render the previous session's events for one commit.
+    // Wait for this session's first visible content, and never re-arm on retry.
+    if (eventsUrl !== url || initialScrollDone.current || !scrollRef.current?.querySelector(".cc-session-turn")) return;
+    initialScrollDone.current = true;
+    if (!focusEventId && !focusPendingRef.current && !readerMoved.current) jumpToLatest();
+    else updateBottomState();
+  }, [events, eventsUrl, url, focusEventId, jumpToLatest, updateBottomState, focusPendingRef]);
 
   const resultsByToolUse = useMemo(() => latestBlocksByToolUse(events, "tool_result"), [events]);
   const progressByToolUse = useMemo(() => latestBlocksByToolUse(events, "tool_progress"), [events]);
-  // A conversation drives itself: the launcher runs stretches whether or not
-  // the HOST considers a turn in flight, so the derivation joins the host's
-  // `live` in deciding whether the tail renders as active work.
   const streamLive = (live || derivedBusy) && status === "streaming";
-  // The follow loop: while the stream is live and the reader is pinned, ease
-  // scrollTop toward the bottom every frame. Exponential approach - a few px of
-  // token growth tracks exactly; a 300px tool result eases in over ~250ms.
-  const followActive = streamLive || derivedBusy;
-  followActiveRef.current = followActive;
-  useEffect(() => {
-    if (!followActive) return;
-    let raf = 0;
-    const step = () => {
-      raf = requestAnimationFrame(step);
-      if (!pinnedRef.current || focusPendingRef.current) return;
-      const el = resolveScroller();
-      if (!el) return;
-      const target = el.scrollHeight - el.clientHeight;
-      const current = el.scrollTop;
-      // The reader moved UP with the pointer held since the last write: never
-      // fight them. Pointer-gated for the same reason the scroll listener is -
-      // scroll anchoring writes the same jolt with nobody touching anything.
-      if (
-        pointerDownRef.current &&
-        !jumpingRef.current &&
-        lastWrittenTopRef.current >= 0 &&
-        current < lastWrittenTopRef.current - 4 &&
-        target >= lastWrittenTopRef.current
-      ) {
-        setPinned(false);
-        return;
-      }
-      if (target - current <= 0.5) return;
-      const next = Math.min(target, current + Math.max(1, (target - current) * 0.22));
-      lastWrittenTopRef.current = next;
-      el.scrollTop = next;
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [followActive]);
-  // A SETTLED transcript keeps the old instant behaviour: late layout growth
-  // (markdown, images) lands with the bottom still in view, no animation.
-  useEffect(() => {
-    const content = scrollRef.current;
-    if (!content || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => {
-      if (!followActiveRef.current && pinnedRef.current && !focusPendingRef.current) snapToBottom();
-    });
-    observer.observe(content);
-    return () => observer.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  /** The pill, and the only programmatic way back: pin and ease down. The
-   * jumping flag holds until the descent LANDS, so a mid-descent layout shift
-   * (a turn settling, scroll anchoring) cannot read as reader intent. */
-  const jumpToLatest = useCallback(() => {
-    setPinned(true);
-    jumpingRef.current = true;
-    const el = resolveScroller();
-    if (!el) {
-      jumpingRef.current = false;
-      return;
-    }
-    const animate = () => {
-      if (!pinnedRef.current || !jumpingRef.current) {
-        jumpingRef.current = false;
-        return;
-      }
-      const target = el.scrollHeight - el.clientHeight;
-      const next = Math.min(target, el.scrollTop + Math.max(2, (target - el.scrollTop) * 0.25));
-      lastWrittenTopRef.current = next;
-      el.scrollTop = next;
-      if (target - next > 0.5) requestAnimationFrame(animate);
-      else jumpingRef.current = false;
-    };
-    requestAnimationFrame(animate);
-  }, [resolveScroller, setPinned]);
   const relatedTasks = useMemo(() => collectRelatedTasks(events, streamLive), [events, streamLive]);
   useEffect(() => {
     setRelatedView((selected) => {
@@ -2155,7 +2000,7 @@ export function SessionStream({
           );
         })}
         {conversationMode && !derivedBusy && <ConversationStateBanner key={`${url}:${activity.mode}:${activity.since}`} activity={activity} onApprove={onApprove} />}
-        {!stuck && (
+        {!atBottom && (
           <div className="cc-session-jumpwrap">
             <button type="button" className="cc-session-jump" onClick={jumpToLatest}>
               Jump to bottom
