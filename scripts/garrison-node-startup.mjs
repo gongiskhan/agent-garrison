@@ -2,6 +2,7 @@
 // Runs beside the node app. Restore only compositions which actually reached
 // running before this process started; explicit Stop leaves a cancelled receipt.
 import { pathToFileURL } from 'node:url';
+import { realpathSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { readStartupReceipts } from '../packages/claude-pty/src/startup-receipt.mjs';
 import { deploymentDraining, localConversationActivity } from '../packages/claude-pty/src/deployment-guard.mjs';
@@ -40,7 +41,7 @@ export async function restoreNodeStartup({ env = process.env, fetcher = fetch, s
   return { pending, restored };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const controller = new AbortController();
   process.once('SIGTERM', () => controller.abort());
   process.once('SIGINT', () => controller.abort());

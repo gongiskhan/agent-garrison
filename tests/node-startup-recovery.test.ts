@@ -3,6 +3,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 // @ts-ignore Shared owner-local runtime modules.
 import { readStartupReceipt, readStartupReceipts, writeStartupReceipt } from '../packages/claude-pty/src/startup-receipt.mjs';
 // @ts-ignore The node launcher also invokes this executable directly.
@@ -60,6 +62,29 @@ describe('node startup restores prior running compositions', () => {
     requests.length = 0;
     expect(await restoreNodeStartup({ env })).toEqual({ pending: false, restored: [] });
     expect(requests).toHaveLength(1); // Never restarts an already running composition.
+  });
+
+  it('executes startup recovery when the node launcher uses a symlinked checkout', async () => {
+    const receipt = await writeStartupReceipt('default', true, env);
+    const requests: any[] = [];
+    server = http.createServer(async (req, res) => {
+      let body = ''; for await (const chunk of req) body += chunk;
+      if (req.method === 'POST') requests.push(JSON.parse(body));
+      res.setHeader('content-type', 'application/json');
+      res.end(JSON.stringify({ state: { status: req.method === 'POST' ? 'running' : 'idle' } }));
+    });
+    await new Promise<void>(resolve => server!.listen(0, '127.0.0.1', resolve));
+    env.GARRISON_APP_PORT = String((server.address() as import('node:net').AddressInfo).port);
+    const alias = path.join(home, 'checkout');
+    await fs.symlink(process.cwd(), alias, 'dir');
+    const childEnv = { ...process.env, ...env };
+    delete childEnv.GARRISON_CONVERSATION_ID;
+    delete childEnv.GARRISON_DISABLE_HOST_DAEMONS;
+    const result = await promisify(execFile)(process.execPath, [path.join(alias, 'scripts/garrison-node-startup.mjs')], {
+      env: childEnv, timeout: 10_000,
+    });
+    expect(result.stdout).toContain('[node-startup] restored default');
+    expect(requests).toEqual([{ restoreRunId: receipt.runId }]);
   });
 
   it('defers while deployment or live Conversation work owns the node', async () => {
