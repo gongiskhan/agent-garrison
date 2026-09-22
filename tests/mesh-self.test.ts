@@ -197,6 +197,60 @@ describe("node-beat pump", () => {
     expect(said).toHaveLength(1);
   });
 
+  // The seam lib/app-watchdog.mjs reads to decide whether a node has stopped
+  // serving. Inverted or conflated, it either restarts a healthy node or
+  // sleeps through an outage, so each case is pinned separately here.
+  describe("reports whether the app itself answered", () => {
+    it("false when the probe throws - nothing is listening on the app port", async () => {
+      const beat = createNodeBeat({
+        env,
+        fetchImpl: (async () => {
+          throw new Error("fetch failed");
+        }) as unknown as typeof fetch,
+        log: (m: string) => logs.push(m)
+      });
+      await expect(beat.beatOnce()).resolves.toMatchObject({ appReachable: false, reason: "gather-failed" });
+    });
+
+    it("true when the app answers badly - reachable and broken is a different problem", async () => {
+      const beat = createNodeBeat({
+        env,
+        fetchImpl: (async () => new Response("nope", { status: 503 })) as unknown as typeof fetch,
+        log: (m: string) => logs.push(m)
+      });
+      await expect(beat.beatOnce()).resolves.toMatchObject({ appReachable: true, reason: "no-health" });
+    });
+
+    it("true when the app answered and only the state service post failed", async () => {
+      const beat = createNodeBeat({
+        env: { ...env, GARRISON_STATE_URL: "http://127.0.0.1:1/unreachable" },
+        fetchImpl: routedFetch,
+        log: (m: string) => logs.push(m)
+      });
+      await expect(beat.beatOnce()).resolves.toMatchObject({ appReachable: true, beat: false });
+    });
+
+    it("null when no app URL is projected - unknown, not down", async () => {
+      const beat = createNodeBeat({ env: {}, fetchImpl: routedFetch, log: (m: string) => logs.push(m) });
+      await expect(beat.beatOnce()).resolves.toMatchObject({ appReachable: null });
+    });
+
+    it("hands every outcome to onBeat, and survives an observer that throws", async () => {
+      const seen: (boolean | null | undefined)[] = [];
+      const beat = createNodeBeat({
+        env,
+        fetchImpl: routedFetch,
+        log: (m: string) => logs.push(m),
+        onBeat: (result) => {
+          seen.push(result.appReachable);
+          throw new Error("observer exploded");
+        }
+      });
+      await expect(beat.beatOnce()).resolves.toMatchObject({ beat: true });
+      expect(seen).toEqual([true]);
+    });
+  });
+
   it("resolves the app URL from the launcher's env, never a literal", () => {
     expect(resolveAppUrl({ GARRISON_APP_URL: "http://example.test/" })).toBe("http://example.test");
     expect(resolveAppUrl({ GARRISON_APP_PORT: "8777" })).toBe("http://127.0.0.1:8777");

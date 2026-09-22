@@ -15,6 +15,11 @@
 //
 // Nothing here may throw into the daemon. A node that is not enrolled yet, or
 // whose app is still booting, must beat nothing and keep ticking cron jobs.
+//
+// It does report, on every beat, whether the app answered at all (see
+// `appReachable` on gather). That is an observation of the probe it already
+// makes, not a probe of its own; the policy that acts on a run of them lives in
+// lib/app-watchdog.mjs.
 
 import fsSync from "node:fs";
 import { createStateClient } from "./state-client.mjs";
@@ -40,7 +45,11 @@ export function createNodeBeat({
   fetchImpl = globalThis.fetch,
   log = console.error,
   intervalMs = BEAT_INTERVAL_MS,
-  readFileSync = fsSync.readFileSync
+  readFileSync = fsSync.readFileSync,
+  // Every beat outcome, handed to whoever wants an opinion about it. The pump
+  // keeps none: see lib/app-watchdog.mjs, which turns a run of unreachable
+  // beats into a restart. A throw here must never break the beat.
+  onBeat = null
 } = {}) {
   let client = null;
   let timer = null;
@@ -61,6 +70,11 @@ export function createNodeBeat({
     if (message) log(`[node-beat] ${message}`);
   };
 
+  // `appReachable` is the one fact a liveness watcher needs and the only one
+  // this pump is in a position to know: false means the probe THREW - nothing
+  // is listening on the app port. An app that answers 500 is reachable and
+  // broken, which is a different problem with a different cure, so it reports
+  // true. No app URL at all reports null: unknown, not down.
   async function gather() {
     const appUrl = resolveAppUrl(env);
     if (!appUrl) {
@@ -68,17 +82,28 @@ export function createNodeBeat({
         "no-app-url",
         "neither GARRISON_APP_URL nor GARRISON_APP_PORT is set; this node will not report health until the launcher projects one"
       );
-      return null;
+      return { health: null, appReachable: null };
     }
-    const res = await fetchImpl(`${appUrl}/api/mesh/self`, {
-      signal: AbortSignal.timeout(GATHER_TIMEOUT_MS),
-      cache: "no-store"
-    });
+    let res;
+    try {
+      res = await fetchImpl(`${appUrl}/api/mesh/self`, {
+        signal: AbortSignal.timeout(GATHER_TIMEOUT_MS),
+        cache: "no-store"
+      });
+    } catch (err) {
+      complain("gather-failed", `could not read /api/mesh/self: ${err?.message ?? err}`);
+      return { health: null, appReachable: false, reason: "gather-failed" };
+    }
     if (!res.ok) {
       complain(`self-${res.status}`, `${appUrl}/api/mesh/self answered ${res.status}; skipping this beat`);
-      return null;
+      return { health: null, appReachable: true };
     }
-    return await res.json();
+    try {
+      return { health: await res.json(), appReachable: true };
+    } catch (err) {
+      complain("self-body", `${appUrl}/api/mesh/self answered with a body that is not JSON: ${err?.message ?? err}`);
+      return { health: null, appReachable: true };
+    }
   }
 
   // Discovery is retried on EVERY beat rather than memoised as a fatal: a node
@@ -90,22 +115,36 @@ export function createNodeBeat({
     return client;
   }
 
-  async function beatOnce() {
-    let health;
-    try {
-      health = await gather();
-    } catch (err) {
-      complain("gather-failed", `could not read /api/mesh/self: ${err?.message ?? err}`);
-      return { beat: false, reason: "gather-failed" };
+  const finish = (result) => {
+    if (onBeat) {
+      try {
+        void Promise.resolve(onBeat(result)).catch(() => {});
+      } catch {
+        // An observer's opinion is never worth a missed beat.
+      }
     }
-    if (!health) return { beat: false, reason: "no-health" };
+    return result;
+  };
+
+  async function beatOnce() {
+    let gathered;
+    try {
+      gathered = await gather();
+    } catch (err) {
+      // gather() is written not to throw; if it ever does, the app not
+      // answering is still the likeliest reading of it.
+      complain("gather-failed", `could not read /api/mesh/self: ${err?.message ?? err}`);
+      gathered = { health: null, appReachable: false, reason: "gather-failed" };
+    }
+    const { health, appReachable } = gathered;
+    if (!health) return finish({ beat: false, reason: gathered.reason ?? "no-health", appReachable });
 
     let stateClient;
     try {
       stateClient = resolveClient();
     } catch (err) {
       complain("not-enrolled", `not enrolled in a mesh yet: ${err?.message ?? err}`);
-      return { beat: false, reason: "not-enrolled" };
+      return finish({ beat: false, reason: "not-enrolled", appReachable });
     }
 
     try {
@@ -132,13 +171,13 @@ export function createNodeBeat({
       } else {
         recover("reporting health to the state service again");
       }
-      return { beat: true, behind: Boolean(result?.behind) };
+      return finish({ beat: true, behind: Boolean(result?.behind), appReachable });
     } catch (err) {
       // Discovery may have produced a client for a service that has since
       // moved or rotated its token; drop it so the next beat rediscovers.
       client = null;
       complain(`post-${err?.status ?? "unreachable"}`, `could not report health: ${err?.message ?? err}`);
-      return { beat: false, reason: "post-failed" };
+      return finish({ beat: false, reason: "post-failed", appReachable });
     }
   }
 

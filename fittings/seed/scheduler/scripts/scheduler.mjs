@@ -437,7 +437,29 @@ async function daemon(opts = {}) {
   // Disable with GARRISON_DISABLE_NODE_BEAT=1.
   try {
     const { startNodeBeat, BEAT_INTERVAL_MS } = await import("./lib/node-beat.mjs");
-    nodeBeat = startNodeBeat();
+    // The liveness watchdog rides the beat the daemon already makes. It is what
+    // notices that the app has stopped listening while this unit still reports
+    // `active (running)` - the shape of the 2026-09-21 dev-madrid outage, which
+    // systemd cannot see and nothing else in the node was watching for.
+    // Disable with GARRISON_DISABLE_APP_WATCHDOG=1.
+    let watchdog = null;
+    try {
+      const { startAppWatchdog, UNREACHABLE_BUDGET_MS } = await import("./lib/app-watchdog.mjs");
+      watchdog = startAppWatchdog({
+        log: (message) => {
+          console.error(message);
+          void appendLog(`[${new Date().toISOString()}] ${message}`);
+        }
+      });
+      if (watchdog) {
+        await appendLog(
+          `[${new Date().toISOString()}] app watchdog armed (restart after ${UNREACHABLE_BUDGET_MS}ms unreachable)`
+        );
+      }
+    } catch (err) {
+      await appendLog(`[${new Date().toISOString()}] app watchdog unavailable: ${err.message}`);
+    }
+    nodeBeat = startNodeBeat(watchdog ? { onBeat: (result) => watchdog.record(result) } : {});
     if (nodeBeat) {
       await appendLog(`[${new Date().toISOString()}] node beat start (every ${BEAT_INTERVAL_MS}ms)`);
     }
