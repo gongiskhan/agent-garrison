@@ -66,8 +66,8 @@ x-garrison:
       inflating the task text.
 
     A helper CLI ships with the fitting for the mechanical edits:
-        node apm_modules/_local/roadmaps/scripts/roadmap.mjs show <repo>/roadmap.json
-        node apm_modules/_local/roadmaps/scripts/roadmap.mjs check <repo>/roadmap.json f0.1
-        node apm_modules/_local/roadmaps/scripts/roadmap.mjs add-item <repo>/roadmap.json f0 "..."
-        node apm_modules/_local/roadmaps/scripts/roadmap.mjs validate <repo>/roadmap.json
+        node "$GARRISON_COMPOSITION_DIR/apm_modules/_local/roadmaps/scripts/roadmap.mjs" show <repo>/roadmap.json
+        node "$GARRISON_COMPOSITION_DIR/apm_modules/_local/roadmaps/scripts/roadmap.mjs" check <repo>/roadmap.json f0.1
+        node "$GARRISON_COMPOSITION_DIR/apm_modules/_local/roadmaps/scripts/roadmap.mjs" add-item <repo>/roadmap.json f0 "..."
+        node "$GARRISON_COMPOSITION_DIR/apm_modules/_local/roadmaps/scripts/roadmap.mjs" validate <repo>/roadmap.json
     Editing the JSON by hand is equally fine - run `validate` afterwards.
