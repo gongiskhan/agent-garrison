@@ -13,6 +13,8 @@ import path from "node:path";
 import url from "node:url";
 
 import { assessSweepResults, summarize } from "../lib/preflight-core.mjs";
+import { localiseFindings, normaliseLang } from "../lib/i18n.mjs";
+import { defaultLang } from "../lib/report.mjs";
 
 const HOME = os.homedir();
 const GARRISON_HOME = process.env.GARRISON_HOME || path.join(HOME, ".garrison");
@@ -23,7 +25,7 @@ const FITTING_ID = "preflight";
 // the projected name must win or the composition's `config:` block is decorative.
 // No hardcoded port fallback: port 0 (ephemeral) is the standalone default and
 // the composition/runner always provides the real one.
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const out = {
     port: Number(process.env.GARRISON_PREFLIGHT_PORT ?? process.env.PREFLIGHT_PORT ?? process.env.PORT ?? 0),
     host: process.env.GARRISON_PREFLIGHT_BIND_HOST || process.env.GARRISON_BIND_HOST || "127.0.0.1"
@@ -155,6 +157,58 @@ const DEFAULT_DEPS = {
 export function createRequestHandler(deps = {}) {
   const api = { ...DEFAULT_DEPS, ...deps };
   const distDir = api.distDir || path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..", "dist");
+  // The report reads 78 manifests, execs git twice per composition, lsof and
+  // tailscale. Every open tab used to pay that every 30s, independently. The
+  // CLI never caches, and neither does the fixers' revalidation: that one
+  // exists precisely to check FRESH reality against the finding being repaired.
+  const cacheTtlMs = Number.isFinite(api.reportCacheMs)
+    ? api.reportCacheMs
+    : Number(process.env.GARRISON_PREFLIGHT_REPORT_CACHE_MS ?? 15000);
+  // One slot per (language, subset). A single slot made a Portuguese tab and
+  // an English one evict each other on every poll, so both paid a full
+  // collector run every 30s and neither ever hit the cache.
+  const slots = new Map();
+  const MAX_SLOTS = 8;
+  const invalidateReport = () => { slots.clear(); };
+
+  const rebuild = (key, checks, lang) => {
+    const slot = slots.get(key) ?? { at: 0, inflight: null, value: null };
+    slots.set(key, slot);
+    const inflight = Promise.resolve(api.buildReport({ checks, ledger: "update", ...(lang ? { lang } : {}) })).then(
+      (value) => { if (slots.get(key) === slot) Object.assign(slot, { at: Date.now(), inflight: null, value }); return value; },
+      (err) => { if (slots.get(key) === slot && slot.inflight === inflight) slots.delete(key); throw err; }
+    );
+    slot.inflight = inflight;
+    if (slots.size > MAX_SLOTS) slots.delete(slots.keys().next().value);
+    return inflight;
+  };
+
+  // The language is part of the key: a report is rendered prose, and a slot
+  // must never hand a Portuguese page an English build.
+  const cachedReport = (checks, fresh, lang) => {
+    const key = `${lang || "*"}|${(checks ?? []).slice().sort().join(",") || "*"}`;
+    const slot = slots.get(key);
+    if (!fresh && slot) {
+      // Concurrent misses share one build instead of racing several.
+      if (slot.inflight && !slot.value) return slot.inflight;
+      if (slot.value) {
+        // Stale-while-revalidate: a report that exists is served at once, and a
+        // stale one is rebuilt BEHIND the response. The page never waits for a
+        // rebuild it did not ask for — the 30s poll used to block each tab for
+        // the full collector run. fresh=1 and a repair still force a wait.
+        if (Date.now() - slot.at >= cacheTtlMs && !slot.inflight) rebuild(key, checks, lang).catch(() => {});
+        return Promise.resolve(slot.value);
+      }
+    }
+    if (fresh) slots.delete(key);
+    return rebuild(key, checks, lang);
+  };
+
+  // `?lang=` is authoritative when present and valid; otherwise the node's
+  // configured default. An unknown value falls back rather than failing —
+  // a wrong language is a page in the other language, not an error.
+  const langOf = (query) => (typeof query.lang === "string" && query.lang ? normaliseLang(query.lang, null) : null);
+
   let mutationTail = Promise.resolve();
   const mutate = (req, res, operation) => {
     const pending = mutationTail.then(() => {
@@ -175,10 +229,14 @@ export function createRequestHandler(deps = {}) {
       if (pathname === "/api/report" && method === "GET") {
         const query = url.parse(req.url || "/", true).query;
         const checks = typeof query.checks === "string" && query.checks ? query.checks.split(",") : null;
-        return jsonRes(res, 200, await api.buildReport({ checks }));
+        // Keyed by the RESOLVED language, so a first load that omits ?lang= and
+        // the follow-up that names the default it was told share one build.
+        return jsonRes(res, 200, await cachedReport(checks, query.fresh === "1", langOf(query) || defaultLang()));
       }
       if ((pathname === "/api/fix" || pathname === "/api/verify-sweep") && method === "POST") {
         validateMutationRequest(req);
+        const query = url.parse(req.url || "/", true).query;
+        const lang = langOf(query) || defaultLang();
         const body = await readBody(req);
         if (pathname === "/api/fix") {
           if (typeof body.actionId !== "string" || !body.actionId.trim() ||
@@ -186,6 +244,8 @@ export function createRequestHandler(deps = {}) {
             throw new RequestError(400, "actionId and object params required");
           }
           const result = await mutate(req, res, () => api.runFix(body.actionId, body.params ?? {}));
+          // A repair changes the very reality the cached report describes.
+          if (result.ok) invalidateReport();
           return jsonRes(res, result.ok ? 200 : 400, result);
         }
         const compositionId = body.compositionId;
@@ -201,9 +261,10 @@ export function createRequestHandler(deps = {}) {
             throw new RequestError(409, "verify requires a confirmed idle or failed composition");
           }
           const sweep = await api.runVerifySweep(compositionId);
+          invalidateReport();
           if (!sweep.ok) return jsonRes(res, 502, { error: sweep.error });
-          const findings = assessSweepResults(compositionId, sweep.results);
-          return jsonRes(res, 200, { findings, summary: summarize(findings), compositionId });
+          const findings = localiseFindings(assessSweepResults(compositionId, sweep.results), lang);
+          return jsonRes(res, 200, { findings, summary: summarize(findings), compositionId, lang });
         });
       }
       if (pathname.startsWith("/api/") || !["GET", "HEAD"].includes(method)) {
