@@ -25,6 +25,7 @@ const TAILSCALE_CANDIDATES = [
   "tailscale",
   "/opt/homebrew/bin/tailscale",
   "/usr/local/bin/tailscale",
+  "/usr/bin/tailscale",
   "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 ];
 
@@ -49,6 +50,12 @@ function tailscale(args) {
     } catch (err) {
       const out = err?.stdout;
       if (typeof out === "string" && out.includes("{")) return out;
+      // ENOENT means this candidate PATH does not exist - keep looking. Any
+      // other failure came from a tailscale that DID run, and walking on
+      // would replace its real message with the last candidate's ENOENT -
+      // which is how the comment above ("throws only when no candidate binary
+      // exists") stopped being true.
+      if (err?.code !== "ENOENT") throw err;
       lastErr = err;
     }
   }

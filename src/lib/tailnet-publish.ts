@@ -17,6 +17,7 @@ const TAILSCALE_CANDIDATES = [
   "tailscale",
   "/opt/homebrew/bin/tailscale",
   "/usr/local/bin/tailscale",
+  "/usr/bin/tailscale",
   "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
 ];
 
@@ -40,6 +41,13 @@ async function tailscale(args: string[]): Promise<string> {
     } catch (err) {
       const out = (err as { stdout?: string })?.stdout;
       if (typeof out === "string" && out.includes("{")) return out;
+      // ENOENT means this candidate PATH does not exist - keep looking. Any
+      // other failure came from a tailscale that DID run (a permission
+      // refusal, a bad argument), and walking on would replace that real
+      // message with the LAST candidate's ENOENT: on Linux a "serve config
+      // denied" surfaced as a missing /Applications/Tailscale.app, sending
+      // the operator hunting a macOS binary that was never going to be there.
+      if ((err as NodeJS.ErrnoException)?.code !== "ENOENT") throw err;
       lastErr = err;
     }
   }
