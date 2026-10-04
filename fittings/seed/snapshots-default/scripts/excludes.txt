@@ -1,6 +1,13 @@
 node_modules
 apm_modules
 .cache
+# Next.js/Turbopack build caches: rebuildable, and rewritten on every dev run,
+# so each nightly snapshot stored gigabytes of fresh cache blobs.
+.next
+.turbo
+# Ekoa voice knowledge index: a ~10 GB live SQLite file rewritten while restic
+# reads it, so each copy was large churn and not crash-consistent.
+**/.voice-spike/data/knowledge/index/fts.db*
 **/.garrison/files/.trash
 # The fitting's own state home must NEVER enter the backup set: the local
 # fallback repo lives here, and backing the repo into itself compounds the

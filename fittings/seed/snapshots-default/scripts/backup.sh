@@ -88,7 +88,7 @@ fi
 # Keep restic's --json stream OUT of the backup set (STATE_DIR lives under
 # ~/.garrison, which we back up) so it never captures its own in-progress output.
 TMP_JSON="${TMPDIR:-/tmp}/garrison-snapshot-backup.$$.json"
-restic backup "${SET[@]}" --exclude-file "$EXCLUDES" --json >"$TMP_JSON" 2>>"$LOG_FILE"
+restic backup "${SET[@]}" ${SNAPSHOTS_HOST:+--host "$SNAPSHOTS_HOST"} --exclude-file "$EXCLUDES" --json >"$TMP_JSON" 2>>"$LOG_FILE"
 rc=$?
 BYTES="$(grep -o '"total_bytes_processed":[0-9]\+' "$TMP_JSON" 2>/dev/null | tail -1 | grep -o '[0-9]\+' || true)"
 rm -f "$TMP_JSON"

@@ -131,7 +131,9 @@ export async function runDrill({ env = process.env, log = console.log, notify = 
         snapshot = readJson(path.join(env.RESTIC_RESTORE_OVERRIDE, 'snapshot.json'));
         fs.cpSync(env.RESTIC_RESTORE_OVERRIDE, destination, { recursive: true });
       } else {
-        const snapshots = JSON.parse(await restic(['snapshots', '--json', '--host', os.hostname()], env));
+        // Same host resolution backup.sh writes with (env.sh), not os.hostname().
+        const host = (await execute('bash', ['-c', '. "$1"; printf %s "$SNAPSHOTS_HOST"', 'restore-drill', path.join(SCRIPTS, 'env.sh')], { env })).trim();
+        const snapshots = JSON.parse(await restic(['snapshots', '--json', '--host', host], env));
         snapshot = snapshots.filter(s => s.paths?.some(p => path.resolve(p) === path.resolve(garrison))).sort((a, b) => new Date(a.time) - new Date(b.time)).at(-1);
         if (!snapshot) throw new Error('no restic snapshot for this node and Garrison home');
         await restic(['restore', snapshot.id, '--target', destination, ...['conversations', 'mesh-conversations', 'kanban-loop'].flatMap(p => ['--include', path.join(garrison, p)])], env);

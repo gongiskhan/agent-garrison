@@ -55,6 +55,23 @@ fi
 # Projects root included in the backup set (default ~/dev; override via env).
 export SNAPSHOTS_PROJECTS_ROOT="${SNAPSHOTS_PROJECTS_ROOT:-${GARRISON_PROJECTS_ROOT:-$HOME/dev}}"
 
+# Stable restic host for this node. restic defaults to `hostname`, which on
+# macOS follows the network (MacBookPro vs Goncalos-MacBook-Pro.local), and each
+# flip opened a new retention group the weekly prune kept in full. Resolve the
+# mesh node name instead: an explicit SNAPSHOTS_HOST, then GARRISON_NODE_NAME,
+# then the node the scheduling receipt recorded, and the hostname only on a box
+# that never registered.
+if [ -z "${SNAPSHOTS_HOST:-}" ]; then
+  SNAPSHOTS_HOST="${GARRISON_NODE_NAME:-}"
+fi
+if [ -z "$SNAPSHOTS_HOST" ] && [ -f "$SNAPSHOTS_HOME/schedule.json" ]; then
+  SNAPSHOTS_HOST="$(sed -n 's/^[[:space:]]*"node":[[:space:]]*"\([^"]*\)".*/\1/p' "$SNAPSHOTS_HOME/schedule.json" | head -1)"
+fi
+if [ -z "$SNAPSHOTS_HOST" ]; then
+  SNAPSHOTS_HOST="$(hostname 2>/dev/null || true)"
+fi
+export SNAPSHOTS_HOST
+
 # restic reads GOOGLE_APPLICATION_CREDENTIALS for the gs: backend; keep it
 # exported (possibly empty) so callers see a consistent environment.
 export GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_APPLICATION_CREDENTIALS:-}"

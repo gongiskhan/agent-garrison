@@ -101,6 +101,8 @@ describe("excludes.txt", () => {
     expect(lines).toContain("node_modules");
     expect(lines).toContain("apm_modules");
     expect(lines).toContain(".cache");
+    expect(lines).toContain(".next");
+    expect(lines).toContain(".turbo");
   });
 
   it("excludes the Files trash", () => {
@@ -128,7 +130,8 @@ function resolveEnv(opts: {
     `printf 'RESTIC_PASSWORD=%s\\n' "\${RESTIC_PASSWORD:-}"\n` +
     `printf 'SHARED=%s\\n' "\${SHARED:-}"\n` +
     `printf 'ONLYFALLBACK=%s\\n' "\${ONLYFALLBACK:-}"\n` +
-    `printf 'SNAPSHOTS_PROJECTS_ROOT=%s\\n' "\${SNAPSHOTS_PROJECTS_ROOT:-}"\n`;
+    `printf 'SNAPSHOTS_PROJECTS_ROOT=%s\\n' "\${SNAPSHOTS_PROJECTS_ROOT:-}"\n` +
+    `printf 'SNAPSHOTS_HOST=%s\\n' "\${SNAPSHOTS_HOST:-}"\n`;
   const env: NodeJS.ProcessEnv = {
     NODE_ENV: "test",
     PATH: process.env.PATH ?? "",
@@ -176,6 +179,25 @@ describe("env.sh source order + defaults", () => {
     const out = resolveEnv({ home, extra: { RESTIC_REPOSITORY: "/tmp/local-repo" } });
     expect(out.RESTIC_REPOSITORY).toBe("/tmp/local-repo");
   });
+
+  it("resolves a stable restic host: explicit, node name, scheduling receipt, then hostname", () => {
+    const home = path.join(sandbox, "home");
+    const stateDir = path.join(home, ".garrison", "snapshots");
+    fs.mkdirSync(stateDir, { recursive: true });
+
+    const hostname = spawnSync("hostname", { encoding: "utf8" }).stdout.trim();
+    expect(resolveEnv({ home }).SNAPSHOTS_HOST).toBe(hostname);
+
+    fs.writeFileSync(
+      path.join(stateDir, "schedule.json"),
+      JSON.stringify({ version: 1, node: "receipt-node", jobs: [{ id: "snapshots.backup" }] }, null, 2) + "\n"
+    );
+    expect(resolveEnv({ home }).SNAPSHOTS_HOST).toBe("receipt-node");
+    expect(resolveEnv({ home, extra: { GARRISON_NODE_NAME: "mesh-node" } }).SNAPSHOTS_HOST).toBe("mesh-node");
+    expect(
+      resolveEnv({ home, extra: { GARRISON_NODE_NAME: "mesh-node", SNAPSHOTS_HOST: "pinned" } }).SNAPSHOTS_HOST
+    ).toBe("pinned");
+  });
 });
 
 // A full local round trip through the actual scripts, gated on restic being
@@ -192,6 +214,8 @@ describe.skipIf(!resticAvailable)("restic round trip (local repo)", () => {
     fs.mkdirSync(path.join(home, "dev", "proj", "node_modules"), { recursive: true });
     fs.writeFileSync(path.join(home, "dev", "proj", "file.txt"), "hello-snapshot\n");
     fs.writeFileSync(path.join(home, "dev", "proj", "node_modules", "junk.txt"), "EXCLUDED\n");
+    fs.mkdirSync(path.join(home, "dev", "proj", ".next", "cache"), { recursive: true });
+    fs.writeFileSync(path.join(home, "dev", "proj", ".next", "cache", "build.bin"), "EXCLUDED\n");
     fs.writeFileSync(path.join(home, ".garrison", "files", ".trash", "old.txt"), "EXCLUDED\n");
     fs.writeFileSync(path.join(stateDir, "env"), `RESTIC_REPOSITORY=${repo}\nRESTIC_PASSWORD=test\n`, {
       mode: 0o600
@@ -201,7 +225,8 @@ describe.skipIf(!resticAvailable)("restic round trip (local repo)", () => {
       NODE_ENV: "test",
       PATH: process.env.PATH ?? "",
       HOME: home,
-      RESTIC_CACHE_DIR: path.join(sandbox, "cache")
+      RESTIC_CACHE_DIR: path.join(sandbox, "cache"),
+      GARRISON_NODE_NAME: "roundtrip-node"
     };
 
     // backup
@@ -219,11 +244,12 @@ describe.skipIf(!resticAvailable)("restic round trip (local repo)", () => {
     const envelope = JSON.parse(status.stdout.trim()) as {
       repository: string;
       error: string;
-      snapshots: Array<{ short_id?: string; paths?: string[] }>;
+      snapshots: Array<{ short_id?: string; paths?: string[]; hostname?: string }>;
     };
     expect(envelope.repository).toBe(repo);
     expect(envelope.error).toBe("");
     expect(envelope.snapshots.length).toBeGreaterThanOrEqual(1);
+    expect(envelope.snapshots.map((s) => s.hostname)).toEqual(["roundtrip-node"]);
 
     // verify (restic check)
     const verify = spawnSync("bash", [path.join(SCRIPTS_DIR, "verify.sh")], { encoding: "utf8", env });
@@ -239,6 +265,53 @@ describe.skipIf(!resticAvailable)("restic round trip (local repo)", () => {
     expect(restored.status, restored.stderr).toBe(0);
     expect(fs.existsSync(path.join(restore, home, "dev", "proj", "file.txt"))).toBe(true);
     expect(fs.existsSync(path.join(restore, home, "dev", "proj", "node_modules", "junk.txt"))).toBe(false);
+    expect(fs.existsSync(path.join(restore, home, "dev", "proj", ".next", "cache", "build.bin"))).toBe(false);
     expect(fs.existsSync(path.join(restore, home, ".garrison", "files", ".trash", "old.txt"))).toBe(false);
+  });
+
+  it("prunes one node's history as one group even when its backup set changes", () => {
+    // Regression: restic's default host+paths grouping gave every backup-set
+    // variant its own retention group, so prune kept each variant's dailies.
+    const home = path.join(sandbox, "home");
+    const repo = path.join(sandbox, "repo");
+    const stateDir = path.join(home, ".garrison", "snapshots");
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.mkdirSync(path.join(home, "dev", "proj"), { recursive: true });
+    fs.writeFileSync(path.join(home, "dev", "proj", "file.txt"), "hello-prune\n");
+    fs.writeFileSync(path.join(stateDir, "env"), `RESTIC_REPOSITORY=${repo}\nRESTIC_PASSWORD=test\n`, {
+      mode: 0o600
+    });
+    const env: NodeJS.ProcessEnv = {
+      NODE_ENV: "test",
+      PATH: process.env.PATH ?? "",
+      HOME: home,
+      RESTIC_CACHE_DIR: path.join(sandbox, "cache"),
+      GARRISON_NODE_NAME: "prune-node"
+    };
+    const run = (script: string) => {
+      const res = spawnSync("bash", [path.join(SCRIPTS_DIR, script)], { encoding: "utf8", env });
+      expect(res.status, res.stderr).toBe(0);
+    };
+
+    run("backup.sh");
+    run("backup.sh");
+    // A new path joins the backup set; same node, same day.
+    fs.mkdirSync(path.join(home, ".garrison", "mesh-conversations"), { recursive: true });
+    fs.writeFileSync(path.join(home, ".garrison", "mesh-conversations", "c.json"), "{}\n");
+    run("backup.sh");
+    run("prune.sh");
+
+    const listed = spawnSync("restic", ["snapshots", "--json"], {
+      encoding: "utf8",
+      env: { ...env, RESTIC_REPOSITORY: repo, RESTIC_PASSWORD: "test" }
+    });
+    expect(listed.status, listed.stderr).toBe(0);
+    // One group: restic keeps the oldest (short history) and the newest daily,
+    // and drops the middle run. Split by paths, all three would survive.
+    const snapshots = JSON.parse(listed.stdout) as Array<{ hostname: string; paths: string[]; time: string }>;
+    expect(snapshots).toHaveLength(2);
+    expect(snapshots.every((s) => s.hostname === "prune-node")).toBe(true);
+    const newest = snapshots.sort((a, b) => a.time.localeCompare(b.time)).at(-1)!;
+    expect(newest.paths).toContain(path.join(home, ".garrison", "mesh-conversations"));
   });
 });
