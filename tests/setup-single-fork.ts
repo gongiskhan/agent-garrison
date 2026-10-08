@@ -10,14 +10,19 @@
 //
 // It runs after tests/setup.ts, so the snapshot already carries the sandbox
 // defaults setup.ts pins (GARRISON_HOME, GARRISON_ASSUME_INSTALLED, TMPDIR) and
-// the live-service variables it clears stay cleared.
+// the live-service variables it clears stay cleared. The two sandbox homes are
+// the exception: setup.ts has just made fresh ones for this file and removes
+// them when the file ends, so restoring the first file's (already removed)
+// homes would hand later files a deleted directory.
 const BASELINE = Symbol.for("garrison.tests.single-fork-env-baseline");
+const PER_FILE_HOMES = ["GARRISON_HOME", "HOME"] as const;
 const g = globalThis as unknown as Record<symbol, Record<string, string | undefined> | undefined>;
 
 const baseline = g[BASELINE];
 if (!baseline) {
   g[BASELINE] = { ...process.env };
 } else {
+  const homes = PER_FILE_HOMES.map(key => [key, process.env[key]] as const);
   for (const key of Object.keys(process.env)) {
     if (!(key in baseline)) delete process.env[key];
   }
@@ -25,4 +30,5 @@ if (!baseline) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
   }
+  for (const [key, value] of homes) if (value !== undefined) process.env[key] = value;
 }

@@ -1,6 +1,7 @@
-import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
+import { afterAll } from "vitest";
 
 // Scratch paths are canonical.
 //
@@ -41,14 +42,24 @@ process.env.GARRISON_ASSUME_INSTALLED = "1";
 // suite with an empty temporary directory containing no live fitting.
 // Tests that need their own home still set GARRISON_HOME themselves (they
 // pass it explicitly to loadConfig or set process.env after this setup runs).
-process.env.GARRISON_HOME = mkdtempSync(join(tmpdir(), "garrison-test-home-"));
+const testHome = mkdtempSync(join(tmpdir(), "garrison-test-home-"));
+process.env.GARRISON_HOME = testHome;
 
 // User-runtime fallbacks also belong to a fixture. Do not inherit a launching
 // node's explicit config paths; individual tests set their own managed homes.
 process.env.PLAYWRIGHT_BROWSERS_PATH ??= join(homedir(), process.platform === "darwin" ? "Library/Caches" : ".cache", "ms-playwright");
-process.env.HOME = mkdtempSync(join(tmpdir(), "garrison-test-user-"));
+const testUser = mkdtempSync(join(tmpdir(), "garrison-test-user-"));
+process.env.HOME = testUser;
 // A native shell should reach its prompt, not zsh-newuser-install onboarding.
-writeFileSync(join(process.env.HOME, ".zshrc"), "# Isolated test shell\n");
+writeFileSync(join(testUser, ".zshrc"), "# Isolated test shell\n");
+
+// This setup runs once per test file, so the two homes above were left behind
+// for every file (tens of thousands of directories in dev-madrid's /tmp).
+// Remove them when the file finishes. Tests may repoint the env vars, so use
+// the captured paths.
+afterAll(() => {
+  for (const dir of [testHome, testUser]) rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+});
 for (const key of ["GARRISON_CLAUDE_HOME", "GARRISON_CLAUDE_JSON", "CLAUDE_CONFIG_DIR", "GARRISON_CLAUDE_SETTINGS_PATH", "CLAUDE_SETTINGS_FILE", "GARRISON_USER_CLAUDE_HOME", "GARRISON_USER_CLAUDE_JSON", "GARRISON_USER_CODEX_HOME", "GARRISON_USER_GEMINI_HOME", "CODEX_HOME", "GEMINI_CLI_HOME"]) delete process.env[key];
 
 
