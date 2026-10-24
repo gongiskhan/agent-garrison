@@ -131,12 +131,12 @@ x-garrison:
     step done by QR from that same page — see instructions.md.
 
     Executor CLI (uniform connector contract):
-      node apm_modules/_local/whatsapp-web/scripts/connector.mjs catalog
+      node "$GARRISON_COMPOSITION_DIR/apm_modules/_local/whatsapp-web/scripts/connector.mjs" catalog
         -> the action catalog as JSON.
-      node apm_modules/_local/whatsapp-web/scripts/connector.mjs call resolve_contact '{"name":"Maria"}'
+      node "$GARRISON_COMPOSITION_DIR/apm_modules/_local/whatsapp-web/scripts/connector.mjs" call resolve_contact '{"name":"Maria"}'
         -> { candidates: [{ name, jid }, ...] }. Present this list to the user;
            do not guess. Only proceed to send_text once the user has picked one.
-      node apm_modules/_local/whatsapp-web/scripts/connector.mjs call send_text '{"to":"351912345678@s.whatsapp.net","body":"On my way"}'
+      node "$GARRISON_COMPOSITION_DIR/apm_modules/_local/whatsapp-web/scripts/connector.mjs" call send_text '{"to":"351912345678@s.whatsapp.net","body":"On my way"}'
         -> `to` MUST be a jid from resolve_contact's candidates (or one already
            known from a prior message), never a bare name — the connector
            rejects anything that isn't shaped like a WhatsApp JID. Only call
@@ -153,13 +153,13 @@ x-garrison:
              curl -sX POST <daemon url>/outbox/<id>/cancel     -> take one back
            Cancelling is idempotent, and after the window it answers
            "already sent" rather than pretending it stopped anything.
-      node apm_modules/_local/whatsapp-web/scripts/connector.mjs call list_contacts '{"n":500}'
+      node "$GARRISON_COMPOSITION_DIR/apm_modules/_local/whatsapp-web/scripts/connector.mjs" call list_contacts '{"n":500}'
         -> [{ name, jid }, ...] for every chat/contact the daemon has indexed,
            alphabetical. The index is synced from the phone's address book and
            cached on disk, so it survives a restart. Use it to answer "who do I
            know" and to offer candidates when resolve_contact comes back empty.
-      node apm_modules/_local/whatsapp-web/scripts/connector.mjs call recent_messages '{"n":20}'
-      node apm_modules/_local/whatsapp-web/scripts/connector.mjs call last_message '{"chat":"Maria"}'
+      node "$GARRISON_COMPOSITION_DIR/apm_modules/_local/whatsapp-web/scripts/connector.mjs" call recent_messages '{"n":20}'
+      node "$GARRISON_COMPOSITION_DIR/apm_modules/_local/whatsapp-web/scripts/connector.mjs" call last_message '{"chat":"Maria"}'
         -> both read-only, served from the local store — no daemon round-trip
            to WhatsApp's servers required.
 

@@ -96,9 +96,9 @@ x-garrison:
     (TRELLO_KEY / TRELLO_TOKEN / TRELLO_BOARD_ID) is sealed in the Vault and
     materialized scoped only into the call.
 
-      node apm_modules/_local/trello/scripts/connector.mjs catalog
+      node "$GARRISON_COMPOSITION_DIR/apm_modules/_local/trello/scripts/connector.mjs" catalog
         -> the action catalog as JSON.
-      node apm_modules/_local/trello/scripts/connector.mjs call lists
+      node "$GARRISON_COMPOSITION_DIR/apm_modules/_local/trello/scripts/connector.mjs" call lists
         -> the board's lists [{ id, name, closed }]. Run FIRST to resolve a human
           list name ("To Do", "Doing", "Done") to its id.
       node .../connector.mjs call create_card '{"list_id":"<id>","name":"<task>"}'
