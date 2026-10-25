@@ -199,3 +199,71 @@ describe("Preflight reviewed registry commit", () => {
     expect(await libraryChange("fixture", exec)).toMatchObject({ diffHash: null });
   });
 });
+
+// Preflight is the first fitting to file cards from its OWN findings, so the
+// rules that keep it from becoming a card spammer are the ones worth pinning.
+describe("Preflight card filing", () => {
+  const finding = { check: "library-crosscheck", id: "knowledge", status: "fail", detail: "no entry", fix: "add one" };
+  const report = async () => ({ findings: [finding] });
+  const board = (over: Record<string, unknown> = {}) => ({
+    findByOriginId: vi.fn(async () => []),
+    createCard: vi.fn(async () => ({ id: "card-1" })),
+    ...over
+  });
+
+  it("is off unless the composition turns it on", async () => {
+    const f = await fixture();
+    const b = board();
+    const run = createFixRunner({ ...f, env: {}, board: b, getReport: report });
+    expect(await run("file-card", { check: "library-crosscheck", id: "knowledge" }))
+      .toMatchObject({ ok: false, error: expect.stringContaining("off") });
+    expect(b.createCard).not.toHaveBeenCalled();
+  });
+
+  it("files the finding's own text, keyed for dedupe", async () => {
+    const f = await fixture();
+    const b = board();
+    const run = createFixRunner({ ...f, env: { GARRISON_PREFLIGHT_FILE_CARDS: "true" }, board: b, getReport: report });
+    expect(await run("file-card", { check: "library-crosscheck", id: "knowledge" })).toMatchObject({ ok: true });
+    expect(b.findByOriginId).toHaveBeenCalledWith("preflight:library-crosscheck:knowledge");
+    const payload = (b.createCard.mock.calls as unknown[][])[0]?.[0] as { origin_id: string; targetList: string; description: string };
+    expect(payload.origin_id).toBe("preflight:library-crosscheck:knowledge");
+    // backlog is the only active manual list the board accepts creation into.
+    expect(payload.targetList).toBe("backlog");
+    expect(payload.description).toContain("no entry");
+  });
+
+  it("refuses to file the same finding twice", async () => {
+    const f = await fixture();
+    const b = board({ findByOriginId: vi.fn(async () => [{ id: "card-9" }]) });
+    const run = createFixRunner({ ...f, env: { GARRISON_PREFLIGHT_FILE_CARDS: "true" }, board: b, getReport: report });
+    expect(await run("file-card", { check: "library-crosscheck", id: "knowledge" }))
+      .toMatchObject({ ok: false, error: expect.stringContaining("card-9") });
+    expect(b.createCard).not.toHaveBeenCalled();
+  });
+
+  // A transient probe failure must not read as "no card exists": that would
+  // file a duplicate on every single report.
+  it("files nothing when the dedupe probe cannot answer", async () => {
+    const f = await fixture();
+    const b = board({ findByOriginId: vi.fn(async () => { throw new Error("HTTP 503"); }) });
+    const run = createFixRunner({ ...f, env: { GARRISON_PREFLIGHT_FILE_CARDS: "true" }, board: b, getReport: report });
+    expect(await run("file-card", { check: "library-crosscheck", id: "knowledge" })).toMatchObject({ ok: false });
+    expect(b.createCard).not.toHaveBeenCalled();
+  });
+
+  it("refuses a finding that is no longer in the report", async () => {
+    const f = await fixture();
+    const b = board();
+    const run = createFixRunner({ ...f, env: { GARRISON_PREFLIGHT_FILE_CARDS: "true" }, board: b, getReport: async () => ({ findings: [] }) });
+    expect(await run("file-card", { check: "library-crosscheck", id: "knowledge" }))
+      .toMatchObject({ ok: false, error: expect.stringContaining("gone") });
+  });
+
+  it("rejects parameters that are not a finding key", async () => {
+    const f = await fixture();
+    const run = createFixRunner({ ...f, env: { GARRISON_PREFLIGHT_FILE_CARDS: "true" }, board: board(), getReport: report });
+    expect(await run("file-card", { check: "x", id: "y", extra: 1 })).toMatchObject({ ok: false });
+    expect(await run("file-card", { check: "x" })).toMatchObject({ ok: false });
+  });
+});

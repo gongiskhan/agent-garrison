@@ -4,11 +4,17 @@
 // "could not check" row rather than a crashed report.
 
 import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { parseManifest, parseComposition, RETIRED_SEED_IDS } from "./preflight-core.mjs";
+import { parseManifest, parseComposition, resolveScriptPaths, RETIRED_SEED_IDS } from "./preflight-core.mjs";
+
+// The fitting's own location. It always sits inside the repo it diagnoses
+// (fittings/seed/preflight, or <composition>/apm_modules/_local/preflight), so
+// it is a far better root-discovery anchor than the caller's cwd.
+export const FITTING_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const HOME = os.homedir();
 export const GARRISON_HOME = process.env.GARRISON_HOME || path.join(HOME, ".garrison");
@@ -66,9 +72,216 @@ export function readSeedManifests(root) {
     if (!existsSync(manifest)) continue;
     try {
       out.push(parseManifest(readFileSync(manifest, "utf8"), e.name));
-    } catch { /* unparseable seed: seed.test tolerates these when de-listed */ }
+    } catch (err) {
+      // A manifest preflight cannot read is a manifest whose port claims and
+      // capability kinds are invisible to every other check. Swallowing it made
+      // the doctor quietly less thorough with no way to notice.
+      out.push({ id: e.name, ownPort: false, defaultPort: null, portKeys: [], kinds: [], parseError: String(err?.message || err) });
+    }
   }
   return out;
+}
+
+// The canonical active-composition pointer, read straight off disk so it works
+// with the app down — which is exactly when the doctor is needed. Mirrors the
+// semantics of src/lib/active-composition.ts: the pointer is either a plain id
+// or a path to an apm.yml. Returns null when there is no usable pointer, and
+// callers then rank NOTHING, so an unreadable config can never demote a real
+// finding into silence.
+export function readActiveComposition({ home = GARRISON_HOME } = {}) {
+  const doc = readJson(path.join(home, "config.json"));
+  const raw = doc && typeof doc.active_composition === "string" ? doc.active_composition.trim() : "";
+  if (!raw) return null;
+  if (!raw.includes("/") && !raw.includes(path.sep) && !/\.ya?ml$/i.test(raw)) return raw;
+  const abs = path.resolve(raw.replace(/^~(?=\/|$)/, HOME));
+  return path.basename(/\.ya?ml$/i.test(abs) ? path.dirname(abs) : abs) || null;
+}
+
+// A tailscale serve mapping whose local port has no listener is a tailnet URL
+// that resolves to nothing — the same blank page check 4 exists to prevent,
+// arriving from the opposite direction. Tethered PEER forwards are published
+// with an explicit servePort from tether.json and must not be judged as this
+// node's own views (scripts/tailnet-serve-tether.mjs).
+export function readTetheredPorts({ home = GARRISON_HOME } = {}) {
+  const doc = readJson(path.join(home, "remote-shell", "tether.json"));
+  const forwards = Array.isArray(doc?.forwards) ? doc.forwards : [];
+  return new Set(forwards.map((f) => Number(f.localPort)).filter(Number.isInteger));
+}
+
+// The canonical capability-kind vocabulary, read as text from the source of
+// truth. A .mjs fitting that must run on a cold machine cannot import the .ts,
+// and a hand-copied list is exactly the drift this check exists to catch —
+// tests/preflight-parity.test.ts pins the two together.
+// Mirrors src/lib/instance-profile.ts. Pinned by tests/preflight-parity.test.ts.
+export const PROFILE_PORT_OFFSET = { node: 0, dev: 10000, codex: 20000 };
+
+// Deliberately NOT src/lib/instance-profile.ts's currentProfile(), which
+// defaults to "dev" so a bare `next dev` lands in the sandbox. Preflight audits
+// the MACHINE, whose committed port map is the node map at offset 0; inheriting
+// a dev default would have a doctor run from a plain shell quietly report a
+// sandbox's expectations as the machine's.
+export function resolveProfile(env = process.env) {
+  const raw = (env.GARRISON_PREFLIGHT_PROFILE || env.GARRISON_INSTANCE_ID || "").trim();
+  if (raw === "prod") return "node";
+  return Object.hasOwn(PROFILE_PORT_OFFSET, raw) ? raw : "node";
+}
+
+// The `command:` of the setup and verify blocks, by line scan: a full YAML
+// parser is not available to a fitting that must run from apm_modules on a
+// cold machine, and the shape here is fixed.
+function hookCommands(text) {
+  const lines = text.split(/\r?\n/);
+  const out = {};
+  let mode = null;
+  let modeIndent = -1;
+  for (const raw of lines) {
+    if (!raw.trim() || raw.trim().startsWith("#")) continue;
+    const indent = raw.length - raw.trimStart().length;
+    const line = raw.trim();
+    if (/^(setup|verify):\s*$/.test(line)) { mode = line.slice(0, -1); modeIndent = indent; continue; }
+    if (mode && indent <= modeIndent) { mode = null; continue; }
+    const cmd = mode && line.match(/^command:\s*(.+?)\s*$/);
+    if (cmd) { out[mode] = cmd[1]; mode = null; }
+  }
+  return out;
+}
+
+// The script a hook command runs, relative to that hook's own root.
+function scriptFromCommand(command) {
+  const m = String(command || "").match(/(\S+\.(?:sh|mjs|js|ts))\b/);
+  return m ? m[1] : null;
+}
+
+const joinRel = (base, rel) => path.resolve(base, "." + (rel.startsWith("/") ? rel : `/${rel}`));
+
+// Setup runs from the SEED dir and verify from the COMPOSITION dir
+// (src/lib/runner.ts:1465 vs :1625), so a path either script derives by walking
+// up from its own location resolves to two different places. Collect those
+// pairs so the pure check can decide which ones actually diverge.
+export function readHookScripts(root, compositions = [], activeCompositionId = null) {
+  const seedDir = path.join(root, "fittings", "seed");
+  const out = [];
+  let entries = [];
+  try { entries = readdirSync(seedDir, { withFileTypes: true }); } catch { return out; }
+  for (const e of entries) {
+    if (!e.isDirectory() || RETIRED_SEED_IDS.has(e.name)) continue;
+    let manifest;
+    try { manifest = readFileSync(path.join(seedDir, e.name, "apm.yml"), "utf8"); } catch { continue; }
+    const hooks = hookCommands(manifest);
+    const setupRel = scriptFromCommand(hooks.setup);
+    const verifyRel = scriptFromCommand(hooks.verify);
+    if (!setupRel || !verifyRel) continue;
+
+    // Which composition stations it decides where verify would run from;
+    // prefer the active one so the report describes the machine in use.
+    const stationing = compositions.filter((c) => c.parsed.selections.some((s) => s.id === e.name));
+    const comp = stationing.find((c) => c.compositionId === activeCompositionId) || stationing[0];
+    if (!comp) continue;
+
+    // Both scripts live in the seed; only the ROOT they run from differs.
+    const setupScriptDir = path.dirname(path.resolve(path.join(seedDir, e.name), setupRel));
+    const verifyScriptDir = path.dirname(path.resolve(path.join(root, "compositions", comp.compositionId), verifyRel));
+    let setupText, verifyText;
+    try {
+      setupText = readFileSync(path.join(seedDir, e.name, setupRel), "utf8");
+      verifyText = readFileSync(path.join(seedDir, e.name, verifyRel.replace(/^.*_local\/[^/]+\//, "")), "utf8");
+    } catch { continue; }
+
+    const fromSetup = resolveScriptPaths(setupText, setupScriptDir, joinRel);
+    const fromVerify = resolveScriptPaths(verifyText, verifyScriptDir, joinRel);
+
+    // How a script says "I know this path only means something when I am
+    // actually installed". Two idioms, and the difference matters:
+    //
+    //   inline   if [ "$(basename "$MODULES_DIR")" != apm_modules ]; then ...
+    //   predicate composition_visible() { [ "$(basename "$MODULES_DIR")" = ... ]; }
+    //
+    // An inline test guards ONE branch, so only the variable it names is
+    // covered. A named predicate is a deliberate, reusable statement about the
+    // whole script, so everything DERIVED from the variable it tests is covered
+    // too. Propagating from the inline form as well would have been a silent
+    // false negative: basic-memory has always had an inline guard on its skill
+    // block, and treating that as cover for KANBAN_FITTING_DIR would have
+    // hidden the very bug this check was written to find.
+    const guardedNames = new Set();
+    const predicateBases = new Set();
+    for (const name of fromSetup.keys()) {
+      const basenameTest = new RegExp(`basename[ \t]+"\\$${name}"`);
+      if (basenameTest.test(setupText)) guardedNames.add(name);
+      for (const fn of setupText.matchAll(/^[ \t]*([A-Za-z_][A-Za-z0-9_]*)\s*\(\)\s*\{([^}]*)\}/gm)) {
+        if (basenameTest.test(fn[2]) && new RegExp(`\\b${fn[1]}\\b`).test(setupText.replace(fn[0], ""))) {
+          predicateBases.add(name);
+        }
+      }
+    }
+    for (let changed = true; changed; ) {
+      changed = false;
+      for (const [name, info] of fromSetup) {
+        if (guardedNames.has(name)) continue;
+        const base = (info.expr.match(/^\$([A-Za-z_][A-Za-z0-9_]*)/) || [])[1];
+        if (base && (predicateBases.has(base) || (guardedNames.has(base) && predicateBases.has(base)))) {
+          guardedNames.add(name);
+          predicateBases.add(name);
+          changed = true;
+        }
+      }
+    }
+
+    const vars = [];
+    for (const [name, s] of fromSetup) {
+      if (name === "SCRIPT_DIR") continue;
+      const v = fromVerify.get(name);
+      // Only variables BOTH scripts define the same way can be compared; a name
+      // that means different things in the two scripts proves nothing.
+      if (!v || v.expr !== s.expr) continue;
+      const guarded = guardedNames.has(name);
+      vars.push({
+        name, expr: s.expr, setupPath: s.path, verifyPath: v.path,
+        setupExists: existsSync(s.path), verifyExists: existsSync(v.path), guarded
+      });
+    }
+    if (vars.length) out.push({ id: e.name, compositionId: comp.compositionId, vars });
+  }
+  return out;
+}
+
+// Which GARRISON_* names a fitting's own code actually reads. Scanned from its
+// scripts and lib, which is where a fitting reads its config; a name that looks
+// right but mangles the id differently than the runner does is absent forever
+// rather than wrong once.
+export function readFittingEnvNames(root, manifests) {
+  const out = [];
+  for (const m of manifests) {
+    if (!(m.configKeys || []).length && !m.ownPort) continue;
+    const names = new Set();
+    for (const sub of ["scripts", "lib"]) {
+      const dir = path.join(root, "fittings", "seed", m.id, sub);
+      let files = [];
+      try { files = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+      for (const f of files) {
+        if (!f.isFile() || !/\.(mjs|js|ts|tsx|sh|py)$/.test(f.name)) continue;
+        try {
+          const text = readFileSync(path.join(dir, f.name), "utf8");
+          // Both manglings matter: GARRISON_<ID>_<KEY> for the runtime spawn and
+          // bare <ID>_<KEY> for setup/verify hooks. Knowing a fitting reads the
+          // RIGHT one is what separates a live bug from a dead fallback.
+          for (const hit of text.matchAll(/\b[A-Z][A-Z0-9_]{2,}\b/g)) names.add(hit[0]);
+        } catch { /* unreadable file: the manifest-parse check owns that story */ }
+      }
+    }
+    out.push({ id: m.id, ownPort: m.ownPort, configKeys: m.configKeys || [], envNames: [...names] });
+  }
+  return out;
+}
+
+export function readCapabilityKinds(root) {
+  try {
+    const text = readFileSync(path.join(root, "src", "lib", "types.ts"), "utf8");
+    const block = text.match(/export const capabilityKinds = \[([\s\S]*?)\] as const/);
+    if (!block) return null;
+    const kinds = [...block[1].matchAll(/"([\w-]+)"/g)].map((m) => m[1]);
+    return kinds.length ? new Set(kinds) : null;
+  } catch { return null; }
 }
 
 export function readCuratedLibrary(root) {
@@ -147,6 +360,22 @@ export async function readLiveListeners() {
   return [];
 }
 
+// lsof reports only the short process name ("node"), which cannot tell the
+// scheduler daemon apart from a squatter. Some legitimate Garrison processes
+// (the scheduler) register nowhere at all, so identity has to come from the
+// command line. One exec for every pid we care about, never one per pid.
+export async function readProcessCommands(pids) {
+  const wanted = [...new Set(pids.filter((p) => Number.isInteger(p) && p > 0))];
+  if (!wanted.length) return new Map();
+  const out = await execOut("ps", ["-p", wanted.join(","), "-o", "pid=,command="]);
+  const map = new Map();
+  for (const line of (out || "").split("\n")) {
+    const m = line.trim().match(/^(\d+)\s+(.*)$/);
+    if (m) map.set(Number(m[1]), m[2]);
+  }
+  return map;
+}
+
 export function readStatusFiles() {
   const out = [];
   let entries = [];
@@ -155,6 +384,22 @@ export function readStatusFiles() {
     if (!name.endsWith(".json")) continue;
     const data = readJson(path.join(STATUS_ROOT, name));
     if (data && data.fittingId && data.port) out.push(data);
+  }
+  return out;
+}
+
+// Gateways hold a port but write NO ui-fittings status file — they register in
+// ~/.garrison/gateway-pids/<composition>-<port>.json instead. Without this the
+// port check reads the running gateway as an unknown squatter on 5777.
+export function readGatewayRecords() {
+  const out = [];
+  const dir = path.join(GARRISON_HOME, "gateway-pids");
+  let entries = [];
+  try { entries = readdirSync(dir); } catch { return out; }
+  for (const name of entries) {
+    if (!name.endsWith(".json")) continue;
+    const data = readJson(path.join(dir, name));
+    if (data && data.fittingId && data.port) out.push({ fittingId: data.fittingId, port: Number(data.port), pid: data.pid ?? null });
   }
   return out;
 }

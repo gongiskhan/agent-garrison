@@ -7,10 +7,60 @@
 // app-down is a first-class, expected state (it is exactly when a doctor is
 // needed).
 
-const APP_URL = (process.env.GARRISON_APP_URL || process.env.GARRISON_BASE_URL || "").replace(/\/$/, "") || null;
+import { execFile } from "node:child_process";
+import path from "node:path";
+
+import { FITTING_DIR, findRepoRoot } from "./collect.mjs";
+
+// The runner-projected GARRISON_APP_URL always wins. But a CLI run from a plain
+// shell has no such env, and treating that as "app down" made EVERY manual run
+// degraded: the sweep unavailable, serve coverage silently downgraded to the
+// weaker filesystem path, and a permanent warn at the top of the report. The
+// supported, literal-free fallback is the instance script, which prints
+// GARRISON_APP_PORT for an EXPLICIT profile.
+//
+// The profile defaults to "node" and NOT to what src/lib/instance-profile.ts
+// resolves: that one defaults to "dev" so a bare `next dev` lands in the
+// sandbox. Preflight audits the MACHINE, whose committed port map is the node
+// map at offset 0, so inheriting a dev default would make a doctor run from a
+// plain shell quietly report a sandbox's expectations as the machine's.
+function profileFor(env) {
+  const raw = (env.GARRISON_PREFLIGHT_PROFILE || env.GARRISON_INSTANCE_ID || "").trim();
+  if (raw === "prod") return "node";
+  return ["node", "dev", "codex"].includes(raw) ? raw : "node";
+}
+
+function instanceEnv(script, profile, root) {
+  return new Promise((resolve) => {
+    execFile("bash", [script, profile, "env"], { timeout: 15000, maxBuffer: 1024 * 1024, cwd: root },
+      (err, stdout) => resolve(err && !stdout ? null : String(stdout ?? "")));
+  });
+}
+
+async function discoverAppUrl(env) {
+  const trim = (v) => (v || "").trim().replace(/\/+$/, "");
+  const direct = trim(env.GARRISON_APP_URL) || trim(env.GARRISON_BASE_URL);
+  if (direct) return direct;
+  const configured = trim(env.GARRISON_PREFLIGHT_APP_URL);
+  if (configured) return configured;
+  const root = findRepoRoot(FITTING_DIR);
+  if (!root) return null;
+  const out = await instanceEnv(path.join(root, "scripts", "garrison-instance.sh"), profileFor(env), root);
+  const m = out && out.match(/^GARRISON_APP_PORT=(\d+)\s*$/m);
+  return m ? `http://127.0.0.1:${m[1]}` : null;
+}
+
+let pending = null;
+let resolvedUrl = null;
+
+function appUrlOnce(env = process.env) {
+  if (!pending) pending = discoverAppUrl(env).then((u) => (resolvedUrl = u)).catch(() => null);
+  return pending;
+}
 
 async function request(pathname, { method = "GET", body, timeoutMs = 2000 } = {}) {
-  if (!APP_URL) return { ok: false, error: "GARRISON_APP_URL not set" };
+  const APP_URL = await appUrlOnce();
+  if (!APP_URL) return { ok: false, error: "no Garrison app URL could be discovered" };
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -30,7 +80,7 @@ async function request(pathname, { method = "GET", body, timeoutMs = 2000 } = {}
 }
 
 export function appUrl() {
-  return APP_URL || "(GARRISON_APP_URL not set)";
+  return resolvedUrl || "(no app found: set GARRISON_APP_URL or the app_url config key)";
 }
 
 export async function isAppUp() {
