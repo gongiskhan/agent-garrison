@@ -1,0 +1,22 @@
+{
+  "cursor_version": "3.20.17",
+  "no_window": {
+    "cursor_process_absent_before_open": true,
+    "open_exit": 0,
+    "window": "Agents Window",
+    "prompt_prefilled": false,
+    "reason": "deep_link_handler_unavailable"
+  },
+  "focused_workspace": {
+    "prompt_hook_count": 1,
+    "prompt_hook_latency_ms": 8037,
+    "workspace_root_count": 2,
+    "enter_count": 2,
+    "driver_ok": true
+  },
+  "long_hold": {
+    "requested_seconds": 28800,
+    "started_at": 1789201085462,
+    "outcome": "running"
+  }
+}

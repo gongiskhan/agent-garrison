@@ -1,7 +1,8 @@
 # Cursor desktop ingestion validation
 
-Status: Phase 1 implementation and isolated tests pass. Real desktop acceptance
-is pending deployment of the revised app bundle. No Phase 1 sentinel is earned.
+Status: Phase 1 implementation and isolated tests pass. The revised app bundle
+is now deployed. Real desktop acceptance awaits an unlocked desktop.
+No Phase 1 sentinel is earned.
 
 ## Local architecture
 
@@ -90,3 +91,41 @@ deployment remains paused while its live model acceptance awaits the prior
 scoped credential-delivery approval. No runtime migration or restart occurred
 in this integration. The old generated composition export is preserved in a
 named mesh-convergence stash, separate from accepted main configuration.
+
+## Resumption, 13 September
+
+Current main includes the accepted ingestion source. The running app now serves
+the private Cursor routes and browser relay, and has already ingested a real
+desk conversation. This is evidence of production ingestion, not the timed
+scratch acceptance journey. The live test reached the real Shells UI at 390 by
+844, but no new prompt arrived because the native foreground guard refused the
+locked desktop. Its measured console state reports ScreenIsLocked true. The
+driver's failed result and phone screenshot remain in the local test-results
+directory. No Enter was sent, and no service restart was attempted.
+
+The test now requires an explicit `GARRISON_CURSOR_LIVE_WORKSPACE` path to keep
+ordinary tests isolated from the user's home. It preserves the native driver
+result on failure, checks the lock before focusing or typing, and uses the
+correct collapsed-user-text and tool-disclosure assertions. The synthetic reply
+instruction explicitly excludes the trailing tracking tag.
+
+Run the pending journey after the desktop is unlocked:
+
+```sh
+GARRISON_CURSOR_LIVE_URL=http://127.0.0.1:8777 \
+GARRISON_CURSOR_LIVE_WORKSPACE="$HOME/.garrison/cursor-probe/probe.code-workspace" \
+npm test -- tests/cursor-desktop-live.test.ts
+```
+
+The eight-hour Phase 0 probe completed normally, returned its followup and
+received the expected assistant response. Its outcome is recorded in the
+desktop validation report. Production steering remains unimplemented until
+Phase 1's live gates pass.
+
+The resumed isolated run passed 40 tests across six suites, including all real
+captured payloads, the app request/response shim, private-token enforcement,
+rejection of forwarded private callers, and native lock detection. Type
+checking passes. The phone fixture screenshot was inspected again: provider,
+model, node and Working badges, desk origin, assistant text and the running
+Shell entry are visible within 390 by 844. These tests do not substitute for
+the still-pending real desktop journey.
